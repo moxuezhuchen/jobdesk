@@ -13,6 +13,23 @@ from .errors import RemoteError, RemotePathError
 from ..core.transfer import TransferRecord, TransferDirection, TransferStatus
 
 
+from dataclasses import dataclass
+
+
+@dataclass
+class _RemoteEntry:
+    name: str
+    path: str
+    is_dir: bool
+    size_bytes: int | None
+    modified_at: float | None
+    permissions: str
+
+
+# Public alias for consumers
+RemoteEntry = _RemoteEntry
+
+
 def _validate_remote_path(remote_path: str) -> str:
     """校验远程路径必须为 POSIX 格式，拒绝反斜杠。"""
     if "\\" in remote_path:
@@ -80,6 +97,58 @@ class SFTPClientWrapper:
             return self._sftp.listdir(remote_dir)
         except (FileNotFoundError, OSError):
             return []
+
+    def list_dir_info(self, remote_dir: str) -> list:
+        """列出远程目录内容，返回包含名称/大小/时间/权限的条目列表。"""
+        import stat as stat_mod
+        _validate_remote_path(remote_dir)
+        try:
+            attrs_list = self._sftp.listdir_attr(remote_dir)
+        except (FileNotFoundError, OSError):
+            return []
+        entries = []
+        for attr in sorted(attrs_list, key=lambda a: (not stat_mod.S_ISDIR(a.st_mode or 0), (a.filename or "").lower())):
+            is_dir = stat_mod.S_ISDIR(attr.st_mode or 0)
+            name = attr.filename
+            path = posixpath.join(remote_dir, name) if remote_dir != "/" else f"/{name}"
+            perm_str = stat_mod.filemode(attr.st_mode) if attr.st_mode else ""
+            entries.append(_RemoteEntry(
+                name=name,
+                path=path,
+                is_dir=is_dir,
+                size_bytes=attr.st_size if not is_dir else None,
+                modified_at=attr.st_mtime,
+                permissions=perm_str,
+            ))
+        return entries
+
+    def rename(self, old_path: str, new_path: str) -> None:
+        """重命名远程文件或目录。"""
+        _validate_remote_path(old_path)
+        _validate_remote_path(new_path)
+        self._sftp.rename(old_path, new_path)
+
+    def remove_file(self, remote_path: str) -> None:
+        """删除远程文件。"""
+        _validate_remote_path(remote_path)
+        self._sftp.remove(remote_path)
+
+    def remove_dir(self, remote_dir: str) -> None:
+        """递归删除远程目录。"""
+        _validate_remote_path(remote_dir)
+        for name in self._sftp.listdir(remote_dir):
+            full = posixpath.join(remote_dir, name)
+            if self.is_dir(full):
+                self.remove_dir(full)
+            else:
+                self._sftp.remove(full)
+        self._sftp.rmdir(remote_dir)
+
+    def read_file_bytes(self, remote_path: str, max_bytes: int = 65536) -> bytes:
+        """读取远程文件前 max_bytes 字节。"""
+        _validate_remote_path(remote_path)
+        with self._sftp.open(remote_path, "rb") as f:
+            return f.read(max_bytes)
 
     def is_dir(self, remote_path: str) -> bool:
         """检查远程路径是否为目录。"""

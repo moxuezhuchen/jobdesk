@@ -9,7 +9,7 @@ class AppState:
     """GUI 全局状态，记录当前用户选择。"""
 
     current_project_root: Path | None = None
-    current_project_context: object | None = None  # ProjectContext
+    current_project_context: object | None = None
     current_batch_id: str | None = None
     current_manifest_path: Path | None = None
     last_error: str | None = None

@@ -7,16 +7,17 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 
 def test_build_app_stylesheet_contains_core_selectors_and_tokens():
-    from jobdesk_app.gui.theme import ThemeColors, ThemeMetrics, build_app_stylesheet
+    from jobdesk_app.gui.design.tokens import Colors
+    from jobdesk_app.gui.theme import ThemeMetrics, build_app_stylesheet
 
     css = build_app_stylesheet()
 
-    assert ThemeColors.ACCENT == "#2563eb"
-    assert ThemeMetrics.CONTROL_HEIGHT == 36
+    assert Colors.PRIMARY == "#2563eb"
+    assert ThemeMetrics.CONTROL_HEIGHT == 34
     assert "QMainWindow" in css
-    assert "QListWidget::item:selected" in css
-    assert ThemeColors.ACCENT in css
-    assert "selection-color: #ffffff" in css
+    assert Colors.PRIMARY in css
+    assert "QPushButton#PrimaryBtn" in css
+    assert "QHeaderView::section" in css
 
 
 def test_page_title_helper_sets_object_name_and_text(qt_app):
