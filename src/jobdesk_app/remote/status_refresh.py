@@ -23,6 +23,7 @@ def refresh_batch_status(
     write: bool = False,
     log_tail_lines: int = 50,
     control_subdir: str = "_batch",
+    stale_timeout_seconds: int | None = None,
 ) -> StatusRefreshResult:
     """刷新整个 Batch 的任务状态。
 
@@ -57,7 +58,7 @@ def refresh_batch_status(
         else:
             remote_snap = None
 
-        new_status, snap = _recover_status(old_status, remote_snap, task)
+        new_status, snap = _recover_status(old_status, remote_snap, task, stale_timeout_seconds)
         result.snapshots.append(snap)
 
         if new_status != old_status:
@@ -98,6 +99,7 @@ def _recover_status(
     current: TaskStatus,
     remote_snap,  # RemoteTaskStatusSnapshot | None
     task: TaskRecord,
+    stale_timeout_seconds: int | None = None,
 ) -> tuple[TaskStatus, TaskStatusSnapshot]:
     """根据当前状态和远程快照恢复新状态。
 
@@ -146,7 +148,17 @@ def _recover_status(
                 new_status = TaskStatus.failed
                 snap.failure_reason = "远程状态标记为 failed"
         else:
-            snap.warnings.append("已提交但远程无状态文件")
+            # Check for stale timeout
+            if stale_timeout_seconds and task.submitted_at:
+                from datetime import datetime
+                elapsed = (datetime.now() - task.submitted_at).total_seconds()
+                if elapsed > stale_timeout_seconds:
+                    new_status = TaskStatus.failed
+                    snap.failure_reason = f"no remote response after {int(elapsed)}s (timeout={stale_timeout_seconds}s)"
+                else:
+                    snap.warnings.append("已提交但远程无状态文件")
+            else:
+                snap.warnings.append("已提交但远程无状态文件")
 
     elif current == TaskStatus.running:
         if remote_snap and remote_snap.marker_exists:

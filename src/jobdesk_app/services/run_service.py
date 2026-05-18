@@ -137,26 +137,17 @@ class RunService:
 
     def prepare_retry_failed(self, run_id: str) -> int:
         record = self.load_run(run_id)
-        tasks = Manifest.read(record.manifest_path)
-        changed = 0
-        for task in tasks:
-            if task.status == TaskStatus.failed:
-                task.status = TaskStatus.uploaded
-                task.error_message = None
-                changed += 1
-        Manifest.write(record.manifest_path, tasks)
+        from ..core.manifest_ops import reset_failed_to_uploaded
+        changed = reset_failed_to_uploaded(record.manifest_path)
         self.update_run_from_manifest(run_id)
         return changed
 
     def prepare_rerun(self, run_id: str) -> int:
         record = self.load_run(run_id)
-        tasks = Manifest.read(record.manifest_path)
-        for task in tasks:
-            task.status = TaskStatus.uploaded
-            task.error_message = None
-        Manifest.write(record.manifest_path, tasks)
+        from ..core.manifest_ops import reset_all_to_uploaded
+        changed = reset_all_to_uploaded(record.manifest_path)
         self.update_run_from_manifest(run_id)
-        return len(tasks)
+        return changed
 
     def _record_from_parts(
         self,
