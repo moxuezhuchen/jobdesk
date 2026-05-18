@@ -57,6 +57,7 @@ class ServerConfig(BaseModel):
     auth_method: AuthMethod = Field(default=AuthMethod.key, description="认证方式")
     key_path: str | None = Field(default=None, description="SSH 私钥路径")
     default_shell: str = Field(default="bash", description="默认 shell")
+    env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")
 
 
 class ServersConfig(BaseModel):

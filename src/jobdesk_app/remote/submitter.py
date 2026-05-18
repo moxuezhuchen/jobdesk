@@ -43,6 +43,7 @@ class JobSubmitter:
         remote_batch_dir: str,
         batch_id: str,
         control_subdir: str = "_batch",
+        env_init_scripts: list[str] | None = None,
     ):
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
@@ -53,6 +54,7 @@ class JobSubmitter:
         self._remote_batch_dir = remote_batch_dir.rstrip("/")
         self._batch_id = batch_id
         self._control_subdir = control_subdir
+        self._env_init_scripts: list[str] = list(env_init_scripts or [])
 
     # -- 任务选择 ---------------------------------------------------------
 
@@ -80,15 +82,28 @@ class JobSubmitter:
     # -- 脚本生成 ----------------------------------------------------------
 
     @staticmethod
-    def generate_task_runner(task: TaskRecord) -> str:
+    def generate_task_runner(task: TaskRecord, env_init_scripts: list[str] | None = None) -> str:
         """为单个任务生成 .jobdesk_run.sh 脚本内容。
 
-        职责: 写 status = running → 执行 rendered_command → 记录退出码和最终状态。
-        rendered_command 来自 Manifest，不重新渲染。
+        在执行用户命令前 source 用户 shell 环境（绕过非交互 shell 不加载
+        ~/.bashrc 的问题），并 source 额外的 env_init_scripts。
         """
-        rendered = task.rendered_command.replace("'", "'\\''")
+        rendered = task.rendered_command
+        init_lines = [
+            "# JobDesk: load user shell environment",
+            "export PS1=\"${PS1:-jobdesk> }\"",
+            "set +u",
+            "[ -f /etc/profile ] && . /etc/profile 2>/dev/null || true",
+            "[ -f \"$HOME/.bash_profile\" ] && . \"$HOME/.bash_profile\" 2>/dev/null || true",
+            "[ -f \"$HOME/.profile\" ] && . \"$HOME/.profile\" 2>/dev/null || true",
+            "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\" 2>/dev/null || true",
+        ]
+        for script in (env_init_scripts or []):
+            if script:
+                init_lines.append(f"[ -f {shlex.quote(script)} ] && . {shlex.quote(script)} 2>/dev/null || true")
         lines = [
             "#!/usr/bin/env bash",
+            *init_lines,
             "set +e",
             "echo 'running' > .jobdesk_status",
             "(",
@@ -261,7 +276,7 @@ class JobSubmitter:
             runner_contents: dict[str, str] = {}
             launch_contents: dict[str, str] = {}
             for t in tasks:
-                runner_contents[t.task_id] = self.generate_task_runner(t)
+                runner_contents[t.task_id] = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
                 launch_contents[t.task_id] = self.generate_launch_script(
                     t.task_id, t.remote_job_dir
                 )

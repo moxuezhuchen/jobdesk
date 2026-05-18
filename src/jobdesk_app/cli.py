@@ -8,7 +8,7 @@ from .config.runtime import RuntimeBindingStore, resolve_execution_contexts_for_
 from .config.servers import load_servers
 from .core.manifest import Manifest
 from .core.transfer import TransferDirection, TransferRecord
-from .gui.session import create_sftp_client, create_ssh_client
+from .services.ssh_session import create_sftp_client, create_ssh_client
 from .services.project_service import create_project_context
 from .services.workflow_service import WorkflowService
 

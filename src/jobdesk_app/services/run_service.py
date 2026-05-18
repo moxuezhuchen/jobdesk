@@ -88,7 +88,7 @@ class RunService:
         self._write_run_json(record)
         return record
 
-    def submit_run(self, run_id: str, ssh, sftp):
+    def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None):
         record = self.load_run(run_id)
         submitter = JobSubmitter(
             manifest_path=record.manifest_path,
@@ -97,6 +97,7 @@ class RunService:
             max_parallel=record.max_parallel,
             remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
             batch_id=record.run_id,
+            env_init_scripts=list(env_init_scripts or []),
         )
         result = submitter.submit_batch()
         self.update_run_from_manifest(run_id)
