@@ -1,23 +1,34 @@
-"""JobDesk GUI 入口。
+"""JobDesk GUI entry point.
 
-启动命令: python -m jobdesk_app.gui.app
+Launch: jobdesk-gui  (or python -m jobdesk_app.gui.app)
 """
 
 import sys
-from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
-
-from .main_window import MainWindow
+from .dpi import configure_qt_windows_dpi_environment
 
 
 def main():
+    # Must run before QApplication is created
+    configure_qt_windows_dpi_environment()
+
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QApplication
+
+    from .main_window import MainWindow
+
     app = QApplication(sys.argv)
     app.setOrganizationName("JobDesk")
     app.setApplicationName("JobDesk")
+
+    # Set application font — Medium weight for crisp text on Windows
+    font = QFont("Microsoft YaHei UI", 10)
+    font.setWeight(QFont.Weight.Medium)
+    font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
+    app.setFont(font)
+
     window = MainWindow()
-    window.resize(1024, 700)
+    app.aboutToQuit.connect(window.shutdown)
     window.show()
     sys.exit(app.exec())
 

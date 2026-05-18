@@ -1,158 +1,191 @@
+"""Global theme: QSS stylesheet + table/control helpers."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import QLabel, QSizePolicy, QTableWidget
 
-
-class ThemeColors:
-    BACKGROUND = "#f5f7fb"
-    SURFACE = "#ffffff"
-    SURFACE_ALT = "#f8fafc"
-    TEXT = "#20242c"
-    MUTED_TEXT = "#475569"
-    BORDER = "#cbd5e1"
-    BORDER_SUBTLE = "#e2e8f0"
-    HEADER = "#e8edf5"
-    NAV_BACKGROUND = "#1f2937"
-    NAV_TEXT = "#e5e7eb"
-    ACCENT = "#2563eb"
-    ACCENT_SOFT = "#eef4ff"
-    ACCENT_PRESSED = "#dbeafe"
-    ACCENT_BORDER = "#93c5fd"
-    WHITE = "#ffffff"
+from .design.tokens import Colors, Metrics, Radius, Spacing
 
 
 class ThemeMetrics:
-    CONTROL_HEIGHT = 36
-    PAGE_MARGIN = 14
-    PAGE_SPACING = 10
-    RADIUS = 6
-    NAV_MIN_WIDTH = 140
-    NAV_MAX_WIDTH = 190
-
-
-APP_FONT_FAMILIES = '"Microsoft YaHei UI", "Segoe UI", Arial'
+    CONTROL_HEIGHT = Metrics.CONTROL_HEIGHT
+    PAGE_MARGIN = Spacing.XL
+    PAGE_SPACING = Spacing.MD
+    RADIUS = Radius.MD
+    TABLE_ROW_HEIGHT = Metrics.TABLE_ROW_HEIGHT
+    TABLE_HEADER_HEIGHT = Metrics.TABLE_HEADER_HEIGHT
 
 
 def build_app_stylesheet() -> str:
-    c = ThemeColors
-    m = ThemeMetrics
+    c = Colors
+    m = Metrics
     return f"""
+* {{
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}}
 QMainWindow, QWidget {{
-    background: {c.BACKGROUND};
+    background: {c.BG_BASE};
     color: {c.TEXT};
-    font-family: {APP_FONT_FAMILIES};
-    font-size: 10pt;
-    font-weight: 600;
+}}
+QLabel {{
+    background: transparent;
 }}
 QLabel#PageTitle {{
     color: {c.TEXT};
-    font-size: 14pt;
-    font-weight: 700;
-    padding: 0 0 4px 0;
-}}
-QListWidget {{
-    background: {c.NAV_BACKGROUND};
-    color: {c.NAV_TEXT};
-    border: 0;
-    padding: 10px 6px;
-    outline: 0;
-}}
-QListWidget::item {{
-    padding: 10px 12px;
-    border-radius: {m.RADIUS}px;
+    font-size: 13pt;
     font-weight: 600;
+    padding: 0 0 2px 0;
 }}
-QListWidget::item:hover {{
-    background: #334155;
-}}
-QListWidget::item:selected {{
-    background: {c.ACCENT};
-    color: {c.WHITE};
-}}
+
+/* ─── Buttons ─── */
 QPushButton {{
-    background: {c.SURFACE};
+    background: {c.BG_SURFACE};
     border: 1px solid {c.BORDER};
-    border-radius: {m.RADIUS}px;
-    padding: 0 12px;
+    border-radius: {Radius.MD}px;
+    padding: 0 14px;
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
-    font-weight: 600;
+    font-weight: 500;
 }}
 QPushButton:hover {{
-    background: {c.ACCENT_SOFT};
-    border-color: {c.ACCENT_BORDER};
+    background: {c.INFO_BG};
+    border-color: #93c5fd;
 }}
 QPushButton:pressed {{
-    background: {c.ACCENT_PRESSED};
+    background: #dbeafe;
 }}
 QPushButton:disabled {{
-    color: #94a3b8;
-    background: #f1f5f9;
-    border-color: {c.BORDER_SUBTLE};
+    color: {c.TEXT_MUTED};
+    background: {c.BORDER_SUBTLE};
+    border-color: {c.BORDER};
 }}
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget, QGroupBox {{
-    background: {c.SURFACE};
-    border: 1px solid {c.BORDER};
-    border-radius: {m.RADIUS}px;
+QPushButton#PrimaryBtn {{
+    background: {c.PRIMARY};
+    color: {c.PRIMARY_TEXT};
+    border: none;
+    font-weight: 600;
 }}
+QPushButton#PrimaryBtn:hover {{
+    background: {c.PRIMARY_HOVER};
+}}
+QPushButton#PrimaryBtn:pressed {{
+    background: {c.PRIMARY_PRESSED};
+}}
+
+/* ─── Inputs ─── */
 QLineEdit, QComboBox, QSpinBox {{
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
     padding: 0 8px;
-    font-weight: 600;
 }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
+    border-color: {c.BORDER_FOCUS};
+}}
+QTextEdit {{
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
+}}
+
+/* ─── Groups ─── */
 QGroupBox {{
-    margin-top: 12px;
-    padding: 12px;
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
+    margin-top: 14px;
+    padding: 14px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
-    left: 10px;
+    left: 12px;
     padding: 0 4px;
-    color: {c.MUTED_TEXT};
+    color: {c.TEXT_SECONDARY};
+    font-weight: 500;
 }}
-QHeaderView::section {{
-    background: {c.HEADER};
-    border: 0;
-    border-right: 1px solid {c.BORDER};
-    border-bottom: 1px solid {c.BORDER};
-    padding: 6px 8px;
-    font-weight: 700;
-}}
+
+/* ─── Tables ─── */
 QTableWidget {{
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
     gridline-color: {c.BORDER_SUBTLE};
-    selection-background-color: {c.ACCENT};
-    selection-color: {c.WHITE};
-    alternate-background-color: {c.SURFACE_ALT};
-    font-weight: 600;
+    alternate-background-color: {c.TABLE_ALT_ROW};
+    selection-background-color: {c.TABLE_SELECTION};
+    selection-color: {c.TEXT};
 }}
 QTableWidget::item:selected {{
-    background: {c.ACCENT};
-    color: {c.WHITE};
+    background: {c.TABLE_SELECTION};
+    color: {c.TEXT};
 }}
+QHeaderView::section {{
+    background: {c.TABLE_HEADER_BG};
+    border: none;
+    border-right: 1px solid {c.BORDER};
+    border-bottom: 1px solid {c.BORDER};
+    padding: 0 8px;
+    min-height: {m.TABLE_HEADER_HEIGHT}px;
+    max-height: {m.TABLE_HEADER_HEIGHT}px;
+    font-weight: 600;
+    color: {c.TEXT_SECONDARY};
+}}
+
+/* ─── Tabs (inside pages like Settings) ─── */
+QTabWidget::pane {{
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
+    background: {c.BG_SURFACE};
+}}
+QTabBar::tab {{
+    background: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 16px;
+    font-weight: 500;
+}}
+QTabBar::tab:hover {{
+    color: {c.TEXT};
+}}
+QTabBar::tab:selected {{
+    color: {c.PRIMARY};
+    border-bottom-color: {c.PRIMARY};
+}}
+
+/* ─── Splitter ─── */
 QSplitter::handle {{
-    background: #d8dee9;
+    background: transparent;
 }}
 QSplitter::handle:hover {{
-    background: {c.ACCENT_BORDER};
+    background: {c.BORDER};
 }}
-QScrollBar:vertical, QScrollBar:horizontal {{
+
+/* ─── Scrollbar ─── */
+QScrollBar:vertical {{
     background: transparent;
+    width: 8px;
+    border: 0;
+    margin: 0;
+}}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
     border: 0;
     margin: 0;
 }}
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
-    background: #cbd5e1;
+    background: {c.BORDER};
     border-radius: 4px;
-    min-height: 28px;
-    min-width: 28px;
+    min-height: 24px;
+    min-width: 24px;
 }}
 QScrollBar::handle:hover {{
-    background: #94a3b8;
+    background: {c.TEXT_MUTED};
 }}
 QScrollBar::add-line, QScrollBar::sub-line {{
-    width: 0;
-    height: 0;
+    width: 0; height: 0;
 }}
 """
 
@@ -164,13 +197,16 @@ def page_title_label(text: str = "") -> QLabel:
 
 
 def normalize_control_heights(*widgets) -> None:
-    for widget in widgets:
-        widget.setMinimumHeight(ThemeMetrics.CONTROL_HEIGHT)
-        widget.setMaximumHeight(ThemeMetrics.CONTROL_HEIGHT)
-        widget.setSizePolicy(widget.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
+    for w in widgets:
+        w.setMinimumHeight(Metrics.CONTROL_HEIGHT)
+        w.setMaximumHeight(Metrics.CONTROL_HEIGHT)
+        w.setSizePolicy(w.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
 
 
 def configure_standard_table(table: QTableWidget) -> None:
     table.setAlternatingRowColors(True)
-    table.setShowGrid(True)
+    table.setShowGrid(False)
     table.verticalHeader().setVisible(False)
+    table.verticalHeader().setDefaultSectionSize(Metrics.TABLE_ROW_HEIGHT)
+    table.horizontalHeader().setMinimumHeight(Metrics.TABLE_HEADER_HEIGHT)
+    table.horizontalHeader().setMaximumHeight(Metrics.TABLE_HEADER_HEIGHT)

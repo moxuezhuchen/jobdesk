@@ -1,10 +1,6 @@
-"""JobDesk main window: navigation + pages + shared error handling."""
+"""JobDesk main window: sidebar navigation + page stack."""
 
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout,
-    QStackedWidget, QTabBar,
-    QMessageBox, QSizePolicy,
-)
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from .state import AppState
 from .pages.file_transfer_page import FileTransferPage
@@ -13,9 +9,20 @@ from .pages.results_page import ResultsPage
 from .pages.servers_page import ServersPage
 from .pages.settings_page import SettingsPage
 from .i18n import tr
+from .layouts.shell import AppShell
 from .theme import build_app_stylesheet
 from ..app_logging import configure_file_logging
 from ..services.gui_settings import GuiSettingsStore
+
+
+# (icon_name, i18n_key)
+_NAV_ITEMS = [
+    ("folder", "Files"),
+    ("rocket", "Runs"),
+    ("bar-chart", "Results"),
+    ("server", "Servers"),
+    ("settings", "Settings"),
+]
 
 
 class MainWindow(QMainWindow):
@@ -28,19 +35,12 @@ class MainWindow(QMainWindow):
         self._file_logger = configure_file_logging()
         self.setStyleSheet(build_app_stylesheet())
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        # Build AppShell with translated nav labels
+        nav_items = [(icon, tr(label, self.language)) for icon, label in _NAV_ITEMS]
+        self.shell = AppShell(nav_items)
+        self.setCentralWidget(self.shell)
 
-        self.nav = QTabBar()
-        self.nav.setExpanding(False)
-        for label in main_navigation_labels(self.language):
-            self.nav.addTab(label)
-        self.nav.currentChanged.connect(self._on_nav)
-        layout.addWidget(self.nav)
-
-        self.pages = QStackedWidget()
-        self.pages.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Pages
         self.files_page = FileTransferPage(self.state, self._log, self._update_status,
                                            self.show_error)
         self.runs_page = RunsPage(self.state, self._log, self._update_status)
@@ -48,37 +48,30 @@ class MainWindow(QMainWindow):
         self.servers_page = ServersPage(self.state, self._log, self._update_status)
         self.settings_page = SettingsPage(self.state, self._log, self._update_status)
         self.settings_page.language_changed.connect(self._on_language_changed)
-        self.pages.addWidget(self.files_page)
-        self.pages.addWidget(self.runs_page)
-        self.pages.addWidget(self.results_page)
-        self.pages.addWidget(self.servers_page)
-        self.pages.addWidget(self.settings_page)
-        layout.addWidget(self.pages, 1)
 
+        self.shell.add_page(self.files_page)
+        self.shell.add_page(self.runs_page)
+        self.shell.add_page(self.results_page)
+        self.shell.add_page(self.servers_page)
+        self.shell.add_page(self.settings_page)
+
+        self.shell.page_changed.connect(self._on_nav)
         self._apply_language()
         self._update_status(tr("Ready", self.language))
-        self.nav.setCurrentIndex(0)
+        self.shell.set_current(0)
 
     def _on_nav(self, index: int):
         self._apply_language()
-        self.pages.setCurrentIndex(index)
-        page = self.pages.widget(index)
+        page = self.shell.pages.widget(index)
         if hasattr(page, "on_activated"):
             page.on_activated()
 
     def _apply_language(self):
         self.language = GuiSettingsStore().load().language
-        self.nav.blockSignals(True)
-        for row, label in enumerate(main_navigation_labels(self.language)):
-            self.nav.setTabText(row, label)
-        self.nav.blockSignals(False)
-        for page in (
-            self.files_page,
-            self.runs_page,
-            self.results_page,
-            self.servers_page,
-            self.settings_page,
-        ):
+        for i, (_icon, key) in enumerate(_NAV_ITEMS):
+            self.shell.set_nav_label(i, tr(key, self.language))
+        for page in (self.files_page, self.runs_page, self.results_page,
+                     self.servers_page, self.settings_page):
             if hasattr(page, "apply_language"):
                 page.apply_language(self.language)
 
@@ -116,5 +109,4 @@ def main_window_shows_log_panel() -> bool:
 
 
 def main_navigation_labels(language: str) -> tuple[str, ...]:
-    labels = ("Files", "Runs", "Results", "Servers", "Settings")
-    return tuple(tr(label, language) for label in labels)
+    return tuple(tr(key, language) for _icon, key in _NAV_ITEMS)
