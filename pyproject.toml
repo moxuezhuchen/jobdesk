@@ -1,0 +1,32 @@
+[project]
+name = "jobdesk"
+version = "0.2.0-dev"
+description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "pyyaml>=6.0",
+    "paramiko>=3.0",
+    "pyside6>=6.5",
+    "pytest>=8.0",
+]
+
+[project.scripts]
+jobdesk = "jobdesk_app.cli:main"
+jobdesk-gui = "jobdesk_app.gui.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

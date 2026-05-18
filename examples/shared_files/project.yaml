@@ -1,0 +1,34 @@
+project_id: shared-files
+project:
+  name: Shared Files
+local_paths:
+  input_dir: ./inputs
+  result_dir: ./results
+task_discoveries:
+  - name: shell_jobs
+    mode: flat_single
+    entry_glob: "*.sh"
+    execution_profile: shell
+execution_profiles:
+  shell:
+    label: Shell
+    command: "bash {entry_name} {shared_dir_abs}/basis.dat"
+upload:
+  shared_files:
+    base_dir: shared
+    include:
+      - basis.dat
+    exclude: []
+    target_subdir: _shared
+    on_missing: error
+download:
+  patterns:
+    - result.out
+extract:
+  results:
+    - name: energy
+      source_glob: result.out
+      regex: "energy=(?P<value>-?\\d+(?:\\.\\d+)?)"
+      strategy: last
+      type: float
+

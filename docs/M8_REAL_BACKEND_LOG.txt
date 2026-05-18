@@ -1,0 +1,77 @@
+[21:35:34] 1. Loading project context...
+[21:35:34]    Project: fake_project_real
+[21:35:34]    Server: 814new (100.112.123.8)
+[21:35:34]    Remote work dir: /tmp/jobdesk_fake_real
+[21:35:34] 2. Scanning inputs...
+[21:35:34]    Found 5 inputs:
+[21:35:34]      grpA_001 group=grpA
+[21:35:34]      grpA_002 group=grpA
+[21:35:34]      grpB_001 group=grpB
+[21:35:34]      grpB_002 group=grpB
+[21:35:34]      grpB_fail group=grpB
+[21:35:34] 3. Creating batch...
+[21:35:34]    batch_id: 20260511_213534_562339
+[21:35:34]    tasks: 5
+[21:35:34]    manifest: C:\dft\tool\jobdesk\fake_project_real\.jobdesk\batches\20260511_213534_562339\manifest.tsv
+[21:35:34]      grpA_001 status=local_ready remote=/tmp/jobdesk_fake_real/20260511_213534_562339/grpA_001
+[21:35:34]      grpA_002 status=local_ready remote=/tmp/jobdesk_fake_real/20260511_213534_562339/grpA_002
+[21:35:34]      grpB_001 status=local_ready remote=/tmp/jobdesk_fake_real/20260511_213534_562339/grpB_001
+[21:35:34]      grpB_002 status=local_ready remote=/tmp/jobdesk_fake_real/20260511_213534_562339/grpB_002
+[21:35:34]      grpB_fail status=local_ready remote=/tmp/jobdesk_fake_real/20260511_213534_562339/grpB_fail
+[21:35:34] 4. Connecting SSH + SFTP...
+[21:35:36]    SSH connected: True
+[21:35:37]    Remote cleanup done
+[21:35:37] 5. Uploading task files...
+[21:35:37]    Upload: 5 transferred, 0 skipped, 0 failed
+[21:35:37]    Manifest updated: uploaded 5 tasks
+[21:35:37] 6. Submitting batch (nohup + xargs -P 2)...
+[21:35:53]    Submitted: 5 tasks
+[21:35:53]    Control script: /tmp/jobdesk_fake_real/20260511_213534_562339/_batch/batch_control.sh
+[21:35:53]    Nohup command: cd /tmp/jobdesk_fake_real/20260511_213534_562339/_batch && nohup bash './batch_control.sh' > './batc...
+[21:35:53] 7. Waiting 30s for remote tasks to complete...
+[21:35:53]    (max_parallel=2, 5 tasks, should take ~15s with N=2)
+[21:36:24]    Remote jobdesk processes: none
+[21:36:24] 8. Refreshing batch status...
+[21:36:42]    Changed: 5/5
+[21:36:42]    batch_control exit_code: None
+[21:36:42]    BATCH_FINISHED found: False
+[21:36:42]    FAILURE: grpB_fail stage=runtime reason=远程状态标记为 failed
+[21:36:42]    grpA_001: submitted -> remote_completed
+[21:36:42]    grpA_002: submitted -> remote_completed
+[21:36:42]    grpB_001: submitted -> remote_completed
+[21:36:42]    grpB_002: submitted -> remote_completed
+[21:36:42]    grpB_fail: submitted -> failed
+[21:36:42]    Task statuses: {'grpA_001': 'remote_completed', 'grpA_002': 'remote_completed', 'grpB_001': 'remote_completed', 'grpB_002': 'remote_completed', 'grpB_fail': 'failed'}
+[21:36:42] 9. Downloading completed tasks...
+[21:36:43]    Download: 8 transferred, 0 skipped
+[21:36:43]    grpA_001: result.out=EXISTS, task.log=EXISTS
+[21:36:43]    grpA_002: result.out=EXISTS, task.log=EXISTS
+[21:36:43]    grpB_001: result.out=EXISTS, task.log=EXISTS
+[21:36:43]    grpB_002: result.out=EXISTS, task.log=EXISTS
+[21:36:43] 10. Analyzing results...
+[21:36:43]    Results: 4
+[21:36:43]    Failures: 1
+[21:36:43]    Groups: 2
+[21:36:43]      grpA_001: energy=-123.456 hartree
+[21:36:43]      grpA_002: energy=-124.789 hartree
+[21:36:43]      grpB_001: energy=-200.111 hartree
+[21:36:43]      grpB_002: energy=-189.333 hartree
+[21:36:43]      FAILURE: grpB_fail stage=analysis reason=未找到匹配 result.out 的源文件
+[21:36:43]      Group grpA: 2 tasks, best=-124.789 from grpA_002
+[21:36:43]      Group grpB: 3 tasks, best=-200.111 from grpB_001
+[21:36:43] 11. Output files:
+[21:36:43]      final_results.tsv: EXISTS (597 bytes)
+[21:36:43]      failures.tsv: EXISTS (231 bytes)
+[21:36:43]      group_summary.tsv: EXISTS (141 bytes)
+[21:36:43]      summary.json: EXISTS (315 bytes)
+[21:36:43] 12. Remote evidence:
+[21:36:44]    tasks.tsv:
+
+[21:36:45]    batch_control_exit_code: NOT_FOUND
+[21:36:46]    grpA_001: status=completed
+---
+0
+[21:36:47]    grpB_fail: status=failed
+---
+1
+[21:36:47] 14. DONE. All real integration steps succeeded.

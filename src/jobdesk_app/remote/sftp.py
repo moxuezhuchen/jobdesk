@@ -1,0 +1,441 @@
+"""SFTP 文件传输模块。
+
+基于 paramiko SFTPClient 的上传/下载，支持 dry-run、增量跳过、覆盖保护。
+远程路径按 POSIX 处理，本地路径使用 pathlib.Path。
+"""
+
+import posixpath
+import os
+from pathlib import Path
+from typing import Any
+
+from .errors import RemoteError, RemotePathError
+from ..core.transfer import TransferRecord, TransferDirection, TransferStatus
+
+
+def _validate_remote_path(remote_path: str) -> str:
+    """校验远程路径必须为 POSIX 格式，拒绝反斜杠。"""
+    if "\\" in remote_path:
+        raise RemotePathError(f"远程路径不能包含反斜杠，请使用 POSIX 正斜杠: {remote_path!r}")
+    return remote_path
+
+
+class SFTPClientWrapper:
+    """基于 paramiko SFTPClient 的文件传输封装。
+
+    支持从 SSHClientWrapper 打开 SFTP channel，也支持直接注入 mock client 方便测试。
+
+    用法:
+        with SSHClientWrapper(server) as ssh:
+            sftp = SFTPClientWrapper.from_ssh(ssh)
+            sftp.upload_file(Path("local.txt"), "/remote/path/remote.txt")
+    """
+
+    def __init__(self, sftp_client: Any):
+        self._sftp = sftp_client
+
+    @classmethod
+    def from_ssh(cls, ssh_client: Any) -> "SFTPClientWrapper":
+        """从 SSHClientWrapper 打开 SFTP channel。"""
+        sftp = ssh_client._client.open_sftp()
+        return cls(sftp)
+
+    # -- 基础查询 ----------------------------------------------------------
+
+    def exists(self, remote_path: str) -> bool:
+        """检查远程路径是否存在。"""
+        _validate_remote_path(remote_path)
+        try:
+            self._sftp.stat(remote_path)
+            return True
+        except (FileNotFoundError, OSError):
+            return False
+
+    def stat(self, remote_path: str) -> Any | None:
+        """获取远程路径的 stat 信息，不存在时返回 None。"""
+        _validate_remote_path(remote_path)
+        try:
+            return self._sftp.stat(remote_path)
+        except (FileNotFoundError, OSError):
+            return None
+
+    def mkdir_p(self, remote_dir: str) -> None:
+        """递归创建远程目录。"""
+        _validate_remote_path(remote_dir)
+        if not remote_dir or remote_dir == "/":
+            return
+        parts = remote_dir.strip("/").split("/")
+        current = ""
+        for part in parts:
+            current = f"{current}/{part}" if current else f"/{part}"
+            try:
+                self._sftp.stat(current)
+            except (FileNotFoundError, OSError):
+                self._sftp.mkdir(current)
+
+    def list_dir(self, remote_dir: str) -> list[str]:
+        """列出远程目录内容（仅文件名）。"""
+        _validate_remote_path(remote_dir)
+        try:
+            return self._sftp.listdir(remote_dir)
+        except (FileNotFoundError, OSError):
+            return []
+
+    def is_dir(self, remote_path: str) -> bool:
+        """检查远程路径是否为目录。"""
+        st = self.stat(remote_path)
+        if st is None:
+            return False
+        import stat
+        return stat.S_ISDIR(st.st_mode)
+
+    # -- 单文件上传 ---------------------------------------------------------
+
+    def upload_file(
+        self,
+        local_path: Path,
+        remote_path: str,
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> TransferRecord:
+        """上传单个文件到远程。
+
+        Args:
+            local_path: 本地文件路径。
+            remote_path: 远程目标路径（POSIX）。
+            overwrite: 目标存在且大小不同时是否覆盖。
+            skip_if_same_size: 目标存在且大小相同时跳过。
+            dry_run: 仅记录 planned，不实际传输。
+
+        Returns:
+            TransferRecord。
+        """
+        _validate_remote_path(remote_path)
+        local_size = local_path.stat().st_size if local_path.exists() else None
+
+        rec = TransferRecord(
+            direction=TransferDirection.upload,
+            local_path=str(local_path),
+            remote_path=remote_path,
+            size_bytes=local_size,
+            status=TransferStatus.planned,
+            dry_run=dry_run,
+        )
+
+        if not local_path.is_file():
+            rec.status = TransferStatus.failed
+            rec.reason = f"本地文件不存在: {local_path}"
+            return rec
+
+        remote_st = self.stat(remote_path)
+
+        if dry_run:
+            if remote_st is not None:
+                remote_size = remote_st.st_size
+                if skip_if_same_size and remote_size == local_size:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 目标已存在且大小相同，将跳过"
+                elif not overwrite:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 目标已存在且大小不同，overwrite=False，将失败"
+                else:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 将覆盖上传"
+            else:
+                rec.status = TransferStatus.planned
+                rec.reason = "dry-run: 将上传"
+            return rec
+
+        # 实际执行
+        if remote_st is not None:
+            remote_size = remote_st.st_size
+            if skip_if_same_size and remote_size == local_size:
+                rec.status = TransferStatus.skipped
+                rec.reason = f"跳过: 远程文件已存在且大小相同 ({local_size} bytes)"
+                return rec
+            if not overwrite:
+                rec.status = TransferStatus.failed
+                rec.reason = (
+                    f"远程文件已存在但大小不同 (local={local_size}, remote={remote_size})"
+                    f"，overwrite=False"
+                )
+                return rec
+
+        remote_dir = posixpath.dirname(remote_path)
+        if remote_dir and remote_dir != "/":
+            self.mkdir_p(remote_dir)
+
+        self._sftp.put(str(local_path), remote_path, confirm=True)
+        rec.status = TransferStatus.transferred
+        rec.reason = "上传成功"
+        return rec
+
+    # -- 单文件下载 ---------------------------------------------------------
+
+    def download_file(
+        self,
+        remote_path: str,
+        local_path: Path,
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> TransferRecord:
+        """从远程下载单个文件到本地。
+
+        Args:
+            remote_path: 远程文件路径（POSIX）。
+            local_path: 本地目标路径。
+            overwrite: 本地存在且大小不同时是否覆盖。
+            skip_if_same_size: 本地存在且大小相同时跳过。
+            dry_run: 仅记录 planned，不实际传输。
+
+        Returns:
+            TransferRecord。
+        """
+        _validate_remote_path(remote_path)
+        remote_st = self.stat(remote_path)
+
+        rec = TransferRecord(
+            direction=TransferDirection.download,
+            local_path=str(local_path),
+            remote_path=remote_path,
+            size_bytes=remote_st.st_size if remote_st else None,
+            status=TransferStatus.planned,
+            dry_run=dry_run,
+        )
+
+        if remote_st is None:
+            rec.status = TransferStatus.failed
+            rec.reason = f"远程文件不存在: {remote_path}"
+            return rec
+
+        remote_size = remote_st.st_size
+        rec.size_bytes = remote_size
+
+        if dry_run:
+            if local_path.is_file():
+                local_size = local_path.stat().st_size
+                if skip_if_same_size and local_size == remote_size:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 本地已存在且大小相同，将跳过"
+                elif not overwrite:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 本地已存在且大小不同，overwrite=False，将失败"
+                else:
+                    rec.status = TransferStatus.planned
+                    rec.reason = "dry-run: 将覆盖下载"
+            else:
+                rec.status = TransferStatus.planned
+                rec.reason = "dry-run: 将下载"
+            return rec
+
+        # 实际执行
+        if local_path.is_file():
+            local_size = local_path.stat().st_size
+            if skip_if_same_size and local_size == remote_size:
+                rec.status = TransferStatus.skipped
+                rec.reason = f"跳过: 本地文件已存在且大小相同 ({remote_size} bytes)"
+                return rec
+            if not overwrite:
+                rec.status = TransferStatus.failed
+                rec.reason = (
+                    f"本地文件已存在但大小不同 (local={local_size}, remote={remote_size})"
+                    f"，overwrite=False"
+                )
+                return rec
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self._sftp.get(remote_path, str(local_path))
+        rec.status = TransferStatus.transferred
+        rec.reason = "下载成功"
+        return rec
+
+    # -- 批量 ----------------------------------------------------------------
+
+    def upload_many(
+        self,
+        files: list[tuple[Path, str]],
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> list[TransferRecord]:
+        """批量上传文件。
+
+        Args:
+            files: (local_path, remote_path) 元组列表。
+            overwrite, skip_if_same_size, dry_run: 同 upload_file。
+
+        Returns:
+            TransferRecord 列表。
+        """
+        records: list[TransferRecord] = []
+        for local_path, remote_path in files:
+            rec = self.upload_file(
+                local_path, remote_path,
+                overwrite=overwrite,
+                skip_if_same_size=skip_if_same_size,
+                dry_run=dry_run,
+            )
+            records.append(rec)
+        return records
+
+    def download_many(
+        self,
+        files: list[tuple[str, Path]],
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> list[TransferRecord]:
+        """批量下载文件。
+
+        Args:
+            files: (remote_path, local_path) 元组列表。
+            overwrite, skip_if_same_size, dry_run: 同 download_file。
+
+        Returns:
+            TransferRecord 列表。
+        """
+        records: list[TransferRecord] = []
+        for remote_path, local_path in files:
+            rec = self.download_file(
+                remote_path, local_path,
+                overwrite=overwrite,
+                skip_if_same_size=skip_if_same_size,
+                dry_run=dry_run,
+            )
+            records.append(rec)
+        return records
+
+    # -- 目录传输 ------------------------------------------------------------
+
+    def upload_dir(
+        self,
+        local_dir: Path,
+        remote_base: str,
+        include_globs: list[str] | None = None,
+        exclude_globs: list[str] | None = None,
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> list[TransferRecord]:
+        """递归上传本地目录到远程。
+
+        保持目录结构：local_dir/file.txt → remote_base/file.txt
+
+        Args:
+            local_dir: 本地目录路径。
+            remote_base: 远程目标根目录。
+            include_globs: 只上传匹配 glob 的文件（None = 全部）。
+            exclude_globs: 排除匹配 glob 的文件。
+            overwrite, skip_if_same_size, dry_run: 同 upload_file。
+
+        Returns:
+            TransferRecord 列表。
+        """
+        _validate_remote_path(remote_base)
+        records: list[TransferRecord] = []
+        if not local_dir.is_dir():
+            return records
+
+        for f in sorted(local_dir.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(local_dir)
+            if not _matches_globs(rel.as_posix(), include_globs, exclude_globs):
+                continue
+            remote_path = posixpath.join(remote_base, rel.as_posix())
+            rec = self.upload_file(
+                f, remote_path,
+                overwrite=overwrite,
+                skip_if_same_size=skip_if_same_size,
+                dry_run=dry_run,
+            )
+            records.append(rec)
+        return records
+
+    def download_dir(
+        self,
+        remote_dir: str,
+        local_base: Path,
+        include_globs: list[str] | None = None,
+        exclude_globs: list[str] | None = None,
+        overwrite: bool = False,
+        skip_if_same_size: bool = True,
+        dry_run: bool = False,
+    ) -> list[TransferRecord]:
+        """递归下载远程目录到本地。
+
+        保持目录结构：remote_dir/file.txt → local_base/file.txt
+
+        Args:
+            remote_dir: 远程目录路径。
+            local_base: 本地目标根目录。
+            include_globs: 只下载匹配 glob 的文件（None = 全部）。
+            exclude_globs: 排除匹配 glob 的文件。
+            overwrite, skip_if_same_size, dry_run: 同 download_file。
+
+        Returns:
+            TransferRecord 列表。
+        """
+        _validate_remote_path(remote_dir)
+        records: list[TransferRecord] = []
+        if not self.is_dir(remote_dir):
+            return records
+
+        def _walk(rdir: str, rel_prefix: str):
+            for name in sorted(self.list_dir(rdir) or []):
+                full = posixpath.join(rdir, name)
+                rel = posixpath.join(rel_prefix, name) if rel_prefix else name
+                if self.is_dir(full):
+                    _walk(full, rel)
+                else:
+                    if not _matches_globs(rel, include_globs, exclude_globs):
+                        continue
+                    local_path = local_base / rel
+                    rec = self.download_file(
+                        full, local_path,
+                        overwrite=overwrite,
+                        skip_if_same_size=skip_if_same_size,
+                        dry_run=dry_run,
+                    )
+                    records.append(rec)
+
+        _walk(remote_dir, "")
+        return records
+
+    # -- 清理 ---------------------------------------------------------------
+
+    def close(self) -> None:
+        """关闭 SFTP channel。"""
+        if self._sftp:
+            self._sftp.close()
+            self._sftp = None
+
+
+# ---- 内部 glob 匹配 --------------------------------------------------------
+
+def _matches_globs(
+    rel_path: str,
+    includes: list[str] | None,
+    excludes: list[str] | None,
+) -> bool:
+    """检查相对路径是否匹配 include/exclude glob 规则。
+
+    使用 fnmatch 进行 glob 匹配。include 为空时默认包含全部。
+    exclude 优先于 include。
+    """
+    import fnmatch
+
+    if excludes:
+        for pat in excludes:
+            if fnmatch.fnmatch(rel_path, pat):
+                return False
+
+    if includes:
+        for pat in includes:
+            if fnmatch.fnmatch(rel_path, pat):
+                return True
+        return False
+
+    return True

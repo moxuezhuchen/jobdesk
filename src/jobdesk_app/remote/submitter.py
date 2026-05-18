@@ -1,0 +1,342 @@
+"""任务提交与并行控制模块。
+
+基于 Manifest 生成 JobDesk 内部运行脚本（.jobdesk_run.sh、launch 脚本、
+tasks.tsv、batch_control.sh），通过 SSH 上传、chmod、nohup 启动后台批次。
+
+方案 B：整批提交 + batch_control.sh 用 xargs -P N 并行执行 launch 脚本。
+所有任务信息来自 Manifest，不重新发现输入文件。
+"""
+
+import shlex
+import posixpath
+from datetime import datetime
+from pathlib import Path
+
+from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
+from ..core.manifest import TaskRecord, Manifest
+from ..core.lifecycle import TaskStatus
+from .errors import RemoteError
+
+
+class JobSubmitter:
+    """任务提交器。
+
+    用法:
+        submitter = JobSubmitter(
+            manifest_path=Path("manifest.tsv"),
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/batch_20260511",
+            batch_id="20260511_143022_123456",
+        )
+        plan = submitter.dry_run(SubmitMode.all)
+        result = submitter.submit_batch(SubmitMode.all)
+    """
+
+    def __init__(
+        self,
+        manifest_path: Path,
+        ssh,     # SSHClientWrapper
+        sftp,    # SFTPClientWrapper
+        max_parallel: int,
+        remote_batch_dir: str,
+        batch_id: str,
+        control_subdir: str = "_batch",
+    ):
+        if max_parallel < 1:
+            raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
+        self._manifest_path = manifest_path
+        self._ssh = ssh
+        self._sftp = sftp
+        self._max_parallel = max_parallel
+        self._remote_batch_dir = remote_batch_dir.rstrip("/")
+        self._batch_id = batch_id
+        self._control_subdir = control_subdir
+
+    # -- 任务选择 ---------------------------------------------------------
+
+    def select_tasks(
+        self,
+        mode: SubmitMode = SubmitMode.all,
+        selected_ids: list[str] | None = None,
+    ) -> list[TaskRecord]:
+        """从 Manifest 中选择可提交的任务（仅 uploaded）。"""
+        all_tasks = Manifest.read(self._manifest_path)
+        uploaded = [t for t in all_tasks if t.status == TaskStatus.uploaded]
+
+        if mode == SubmitMode.all:
+            return uploaded
+        elif mode == SubmitMode.selected:
+            if not selected_ids:
+                return []
+            sid_set = set(selected_ids)
+            return [t for t in uploaded if t.task_id in sid_set]
+        elif mode == SubmitMode.unfinished:
+            return uploaded
+
+        return []
+
+    # -- 脚本生成 ----------------------------------------------------------
+
+    @staticmethod
+    def generate_task_runner(task: TaskRecord) -> str:
+        """为单个任务生成 .jobdesk_run.sh 脚本内容。
+
+        职责: 写 status = running → 执行 rendered_command → 记录退出码和最终状态。
+        rendered_command 来自 Manifest，不重新渲染。
+        """
+        rendered = task.rendered_command.replace("'", "'\\''")
+        lines = [
+            "#!/usr/bin/env bash",
+            "set +e",
+            "echo 'running' > .jobdesk_status",
+            "(",
+            f"  {rendered}",
+            ") > .jobdesk_submit.log 2>&1",
+            "rc=$?",
+            "echo \"$rc\" > .jobdesk_exit_code",
+            'if [ "$rc" -eq 0 ]; then',
+            "  echo 'completed' > .jobdesk_status",
+            "else",
+            "  echo 'failed' > .jobdesk_status",
+            "fi",
+            'exit "$rc"',
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def generate_launch_script(task_id: str, remote_job_dir: str) -> str:
+        """为单个任务生成 launch_<task_id>.sh。
+
+        职责: cd 到 remote_job_dir，执行 .jobdesk_run.sh。
+        路径使用 shlex.quote 安全转义。
+        """
+        dir_q = shlex.quote(remote_job_dir)
+        lines = [
+            "#!/usr/bin/env bash",
+            f"cd {dir_q} || exit 1",
+            "bash ./.jobdesk_run.sh",
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def generate_tasks_tsv(tasks: list[TaskRecord], remote_batch_dir: str, control_subdir: str = "_batch") -> str:
+        """生成 _batch/tasks.tsv 内容。"""
+        lines = ["task_id\tremote_job_dir\trunner_path"]
+        control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
+        for t in tasks:
+            if "\t" in t.task_id or "\n" in t.task_id:
+                raise ValueError(f"task_id 包含非法字符 (tab/newline): {t.task_id!r}")
+            if "\t" in t.remote_job_dir or "\n" in t.remote_job_dir:
+                raise ValueError(f"remote_job_dir 包含非法字符: {t.remote_job_dir!r}")
+            launch_path = f"{control_dir}/launch_{t.task_id}.sh"
+            lines.append(f"{t.task_id}\t{t.remote_job_dir}\t{launch_path}")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def generate_batch_control(
+        max_parallel: int,
+        remote_batch_dir: str,
+        task_count: int,
+        control_subdir: str = "_batch",
+    ) -> str:
+        """生成 _batch/batch_control.sh 内容。"""
+        control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
+        control_dir_q = shlex.quote(control_dir)
+        lines = [
+            "#!/usr/bin/env bash",
+            "set -e",
+            "",
+            f'MAX_PARALLEL={max_parallel}',
+            f'CONTROL_DIR={control_dir_q}',
+            "",
+            "cd \"$CONTROL_DIR\" || exit 1",
+            "",
+            "# BATCH_RUNNING 标记",
+            "echo 'BATCH_RUNNING'",
+            f"echo 'batch_id: {shlex.quote(control_dir.rsplit('/', 2)[0].rsplit('/', 1)[-1])}'",
+            f"echo 'task_count: {task_count}'",
+            f"echo 'max_parallel: {max_parallel}'",
+            f"echo 'started_at: '\"$(date -Iseconds)\"",
+            "",
+            "# 从 tasks.tsv 提取 launch 脚本路径（第3列），跳过 header",
+            "tail -n +2 tasks.tsv | cut -f3 > launch_list.txt",
+            "",
+            "# 执行: 使用 bash -c 'bash \"$1\"' _ \"{}\" 安全传参",
+            "batch_rc=0",
+            "if command -v xargs > /dev/null 2>&1; then",
+            "  xargs -r -P \"$MAX_PARALLEL\" -I{} bash -c 'bash \"$1\"' _ \"{}\" < launch_list.txt || batch_rc=$?",
+            "else",
+            "  echo 'ERROR: xargs not found' >&2",
+            "  exit 1",
+            "fi",
+            "",
+            "# 记录 batch control 退出码",
+            "echo \"$batch_rc\" > batch_control_exit_code",
+            "",
+            "# BATCH_FINISHED: 仅表示 batch_control.sh 运行结束",
+            "# 每个 task 的实际成功/失败以 .jobdesk_status 和 .jobdesk_exit_code 为准",
+            "echo 'BATCH_FINISHED'",
+            f"echo 'finished_at: '\"$(date -Iseconds)\"",
+            "exit \"$batch_rc\"",
+            "",
+        ]
+        return "\n".join(lines)
+
+    # -- 提交流程 ----------------------------------------------------------
+
+    def prepare_plan(
+        self,
+        mode: SubmitMode = SubmitMode.all,
+        selected_ids: list[str] | None = None,
+    ) -> SubmitPlan:
+        """准备提交计划（dry-run，无副作用）。"""
+        tasks = self.select_tasks(mode, selected_ids)
+        control_dir = f"{self._remote_batch_dir}/{self._control_subdir}"
+
+        generated = []
+        for t in tasks:
+            generated.append(f"{t.remote_job_dir}/.jobdesk_run.sh")
+            generated.append(f"{control_dir}/launch_{t.task_id}.sh")
+        generated.append(f"{control_dir}/tasks.tsv")
+        generated.append(f"{control_dir}/batch_control.sh")
+
+        cd_cmd = shlex.quote(control_dir)
+        control_command = (
+            f"cd '{cd_cmd}' && nohup bash './batch_control.sh'"
+            f" > './batch_control.nohup.log' 2>&1 &"
+        )
+
+        return SubmitPlan(
+            batch_id=self._batch_id,
+            max_parallel=self._max_parallel,
+            task_count=len(tasks),
+            selected_task_ids=[t.task_id for t in tasks],
+            remote_batch_dir=self._remote_batch_dir,
+            generated_files=sorted(generated),
+            control_command=control_command,
+            dry_run=True,
+        )
+
+    def dry_run(
+        self,
+        mode: SubmitMode = SubmitMode.all,
+        selected_ids: list[str] | None = None,
+    ) -> SubmitPlan:
+        """dry-run: 返回提交计划，不产生任何副作用。"""
+        return self.prepare_plan(mode, selected_ids)
+
+    def submit_batch(
+        self,
+        mode: SubmitMode = SubmitMode.all,
+        selected_ids: list[str] | None = None,
+    ) -> SubmitResult:
+        """执行完整的批次提交流程。
+
+        步骤: 选择任务 → 生成脚本 → 上传 → chmod → nohup 启动 → 更新 Manifest。
+        任一步骤失败时，不更新 Manifest（all-or-nothing）。
+        """
+        tasks = self.select_tasks(mode, selected_ids)
+        task_count = len(tasks)
+        control_dir = f"{self._remote_batch_dir}/{self._control_subdir}"
+
+        result = SubmitResult(
+            batch_id=self._batch_id,
+            submitted_task_count=task_count,
+            remote_batch_dir=self._remote_batch_dir,
+            control_script_path=f"{control_dir}/batch_control.sh",
+            control_log_path=f"{control_dir}/batch_control.log",
+            control_nohup_log_path=f"{control_dir}/batch_control.nohup.log",
+        )
+
+        if not tasks:
+            result.errors.append("没有可提交的任务 (状态为 uploaded)")
+            return result
+
+        try:
+            # 1. 生成脚本内容
+            runner_contents: dict[str, str] = {}
+            launch_contents: dict[str, str] = {}
+            for t in tasks:
+                runner_contents[t.task_id] = self.generate_task_runner(t)
+                launch_contents[t.task_id] = self.generate_launch_script(
+                    t.task_id, t.remote_job_dir
+                )
+            tasks_tsv_content = self.generate_tasks_tsv(tasks, self._remote_batch_dir, self._control_subdir)
+            batch_control_content = self.generate_batch_control(
+                self._max_parallel, self._remote_batch_dir, task_count, self._control_subdir
+            )
+
+            # 2. 创建远程目录
+            self._sftp.mkdir_p(control_dir)
+            for t in tasks:
+                self._sftp.mkdir_p(t.remote_job_dir)
+
+            # 3. 上传脚本 (via a temp local dir write + upload)
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                # 写入 run scripts
+                for t in tasks:
+                    rpath = tmp / f"{t.task_id}_jobdesk_run.sh"
+                    rpath.write_text(runner_contents[t.task_id], encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(rpath, f"{t.remote_job_dir}/.jobdesk_run.sh", overwrite=True)
+                # 写入 launch scripts
+                for t in tasks:
+                    lpath = tmp / f"launch_{t.task_id}.sh"
+                    lpath.write_text(launch_contents[t.task_id], encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(lpath, f"{control_dir}/launch_{t.task_id}.sh", overwrite=True)
+                # 写入 tasks.tsv
+                tsv_path = tmp / "tasks.tsv"
+                tsv_path.write_text(tasks_tsv_content, encoding="utf-8", newline="\n")
+                self._sftp.upload_file(tsv_path, f"{control_dir}/tasks.tsv", overwrite=True)
+                # 写入 batch_control.sh
+                bc_path = tmp / "batch_control.sh"
+                bc_path.write_text(batch_control_content, encoding="utf-8", newline="\n")
+                self._sftp.upload_file(bc_path, f"{control_dir}/batch_control.sh", overwrite=True)
+
+            # 4. chmod +x 所有脚本
+            script_paths = []
+            for t in tasks:
+                script_paths.append(shlex.quote(f"{t.remote_job_dir}/.jobdesk_run.sh"))
+                script_paths.append(shlex.quote(f"{control_dir}/launch_{t.task_id}.sh"))
+            script_paths.append(shlex.quote(f"{control_dir}/batch_control.sh"))
+            chmod_cmd = "chmod +x " + " ".join(script_paths)
+            chmod_result = self._ssh.run(chmod_cmd, timeout=30)
+            if chmod_result.exit_code != 0:
+                result.errors.append(f"chmod 失败: {chmod_result.stderr}")
+                return result
+
+            # 5. nohup 启动
+            cd_q = shlex.quote(control_dir)
+            nohup_cmd = (
+                f"cd {cd_q} && nohup bash './batch_control.sh'"
+                f" > './batch_control.nohup.log' 2>&1 &"
+            )
+            result.nohup_command = nohup_cmd
+            ssh_result = self._ssh.run(nohup_cmd, timeout=30)
+            if ssh_result.exit_code != 0:
+                result.errors.append(f"nohup 启动失败: {ssh_result.stderr}")
+                return result
+
+            # 6. 更新 Manifest 状态: uploaded → submitted
+            now = datetime.now()
+            updated_ids: list[str] = []
+            all_tasks = Manifest.read(self._manifest_path)
+            tid_map = {t.task_id: t for t in all_tasks}
+            for t in tasks:
+                if t.task_id in tid_map:
+                    tid_map[t.task_id].status = TaskStatus.submitted
+                    tid_map[t.task_id].submitted_at = now
+                    updated_ids.append(t.task_id)
+            Manifest.write(self._manifest_path, all_tasks)
+            result.updated_task_ids = updated_ids
+
+        except Exception as e:
+            result.errors.append(f"提交异常: {e}")
+            return result
+
+        return result

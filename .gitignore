@@ -1,0 +1,28 @@
+# Python caches and build outputs
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+
+# Test and tool caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime data
+tmp_pytest*/
+fake_project/
+fake_project_real/
+
+# Local one-off scripts/logs from manual validation
+m8_real_backend.py
+m8_max_parallel.py
+
+# Editor and OS noise
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
