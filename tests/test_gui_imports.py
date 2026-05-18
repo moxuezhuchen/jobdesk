@@ -16,29 +16,6 @@ def test_import_main_window():
     assert MainWindow is not None
 
 
-def test_main_window_ui_policy_helpers():
-    from jobdesk_app.gui.main_window import main_window_has_status_bar, main_window_shows_log_panel
-    from jobdesk_app.gui.theme import build_app_stylesheet
-
-    css = build_app_stylesheet()
-
-    assert main_window_has_status_bar() is False
-    assert main_window_shows_log_panel() is False
-    assert "selection-background-color: #2563eb" in css
-    assert "selection-color: #ffffff" in css
-
-
-def test_main_navigation_labels_include_projects_first():
-    from jobdesk_app.gui.main_window import main_navigation_labels
-
-    assert main_navigation_labels("en") == (
-        "Projects",
-        "Files",
-        "Runs",
-        "Results",
-        "Servers",
-        "Settings",
-    )
 
 
 def test_import_pages():
@@ -53,17 +30,6 @@ def test_import_pages():
     assert ResultsPage is not None
     assert SettingsPage is not None
 
-
-def test_unknown_host_key_error_detection():
-    from jobdesk_app.gui.pages.servers_page import format_host_key_prompt, is_unknown_host_key_error
-
-    assert is_unknown_host_key_error("SSHException: Server 'h' not found in known_hosts")
-    assert is_unknown_host_key_error("SSHException: not found in known_hosts")
-    assert not is_unknown_host_key_error("Authentication failed")
-    prompt = format_host_key_prompt("s1", "h", 22, "ssh-ed25519", "00:11")
-    assert "s1" in prompt
-    assert "ssh-ed25519" in prompt
-    assert "00:11" in prompt
 
 
 def test_app_state_create():

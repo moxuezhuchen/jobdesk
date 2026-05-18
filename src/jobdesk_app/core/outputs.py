@@ -9,7 +9,6 @@ from pathlib import Path
 from datetime import datetime
 
 from .models import ResultRecord, FailureRecord
-from .grouping import GroupSummaryRecord
 from .lifecycle import TaskStatus
 
 # ---- TSV 列定义 ------------------------------------------------------------
@@ -42,14 +41,6 @@ _FAILURES_COLUMNS: list[str] = [
     "timestamp",
 ]
 
-_GROUP_SUMMARY_COLUMNS: list[str] = [
-    "group_key",
-    "task_count",
-    "result_count",
-    "best_task_id",
-    "best_result_id",
-    "best_value",
-]
 
 
 # ---- 写入函数 ---------------------------------------------------------------
@@ -118,31 +109,6 @@ def append_failures_tsv(
             writer.writerow(_FAILURES_COLUMNS)
         for fr in failures:
             writer.writerow(_failure_to_row(fr))
-
-
-def write_group_summary_tsv(
-    summaries: list[GroupSummaryRecord],
-    output_path: Path,
-) -> None:
-    """将 GroupSummaryRecord 列表写入 group_summary.tsv。
-
-    Args:
-        summaries: GroupSummaryRecord 列表。
-        output_path: 目标 TSV 文件路径。
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter="\t", lineterminator="\n")
-        writer.writerow(_GROUP_SUMMARY_COLUMNS)
-        for s in summaries:
-            writer.writerow([
-                s.group_key,
-                str(s.task_count),
-                str(s.result_count),
-                s.best_task_id or "",
-                s.best_result_id or "",
-                _fmt_num(s.best_value),
-            ])
 
 
 def write_summary_json(

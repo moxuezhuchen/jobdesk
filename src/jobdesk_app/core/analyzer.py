@@ -1,6 +1,6 @@
 """结果提取引擎。
 
-根据 ProjectConfig.extract 配置，从本地结果文件中提取数值或字符串结果。
+从本地结果文件中根据 ExtractResult 规则提取数值或字符串结果。
 不依赖 SSH、远程连接，仅操作本地文件。
 """
 
@@ -10,11 +10,11 @@ from pathlib import Path
 from datetime import datetime
 
 from .models import ResultRecord, FailureRecord
-from ..config.schema import ProjectConfig, ExtractResult, ExtractStrategy, ExtractType
+from ..config.schema import ExtractResult, ExtractStrategy, ExtractType
 
 
 def analyze_tasks(
-    project_config: ProjectConfig,
+    extract_rules: list[ExtractResult],
     tasks: list,  # list[TaskRecord]
     results_base_dir: Path | str,
     batch_id: str,
@@ -22,7 +22,7 @@ def analyze_tasks(
     """对一批已下载任务执行结果提取。
 
     Args:
-        project_config: 项目配置（使用其 extract 字段）。
+        extract_rules: ExtractResult 规则列表。
         tasks: TaskRecord 列表。
         results_base_dir: 本地结果根目录。
         batch_id: 当前 Batch ID。
@@ -33,7 +33,6 @@ def analyze_tasks(
     results: list[ResultRecord] = []
     failures: list[FailureRecord] = []
 
-    extract_rules = project_config.extract.results
     if not extract_rules:
         return results, failures
 

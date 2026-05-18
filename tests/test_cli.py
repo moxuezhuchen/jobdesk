@@ -1,31 +1,68 @@
-from jobdesk_app.cli import build_remote_cleanup_commands, main
+"""CLI integration tests for the new run + files command groups."""
+import tempfile
+from pathlib import Path
+
+from jobdesk_app.cli import main
 
 
-def test_cli_scan_reports_discovered_tasks(capsys):
-    rc = main(["scan", "examples/shell_basic"])
+def test_cli_run_create_and_list(capsys):
+    with tempfile.TemporaryDirectory() as workspace:
+        rc = main([
+            "run", "create", workspace,
+            "--server", "test_srv",
+            "--remote-dir", "/tmp/test",
+            "--command", "echo {name}",
+            "--files", "/remote/a.gjf", "/remote/b.gjf",
+        ])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "created run" in out
 
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "discovered" in out
-    assert "shell_jobs" in out
+        rc = main(["run", "list", workspace])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "test_srv" in out
+        assert "/tmp/test" in out
 
 
-def test_cli_list_batches_handles_empty_project(capsys):
-    rc = main(["list-batches", "examples/shell_basic"])
+def test_cli_run_list_empty(capsys):
+    with tempfile.TemporaryDirectory() as workspace:
+        rc = main(["run", "list", workspace])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "No runs" in out
 
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "No batches" in out
+
+def test_cli_run_retry_no_failed(capsys):
+    with tempfile.TemporaryDirectory() as workspace:
+        main([
+            "run", "create", workspace,
+            "--server", "s", "--remote-dir", "/tmp/x",
+            "--command", "echo {name}", "--files", "/remote/f.txt",
+        ])
+        capsys.readouterr()
+
+        from jobdesk_app.services.run_service import RunService
+        run_id = RunService(workspace).list_runs()[0].run_id
+
+        rc = main(["run", "retry", workspace, run_id])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "No failed" in out
 
 
-def test_remote_cleanup_command_is_scoped_to_batch_dirs():
-    commands = build_remote_cleanup_commands(
-        remote_work_dirs=["/tmp/jobdesk/a", "/tmp/jobdesk/b"],
-        batch_id="batch_001",
-        dry_run=True,
-    )
+def test_cli_run_delete(capsys):
+    with tempfile.TemporaryDirectory() as workspace:
+        main([
+            "run", "create", workspace,
+            "--server", "s", "--remote-dir", "/tmp/x",
+            "--command", "echo {name}", "--files", "/remote/f.txt",
+        ])
+        capsys.readouterr()
 
-    assert commands == [
-        "test -d /tmp/jobdesk/a/batch_001 && printf '%s\\n' /tmp/jobdesk/a/batch_001 || true",
-        "test -d /tmp/jobdesk/b/batch_001 && printf '%s\\n' /tmp/jobdesk/b/batch_001 || true",
-    ]
+        from jobdesk_app.services.run_service import RunService
+        run_id = RunService(workspace).list_runs()[0].run_id
+
+        rc = main(["run", "delete", workspace, run_id])
+        assert rc == 0
+        assert RunService(workspace).list_runs() == []

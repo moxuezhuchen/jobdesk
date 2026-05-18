@@ -1,305 +1,306 @@
+"""JobDesk CLI — run + files commands powered by RunService."""
 from __future__ import annotations
 
 import argparse
-import shlex
 from pathlib import Path
 
-from .config.runtime import RuntimeBindingStore, resolve_execution_contexts_for_project
 from .config.servers import load_servers
-from .core.manifest import Manifest
-from .core.transfer import TransferDirection, TransferRecord
+from .core.file_transfer import OverwritePolicy, RemoteFileInfo
+from .core.run import RunMode, RunSource, RunSpec
+from .core.transfer import TransferDirection, TransferRecord, TransferStatus
+from .remote.status_refresh import refresh_batch_status
+from .services.file_transfer_service import FileTransferService
+from .services.run_service import RunService
 from .services.ssh_session import create_sftp_client, create_ssh_client
-from .services.project_service import create_project_context
-from .services.workflow_service import WorkflowService
-
-
-class _ConnectedSFTP:
-    def __init__(self, server_config):
-        self._ssh = create_ssh_client(server_config)
-        self._ssh.connect()
-        self._sftp = create_sftp_client(self._ssh)
-
-    def upload_file(self, *args, **kwargs):
-        return self._sftp.upload_file(*args, **kwargs)
-
-    def download_file(self, *args, **kwargs):
-        return self._sftp.download_file(*args, **kwargs)
-
-    def close(self):
-        self._sftp.close()
-        self._ssh.close()
-
-
-class _DryRunSFTP:
-    def upload_file(self, local_path, remote_path, **kwargs):
-        return TransferRecord(
-            direction=TransferDirection.upload,
-            local_path=str(local_path),
-            remote_path=remote_path,
-            dry_run=True,
-        )
-
-    def download_file(self, remote_path, local_path, **kwargs):
-        return TransferRecord(
-            direction=TransferDirection.download,
-            local_path=str(local_path),
-            remote_path=remote_path,
-            dry_run=True,
-        )
-
-    def close(self):
-        return None
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if not hasattr(args, "func"):
+        parser.print_help()
+        return 1
     return args.func(args)
+
+
+# ---- parser ---------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jobdesk")
     parser.add_argument("--servers-yaml", type=Path, default=None)
-    parser.add_argument("--runtime-bindings", type=Path, default=None)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
-    _project_command(sub, "scan", _cmd_scan)
-    _project_command(sub, "preflight", _cmd_preflight)
-    _project_command(sub, "list-batches", _cmd_list_batches)
+    # -- run subcommand group --
+    run = sub.add_parser("run", help="Manage runs")
+    run_sub = run.add_subparsers(dest="run_command", required=True)
 
-    create = _project_command(sub, "create-batch", _cmd_create_batch)
-    create.add_argument("--batch-id", default=None)
+    cr = run_sub.add_parser("create")
+    cr.add_argument("workspace", type=Path)
+    cr.add_argument("--server", required=True)
+    cr.add_argument("--remote-dir", required=True)
+    cr.add_argument("--command", required=True)
+    cr.add_argument("--files", nargs="+", default=[])
+    cr.add_argument("--dirs", nargs="+", default=[])
+    cr.add_argument("--mode", default="selected_files", choices=[m.value for m in RunMode])
+    cr.add_argument("--max-parallel", type=int, default=4)
+    cr.set_defaults(func=_cmd_run_create)
 
-    for name, func in (
-        ("upload", _cmd_upload),
-        ("submit", _cmd_submit),
-        ("refresh", _cmd_refresh),
-        ("download", _cmd_download),
-        ("analyze", _cmd_analyze),
-        ("cleanup-remote", _cmd_cleanup_remote),
-    ):
-        cmd = _project_command(sub, name, func)
-        cmd.add_argument("batch_id")
-        if name in {"upload", "download", "cleanup-remote"}:
-            cmd.add_argument("--dry-run", action="store_true")
+    for name, func in [
+        ("list", _cmd_run_list),
+        ("submit", _cmd_run_submit),
+        ("refresh", _cmd_run_refresh),
+        ("cancel", _cmd_run_cancel),
+        ("delete", _cmd_run_delete),
+        ("retry", _cmd_run_retry),
+        ("rerun", _cmd_run_rerun),
+    ]:
+        p = run_sub.add_parser(name)
+        p.add_argument("workspace", type=Path)
+        if name != "list":
+            p.add_argument("run_id")
+        p.set_defaults(func=func)
+
+    dl = run_sub.add_parser("download")
+    dl.add_argument("workspace", type=Path)
+    dl.add_argument("run_id")
+    dl.add_argument("--patterns", default="*.log")
+    dl.set_defaults(func=_cmd_run_download)
+
+    # -- files subcommand group --
+    files = sub.add_parser("files", help="Remote file operations")
+    files_sub = files.add_subparsers(dest="files_command", required=True)
+
+    lr = files_sub.add_parser("list-remote")
+    lr.add_argument("server_id")
+    lr.add_argument("remote_path")
+    lr.set_defaults(func=_cmd_files_list_remote)
+
+    up = files_sub.add_parser("upload")
+    up.add_argument("server_id")
+    up.add_argument("local_path", type=Path)
+    up.add_argument("remote_path")
+    up.set_defaults(func=_cmd_files_upload)
+
+    dn = files_sub.add_parser("download")
+    dn.add_argument("server_id")
+    dn.add_argument("remote_path")
+    dn.add_argument("local_path", type=Path)
+    dn.set_defaults(func=_cmd_files_download)
+
+    mk = files_sub.add_parser("mkdir")
+    mk.add_argument("server_id")
+    mk.add_argument("remote_path")
+    mk.set_defaults(func=_cmd_files_mkdir)
+
+    pv = files_sub.add_parser("preview")
+    pv.add_argument("server_id")
+    pv.add_argument("remote_path")
+    pv.set_defaults(func=_cmd_files_preview)
 
     return parser
 
 
-def _project_command(subparsers, name: str, func):
-    cmd = subparsers.add_parser(name)
-    cmd.add_argument("project", type=Path)
-    cmd.set_defaults(func=func)
-    return cmd
+# ---- run commands ---------------------------------------------------------
 
 
-def _ctx(args):
-    return create_project_context(args.project, args.servers_yaml)
-
-
-def _binding_store(args):
-    return RuntimeBindingStore(args.runtime_bindings)
-
-
-def _cmd_scan(args) -> int:
-    ctx = _ctx(args)
-    packages = WorkflowService(ctx).scan_inputs()
-    print(f"discovered {len(packages)} tasks")
-    for package in packages:
-        print(
-            f"{package.task_id}\t{package.discovery_name}\t"
-            f"{package.execution_profile}\t{package.entry_file}"
-        )
+def _cmd_run_create(args) -> int:
+    sources = [RunSource(path=f, is_dir=False) for f in args.files]
+    sources += [RunSource(path=d, is_dir=True) for d in args.dirs]
+    spec = RunSpec(
+        server_id=args.server,
+        remote_dir=args.remote_dir,
+        command_template=args.command,
+        max_parallel=args.max_parallel,
+        mode=RunMode(args.mode),
+        sources=sources,
+    )
+    record = RunService(args.workspace).create_run(spec)
+    print(f"created run {record.run_id}: {record.status_summary}")
     return 0
 
 
-def _cmd_preflight(args) -> int:
-    ctx = _ctx(args)
-    report = WorkflowService(ctx).preflight(_binding_store(args), args.servers_yaml)
-    state = "ok" if report.ok else "failed"
-    print(
-        f"preflight {state}: tasks={report.task_count}, "
-        f"errors={len(report.errors)}, warnings={len(report.warnings)}"
-    )
-    for issue in report.errors:
-        print(f"ERROR {issue.code}: {issue.message}")
-    for issue in report.warnings:
-        print(f"WARNING {issue.code}: {issue.message}")
-    return 0 if report.ok else 2
-
-
-def _cmd_list_batches(args) -> int:
-    ctx = _ctx(args)
-    summaries = WorkflowService(ctx).list_batches()
-    if not summaries:
-        print("No batches")
+def _cmd_run_list(args) -> int:
+    runs = RunService(args.workspace).list_runs()
+    if not runs:
+        print("No runs")
         return 0
-    for summary in summaries:
-        print(
-            f"{summary.batch_id}\t{summary.created_at}\t{summary.task_count} tasks\t"
-            f"profiles={summary.execution_profiles}\tservers={summary.server_ids}"
+    for r in runs:
+        print(f"{r.run_id}\t{r.server_id}\t{r.remote_dir}\t{r.mode}\t{r.status_summary}")
+    return 0
+
+
+def _cmd_run_submit(args) -> int:
+    server = _get_server(args)
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    sftp = create_sftp_client(ssh)
+    try:
+        result = RunService(args.workspace).submit_run(
+            args.run_id, ssh, sftp,
+            env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
         )
+    finally:
+        sftp.close()
+        ssh.close()
+    print(f"submitted={result.submitted_task_count}, errors={len(result.errors)}")
+    for e in result.errors:
+        print(f"  ERROR: {e}")
+    return 0 if not result.errors else 2
+
+
+def _cmd_run_refresh(args) -> int:
+    record = RunService(args.workspace).load_run(args.run_id)
+    server = _get_server_by_id(args, record.server_id)
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    try:
+        result = refresh_batch_status(
+            ssh=ssh,
+            manifest_path=record.manifest_path,
+            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+            batch_id=record.run_id,
+            write=True,
+        )
+    finally:
+        ssh.close()
+    RunService(args.workspace).update_run_from_manifest(args.run_id)
+    print(f"changed={result.changed_count}, warnings={len(result.warnings)}")
     return 0
 
 
-def _cmd_create_batch(args) -> int:
-    ctx = _ctx(args)
-    svc = WorkflowService(ctx)
-    packages = svc.scan_inputs()
-    profiles = {package.execution_profile for package in packages}
-    resolved = resolve_execution_contexts_for_project(
-        ctx.project_config,
-        profiles,
-        _binding_store(args),
-        args.servers_yaml,
-    )
-    result = svc.create_batch(packages, resolved, batch_id=args.batch_id)
-    print(f"created batch {result.batch_meta.batch_id}: {len(result.tasks)} tasks")
+def _cmd_run_download(args) -> int:
+    record = RunService(args.workspace).load_run(args.run_id)
+    server = _get_server_by_id(args, record.server_id)
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    sftp = create_sftp_client(ssh)
+    try:
+        patterns = [p.strip() for p in args.patterns.split(",") if p.strip()]
+        records, failures = RunService(args.workspace).download_completed(args.run_id, sftp, patterns)
+    finally:
+        sftp.close()
+        ssh.close()
+    transferred = sum(1 for r in records if r.status == TransferStatus.transferred)
+    print(f"downloaded={transferred}, failures={len(failures)}")
+    return 0 if not failures else 2
+
+
+def _cmd_run_cancel(args) -> int:
+    svc = RunService(args.workspace)
+    record = svc.load_run(args.run_id)
+    tasks = __import__("jobdesk_app.core.manifest", fromlist=["Manifest"]).Manifest.read(record.manifest_path)
+    changed = 0
+    for task in tasks:
+        if task.status in ("uploaded", "submitted", "running"):
+            from .core.lifecycle import TaskStatus
+            task.status = TaskStatus.failed
+            task.error_message = "cancelled"
+            changed += 1
+    from .core.manifest import Manifest
+    Manifest.write(record.manifest_path, tasks)
+    svc.update_run_from_manifest(args.run_id)
+    print(f"cancelled {changed} task(s)")
     return 0
 
 
-def _load_batch_or_raise(args):
-    ctx = _ctx(args)
-    result = WorkflowService(ctx).load_batch(args.batch_id)
-    if result is None:
-        raise SystemExit(f"batch not found: {args.batch_id}")
-    return ctx, result
+def _cmd_run_delete(args) -> int:
+    import shutil
+    svc = RunService(args.workspace)
+    record = svc.load_run(args.run_id)
+    shutil.rmtree(record.run_dir)
+    results_dir = Path(args.workspace) / "results" / args.run_id
+    shutil.rmtree(results_dir, ignore_errors=True)
+    print(f"deleted run {args.run_id}")
+    return 0
 
 
-def _server_map(ctx):
-    if ctx.servers_path is None:
-        raise SystemExit("servers.yaml is required for remote operations")
-    return load_servers(ctx.servers_path).servers
+def _cmd_run_retry(args) -> int:
+    changed = RunService(args.workspace).prepare_retry_failed(args.run_id)
+    if changed == 0:
+        print("No failed tasks to retry")
+        return 0
+    print(f"reset {changed} failed task(s) to uploaded, run `jobdesk run submit` to resubmit")
+    return 0
 
 
-def _cmd_upload(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    servers = _server_map(ctx)
-    svc = WorkflowService(ctx)
-    records, failures = svc.upload_tasks(
-        batch.tasks,
-        lambda server_id: _DryRunSFTP() if args.dry_run else _ConnectedSFTP(servers[server_id]),
-        dry_run=args.dry_run,
-        batch_dir=batch.batch_dir,
-        manifest_path=batch.manifest_path,
-    )
-    print(f"upload: records={len(records)}, failures={len(failures)}")
-    return 0 if not failures else 2
+def _cmd_run_rerun(args) -> int:
+    changed = RunService(args.workspace).prepare_rerun(args.run_id)
+    print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
+    return 0
 
 
-def _cmd_submit(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    svc = WorkflowService(ctx)
+# ---- files commands -------------------------------------------------------
 
-    def ssh_factory(server_config):
-        ssh = create_ssh_client(server_config)
+
+def _file_transfer_service(args, server_id: str) -> FileTransferService:
+    server = _get_server_by_id(args, server_id)
+
+    def factory():
+        ssh = create_ssh_client(server)
         ssh.connect()
-        return ssh
+        sftp = create_sftp_client(ssh)
+        return sftp
 
-    def sftp_factory(server_config):
-        return _ConnectedSFTP(server_config)
-
-    results = svc.submit_batch(batch.manifest_path, args.batch_id, ssh_factory, sftp_factory)
-    errors = sum(len(result.errors) for result in results)
-    submitted = sum(result.submitted_task_count for result in results)
-    print(f"submit: submitted={submitted}, errors={errors}")
-    return 0 if errors == 0 else 2
+    return FileTransferService(factory)
 
 
-def _cmd_refresh(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    svc = WorkflowService(ctx)
-
-    def ssh_factory(server_config):
-        ssh = create_ssh_client(server_config)
-        ssh.connect()
-        return ssh
-
-    results, failures = svc.refresh_batch(batch.manifest_path, args.batch_id, ssh_factory)
-    changed = sum(result.changed_count for result in results)
-    print(f"refresh: changed={changed}, failures={len(failures)}")
-    return 0 if not failures else 2
+def _cmd_files_list_remote(args) -> int:
+    entries = _file_transfer_service(args, args.server_id).list_remote(args.remote_path)
+    for entry in entries:
+        kind = "dir" if entry.is_dir else "file"
+        size = "" if entry.size_bytes is None else str(entry.size_bytes)
+        print(f"{kind}\t{size}\t{entry.permissions}\t{entry.path}")
+    return 0
 
 
-def _cmd_download(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    servers = _server_map(ctx)
-    records, failures = WorkflowService(ctx).download_completed(
-        Manifest.read(batch.manifest_path),
-        lambda server_id: _DryRunSFTP() if args.dry_run else _ConnectedSFTP(servers[server_id]),
-        dry_run=args.dry_run,
-        manifest_path=batch.manifest_path,
+def _cmd_files_upload(args) -> int:
+    records = _file_transfer_service(args, args.server_id).upload_path(
+        args.local_path, args.remote_path, OverwritePolicy.skip_same_size
     )
-    print(f"download: records={len(records)}, failures={len(failures)}")
-    return 0 if not failures else 2
-
-
-def _cmd_analyze(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    results, failures, summaries = WorkflowService(ctx).analyze_batch(batch.tasks, args.batch_id)
-    print(
-        f"analyze: results={len(results)}, failures={len(failures)}, "
-        f"groups={len(summaries)}"
-    )
-    return 0 if not failures else 2
-
-
-def build_remote_cleanup_commands(
-    remote_work_dirs: list[str],
-    batch_id: str,
-    dry_run: bool = True,
-) -> list[str]:
-    _validate_safe_name(batch_id, "batch_id")
-    commands: list[str] = []
-    for remote_work_dir in remote_work_dirs:
-        _validate_remote_work_dir(remote_work_dir)
-        target = f"{remote_work_dir.rstrip('/')}/{batch_id}"
-        quoted = shlex.quote(target)
-        if dry_run:
-            commands.append(f"test -d {quoted} && printf '%s\\n' {quoted} || true")
-        else:
-            commands.append(f"test -d {quoted} && rm -rf -- {quoted} || true")
-    return commands
-
-
-def _cmd_cleanup_remote(args) -> int:
-    ctx, batch = _load_batch_or_raise(args)
-    by_server: dict[str, set[str]] = {}
-    for task in batch.tasks:
-        by_server.setdefault(task.server_id or "", set()).add(task.remote_work_dir or "")
-
-    servers = _server_map(ctx)
-    failures = 0
-    for server_id, remote_work_dirs in sorted(by_server.items()):
-        if not server_id:
-            failures += 1
-            print("cleanup-remote: task missing server_id")
-            continue
-        ssh = create_ssh_client(servers[server_id])
-        ssh.connect()
-        try:
-            for command in build_remote_cleanup_commands(
-                sorted(remote_work_dirs),
-                args.batch_id,
-                dry_run=args.dry_run,
-            ):
-                result = ssh.run(command)
-                print(f"{server_id}: {result.stdout or command}")
-                if result.exit_code != 0:
-                    failures += 1
-        finally:
-            ssh.close()
+    if not isinstance(records, list):
+        records = [records]
+    failures = sum(1 for r in records if r.status == TransferStatus.failed)
+    print(f"upload: records={len(records)}, failures={failures}")
     return 0 if failures == 0 else 2
 
 
-def _validate_safe_name(value: str, label: str) -> None:
-    if not value or "/" in value or "\\" in value or ".." in value.split("."):
-        raise ValueError(f"unsafe {label}: {value!r}")
+def _cmd_files_download(args) -> int:
+    records = _file_transfer_service(args, args.server_id).download_path(
+        args.remote_path, args.local_path, OverwritePolicy.skip_same_size
+    )
+    if not isinstance(records, list):
+        records = [records]
+    failures = sum(1 for r in records if r.status == TransferStatus.failed)
+    print(f"download: records={len(records)}, failures={failures}")
+    return 0 if failures == 0 else 2
 
 
-def _validate_remote_work_dir(value: str) -> None:
-    if not value or not value.startswith("/") or "\\" in value or ".." in value.split("/"):
-        raise ValueError(f"unsafe remote_work_dir: {value!r}")
+def _cmd_files_mkdir(args) -> int:
+    _file_transfer_service(args, args.server_id).mkdir_remote(args.remote_path)
+    print(f"created {args.remote_path}")
+    return 0
+
+
+def _cmd_files_preview(args) -> int:
+    print(_file_transfer_service(args, args.server_id).preview_remote_text(args.remote_path), end="")
+    return 0
+
+
+# ---- helpers --------------------------------------------------------------
+
+
+def _get_server(args):
+    """Get server config for the run being operated on."""
+    record = RunService(args.workspace).load_run(args.run_id)
+    return _get_server_by_id(args, record.server_id)
+
+
+def _get_server_by_id(args, server_id: str):
+    servers = load_servers(args.servers_yaml).servers if args.servers_yaml else load_servers().servers
+    if server_id not in servers:
+        raise SystemExit(f"server not found: {server_id}")
+    return servers[server_id]
 
 
 if __name__ == "__main__":
