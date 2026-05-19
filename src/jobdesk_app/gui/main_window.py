@@ -90,12 +90,18 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, title, message)
 
     def shutdown(self):
-        from dataclasses import replace
-        current = self._settings_store.load()
-        self._settings_store.save(replace(current, window_size=[self.width(), self.height()]))
+        try:
+            from dataclasses import replace
+            current = self._settings_store.load()
+            self._settings_store.save(replace(current, window_size=[self.width(), self.height()]))
+        except Exception:
+            pass
         for page in (self.files_page, self.runs_page, self.settings_page):
             if hasattr(page, "shutdown"):
-                page.shutdown()
+                try:
+                    page.shutdown()
+                except Exception:
+                    pass
 
     def closeEvent(self, event):
         self.shutdown()
