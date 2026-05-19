@@ -197,6 +197,11 @@ class SettingsServersPage(QWidget):
         self.server_table.setHorizontalHeaderLabels(["ID", "主机", "端口", "用户", "状态"])
         self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.server_table.setMaximumHeight(200)
+        self.server_table.setStyleSheet(
+            "QTableWidget { background: transparent; border: none; alternate-background-color: transparent; }"
+            " QTableWidget::item { background: transparent; }"
+            " QHeaderView::section { background: transparent; border: none; }"
+        )
         srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
