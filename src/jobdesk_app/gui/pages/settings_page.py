@@ -54,13 +54,6 @@ class SettingsPage(QWidget):
         self.general_box = QGroupBox()
         form = QFormLayout(self.general_box)
 
-        local_row = QHBoxLayout()
-        self.local_folder_edit = QLineEdit()
-        self.browse_btn = QPushButton()
-        self.browse_btn.clicked.connect(self._browse_local_folder)
-        local_row.addWidget(self.local_folder_edit, 1)
-        local_row.addWidget(self.browse_btn)
-
         self.remote_dir_edit = QLineEdit()
         self.server_combo = QComboBox()
         self.auto_connect_check = QCheckBox()
@@ -68,14 +61,12 @@ class SettingsPage(QWidget):
         self.max_parallel_spin.setRange(1, 9999)
         self.language_combo = QComboBox()
 
-        self.local_folder_label = QLabel()
         self.server_label = QLabel()
         self.remote_dir_label = QLabel()
         self.connection_label = QLabel()
         self.max_parallel_label = QLabel()
         self.language_label = QLabel()
 
-        form.addRow(self.local_folder_label, local_row)
         form.addRow(self.server_label, self.server_combo)
         form.addRow(self.remote_dir_label, self.remote_dir_edit)
         form.addRow(self.connection_label, self.auto_connect_check)
@@ -113,8 +104,6 @@ class SettingsPage(QWidget):
         self._language = language
         self.general_box.setTitle(tr("Defaults", language))
         self.paths_box.setTitle(tr("Paths", language))
-        self.browse_btn.setText(tr("Browse", language))
-        self.local_folder_label.setText(tr("Default local folder:", language))
         self.server_label.setText(tr("Default server:", language))
         self.remote_dir_label.setText(tr("Default remote directory:", language))
         self.connection_label.setText(tr("Connection:", language))
@@ -150,7 +139,6 @@ class SettingsPage(QWidget):
 
     def _load_settings(self):
         settings = self._store.load()
-        self.local_folder_edit.setText(settings.default_local_folder)
         self.remote_dir_edit.setText(settings.default_remote_dir)
         idx = self.server_combo.findData(settings.default_server_id)
         if idx >= 0:
@@ -178,7 +166,8 @@ class SettingsPage(QWidget):
     def _settings_from_controls(self) -> GuiSettings:
         existing = self._store.load()
         return GuiSettings(
-            default_local_folder=self.local_folder_edit.text().strip(),
+            default_local_folder=existing.default_local_folder,
+            last_local_folder=existing.last_local_folder,
             default_remote_dir=self.remote_dir_edit.text().strip() or "/tmp",
             default_server_id=self.server_combo.currentData() or "",
             auto_connect=self.auto_connect_check.isChecked(),
@@ -205,11 +194,6 @@ class SettingsPage(QWidget):
         ))
         self._load_paths()
         self.language_changed.emit(self._language)
-
-    def _browse_local_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Default Local Folder", self.local_folder_edit.text())
-        if path:
-            self.local_folder_edit.setText(path)
 
     def _clear_run_profiles(self):
         path = RunProfileStore().path

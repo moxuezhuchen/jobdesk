@@ -278,6 +278,7 @@ class FileTransferPage(QWidget):
         self._remote_list_fallbacks: list[str] = []
         self._server_remote_dirs: dict[str, str] = {}
         self._background_workers = []
+        self._initialized = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -472,7 +473,13 @@ class FileTransferPage(QWidget):
     def on_activated(self):
         self._gui_settings = GuiSettingsStore().load()
         self.apply_language(self._gui_settings.language)
-        self._apply_gui_settings()
+        if not self._initialized:
+            self._initialized = True
+            self._apply_default_local_folder()
+            local_root = str(self.state.current_project_root or Path.cwd())
+            self.local_path_btn.setText(local_root)
+            self.local_path_btn.setToolTip(local_root)
+        self._apply_gui_settings_no_folder()
         self._load_servers()
         self._refresh_local()
 
@@ -604,14 +611,18 @@ class FileTransferPage(QWidget):
 
     def _apply_gui_settings(self):
         self._apply_default_local_folder()
+        self._apply_gui_settings_no_folder()
+        local_root = str(self.state.current_project_root or Path.cwd())
+        self.local_path_btn.setText(local_root)
+        self.local_path_btn.setToolTip(local_root)
+
+    def _apply_gui_settings_no_folder(self):
+        """Apply settings that don't touch the local folder (safe to call on every tab switch)."""
         if self._gui_settings.default_remote_dir:
             self.remote_path.setText(self._gui_settings.default_remote_dir)
         self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
         self.batch_size_spin.setValue(self._gui_settings.batch_size)
-        local_root = str(self.state.current_project_root or Path.cwd())
-        self.local_path_btn.setText(local_root)
-        self.local_path_btn.setToolTip(local_root)
 
     def _refresh_local(self):
         base = self.state.current_project_root or Path.cwd()
@@ -900,7 +911,7 @@ class FileTransferPage(QWidget):
         import tempfile
         tmp = Path(tempfile.mktemp(suffix=".xyz"))
         try:
-            self._service.sftp.get(remote_path, str(tmp))
+            self._service.download_path(remote_path, str(tmp))
         except Exception as exc:
             self._status_cb(f"Download failed: {exc}")
             return
@@ -911,7 +922,7 @@ class FileTransferPage(QWidget):
             gen = dlg.generated_path()
             remote_dest = f"{self.remote_path.text().rstrip('/')}/{gen.name}"
             try:
-                self._service.sftp.put(str(gen), remote_dest)
+                self._service.upload_path(str(gen), remote_dest)
                 self._refresh_remote()
                 self._status_cb(f"Uploaded: {remote_dest}")
             except Exception as exc:
@@ -942,7 +953,7 @@ class FileTransferPage(QWidget):
         suffix = Path(remote_path).suffix or ".tmp"
         tmp = Path(tempfile.mktemp(suffix=suffix))
         try:
-            self._service.sftp.get(remote_path, str(tmp))
+            self._service.download_path(remote_path, str(tmp))
         except Exception as exc:
             self._status_cb(f"Download failed: {exc}")
             return
@@ -1013,7 +1024,8 @@ class FileTransferPage(QWidget):
         tmp_file = tmp_dir / name
 
         def _download():
-            self._service.sftp.get(remote_path, str(tmp_file))
+            from ...core.file_transfer import OverwritePolicy
+            self._service.download_path(remote_path, str(tmp_file), OverwritePolicy.overwrite)
             return tmp_file
 
         def _on_done(path):
