@@ -67,6 +67,26 @@ def _build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--patterns", default="*.log")
     dl.set_defaults(func=_cmd_run_download)
 
+    # -- workflow subcommand group --
+    wf = sub.add_parser("workflow", help="Multi-step workflow chains")
+    wf_sub = wf.add_subparsers(dest="wf_command", required=True)
+
+    wf_list = wf_sub.add_parser("list")
+    wf_list.set_defaults(func=_cmd_workflow_list)
+
+    wf_run = wf_sub.add_parser("run")
+    wf_run.add_argument("workspace", type=Path)
+    wf_run.add_argument("workflow_name")
+    wf_run.add_argument("--server", required=True)
+    wf_run.add_argument("--remote-dir", required=True)
+    wf_run.add_argument("--files", nargs="+", default=[])
+    wf_run.set_defaults(func=_cmd_workflow_run)
+
+    wf_status = wf_sub.add_parser("status")
+    wf_status.add_argument("workspace", type=Path)
+    wf_status.add_argument("workflow_id")
+    wf_status.set_defaults(func=_cmd_workflow_status)
+
     # -- files subcommand group --
     files = sub.add_parser("files", help="Remote file operations")
     files_sub = files.add_subparsers(dest="files_command", required=True)
@@ -230,6 +250,42 @@ def _cmd_run_retry(args) -> int:
 def _cmd_run_rerun(args) -> int:
     changed = RunService(args.workspace).prepare_rerun(args.run_id)
     print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
+    return 0
+
+
+def _cmd_workflow_list(args) -> int:
+    from .services.workflow_service import BUILTIN_WORKFLOWS
+    for name, spec in BUILTIN_WORKFLOWS.items():
+        steps = " → ".join(s.name for s in spec.steps)
+        print(f"{name}: {spec.description} [{steps}]")
+    return 0
+
+
+def _cmd_workflow_run(args) -> int:
+    from .services.workflow_service import BUILTIN_WORKFLOWS, WorkflowRunner
+    spec = BUILTIN_WORKFLOWS.get(args.workflow_name)
+    if spec is None:
+        print(f"Unknown workflow: {args.workflow_name}. Use 'jobdesk workflow list' to see available workflows.")
+        return 2
+    runner = WorkflowRunner(args.workspace)
+    wf_run = runner.start(spec, args.server, args.remote_dir, args.files)
+    print(f"Started workflow {wf_run.workflow_id} ({spec.name})")
+    print(f"Steps: {', '.join(s.name for s in spec.steps)}")
+    print(f"Use 'jobdesk workflow status {args.workspace} {wf_run.workflow_id}' to check progress")
+    return 0
+
+
+def _cmd_workflow_status(args) -> int:
+    from .services.workflow_service import WorkflowRun
+    try:
+        wf_run = WorkflowRun.load(args.workspace, args.workflow_id)
+    except FileNotFoundError:
+        print(f"Workflow not found: {args.workflow_id}")
+        return 2
+    print(f"Workflow: {wf_run.workflow_name} ({wf_run.workflow_id})")
+    for step_name, status in wf_run.step_status.items():
+        run_id = wf_run.step_run_ids.get(step_name, "")
+        print(f"  {step_name}: {status} (run={run_id})")
     return 0
 
 
