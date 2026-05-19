@@ -44,7 +44,7 @@ class Colors:
     # Table
     TABLE_HEADER_BG = "#f8fafc"
     TABLE_ALT_ROW = "#f8fafc"
-    TABLE_SELECTION = "#eff6ff"
+    TABLE_SELECTION = "#dbeafe"
 
 
 class Spacing:

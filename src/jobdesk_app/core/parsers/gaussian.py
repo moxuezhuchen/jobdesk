@@ -108,6 +108,12 @@ def parse_gaussian_log(path: Path | str) -> GaussianResult:
     if result.scf_energies:
         result.final_energy_au = result.scf_energies[-1]
 
+    # Fallback: extract from archive HF= field
+    if result.final_energy_au is None:
+        hf_match = re.search(r"HF=([-\d.]+)", text)
+        if hf_match:
+            result.final_energy_au = float(hf_match.group(1))
+
     # Convergence / termination
     result.converged = bool(_RE_CONVERGED.search(text))
     result.normal_termination = bool(_RE_NORMAL.search(text))

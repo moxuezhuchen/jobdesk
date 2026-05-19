@@ -10,7 +10,7 @@ from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.models import BatchMeta
 from ..core.run import RunPlan, RunSpec, build_run_plan
-from ..core.transfer import TransferStatus
+from ..core.transfer import TransferDirection, TransferRecord, TransferStatus
 from ..remote.submitter import JobSubmitter
 
 
@@ -30,11 +30,29 @@ class RunRecord:
 
 
 class RunService:
-    def __init__(self, workspace_dir: str | Path):
-        self.workspace_dir = Path(workspace_dir).resolve()
-        self.runs_dir = self.workspace_dir / ".jobdesk" / "runs"
+    def __init__(self, workspace_dir: str | Path | None = None):
+        import os
+        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+        self.runs_dir = Path(appdata) / "JobDesk" / "runs"
+        self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
+
+    def _next_run_id(self) -> str:
+        prefix = datetime.now().strftime("%y%m%d")
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        existing = [d.name for d in self.runs_dir.iterdir() if d.is_dir() and d.name.startswith(prefix + "-")]
+        max_num = 0
+        for name in existing:
+            parts = name.split("-", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                max_num = max(max_num, int(parts[1]))
+        candidate = max_num + 1
+        while (self.runs_dir / f"{prefix}-{candidate:03d}").exists():
+            candidate += 1
+        return f"{prefix}-{candidate:03d}"
 
     def create_run(self, spec: RunSpec, run_id: str | None = None) -> RunRecord:
+        if run_id is None:
+            run_id = self._next_run_id()
         plan = build_run_plan(spec, run_id)
         run_dir = self.runs_dir / plan.run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -114,24 +132,58 @@ class RunService:
         for task in tasks:
             if task.status != TaskStatus.remote_completed:
                 continue
-            task_ok = True
-            for pattern in patterns:
-                local_path = self.workspace_dir / "results" / run_id / task.task_id / pattern
-                try:
-                    local_path.parent.mkdir(parents=True, exist_ok=True)
-                    rec = sftp.download_file(
-                        f"{task.remote_job_dir}/{pattern}",
-                        local_path,
-                        overwrite=False,
-                        skip_if_same_size=True,
-                    )
-                    records.append(rec)
-                    if rec.status not in (TransferStatus.transferred, TransferStatus.skipped):
-                        task_ok = False
-                        failures.append((task.task_id, rec.reason))
-                except Exception as exc:
-                    task_ok = False
-                    failures.append((task.task_id, str(exc)))
+            local_dir = self.workspace_dir / "results" / run_id / task.task_id
+            local_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                # Try task job dir first
+                recs = sftp.download_dir(
+                    task.remote_job_dir,
+                    local_dir,
+                    include_globs=patterns,
+                    overwrite=False,
+                    skip_if_same_size=True,
+                )
+                useful = [r for r in recs if r.status in (TransferStatus.transferred, TransferStatus.skipped)
+                          and not r.remote_path.split("/")[-1].startswith(".jobdesk")]
+                # Fallback: download from remote_work_dir to workspace root (no duplication)
+                if not useful and task.remote_work_dir and task.remote_task_files:
+                    stem = task.remote_task_files[0].rsplit(".", 1)[0] if "." in task.remote_task_files[0] else task.remote_task_files[0]
+                    for pat in patterns:
+                        ext = pat.lstrip("*")  # "*.log" -> ".log"
+                        remote_file = f"{task.remote_work_dir.rstrip('/')}/{stem}{ext}"
+                        local_file = self.workspace_dir / f"{stem}{ext}"
+                        if local_file.is_file():
+                            # Already exists locally, skip
+                            remote_st = sftp.stat(remote_file)
+                            if remote_st and local_file.stat().st_size == remote_st.st_size:
+                                recs.append(TransferRecord(
+                                    direction=TransferDirection.download,
+                                    local_path=str(local_file),
+                                    remote_path=remote_file,
+                                    size_bytes=local_file.stat().st_size,
+                                    status=TransferStatus.skipped,
+                                    reason="本地已存在相同文件",
+                                ))
+                                continue
+                        try:
+                            rec = sftp.download_file(remote_file, local_file, overwrite=False, skip_if_same_size=True)
+                            if rec.status in (TransferStatus.transferred, TransferStatus.skipped):
+                                recs.append(rec)
+                        except Exception:
+                            pass
+                records.extend(recs)
+                task_ok = any(
+                    r.status in (TransferStatus.transferred, TransferStatus.skipped)
+                    and not r.remote_path.split("/")[-1].startswith(".jobdesk")
+                    for r in recs
+                )
+                if not task_ok:
+                    for r in recs:
+                        if r.status not in (TransferStatus.transferred, TransferStatus.skipped):
+                            failures.append((task.task_id, r.reason))
+            except Exception as exc:
+                task_ok = False
+                failures.append((task.task_id, str(exc)))
             if task_ok:
                 task.status = TaskStatus.downloaded
         Manifest.write(record.manifest_path, tasks)
@@ -173,15 +225,12 @@ class RunService:
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
         import shutil
-        run_dir = self._runs_dir() / run_id
+        run_dir = self.runs_dir / run_id
         if run_dir.exists():
             shutil.rmtree(run_dir)
-        results_dir = self._workspace / "results" / run_id
+        results_dir = self.workspace_dir / "results" / run_id
         if results_dir.exists():
             shutil.rmtree(results_dir)
-        profile = self._workspace / ".jobdesk" / "analysis_profiles" / f"{run_id}.json"
-        if profile.exists():
-            profile.unlink()
 
     def _record_from_parts(
         self,

@@ -319,7 +319,7 @@ class FileTransferPage(QWidget):
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(8)
+        splitter.setHandleWidth(1)
         splitter.setMinimumWidth(0)
         self.local_table = _FileTable("local")
         self.remote_table = _FileTable("remote")
@@ -329,6 +329,8 @@ class FileTransferPage(QWidget):
         self.remote_table.setMinimumHeight(180)
         self.local_table.setAlternatingRowColors(True)
         self.remote_table.setAlternatingRowColors(True)
+        self.local_table.setSortingEnabled(True)
+        self.remote_table.setSortingEnabled(True)
         self.local_table.drop_files.connect(self._upload_dropped_local_paths)
         self.remote_table.drop_files.connect(self._download_dropped_remote_paths)
         _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
@@ -345,6 +347,10 @@ class FileTransferPage(QWidget):
         self.remote_table.customContextMenuRequested.connect(self._remote_context_menu)
         self.local_table.itemDoubleClicked.connect(self._open_local_item)
         self.remote_table.itemDoubleClicked.connect(self._open_remote_item)
+        self.local_table.key_delete.connect(self._delete_local)
+        self.local_table.key_enter.connect(self._enter_local)
+        self.remote_table.key_delete.connect(self._delete_remote)
+        self.remote_table.key_enter.connect(self._enter_remote)
         local_pane = QWidget()
         local_pane.setMinimumWidth(160)
         local_pane_layout = QVBoxLayout(local_pane)
@@ -353,15 +359,16 @@ class FileTransferPage(QWidget):
         local_header_widget = QWidget()
         local_header_widget.setObjectName("LocalHeader")
         local_header_widget.setStyleSheet(
-            "#LocalHeader { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#LocalHeader { background: #e2e8f0; border: 1px solid #cbd5e1;"
+            " border-radius: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0; }"
             " #LocalHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #LocalHeader QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
         )
         local_header_widget.setFixedHeight(60)
-        local_header = QHBoxLayout()
-        local_header_widget.setLayout(local_header)
-        local_header.setContentsMargins(0, 0, 0, 0)
-        local_header.setSpacing(4)
+        local_header = QHBoxLayout(local_header_widget)
+        local_header.setContentsMargins(8, 0, 8, 0)
+        local_header.setSpacing(12)
         local_header.addWidget(self.local_path_btn, 1)
         local_header.addWidget(self.refresh_btn, 0)
         local_pane_layout.addWidget(local_header_widget)
@@ -375,19 +382,20 @@ class FileTransferPage(QWidget):
         remote_header_widget = QWidget()
         remote_header_widget.setObjectName("RemoteHeader")
         remote_header_widget.setStyleSheet(
-            "#RemoteHeader { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#RemoteHeader { background: #e2e8f0; border: 1px solid #cbd5e1;"
+            " border-radius: 6px; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
             " #RemoteHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #RemoteHeader QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
             " #RemoteHeader QLineEdit, #RemoteHeader QComboBox {"
             " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
             " padding: 0 8px; min-height: 44px; max-height: 44px; }"
             " #RemoteHeader QLabel { background: transparent; }"
         )
         remote_header_widget.setFixedHeight(60)
-        remote_header = QHBoxLayout()
-        remote_header_widget.setLayout(remote_header)
-        remote_header.setContentsMargins(0, 0, 0, 0)
-        remote_header.setSpacing(4)
+        remote_header = QHBoxLayout(remote_header_widget)
+        remote_header.setContentsMargins(8, 0, 8, 0)
+        remote_header.setSpacing(12)
         remote_header.addWidget(self.server_label, 0)
         remote_header.addWidget(self.server_combo, 0)
         remote_header.addWidget(self.connection_label)
@@ -408,12 +416,13 @@ class FileTransferPage(QWidget):
             "#RunPanel { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
             " #RunPanel QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #RunPanel QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
             " #RunPanel QLineEdit, #RunPanel QComboBox, #RunPanel QSpinBox {"
             " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
             " padding: 0 8px; min-height: 44px; max-height: 44px; }"
             " #RunPanel QLabel { background: transparent; }"
         )
-        run_panel.setMinimumHeight(68)
+        run_panel.setMinimumHeight(110)
         run_layout = QVBoxLayout(run_panel)
         run_layout.setContentsMargins(16, 8, 16, 8)
         run_layout.setSpacing(4)
@@ -678,16 +687,21 @@ class FileTransferPage(QWidget):
         parent = local_parent_row(base)
         if parent is not None:
             rows.append(parent)
-        for child in sorted(Path(base).iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name)):
+        try:
+            children = sorted(Path(base).iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name))
+        except PermissionError:
+            self._status_cb(f"无权限访问: {base}")
+            children = []
+        for child in children:
             if hide_dot and child.name.startswith("."):
                 continue
-            rows.append(local_table_row(
-                child.name,
-                child.is_dir(),
-                "" if child.is_dir() else format_file_size(child.stat().st_size),
-                str(child),
-                format_modified_time(child.stat().st_mtime),
-            ))
+            try:
+                is_dir = child.is_dir()
+                size = "" if is_dir else format_file_size(child.stat().st_size)
+                mtime = format_modified_time(child.stat().st_mtime)
+            except (PermissionError, OSError):
+                continue
+            rows.append(local_table_row(child.name, is_dir, size, str(child), mtime))
         _load_rows(self.local_table, rows)
         self._update_selection_summary()
 
@@ -1062,6 +1076,16 @@ class FileTransferPage(QWidget):
             self.remote_table.setCurrentCell(row, 0)
             self._open_remote_file_in_editor(path_item.text())
 
+    def _enter_local(self):
+        item = self.local_table.currentItem()
+        if item:
+            self._open_local_item(item)
+
+    def _enter_remote(self):
+        item = self.remote_table.currentItem()
+        if item:
+            self._open_remote_item(item)
+
     def _open_remote_file_in_editor(self, remote_path: str):
         """Download remote file to a temp directory and open with the default OS editor."""
         if self._service is None:
@@ -1110,7 +1134,7 @@ class FileTransferPage(QWidget):
             )
             if not isinstance(records, list):
                 records = [records]
-            self.queue_label.setText(format_queue_summary([r.status for r in records], self._language))
+            self._status_cb(format_queue_summary([r.status for r in records], self._language))
             self._refresh_remote()
         except Exception as exc:
             self._error_cb("Upload Error", str(exc))
@@ -1186,7 +1210,7 @@ class FileTransferPage(QWidget):
             self.progress_bar.setMaximum(100)
             if not isinstance(records, list):
                 records = [records]
-            self.queue_label.setText(format_queue_summary([r.status for r in records], self._language))
+            self._status_cb(format_queue_summary([r.status for r in records], self._language))
             on_done_refresh()
 
         def _on_error(msg):
@@ -1205,43 +1229,71 @@ class FileTransferPage(QWidget):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        records = []
-        try:
+        # If paths are remote (start with /), treat as download
+        if paths and paths[0].startswith("/"):
+            self._download_dropped_remote_paths(paths)
+            return
+        service = self._service
+        remote_dir = self.remote_path.text().strip() or "/"
+
+        def _run():
+            records = []
             for path_text in paths:
                 local_path = Path(path_text)
                 if not local_path.exists():
                     continue
-                result = self._service.upload_path(
+                target = remote_child_path(remote_dir, local_path.name)
+                result = service.upload_path(
                     local_path,
-                    self._remote_target_for_local(local_path),
+                    target,
                     OverwritePolicy.skip_same_size,
                 )
                 records.extend(result if isinstance(result, list) else [result])
-            if records:
-                self.queue_label.setText(format_queue_summary([r.status for r in records], self._language))
-                self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("Drop Upload Error", str(exc))
+            return records
+
+        from ..workers import BackgroundWorker
+        w = BackgroundWorker(_run)
+        w.result.connect(lambda recs: (
+            self._status_cb(format_queue_summary([r.status for r in recs], self._language)) if recs else None,
+            self._refresh_remote()
+        ))
+        w.error.connect(lambda e: self._error_cb("Drop Upload Error", str(e)))
+        w.finished.connect(w.deleteLater)
+        self._keep_worker(w)
+        w.start()
 
     def _download_dropped_remote_paths(self, paths: list[str]):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        records = []
+        # If paths look like local files (Windows paths), treat as upload
+        if paths and (paths[0].startswith("/") is False) and Path(paths[0]).exists():
+            self._upload_dropped_local_paths(paths)
+            return
+        service = self._service
         local_base = self.state.current_project_root or Path.cwd()
-        try:
+
+        def _run():
+            records = []
             for remote_path in paths:
-                result = self._service.download_path(
+                result = service.download_path(
                     remote_path,
                     Path(local_base) / Path(remote_path).name,
                     OverwritePolicy.skip_same_size,
                 )
                 records.extend(result if isinstance(result, list) else [result])
-            if records:
-                self.queue_label.setText(format_queue_summary([r.status for r in records], self._language))
-                self._refresh_local()
-        except Exception as exc:
-            self._error_cb("Drop Download Error", str(exc))
+            return records
+
+        from ..workers import BackgroundWorker
+        w = BackgroundWorker(_run)
+        w.result.connect(lambda recs: (
+            self._status_cb(format_queue_summary([r.status for r in recs], self._language)) if recs else None,
+            self._refresh_local()
+        ))
+        w.error.connect(lambda e: self._error_cb("Drop Download Error", str(e)))
+        w.finished.connect(w.deleteLater)
+        self._keep_worker(w)
+        w.start()
 
     def _mkdir_local(self):
         name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
@@ -1608,6 +1660,8 @@ class _ConnectedSFTP:
 
 class _FileTable(QTableWidget):
     drop_files = Signal(list)
+    key_delete = Signal()
+    key_enter = Signal()
 
     def __init__(self, role: str):
         super().__init__()
@@ -1616,6 +1670,14 @@ class _FileTable(QTableWidget):
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDrop)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.key_delete.emit()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.key_enter.emit()
+        else:
+            super().keyPressEvent(event)
 
     def startDrag(self, supported_actions):
         rows = sorted({idx.row() for idx in self.selectedIndexes()})
@@ -1699,20 +1761,37 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
     up_icon = style.standardIcon(QStyle.SP_ArrowUp)
     # kind column: local=3, remote=4
     kind_col = 4 if table.role == "remote" else 3
+    table.setSortingEnabled(False)
     table.setRowCount(len(rows))
     for r, row in enumerate(rows):
+        kind = row[kind_col] if kind_col < len(row) else ""
+        is_parent = (str(row[0]) == "..")
+        # Sort rank: ".." = 0, dir = 1, file = 2
+        sort_rank = 0 if is_parent else (1 if kind == "dir" else 2)
         for c, value in enumerate(row):
-            item = QTableWidgetItem(str(value))
+            item = _SortableItem(str(value), sort_rank)
             if c == 0:
-                name = str(value)
-                kind = row[kind_col] if kind_col < len(row) else ""
-                if name == "..":
+                if is_parent:
                     item.setIcon(up_icon)
                 elif kind == "dir":
                     item.setIcon(folder_icon)
                 else:
                     item.setIcon(file_icon)
             table.setItem(r, c, item)
+    table.setSortingEnabled(True)
+
+
+class _SortableItem(QTableWidgetItem):
+    """Table item that sorts directories before files."""
+
+    def __init__(self, text: str, sort_rank: int):
+        super().__init__(text)
+        self._sort_rank = sort_rank
+
+    def __lt__(self, other):
+        if isinstance(other, _SortableItem) and self._sort_rank != other._sort_rank:
+            return self._sort_rank < other._sort_rank
+        return self.text().lower() < other.text().lower()
 
 
 def _default_column_widths(key: str) -> list[int]:

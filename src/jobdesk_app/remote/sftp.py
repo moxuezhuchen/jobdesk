@@ -463,10 +463,12 @@ class SFTPClientWrapper:
             return records
 
         def _walk(rdir: str, rel_prefix: str):
-            for name in sorted(self.list_dir(rdir) or []):
+            import stat as stat_mod
+            for attr in sorted(self._sftp.listdir_attr(rdir), key=lambda a: a.filename or ""):
+                name = attr.filename
                 full = posixpath.join(rdir, name)
                 rel = posixpath.join(rel_prefix, name) if rel_prefix else name
-                if self.is_dir(full):
+                if stat_mod.S_ISDIR(attr.st_mode or 0):
                     _walk(full, rel)
                 else:
                     if not _matches_globs(rel, include_globs, exclude_globs):
@@ -512,17 +514,26 @@ def _matches_globs(
 
     使用 fnmatch 进行 glob 匹配。include 为空时默认包含全部。
     exclude 优先于 include。
+    对于不含路径分隔符的 pattern（如 *.log），同时匹配 basename。
     """
     import fnmatch
+    from posixpath import basename
+
+    name = basename(rel_path)
+
+    def _match(path, pat):
+        if "/" not in pat and "\\" not in pat:
+            return fnmatch.fnmatch(name, pat)
+        return fnmatch.fnmatch(path, pat)
 
     if excludes:
         for pat in excludes:
-            if fnmatch.fnmatch(rel_path, pat):
+            if _match(rel_path, pat):
                 return False
 
     if includes:
         for pat in includes:
-            if fnmatch.fnmatch(rel_path, pat):
+            if _match(rel_path, pat):
                 return True
         return False
 

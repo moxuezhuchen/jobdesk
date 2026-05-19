@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt, QPropertyAnimation, Property, QRectF
 from PySide6.QtGui import QPainter, QColor
 
-from ...config.servers import load_servers
+from ...config.servers import load_servers, get_default_servers_path
 from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ..i18n import tr
 from ..workers import BackgroundWorker
@@ -77,6 +77,7 @@ class SettingCard(QFrame):
             " #SettingCard QLabel { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #SettingCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
             " #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {"
             " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
             " padding: 0 8px; min-height: 44px; max-height: 44px; }"
@@ -166,6 +167,21 @@ class SettingsServersPage(QWidget):
         )
         layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", toggle_ctrl))
 
+        # ─── 下载文件模式 ───
+        layout.addSpacing(12)
+        dl_title = QLabel("下载文件模式")
+        dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        layout.addWidget(dl_title)
+        layout.addSpacing(4)
+
+        self.gaussian_patterns = QLineEdit()
+        self.gaussian_patterns.setPlaceholderText("*.log,*.chk")
+        layout.addWidget(SettingCard("Gaussian", "任务完成后自动下载的文件", self.gaussian_patterns))
+
+        self.orca_patterns = QLineEdit()
+        self.orca_patterns.setPlaceholderText("*.out,*.gbw")
+        layout.addWidget(SettingCard("ORCA", "任务完成后自动下载的文件", self.orca_patterns))
+
         # ─── 服务器 ───
         layout.addSpacing(12)
         srv_title = QLabel("服务器")
@@ -185,6 +201,7 @@ class SettingsServersPage(QWidget):
             " #SettingCard QTableCornerButton::section { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #SettingCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
         )
         srv_inner = QVBoxLayout(srv_card)
         srv_inner.setContentsMargins(16, 12, 16, 12)
@@ -211,12 +228,15 @@ class SettingsServersPage(QWidget):
         srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
-        self.reload_srv_btn = QPushButton("刷新")
-        self.reload_srv_btn.clicked.connect(self._load_servers)
         self.test_btn = QPushButton("测试连接")
         self.test_btn.clicked.connect(self._test_connection)
-        srv_btns.addWidget(self.reload_srv_btn)
+        self.edit_yaml_btn = QPushButton("添加服务器")
+        self.edit_yaml_btn.clicked.connect(self._add_server)
+        self.delete_srv_btn = QPushButton("删除")
+        self.delete_srv_btn.clicked.connect(self._delete_server)
         srv_btns.addWidget(self.test_btn)
+        srv_btns.addWidget(self.edit_yaml_btn)
+        srv_btns.addWidget(self.delete_srv_btn)
         srv_btns.addStretch()
         srv_inner.addLayout(srv_btns)
 
@@ -234,14 +254,16 @@ class SettingsServersPage(QWidget):
         bar_layout.addStretch()
         self.save_btn = QPushButton("保存设置")
         self.save_btn.setStyleSheet(
-            "background: #3b82f6; color: white; padding: 0 16px; border-radius: 4px;"
-            " min-height: 44px; max-height: 44px;"
+            "QPushButton { background: #3b82f6; color: white; padding: 0 16px; border-radius: 4px;"
+            " min-height: 44px; max-height: 44px; }"
+            " QPushButton:pressed { background: #1d4ed8; }"
         )
         self.save_btn.clicked.connect(self._save_settings)
         self.discard_btn = QPushButton("放弃更改")
         self.discard_btn.setStyleSheet(
-            "background: #cbd5e1; border: 1px solid #94a3b8; padding: 0 16px; border-radius: 4px;"
-            " min-height: 44px; max-height: 44px;"
+            "QPushButton { background: #cbd5e1; border: 1px solid #94a3b8; padding: 0 16px; border-radius: 4px;"
+            " min-height: 44px; max-height: 44px; }"
+            " QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
         )
         self.discard_btn.clicked.connect(self._load_settings)
         bar_layout.addWidget(self.save_btn)
@@ -276,29 +298,49 @@ class SettingsServersPage(QWidget):
             self.server_table.setItem(r, 4, QTableWidgetItem(""))
 
     def _test_connection(self):
-        row = self.server_table.currentRow()
-        if row < 0:
-            self._status_cb("请先选择服务器")
-            return
-        sid = self.server_table.item(row, 0).text()
-        self.server_table.setItem(row, 4, QTableWidgetItem("测试中..."))
         try:
             cfg = load_servers()
-            srv = cfg.servers[sid]
         except Exception:
             return
+        if not cfg.servers:
+            return
+        for row in range(self.server_table.rowCount()):
+            self.server_table.setItem(row, 4, QTableWidgetItem("测试中..."))
+
+        servers_list = sorted(cfg.servers.items())
 
         def _run():
-            ssh = create_ssh_client(srv)
-            try:
-                ssh.connect()
-                return "connected" if ssh.test_connection() else "no-response"
-            finally:
-                ssh.close()
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _test_one(sid, srv):
+                try:
+                    ssh = create_ssh_client(srv)
+                    ssh.connect()
+                    ok = ssh.test_connection()
+                    ssh.close()
+                    return sid, "connected" if ok else "no-response"
+                except Exception as e:
+                    return sid, f"错误: {e}"
+
+            with ThreadPoolExecutor(max_workers=len(servers_list)) as pool:
+                futures = {pool.submit(_test_one, sid, srv): sid for sid, srv in servers_list}
+                for f in as_completed(futures):
+                    sid, status = f.result()
+                    self._worker.log.emit(f"{sid}\t{status}")
+            return {}
 
         self._worker = BackgroundWorker(_run)
-        self._worker.result.connect(lambda s: self.server_table.setItem(row, 4, QTableWidgetItem(s)))
-        self._worker.error.connect(lambda e: self.server_table.setItem(row, 4, QTableWidgetItem(f"错误: {e}")))
+
+        def _on_log(msg):
+            sid, status = msg.split("\t", 1)
+            for row in range(self.server_table.rowCount()):
+                if self.server_table.item(row, 0).text() == sid:
+                    self.server_table.setItem(row, 4, QTableWidgetItem(status))
+                    break
+
+        self._worker.log.connect(_on_log)
+        self._worker.error.connect(lambda e: self._status_cb(f"测试失败: {e}"))
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
     def _load_settings(self):
@@ -310,6 +352,9 @@ class SettingsServersPage(QWidget):
             self.language_combo.setCurrentIndex(idx)
         self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
         self._toggle_label.setText("开" if s.hide_dotfiles else "关")
+        patterns = s.software_download_patterns or {}
+        self.gaussian_patterns.setText(patterns.get("Gaussian", "*.log,*.chk"))
+        self.orca_patterns.setText(patterns.get("ORCA", "*.out,*.gbw"))
 
     def _save_settings(self):
         from dataclasses import replace
@@ -320,6 +365,10 @@ class SettingsServersPage(QWidget):
             max_parallel=self.max_parallel_spin.value(),
             language=self.language_combo.currentData() or "zh",
             hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
+            software_download_patterns={
+                "Gaussian": self.gaussian_patterns.text().strip() or "*.log,*.chk",
+                "ORCA": self.orca_patterns.text().strip() or "*.out,*.gbw",
+            },
         )
         self._store.save(new_settings)
         self._status_cb("设置已保存")
@@ -331,7 +380,84 @@ class SettingsServersPage(QWidget):
         if path:
             self.local_folder_edit.setText(path)
 
+    def _delete_server(self):
+        import yaml
+        row = self.server_table.currentRow()
+        if row < 0:
+            self._status_cb("请先选择服务器")
+            return
+        sid = self.server_table.item(row, 0).text()
+        from PySide6.QtWidgets import QMessageBox
+        if QMessageBox.question(self, "删除服务器", f"确定删除 {sid}？") != QMessageBox.Yes:
+            return
+        path = get_default_servers_path()
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        servers = data.get("servers", {})
+        servers.pop(sid, None)
+        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        self._load_servers()
+
+    def _add_server(self):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+        import yaml
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("添加服务器")
+        dlg.setMinimumWidth(400)
+        form = QFormLayout(dlg)
+
+        id_edit = QLineEdit()
+        id_edit.setPlaceholderText("如: myserver")
+        host_edit = QLineEdit()
+        host_edit.setPlaceholderText("如: 192.168.1.100")
+        port_edit = QSpinBox()
+        port_edit.setRange(1, 65535)
+        port_edit.setValue(22)
+        user_edit = QLineEdit()
+        user_edit.setPlaceholderText("如: root")
+        auth_combo = QComboBox()
+        auth_combo.addItems(["key", "password"])
+        key_edit = QLineEdit()
+        key_edit.setPlaceholderText("~/.ssh/id_ed25519")
+
+        form.addRow("ID:", id_edit)
+        form.addRow("主机:", host_edit)
+        form.addRow("端口:", port_edit)
+        form.addRow("用户:", user_edit)
+        form.addRow("认证方式:", auth_combo)
+        form.addRow("密钥路径:", key_edit)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        sid = id_edit.text().strip()
+        host = host_edit.text().strip()
+        user = user_edit.text().strip()
+        if not sid or not host or not user:
+            return
+
+        path = get_default_servers_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if path.exists():
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        servers = data.setdefault("servers", {})
+        servers[sid] = {
+            "host": host,
+            "port": port_edit.value(),
+            "username": user,
+            "auth_method": auth_combo.currentText(),
+        }
+        if key_edit.text().strip():
+            servers[sid]["key_path"] = key_edit.text().strip()
+        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        self._load_servers()
+
     def shutdown(self):
         w = getattr(self, "_worker", None)
-        if w and hasattr(w, "stop_safely"):
-            w.stop_safely()
+        if w and w.isRunning():
+            w.wait(3000)

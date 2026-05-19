@@ -121,6 +121,7 @@ class JobSubmitter:
             "else",
             "  echo 'failed' > .jobdesk_status",
             "fi",
+            f"echo \"DONE {shlex.quote(task.task_id)} $rc\" >> ../_batch/events.log",
             'exit "$rc"',
             "",
         ]
@@ -368,6 +369,7 @@ class JobSubmitter:
             import tempfile
             updated_ids: list[str] = []
             now = datetime.now()
+            all_tasks = Manifest.read(self._manifest_path)
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
                 runner = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
@@ -388,15 +390,13 @@ class JobSubmitter:
                 except Exception as e:
                     result.errors.append(f"task {t.task_id}: submit failed: {e}")
                     continue
-                # Store job_id in manifest error_message field temporarily (repurposed)
-                all_tasks = Manifest.read(self._manifest_path)
                 for mt in all_tasks:
                     if mt.task_id == t.task_id:
                         mt.status = TaskStatus.submitted
                         mt.submitted_at = now
                         mt.error_message = f"scheduler_job_id={job_id}"
-                Manifest.write(self._manifest_path, all_tasks)
                 updated_ids.append(t.task_id)
+            Manifest.write(self._manifest_path, all_tasks)
             result.updated_task_ids = updated_ids
             result.submitted_task_count = len(updated_ids)
         except Exception as e:

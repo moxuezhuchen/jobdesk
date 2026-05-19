@@ -31,12 +31,19 @@ class GuiSettings:
     notify_enabled: bool = False
     download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
     hide_dotfiles: bool = True
+    # Per-software download patterns
+    software_download_patterns: dict[str, str] | None = None  # e.g. {"Gaussian": "*.log,*.chk", "ORCA": "*.out,*.gbw"}
 
     def __post_init__(self):
         if self.column_widths is None:
             object.__setattr__(self, "column_widths", {})
         if self.last_remote_dirs is None:
             object.__setattr__(self, "last_remote_dirs", {})
+        if self.software_download_patterns is None:
+            object.__setattr__(self, "software_download_patterns", {
+                "Gaussian": "*.log,*.chk",
+                "ORCA": "*.out,*.gbw",
+            })
 
 
 class GuiSettingsStore:
@@ -68,6 +75,7 @@ class GuiSettingsStore:
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
+            software_download_patterns=dict(raw.get("software_download_patterns", {}) or {}),
         )
 
     def save(self, settings: GuiSettings) -> Path:
@@ -93,6 +101,7 @@ class GuiSettingsStore:
             "notify_enabled": settings.notify_enabled,
             "download_patterns": settings.download_patterns,
             "hide_dotfiles": settings.hide_dotfiles,
+            "software_download_patterns": settings.software_download_patterns or {},
         }
         self.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
         return self.path

@@ -22,7 +22,22 @@ from ..session import create_sftp_client, create_ssh_client
 def _format_status(summary: dict[str, int]) -> str:
     if not summary:
         return ""
-    return " | ".join(f"{k}={v}" for k, v in summary.items())
+    _LABELS = {
+        "local_ready": "准备中",
+        "uploaded": "已上传",
+        "submitted": "已提交",
+        "running": "运行中",
+        "remote_completed": "已完成",
+        "downloaded": "已下载",
+        "analyzed": "已分析",
+        "failed": "失败",
+    }
+    parts = []
+    total = sum(summary.values())
+    for k, v in summary.items():
+        label = _LABELS.get(k, k)
+        parts.append(f"{label} {v}" if total > 1 else label)
+    return " | ".join(parts)
 
 
 def _format_row(record: RunRecord) -> list[str]:
@@ -67,9 +82,28 @@ class RunsResultsPage(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.currentCellChanged.connect(self._on_run_selected)
+        self.table.setStyleSheet(
+            "QTableWidget { background: transparent; border: none;"
+            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
+            " QTableWidget::item { background: transparent; }"
+        )
+        self.table.horizontalHeader().setStyleSheet(
+            "QHeaderView { background: transparent; }"
+            " QHeaderView::section { background: transparent; border: none;"
+            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
+        )
         self._restore_runs_column_widths()
         self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_runs_column_widths())
-        top_layout.addWidget(self.table)
+
+        table_card = QWidget()
+        table_card.setObjectName("RunsTableCard")
+        table_card.setStyleSheet(
+            "#RunsTableCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+        )
+        table_card_layout = QVBoxLayout(table_card)
+        table_card_layout.setContentsMargins(16, 12, 16, 12)
+        table_card_layout.addWidget(self.table)
+        top_layout.addWidget(table_card, 1)
 
         # Buttons row (card style)
         btn_card = QWidget()
@@ -78,24 +112,13 @@ class RunsResultsPage(QWidget):
             "#BtnCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
             " #BtnCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #BtnCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
             " #BtnCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
             " border-radius: 4px; padding: 0 8px; min-height: 44px; max-height: 44px; }"
         )
         btn_card.setFixedHeight(60)
         btn_row = QHBoxLayout(btn_card)
         btn_row.setContentsMargins(16, 0, 16, 0)
-        self.refresh_btn = QPushButton("刷新")
-        self.refresh_btn.clicked.connect(self._refresh_all)
-        btn_row.addWidget(self.refresh_btn)
-
-        self.download_patterns = QLineEdit("*.log")
-        self.download_patterns.setMaximumWidth(200)
-        self.download_patterns.setPlaceholderText("下载模式")
-        btn_row.addWidget(self.download_patterns)
-
-        self.download_btn = QPushButton("下载")
-        self.download_btn.clicked.connect(self._download_results)
-        btn_row.addWidget(self.download_btn)
         self.retry_btn = QPushButton("重试失败项")
         self.retry_btn.clicked.connect(self._retry_failed)
         btn_row.addWidget(self.retry_btn)
@@ -111,12 +134,24 @@ class RunsResultsPage(QWidget):
 
         # ─── Bottom: Results preview ───
         bottom = QWidget()
+        bottom.setObjectName("ResultsCard")
+        bottom.setStyleSheet(
+            "#ResultsCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #ResultsCard QLabel { background: transparent; }"
+            " #ResultsCard QTableWidget { background: transparent; border: none;"
+            "   alternate-background-color: transparent; gridline-color: #94a3b8; }"
+            " #ResultsCard QTableWidget::item { background: transparent; }"
+            " #ResultsCard QHeaderView { background: transparent; }"
+            " #ResultsCard QHeaderView::section { background: transparent; border: none;"
+            "   border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
+            " #ResultsCard QTextEdit { background: transparent; border: none; }"
+        )
         bottom_layout = QVBoxLayout(bottom)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setContentsMargins(16, 12, 16, 12)
         bottom_layout.setSpacing(4)
 
         self.result_label = QLabel("结果预览")
-        self.result_label.setStyleSheet("color: #475569;")
+        self.result_label.setStyleSheet("color: #0f172a; font-weight: 600;")
         bottom_layout.addWidget(self.result_label)
 
         self.result_table = QTableWidget()
@@ -136,14 +171,79 @@ class RunsResultsPage(QWidget):
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter)
 
+        # Real-time task completion monitor
+        from ...services.run_monitor import RunMonitor
+        self._monitor = RunMonitor(self)
+        self._monitor.task_done.connect(self._on_task_done)
+        self._bg_workers: list = []
+        self._start_monitoring()
+
+    def _start_monitoring(self):
+        """Watch all running runs."""
+        try:
+            runs = RunService(self._workspace()).list_runs()
+            cfg = load_servers()
+            for record in runs:
+                if record.status_summary.get("running", 0) > 0 or record.status_summary.get("submitted", 0) > 0:
+                    srv = cfg.servers.get(record.server_id)
+                    if srv:
+                        batch_dir = f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}"
+                        self._monitor.watch(record.run_id, record.server_id, batch_dir, srv)
+        except Exception:
+            pass
+
+    def _on_task_done(self, event):
+        """Called when a remote task completes — auto refresh+download in background."""
+        workspace = self._workspace()
+
+        def _run():
+            from ...remote.status_refresh import refresh_batch_status
+            record = RunService(workspace).load_run(event.run_id)
+            server = load_servers().servers[record.server_id]
+            ssh = create_ssh_client(server)
+            ssh.connect()
+            sftp = create_sftp_client(ssh)
+            try:
+                refresh_batch_status(
+                    ssh=ssh,
+                    manifest_path=record.manifest_path,
+                    remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                    batch_id=record.run_id,
+                    write=True,
+                )
+                RunService(workspace).update_run_from_manifest(record.run_id)
+                updated = RunService(workspace).load_run(record.run_id)
+                if updated.status_summary.get("remote_completed", 0) > 0:
+                    patterns = self._get_download_patterns(record)
+                    RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                RunService(workspace).update_run_from_manifest(record.run_id)
+            finally:
+                sftp.close()
+                ssh.close()
+
+        from ..workers import BackgroundWorker
+        w = BackgroundWorker(_run)
+        w.finished.connect(lambda: self._on_monitor_refresh_done(event))
+        w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
+        w.finished.connect(w.deleteLater)
+        self._bg_workers.append(w)
+        w.start()
+
+    def _on_monitor_refresh_done(self, event):
+        self.refresh_run_list()
+        try:
+            updated = RunService(self._workspace()).load_run(event.run_id)
+            if updated.status_summary.get("running", 0) == 0 and updated.status_summary.get("submitted", 0) == 0:
+                self._monitor.unwatch(event.run_id, event.server_id)
+        except Exception:
+            pass
+
     def on_activated(self):
         self._language = GuiSettingsStore().load().language
         self.refresh_run_list()
 
     def apply_language(self, language: str):
         self._language = language
-        self.refresh_btn.setText(tr("Refresh", language))
-        self.download_btn.setText(tr("Download", language))
         self.retry_btn.setText(tr("Retry Failed", language))
         self.cancel_btn.setText(tr("Cancel", language))
         self.delete_btn.setText(tr("Delete", language))
@@ -176,6 +276,7 @@ class RunsResultsPage(QWidget):
 
     def _context_menu(self, pos):
         menu = QMenu(self)
+        menu.addAction("刷新状态", self._refresh_all)
         menu.addAction("重新运行", self._rerun_all)
         menu.addAction("显示日志", self._show_logs)
         menu.addAction("显示路径", self._show_paths)
@@ -219,64 +320,127 @@ class RunsResultsPage(QWidget):
 
     def _load_result_preview(self, record: RunRecord):
         """Load TSV results or run analysis for the selected run."""
+        from ...services.gui_settings import GuiSettingsStore
         workspace = self._workspace()
-        result_dir = workspace / "results" / record.run_id
-        # Try existing TSV first
-        for name in ("final_results.tsv", "analysis_preview.tsv"):
-            tsv = result_dir / name
-            if tsv.exists():
-                self._load_tsv(tsv)
-                self.result_label.setText(f"结果预览 — {name}")
-                return
-        # Try auto-analysis on downloaded files
-        if result_dir.exists():
-            rows = self._auto_analyze(result_dir)
+        candidates = [workspace]
+        default_folder = GuiSettingsStore().load().default_local_folder
+        if default_folder and Path(default_folder) != workspace:
+            candidates.append(Path(default_folder))
+
+        # Prefer auto-analysis on downloaded files
+        for base in candidates:
+            result_dir = base / "results" / record.run_id
+            if result_dir.exists():
+                rows = self._auto_analyze(result_dir)
+                if rows:
+                    self._show_analysis_rows(rows)
+                    self.result_label.setText("结果预览 — 自动分析")
+                    return
+
+        # Fallback: analyze output files in workspace root
+        for base in candidates:
+            rows = self._analyze_workspace_files(record, base)
             if rows:
                 self._show_analysis_rows(rows)
-                self.result_label.setText("结果预览 — 自动分析")
+                self.result_label.setText("结果预览 — 本地文件")
                 return
-        # No results yet
+
+        # Last resort: read existing TSV
+        for base in candidates:
+            result_dir = base / "results" / record.run_id
+            for name in ("final_results.tsv", "analysis_preview.tsv"):
+                tsv = result_dir / name
+                if tsv.exists() and tsv.stat().st_size > 30:
+                    self._load_tsv(tsv)
+                    self.result_label.setText(f"结果预览 — {name}")
+                    return
+
+        self.result_label.setText("⚠ 尚未下载结果")
+        self.result_table.setRowCount(0)
+
+    def _analyze_workspace_files(self, record: RunRecord, workspace: Path) -> list[list[str]]:
+        """Analyze output files directly from workspace if they exist locally."""
+        from ...core.manifest import Manifest
+        from ...core.lifecycle import TaskStatus
+        from ...core.parsers.gaussian import parse_gaussian_log
+        from ...core.parsers.orca import parse_orca_out
         manifest_path = record.manifest_path
-        if manifest_path and Path(manifest_path).exists() and not result_dir.exists():
-            self.result_label.setText("⚠ 尚未下载结果")
-            self.result_table.setRowCount(0)
-        else:
-            self.result_label.setText("结果预览 — 无数据")
-            self.result_table.setRowCount(0)
+        if not manifest_path or not Path(manifest_path).exists():
+            return []
+        tasks = list(Manifest.read(Path(manifest_path)))
+        rows: list[list[str]] = []
+        changed = False
+        for task in tasks:
+            if not task.remote_task_files:
+                continue
+            source = task.remote_task_files[0]
+            stem = source.rsplit(".", 1)[0] if "." in source else source
+            found = False
+            # Check .log (Gaussian)
+            log_file = workspace / f"{stem}.log"
+            if log_file.is_file():
+                found = True
+                try:
+                    r = parse_gaussian_log(log_file)
+                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                    rows.append([task.task_id, log_file.name, "Gaussian", energy, gibbs,
+                                 "是" if r.normal_termination else "否"])
+                except Exception:
+                    rows.append([task.task_id, log_file.name, "Gaussian", "解析错误", "", ""])
+            # Check .out (ORCA)
+            out_file = workspace / f"{stem}.out"
+            if out_file.is_file():
+                found = True
+                try:
+                    r = parse_orca_out(out_file)
+                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                    rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
+                                 "是" if r.normal_termination else "否"])
+                except Exception:
+                    rows.append([task.task_id, out_file.name, "ORCA", "解析错误", "", ""])
+            if found and task.status == TaskStatus.remote_completed:
+                task.status = TaskStatus.downloaded
+                changed = True
+        if changed:
+            Manifest.write(Path(manifest_path), tasks)
+            RunService(workspace).update_run_from_manifest(record.run_id)
+            self.refresh_run_list()
+        return rows
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
-        """Auto-detect and parse Gaussian/ORCA output files."""
-        from ...core.parsers.gaussian import parse_gaussian_log, GaussianResult
-        from ...core.parsers.orca import parse_orca_out, OrcaResult
+        """Auto-detect and parse Gaussian/ORCA output files matching task stem."""
+        from ...core.parsers.gaussian import parse_gaussian_log
+        from ...core.parsers.orca import parse_orca_out
         rows: list[list[str]] = []
-        # Scan all task subdirs
         dirs = sorted(d for d in result_dir.iterdir() if d.is_dir())
         if not dirs:
-            # Flat files in result_dir
             dirs = [result_dir]
         for task_dir in dirs:
+            stem = task_dir.name  # task_id == stem of source file
             # Gaussian .log
-            for f in sorted(task_dir.glob("*.log")):
-                if f.name.startswith(".jobdesk"):
-                    continue
+            log_file = task_dir / f"{stem}.log"
+            if log_file.is_file():
                 try:
-                    r = parse_gaussian_log(f)
+                    r = parse_gaussian_log(log_file)
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([task_dir.name, f.name, "Gaussian", energy, gibbs,
+                    rows.append([stem, log_file.name, "Gaussian", energy, gibbs,
                                  "是" if r.normal_termination else "否"])
                 except Exception:
-                    rows.append([task_dir.name, f.name, "Gaussian", "解析错误", "", ""])
+                    rows.append([stem, log_file.name, "Gaussian", "解析错误", "", ""])
             # ORCA .out
-            for f in sorted(task_dir.glob("*.out")):
+            out_file = task_dir / f"{stem}.out"
+            if out_file.is_file():
                 try:
-                    r = parse_orca_out(f)
+                    r = parse_orca_out(out_file)
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([task_dir.name, f.name, "ORCA", energy, gibbs,
+                    rows.append([stem, out_file.name, "ORCA", energy, gibbs,
                                  "是" if r.normal_termination else "否"])
                 except Exception:
-                    rows.append([task_dir.name, f.name, "ORCA", "解析错误", "", ""])
+                    rows.append([stem, out_file.name, "ORCA", "解析错误", "", ""])
         return rows
 
     def _show_analysis_rows(self, rows: list[list[str]]):
@@ -309,34 +473,59 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        RunService(self._workspace()).update_run_from_manifest(record.run_id)
-        self.refresh_run_list()
+        workspace = self._workspace()
+        run_id = record.run_id
 
-    def _download_results(self):
-        record = self._selected_record()
-        if record is None:
-            self._status_cb("请先选择一个运行记录")
-            return
-        raw = self.download_patterns.text().replace("\n", ",")
-        patterns = [p.strip() for p in raw.split(",") if p.strip()]
-        if not patterns:
-            self._status_cb("请输入下载文件模式")
-            return
-        try:
+        def _run():
+            from ...remote.status_refresh import refresh_batch_status
             server = load_servers().servers[record.server_id]
             ssh = create_ssh_client(server)
             ssh.connect()
             sftp = create_sftp_client(ssh)
             try:
-                records, failures = RunService(self._workspace()).download_completed(
-                    record.run_id, sftp, patterns)
+                refresh_batch_status(
+                    ssh=ssh,
+                    manifest_path=record.manifest_path,
+                    remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
+                    batch_id=run_id,
+                    write=True,
+                )
+                RunService(workspace).update_run_from_manifest(run_id)
+                updated = RunService(workspace).load_run(run_id)
+                if updated.status_summary.get("remote_completed", 0) > 0:
+                    patterns = self._get_download_patterns(record)
+                    recs, fails = RunService(workspace).download_completed(run_id, sftp, patterns)
+                    return f"下载完成: {len(recs)} 文件, 失败: {len(fails)}"
             finally:
                 sftp.close()
                 ssh.close()
-            self.refresh_run_list()
-            self._status_cb(f"下载完成: {len(records)} 文件, 失败: {len(failures)}")
-        except Exception as exc:
-            self._status_cb(f"下载失败: {exc}")
+
+        from ..workers import BackgroundWorker
+        self._worker = BackgroundWorker(_run)
+        self._worker.result.connect(lambda msg: self._status_cb(msg) if msg else None)
+        self._worker.error.connect(lambda e: self._status_cb(f"刷新失败: {e}"))
+        self._worker.finished.connect(lambda: self._on_refresh_done())
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._worker.start()
+
+    def _on_refresh_done(self):
+        self.refresh_run_list()
+        record = self._selected_record()
+        if record:
+            self._load_result_preview(record)
+
+    def _get_download_patterns(self, record: RunRecord) -> list[str]:
+        """Get download patterns based on command template (auto-detect software)."""
+        settings = GuiSettingsStore().load()
+        patterns_map = settings.software_download_patterns or {}
+        cmd = record.command_template.lower()
+        if "g16" in cmd or "g09" in cmd or "gaussian" in cmd:
+            raw = patterns_map.get("Gaussian", "*.log,*.chk")
+        elif "orca" in cmd:
+            raw = patterns_map.get("ORCA", "*.out,*.gbw")
+        else:
+            raw = "*.log,*.out"
+        return [p.strip() for p in raw.split(",") if p.strip()]
 
     def _retry_failed(self):
         record = self._selected_record()
@@ -403,6 +592,7 @@ class RunsResultsPage(QWidget):
     def _on_submit_done(self, result):
         self.refresh_run_list()
         self._status_cb(f"已提交: {result.batch_id}")
+        self._start_monitoring()
 
     def _show_logs(self):
         record = self._selected_record()
@@ -425,6 +615,7 @@ class RunsResultsPage(QWidget):
         self.result_text.setVisible(True)
 
     def shutdown(self):
+        self._monitor.stop_all()
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely()

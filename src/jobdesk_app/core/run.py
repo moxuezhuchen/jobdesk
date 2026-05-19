@@ -91,11 +91,12 @@ def _sources_for_mode(spec: RunSpec) -> list[RunSource]:
 
 
 def _render_command(template: str, source: RunSource) -> str:
+    import shlex
     values = {
-        "path": source.path,
-        "name": source.name,
-        "stem": source.stem,
-        "dir": source.parent,
+        "path": shlex.quote(source.path),
+        "name": shlex.quote(source.name),
+        "stem": shlex.quote(source.stem),
+        "dir": shlex.quote(source.parent),
     }
     result = template
     for key, value in values.items():

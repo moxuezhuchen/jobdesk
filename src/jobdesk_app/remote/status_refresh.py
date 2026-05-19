@@ -129,9 +129,11 @@ def _recover_status(
     elif current == TaskStatus.uploaded:
         if remote_snap and remote_snap.marker_exists:
             marker = remote_snap.status_marker.strip()
-            if marker in ("running", "completed"):
-                new_status = TaskStatus.running if marker == "running" else TaskStatus.remote_completed
+            if marker == "running":
+                new_status = TaskStatus.running
                 snap.failure_reason = None
+            elif marker == "completed":
+                new_status = _check_exit_code(remote_snap, snap)
             elif marker == "failed":
                 new_status = TaskStatus.failed
                 snap.failure_reason = "远程状态标记为 failed"

@@ -25,6 +25,12 @@ def build_app_stylesheet() -> str:
 * {{
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
 }}
+QToolTip {{
+    background: {c.BG_SURFACE};
+    color: {c.TEXT};
+    border: 1px solid {c.BORDER};
+    padding: 4px 8px;
+}}
 QMainWindow, QWidget {{
     background: {c.BG_BASE};
     color: {c.TEXT};
@@ -81,7 +87,10 @@ QPushButton:hover {{
     border-color: #93c5fd;
 }}
 QPushButton:pressed {{
-    background: #dbeafe;
+    background: #93c5fd;
+    border-color: #3b82f6;
+    padding-top: 2px;
+    padding-left: 16px;
 }}
 QPushButton:disabled {{
     color: {c.TEXT_MUTED};

@@ -123,7 +123,11 @@ class Sidebar(QWidget):
     def __init__(self, items: list[tuple[str, str]], parent: QWidget | None = None):
         super().__init__(parent)
         self.setFixedWidth(Metrics.SIDEBAR_WIDTH)
-        self.setStyleSheet(f"background:{Colors.SIDEBAR_BG};")
+        self.setObjectName("SidebarNav")
+        self.setStyleSheet(
+            f"#SidebarNav {{ background:{Colors.SIDEBAR_BG}; }}"
+            f" QToolTip {{ background:{Colors.BG_SURFACE}; color:{Colors.TEXT}; border:1px solid {Colors.BORDER}; padding:4px 8px; }}"
+        )
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, Spacing.LG, 0, Spacing.LG)
