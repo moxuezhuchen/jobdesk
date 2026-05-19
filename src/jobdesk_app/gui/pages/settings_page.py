@@ -69,10 +69,10 @@ class SettingsPage(QWidget):
 
         form.addRow(self.server_label, self.server_combo)
         form.addRow(self.remote_dir_label, self.remote_dir_edit)
-        form.addRow("", self.auto_connect_check)
+        form.addRow(self.auto_connect_check)
         form.addRow(self.max_parallel_label, self.max_parallel_spin)
         form.addRow(self.language_label, self.language_combo)
-        form.addRow("", self.hide_dotfiles_check)
+        form.addRow(self.hide_dotfiles_check)
         layout.addWidget(self.general_box)
 
         self.paths_box = QGroupBox()
