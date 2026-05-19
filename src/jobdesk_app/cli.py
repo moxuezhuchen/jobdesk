@@ -87,6 +87,16 @@ def _build_parser() -> argparse.ArgumentParser:
     wf_status.add_argument("workflow_id")
     wf_status.set_defaults(func=_cmd_workflow_status)
 
+    # -- compare subcommand --
+    cmp = sub.add_parser("compare", help="Compare results across runs")
+    cmp.add_argument("workspace", type=Path)
+    cmp.add_argument("run_ids", nargs="+")
+    cmp.add_argument("--field", default="scf_energy")
+    cmp.add_argument("--profile", default="gaussian_opt_freq")
+    cmp.add_argument("--output", type=Path, default=None)
+    cmp.add_argument("--format", choices=["csv", "markdown"], default="csv")
+    cmp.set_defaults(func=_cmd_compare)
+
     # -- files subcommand group --
     files = sub.add_parser("files", help="Remote file operations")
     files_sub = files.add_subparsers(dest="files_command", required=True)
@@ -286,6 +296,23 @@ def _cmd_workflow_status(args) -> int:
     for step_name, status in wf_run.step_status.items():
         run_id = wf_run.step_run_ids.get(step_name, "")
         print(f"  {step_name}: {status} (run={run_id})")
+    return 0
+
+
+def _cmd_compare(args) -> int:
+    from .services.comparison import compare_runs, export_csv, export_markdown
+    comparison = compare_runs(args.workspace, args.run_ids, args.field, args.profile)
+    if not comparison.rows:
+        print("No results found for the specified runs and profile.")
+        return 2
+    if args.format == "markdown":
+        output = export_markdown(comparison)
+    else:
+        output = export_csv(comparison, args.output)
+    if args.output and args.format == "csv":
+        print(f"Exported {len(comparison.rows)} rows to {args.output}")
+    else:
+        print(output)
     return 0
 
 
