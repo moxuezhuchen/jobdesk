@@ -158,8 +158,9 @@ class SettingsServersPage(QWidget):
         toggle_ctrl.setStyleSheet("background: transparent;")
         toggle_layout = QHBoxLayout(toggle_ctrl)
         toggle_layout.setContentsMargins(0, 0, 0, 0)
-        toggle_layout.setSpacing(4)
+        toggle_layout.setSpacing(2)
         self._toggle_label = QLabel("开" if self.hide_dotfiles_cb.isChecked() else "关")
+        toggle_layout.addStretch()
         toggle_layout.addWidget(self._toggle_label)
         toggle_layout.addWidget(self.hide_dotfiles_cb)
         self.hide_dotfiles_cb.toggled.connect(
