@@ -97,6 +97,26 @@ def _build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("--format", choices=["csv", "markdown"], default="csv")
     cmp.set_defaults(func=_cmd_compare)
 
+    # -- input subcommand group --
+    inp = sub.add_parser("input", help="Build Gaussian/ORCA input files")
+    inp_sub = inp.add_subparsers(dest="inp_command", required=True)
+
+    inp_list = inp_sub.add_parser("list-presets")
+    inp_list.set_defaults(func=_cmd_input_list_presets)
+
+    inp_build = inp_sub.add_parser("build")
+    inp_build.add_argument("xyz_path", type=Path)
+    inp_build.add_argument("--preset", default=None)
+    inp_build.add_argument("--method", default="B3LYP/6-31G(d)")
+    inp_build.add_argument("--keywords", nargs="+", default=["opt", "freq"])
+    inp_build.add_argument("--charge", type=int, default=0)
+    inp_build.add_argument("--mult", type=int, default=1)
+    inp_build.add_argument("--nproc", type=int, default=8)
+    inp_build.add_argument("--mem", default="16GB")
+    inp_build.add_argument("--output", type=Path, default=None)
+    inp_build.add_argument("--orca", action="store_true")
+    inp_build.set_defaults(func=_cmd_input_build)
+
     # -- files subcommand group --
     files = sub.add_parser("files", help="Remote file operations")
     files_sub = files.add_subparsers(dest="files_command", required=True)
@@ -313,6 +333,45 @@ def _cmd_compare(args) -> int:
         print(f"Exported {len(comparison.rows)} rows to {args.output}")
     else:
         print(output)
+    return 0
+
+
+def _cmd_input_list_presets(args) -> int:
+    from .core.input_builder import list_presets
+    for name, desc in sorted(list_presets().items()):
+        print(f"{name}: {desc}")
+    return 0
+
+
+def _cmd_input_build(args) -> int:
+    from .core.input_builder import (
+        build_gjf, build_inp, build_from_preset,
+        GaussianInputSpec, OrcaInputSpec,
+    )
+    if args.preset:
+        content = build_from_preset(args.xyz_path, args.preset, args.output)
+    elif args.orca:
+        spec = OrcaInputSpec(
+            keywords=f"! {args.method} {' '.join(args.keywords)}",
+            charge=args.charge,
+            multiplicity=args.mult,
+            nproc=args.nproc,
+        )
+        content = build_inp(args.xyz_path, spec, args.output)
+    else:
+        spec = GaussianInputSpec(
+            method_basis=args.method,
+            job_keywords=args.keywords,
+            charge=args.charge,
+            multiplicity=args.mult,
+            nproc=args.nproc,
+            mem=args.mem,
+        )
+        content = build_gjf(args.xyz_path, spec, args.output)
+    if args.output:
+        print(f"Written to {args.output}")
+    else:
+        print(content)
     return 0
 
 
