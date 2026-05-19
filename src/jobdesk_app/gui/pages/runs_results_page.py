@@ -71,8 +71,19 @@ class RunsResultsPage(QWidget):
         self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_runs_column_widths())
         top_layout.addWidget(self.table)
 
-        # Buttons row
-        btn_row = QHBoxLayout()
+        # Buttons row (card style)
+        btn_card = QWidget()
+        btn_card.setObjectName("BtnCard")
+        btn_card.setStyleSheet(
+            "#BtnCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #BtnCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #BtnCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " border-radius: 4px; padding: 0 8px; min-height: 44px; max-height: 44px; }"
+        )
+        btn_card.setFixedHeight(60)
+        btn_row = QHBoxLayout(btn_card)
+        btn_row.setContentsMargins(16, 0, 16, 0)
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self._refresh_all)
         btn_row.addWidget(self.refresh_btn)
@@ -85,7 +96,7 @@ class RunsResultsPage(QWidget):
         self.download_btn = QPushButton("下载")
         self.download_btn.clicked.connect(self._download_results)
         btn_row.addWidget(self.download_btn)
-        self.retry_btn = QPushButton("重试")
+        self.retry_btn = QPushButton("重试失败项")
         self.retry_btn.clicked.connect(self._retry_failed)
         btn_row.addWidget(self.retry_btn)
         self.cancel_btn = QPushButton("取消")
@@ -95,7 +106,7 @@ class RunsResultsPage(QWidget):
         self.delete_btn.clicked.connect(self._delete_run)
         btn_row.addWidget(self.delete_btn)
         btn_row.addStretch()
-        top_layout.addLayout(btn_row)
+        top_layout.addWidget(btn_card)
         splitter.addWidget(top)
 
         # ─── Bottom: Results preview ───

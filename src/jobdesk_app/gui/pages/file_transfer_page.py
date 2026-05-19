@@ -30,7 +30,7 @@ from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 
 
-CONTROL_HEIGHT = 36
+CONTROL_HEIGHT = 44
 
 
 def format_file_size(size: int | None) -> str:
@@ -351,7 +351,13 @@ class FileTransferPage(QWidget):
         local_pane_layout.setContentsMargins(0, 0, 0, 0)
         local_pane_layout.setSpacing(4)
         local_header_widget = QWidget()
-        local_header_widget.setFixedHeight(40)
+        local_header_widget.setObjectName("LocalHeader")
+        local_header_widget.setStyleSheet(
+            "#LocalHeader { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #LocalHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+        )
+        local_header_widget.setFixedHeight(60)
         local_header = QHBoxLayout()
         local_header_widget.setLayout(local_header)
         local_header.setContentsMargins(0, 0, 0, 0)
@@ -367,7 +373,17 @@ class FileTransferPage(QWidget):
         remote_pane_layout.setContentsMargins(0, 0, 0, 0)
         remote_pane_layout.setSpacing(4)
         remote_header_widget = QWidget()
-        remote_header_widget.setFixedHeight(40)
+        remote_header_widget.setObjectName("RemoteHeader")
+        remote_header_widget.setStyleSheet(
+            "#RemoteHeader { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #RemoteHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #RemoteHeader QLineEdit, #RemoteHeader QComboBox {"
+            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
+            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
+            " #RemoteHeader QLabel { background: transparent; }"
+        )
+        remote_header_widget.setFixedHeight(60)
         remote_header = QHBoxLayout()
         remote_header_widget.setLayout(remote_header)
         remote_header.setContentsMargins(0, 0, 0, 0)
@@ -387,9 +403,19 @@ class FileTransferPage(QWidget):
         main_splitter.addWidget(splitter)
 
         run_panel = QWidget()
+        run_panel.setObjectName("RunPanel")
+        run_panel.setStyleSheet(
+            "#RunPanel { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #RunPanel QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #RunPanel QLineEdit, #RunPanel QComboBox, #RunPanel QSpinBox {"
+            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
+            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
+            " #RunPanel QLabel { background: transparent; }"
+        )
         run_panel.setMinimumHeight(68)
         run_layout = QVBoxLayout(run_panel)
-        run_layout.setContentsMargins(0, 4, 0, 0)
+        run_layout.setContentsMargins(16, 8, 16, 8)
         run_layout.setSpacing(4)
 
         command_row = QHBoxLayout()
