@@ -176,7 +176,6 @@ class RunsResultsPage(QWidget):
         self._monitor = RunMonitor(self)
         self._monitor.task_done.connect(self._on_task_done)
         self._bg_workers: list = []
-        self._start_monitoring()
 
     def _start_monitoring(self):
         """Watch all running runs."""
@@ -241,6 +240,7 @@ class RunsResultsPage(QWidget):
     def on_activated(self):
         self._language = GuiSettingsStore().load().language
         self.refresh_run_list()
+        self._start_monitoring()
 
     def apply_language(self, language: str):
         self._language = language

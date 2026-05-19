@@ -86,8 +86,6 @@ class _Watcher:
 
     def stop(self):
         self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=5)
 
     def _run(self):
         from ..gui.session import create_ssh_client
