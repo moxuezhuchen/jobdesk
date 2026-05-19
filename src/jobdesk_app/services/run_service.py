@@ -79,7 +79,10 @@ class RunService:
         records: list[RunRecord] = []
         for run_dir in sorted(self.runs_dir.iterdir(), reverse=True):
             if run_dir.is_dir() and (run_dir / "run.json").exists():
-                records.append(self.load_run(run_dir.name))
+                try:
+                    records.append(self.load_run(run_dir.name))
+                except Exception:
+                    continue
         return records
 
     def load_run(self, run_id: str) -> RunRecord:

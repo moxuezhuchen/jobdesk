@@ -1,94 +1,109 @@
 # JobDesk User Guide
 
-JobDesk is a Windows 11 local workbench for managing batch scientific computing
-tasks on remote Linux servers through SSH.
+JobDesk 是 Windows 本地的科研计算工作台，通过 SSH 管理远程 Linux 服务器上的
+Gaussian/ORCA 等计算任务。
 
-It does not understand Gaussian, ORCA, xTB, ConfFlow, or any other program
-semantics. It discovers files, uploads them, runs your command templates, checks
-status files, downloads results, and applies generic regex extraction rules.
+无需创建 project.yaml。所有操作以当前本地目录 + 远端目录为中心。
 
-## Basic Workflow
+## 基本工作流
 
-1. Configure `servers.yaml`.
-2. Open a project containing `project.yaml`.
-3. Configure runtime bindings for every execution profile.
-4. Scan inputs.
-5. Create a batch.
-6. Upload files.
-7. Submit jobs.
-8. Refresh status.
-9. Download completed results.
-10. Analyze downloaded results.
-11. Review `final_results.tsv`, `job_status.tsv`, and `failures.tsv`.
+1. 在 Settings 页配置服务器连接
+2. 在 Files 页连接服务器，浏览远端目录
+3. 选择远端文件（如 `.gjf`、`.inp`），设置命令模板（如 `g16 {name}`）
+4. 点 Run → 自动生成 run 记录并提交到远端执行
+5. Runs 页自动刷新状态、下载结果（通过 SSH tail -f 实时监听）
+6. Results 页查看分析输出
 
-## Important Files
-
-Project files:
-
-```text
-project/
-  project.yaml
-  inputs/
-  results/
-  .jobdesk/
-    batches/
-      <batch_id>/
-        batch.json
-        manifest.tsv
-        failures.tsv
-```
-
-Machine-local files:
+## 重要文件
 
 ```text
 %APPDATA%/JobDesk/
-  servers.yaml
-  runtime_bindings.yaml
-  logs/
+  servers.yaml          # 服务器配置
+  gui_settings.yaml     # GUI 设置（下载模式、并发等）
+  runs/                 # 全局 run 记录
+    <run_id>/
+      run.json          # run 元数据
+      manifest.tsv      # 任务清单与状态
 ```
 
-## Batch Recovery
+本地工作目录（workspace）：
+```text
+<workspace>/
+  results/
+    <run_id>/
+      <task_id>/        # 下载的输出文件
+      analysis_preview.tsv
+```
 
-Created batches are listed from `.jobdesk/batches/`.
+## Run ID 格式
 
-The GUI Tasks page automatically selects the latest batch when a project is
-opened. Batch execution uses the frozen `server_id`, `remote_work_dir`, and
-`max_parallel` stored in `manifest.tsv`, not the current runtime binding.
+Run ID 格式为 `YYMMDD-NNN`（如 `260519-001`），每天从 001 开始递增。
 
-## Result Review
+## 服务器配置
 
-The Results page can show:
+`%APPDATA%/JobDesk/servers.yaml`:
 
-- `enriched_results`
-- `final_results.tsv`
-- `failures.tsv`
-- `group_summary.tsv`
-- `job_status.tsv`
+```yaml
+servers:
+  wcm:
+    host: example.com
+    port: 22
+    username: user
+    auth_method: key
+    key_path: ~/.ssh/id_ed25519
+    env_init_scripts:
+      - /opt/g16/bsd/g16.profile
+```
 
-`enriched_results` joins `final_results.tsv` with manifest metadata such as
-`execution_profile`, `discovery_name`, `server_id`, and `status`.
+`env_init_scripts` 声明任务执行前需要 source 的脚本。
 
-## CLI
+## 下载模式
 
-After installation, the same workflow service is available as `jobdesk`:
+Settings 页可按软件配置自动下载的文件模式：
+- Gaussian: `*.log,*.chk`（默认）
+- ORCA: `*.out,*.gbw`（默认）
+
+系统根据命令模板自动识别软件类型。
+
+## 状态自动更新
+
+JobDesk 使用 SSH `tail -f` 监听远端 `events.log`：
+- 任务开始运行 → 状态自动变为"运行中"
+- 任务完成 → 自动刷新 + 下载 → 状态变为"已下载"
+- 如需手动刷新：右键 run → "刷新状态"
+
+## 命令模板变量
+
+| 变量 | 含义 | 示例 |
+|------|------|------|
+| `{name}` | 文件名 | `mol.gjf` |
+| `{stem}` | 不含扩展名 | `mol` |
+| `{path}` | 完整路径 | `/root/uma/mol.gjf` |
+| `{dir}` | 所在目录 | `/root/uma` |
+
+所有变量自动 shell 转义。
+
+## CLI 命令
 
 ```powershell
-jobdesk scan <project>
-jobdesk preflight <project> --servers-yaml <servers.yaml>
-jobdesk list-batches <project>
-jobdesk create-batch <project> --servers-yaml <servers.yaml>
-jobdesk upload <project> <batch_id> --servers-yaml <servers.yaml>
-jobdesk submit <project> <batch_id> --servers-yaml <servers.yaml>
-jobdesk refresh <project> <batch_id> --servers-yaml <servers.yaml>
-jobdesk download <project> <batch_id> --servers-yaml <servers.yaml>
-jobdesk analyze <project> <batch_id>
+# 文件操作
+jobdesk files list-remote <server_id> <remote_path>
+jobdesk files upload <server_id> <local_path> <remote_path>
+jobdesk files download <server_id> <remote_path> <local_path>
+
+# 运行管理
+jobdesk run create <workspace> --server <id> --remote-dir <path> --command "g16 {name}" --files <f1> <f2>
+jobdesk run list <workspace>
+jobdesk run submit <workspace> <run_id>
+jobdesk run refresh <workspace> <run_id>
+jobdesk run download <workspace> <run_id>
+jobdesk run cancel <workspace> <run_id>
+jobdesk run delete <workspace> <run_id>
+jobdesk run retry <workspace> <run_id>
 ```
 
-Remote cleanup is deliberately separate and dry-run friendly:
+## 故障恢复
 
-```powershell
-jobdesk cleanup-remote <project> <batch_id> --servers-yaml <servers.yaml> --dry-run
-```
-
-Without `--dry-run`, cleanup only targets frozen batch directories of the form
-`{remote_work_dir}/{batch_id}` from `manifest.tsv`.
+- 网络断开：monitor 自动重连，下次连接成功时补齐状态
+- 应用关闭期间任务完成：重启后首次激活 Runs 页时自动检测
+- 下载失败：状态保持 `remote_completed`，可手动右键刷新重试

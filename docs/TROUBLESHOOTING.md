@@ -1,77 +1,70 @@
 # JobDesk Troubleshooting
 
-## SSH Connection Fails
+## SSH 连接失败
 
-Check:
+检查：
+- Settings 页服务器配置（host, port, username, key_path）
+- SSH 密钥文件是否存在且权限正确
+- 服务器网络是否可达
 
-- `servers.yaml` path
-- `server_id`
-- host, port, username
-- SSH key path
-- server network access
-
-Run:
-
+验证：
 ```powershell
 pytest tests/integration/test_real_ssh.py -v
 ```
 
-## SFTP Upload Fails
+## SFTP 上传失败
 
-Check:
+检查：
+- 远端目录是否有写权限
+- 路径是否使用 POSIX `/` 格式
+- 本地文件是否存在
 
-- remote directory permissions
-- remote path uses POSIX `/`
-- `remote_work_dir` is writable
-- local files selected by upload rules exist
+## 提交后无反应
 
-Look at:
+确认：
+- Files 页已连接到正确的服务器
+- 选择了远端文件
+- 命令模板正确（如 `g16 {name}`）
 
+## 任务一直显示"运行中"
+
+手动检查远端状态文件：
 ```text
-.jobdesk/batches/<batch_id>/failures.tsv
+<remote_dir>/.jobdesk_runs/<run_id>/<task_id>/.jobdesk_status
+<remote_dir>/.jobdesk_runs/<run_id>/<task_id>/.jobdesk_exit_code
+<remote_dir>/.jobdesk_runs/<run_id>/<task_id>/.jobdesk_submit.log
 ```
 
-## Submit Does Nothing
+可能原因：
+- 任务仍在运行（正常）
+- 任务崩溃但未写 status 文件 → 右键"刷新状态"手动检测
+- SSH monitor 断连 → 重启应用或手动刷新
 
-If there are no `uploaded` tasks, JobDesk records a no-op submit failure. Upload
-the batch first or refresh the manifest state.
+## 下载失败
 
-## Tasks Stay Running
+检查：
+- Settings 页下载模式配置（Gaussian: `*.log,*.chk`）
+- 远端是否生成了对应输出文件
+- 本地 workspace 目录是否有写权限
 
-Refresh reads remote `.jobdesk_status` and `.jobdesk_exit_code` files. Check:
+状态保持 `remote_completed` 时可再次右键刷新重试。
 
-```text
-<remote_job_dir>/.jobdesk_submit.log
-<remote_job_dir>/.jobdesk_status
-<remote_job_dir>/.jobdesk_exit_code
-```
+## 结果分析为空
 
-## Download Fails
+确认：
+- 文件已下载到 `<workspace>/results/<run_id>/<task_id>/`
+- 文件内容包含可识别的能量行（如 `SCF Done` 或 `HF=`）
 
-Check:
+## 应用关闭时卡住
 
-- `download.patterns`
-- remote result files exist
-- local results directory is writable
+正常退出应在 1-2 秒内完成。如果卡住：
+- 可能是后台 SSH 操作未完成
+- 强制关闭不会丢失数据（manifest 是原子写入的）
 
-Partial failures should not stop other tasks.
+## Monitor 不自动更新状态
 
-## Analyze Finds No Results
-
-Check:
-
-- files were downloaded under `results/<batch_id>/<task_id>/`
-- `extract.results[].source_glob`
-- regex named group `(?P<value>...)`
-
-## Batch Looks Corrupted
-
-`manifest.tsv` and `batch.json` are written with same-directory temporary files
-and atomic replace. If a file is still corrupted, `load_batch()` should report
-which file failed.
-
-## Remote Cleanup
-
-Use `cleanup-remote --dry-run` first. JobDesk builds cleanup targets only from
-the batch manifest and refuses unsafe `batch_id` or `remote_work_dir` values.
-It does not clean arbitrary remote directories.
+确认：
+- Run 处于 `running` 或 `submitted` 状态
+- 已切换到 Runs 页（monitor 在页面激活时启动）
+- 服务器 SSH 连接正常
+- 新提交的任务使用了最新版本的 run 脚本（旧 run 不会写 events.log）
