@@ -59,8 +59,11 @@ class SettingsPage(QWidget):
         self.auto_connect_check = QCheckBox()
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
+        self.max_parallel_spin.setMinimumHeight(36)
         self.language_combo = QComboBox()
         self.hide_dotfiles_check = QCheckBox()
+        self.auto_connect_check.setMinimumHeight(30)
+        self.hide_dotfiles_check.setMinimumHeight(30)
 
         self.server_label = QLabel()
         self.remote_dir_label = QLabel()
