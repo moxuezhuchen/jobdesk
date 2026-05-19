@@ -83,13 +83,15 @@ class RunsPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         # Hide low-value columns: mode(3), max_parallel(4)
         self.table.setColumnHidden(3, True)
         self.table.setColumnHidden(4, True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
+        self._restore_column_widths()
+        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_column_widths())
         layout.addWidget(self.table)
 
         # Workflow toolbar
@@ -492,6 +494,28 @@ class RunsPage(QWidget):
 
         self.refresh_run_list()
         self._status_cb(f"Workflow {wf_name} started: {len(started)} step(s)")
+
+    def _restore_column_widths(self):
+        widths = (GuiSettingsStore().load().column_widths or {}).get("runs", None)
+        if widths:
+            for col, w in enumerate(widths):
+                if col < self.table.columnCount() and w > 0:
+                    self.table.setColumnWidth(col, w)
+        else:
+            for col, w in enumerate([120, 80, 200, 0, 0, 200, 200]):
+                if col < self.table.columnCount() and w > 0:
+                    self.table.setColumnWidth(col, w)
+
+    def _save_column_widths(self):
+        from dataclasses import replace
+        store = GuiSettingsStore()
+        current = store.load()
+        widths = dict(current.column_widths or {})
+        widths["runs"] = [
+            self.table.columnWidth(c) for c in range(self.table.columnCount())
+            if not self.table.isColumnHidden(c)
+        ]
+        store.save(replace(current, column_widths=widths))
 
     def shutdown(self):
         worker = getattr(self, "worker", None)

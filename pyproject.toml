@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 jobdesk = "jobdesk_app.cli:main"
 jobdesk-gui = "jobdesk_app.gui.app:main"
+jobdesk-gui-v2 = "jobdesk_app.gui.app_v2:main"
 
 [project.optional-dependencies]
 dev = [

@@ -137,7 +137,7 @@ QGroupBox::title {{
     subcontrol-origin: margin;
     left: 12px;
     padding: 0 4px;
-    color: {c.TEXT_SECONDARY};
+    color: {c.TEXT};
     font-weight: 500;
 }}
 
@@ -163,7 +163,7 @@ QHeaderView::section {{
     padding: 0 8px;
     min-height: {m.TABLE_HEADER_HEIGHT}px;
     max-height: {m.TABLE_HEADER_HEIGHT}px;
-    color: {c.TEXT_SECONDARY};
+    color: {c.TEXT};
 }}
 
 /* ─── Tabs (inside pages like Settings) ─── */

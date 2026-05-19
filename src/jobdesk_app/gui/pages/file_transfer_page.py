@@ -289,8 +289,8 @@ class FileTransferPage(QWidget):
         self.local_path_btn.setStyleSheet("text-align: left; padding: 0 8px;")
         self.local_path_btn.clicked.connect(self._choose_local_folder)
         self.server_combo = QComboBox()
-        self.server_combo.setMinimumWidth(90)
-        self.server_combo.setMaximumWidth(150)
+        self.server_combo.setMinimumWidth(120)
+        self.server_combo.setMaximumWidth(200)
         self.server_label = QLabel(tr("Server:", self._language))
         self.server_combo.currentIndexChanged.connect(self._auto_connect_selected_server)
         self.connection_label = QLabel(connection_status_text(None, False, language=self._language))
@@ -309,8 +309,7 @@ class FileTransferPage(QWidget):
             self.remote_path,
         )
 
-        self.refresh_btn = QPushButton("⟳")
-        self.refresh_btn.setFixedWidth(44)
+        self.refresh_btn = QPushButton("⟳ " + tr("Refresh", self._language))
         self.refresh_btn.setToolTip(tr("Refresh", self._language))
         self.refresh_btn.clicked.connect(self._refresh_all)
         self._normalize_control_heights(self.refresh_btn)
@@ -424,7 +423,6 @@ class FileTransferPage(QWidget):
         run_options_row.addWidget(self.max_parallel_spin)
         self.run_btn = QPushButton(tr("Run Selected", self._language))
         self.run_btn.clicked.connect(self._run_selected)
-        self.run_btn.setObjectName("PrimaryBtn")
         run_options_row.addWidget(self.run_btn)
         self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
         self.create_only_btn.clicked.connect(self._create_only)
