@@ -55,7 +55,7 @@ class SettingsPage(QWidget):
         # Row: Language
         row1 = QHBoxLayout()
         self.language_label = QLabel()
-        self.language_label.setFixedWidth(100)
+        self.language_label.setFixedWidth(130)
         self.language_combo = QComboBox()
         self.language_combo.setFixedWidth(140)
         row1.addWidget(self.language_label)
@@ -66,7 +66,7 @@ class SettingsPage(QWidget):
         # Row: Max parallel
         row2 = QHBoxLayout()
         self.max_parallel_label = QLabel()
-        self.max_parallel_label.setFixedWidth(100)
+        self.max_parallel_label.setFixedWidth(130)
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
         self.max_parallel_spin.setFixedWidth(80)
