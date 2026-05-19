@@ -117,6 +117,36 @@ def _build_parser() -> argparse.ArgumentParser:
     inp_build.add_argument("--orca", action="store_true")
     inp_build.set_defaults(func=_cmd_input_build)
 
+    # -- viewer subcommand --
+    viewer = sub.add_parser("viewer", help="Open files in molecular viewers")
+    viewer_sub = viewer.add_subparsers(dest="viewer_command", required=True)
+
+    v_list = viewer_sub.add_parser("list")
+    v_list.set_defaults(func=_cmd_viewer_list)
+
+    v_open = viewer_sub.add_parser("open")
+    v_open.add_argument("file_path", type=Path)
+    v_open.add_argument("--viewer", default="avogadro")
+    v_open.add_argument("--exe", default=None)
+    v_open.set_defaults(func=_cmd_viewer_open)
+
+    # -- smiles subcommand --
+    smiles = sub.add_parser("smiles", help="SMILES to 3D structure")
+    smiles_sub = smiles.add_subparsers(dest="smiles_command", required=True)
+
+    s_xyz = smiles_sub.add_parser("to-xyz")
+    s_xyz.add_argument("smiles")
+    s_xyz.add_argument("--output", type=Path, default=None)
+    s_xyz.add_argument("--title", default="")
+    s_xyz.set_defaults(func=_cmd_smiles_to_xyz)
+
+    s_gjf = smiles_sub.add_parser("to-gjf")
+    s_gjf.add_argument("smiles")
+    s_gjf.add_argument("--output", type=Path, default=None)
+    s_gjf.add_argument("--preset", default="b3lyp_631gd_opt_freq")
+    s_gjf.add_argument("--title", default="")
+    s_gjf.set_defaults(func=_cmd_smiles_to_gjf)
+
     # -- files subcommand group --
     files = sub.add_parser("files", help="Remote file operations")
     files_sub = files.add_subparsers(dest="files_command", required=True)
@@ -373,6 +403,60 @@ def _cmd_input_build(args) -> int:
     else:
         print(content)
     return 0
+
+
+def _cmd_viewer_list(args) -> int:
+    from .core.viewer import list_available_viewers
+    viewers = list_available_viewers()
+    if not viewers:
+        print("No molecular viewers found. Install Avogadro, GaussView, or ChemCraft.")
+        return 0
+    for name, path in sorted(viewers.items()):
+        print(f"{name}: {path}")
+    return 0
+
+
+def _cmd_viewer_open(args) -> int:
+    from .core.viewer import open_in_viewer
+    if open_in_viewer(args.file_path, args.viewer, args.exe):
+        print(f"Opened {args.file_path} in {args.viewer}")
+        return 0
+    print(f"Viewer not found: {args.viewer}. Use 'jobdesk viewer list' to see available viewers.")
+    return 2
+
+
+def _cmd_smiles_to_xyz(args) -> int:
+    from .core.viewer import smiles_to_xyz, is_rdkit_available
+    if not is_rdkit_available():
+        print("rdkit is required. Install with: pip install rdkit-pypi")
+        return 2
+    try:
+        content = smiles_to_xyz(args.smiles, args.output, args.title)
+        if args.output:
+            print(f"Written to {args.output}")
+        else:
+            print(content)
+        return 0
+    except ValueError as e:
+        print(f"Error: {e}")
+        return 2
+
+
+def _cmd_smiles_to_gjf(args) -> int:
+    from .core.viewer import smiles_to_gjf, is_rdkit_available
+    if not is_rdkit_available():
+        print("rdkit is required. Install with: pip install rdkit-pypi")
+        return 2
+    try:
+        content = smiles_to_gjf(args.smiles, args.output, args.preset, args.title)
+        if args.output:
+            print(f"Written to {args.output}")
+        else:
+            print(content)
+        return 0
+    except ValueError as e:
+        print(f"Error: {e}")
+        return 2
 
 
 # ---- files commands -------------------------------------------------------
