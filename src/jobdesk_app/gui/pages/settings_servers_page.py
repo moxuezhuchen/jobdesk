@@ -177,6 +177,8 @@ class SettingsServersPage(QWidget):
         srv_card.setStyleSheet(
             "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
             " #SettingCard QLabel { background: transparent; }"
+            " #SettingCard QTableWidget { background: transparent; border: none; }"
+            " #SettingCard QHeaderView::section { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 6px 16px; border-radius: 4px; }"
         )
