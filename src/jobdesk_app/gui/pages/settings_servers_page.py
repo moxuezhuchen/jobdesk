@@ -84,6 +84,7 @@ class SettingCard(QFrame):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
+        self.setFixedHeight(68)
 
         lbl_title = QLabel(title)
         lbl_desc = QLabel(description)
