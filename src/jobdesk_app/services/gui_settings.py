@@ -11,6 +11,7 @@ from ..app_paths import get_app_data_dir
 @dataclass(frozen=True)
 class GuiSettings:
     default_local_folder: str = ""
+    last_local_folder: str = ""
     default_remote_dir: str = "/tmp"
     default_server_id: str = ""
     auto_connect: bool = True
@@ -37,6 +38,7 @@ class GuiSettingsStore:
         raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
         return GuiSettings(
             default_local_folder=str(raw.get("default_local_folder", "")),
+            last_local_folder=str(raw.get("last_local_folder", "")),
             default_remote_dir=str(raw.get("default_remote_dir", "/tmp") or "/tmp"),
             default_server_id=str(raw.get("default_server_id", "")),
             auto_connect=bool(raw.get("auto_connect", True)),
@@ -53,6 +55,7 @@ class GuiSettingsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "default_local_folder": settings.default_local_folder,
+            "last_local_folder": settings.last_local_folder,
             "default_remote_dir": settings.default_remote_dir,
             "default_server_id": settings.default_server_id,
             "auto_connect": settings.auto_connect,

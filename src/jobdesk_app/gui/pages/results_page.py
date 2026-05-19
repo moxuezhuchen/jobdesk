@@ -120,7 +120,7 @@ class ResultsPage(QWidget):
     def _populate_profiles(self):
         current = self.profile_combo.currentText()
         self.profile_combo.clear()
-        for name in AnalysisProfileStore().list_names():
+        for name in AnalysisProfileStore().list_profiles():
             self.profile_combo.addItem(name)
         if current:
             idx = self.profile_combo.findText(current)

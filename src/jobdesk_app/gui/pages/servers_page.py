@@ -43,7 +43,7 @@ class ServersPage(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.currentRowChanged.connect(self._on_row_changed)
+        self.table.currentItemChanged.connect(lambda cur, _: self._on_row_changed(self.table.row(cur) if cur else -1))
         left_layout.addWidget(self.table)
 
         btn_row = QHBoxLayout()

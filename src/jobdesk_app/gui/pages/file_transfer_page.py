@@ -466,6 +466,7 @@ class FileTransferPage(QWidget):
         self.state.current_project_root = Path(path)
         self.local_path_btn.setText(path)
         self.local_path_btn.setToolTip(path)
+        self._save_last_local_folder(Path(path))
         self._refresh_local()
 
     def on_activated(self):
@@ -589,9 +590,17 @@ class FileTransferPage(QWidget):
         self._refresh_remote()
 
     def _apply_default_local_folder(self):
-        folder = self._gui_settings.default_local_folder
+        # Prefer last-used folder over the static default
+        folder = self._gui_settings.last_local_folder or self._gui_settings.default_local_folder
         if folder and Path(folder).exists():
             self.state.current_project_root = Path(folder)
+
+    def _save_last_local_folder(self, path: Path) -> None:
+        """Persist the current local folder so it survives restarts."""
+        from dataclasses import replace
+        store = GuiSettingsStore()
+        current = store.load()
+        store.save(replace(current, last_local_folder=str(path)))
 
     def _apply_gui_settings(self):
         self._apply_default_local_folder()
@@ -955,6 +964,7 @@ class FileTransferPage(QWidget):
             self.state.current_project_root = path
             self.local_path_btn.setText(str(path))
             self.local_path_btn.setToolTip(str(path))
+            self._save_last_local_folder(path)
             self._refresh_local_after_navigation()
             return
         try:
@@ -983,7 +993,38 @@ class FileTransferPage(QWidget):
             self.remote_table.setCurrentCell(-1, -1)
         else:
             self.remote_table.setCurrentCell(row, 0)
-            self._preview_remote()
+            self._open_remote_file_in_editor(path_item.text())
+
+    def _open_remote_file_in_editor(self, remote_path: str):
+        """Download remote file to a temp directory and open with the default OS editor."""
+        if self._service is None:
+            self._status_cb("Connect to a server first")
+            return
+        import tempfile
+        suffix = Path(remote_path).suffix or ".tmp"
+        name = Path(remote_path).name
+        # Use a stable temp dir per session so re-opening the same file reuses the path
+        tmp_dir = Path(tempfile.gettempdir()) / "jobdesk_remote_edit"
+        tmp_dir.mkdir(exist_ok=True)
+        tmp_file = tmp_dir / name
+
+        def _download():
+            self._service.sftp.get(remote_path, str(tmp_file))
+            return tmp_file
+
+        def _on_done(path):
+            try:
+                os.startfile(str(path))
+                self._status_cb(f"Opened: {name}")
+            except Exception as exc:
+                self._error_cb("Open Error", str(exc))
+
+        worker = _BackgroundRunWorker(_download)
+        worker.result.connect(_on_done)
+        worker.error.connect(lambda e: self._status_cb(f"Download failed: {e}"))
+        self._background_workers.append(worker)
+        worker.start()
+        self._status_cb(f"Downloading {name}…")
 
     def _upload_selected(self):
         if self._service is None:
