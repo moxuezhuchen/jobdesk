@@ -60,18 +60,21 @@ class SettingsPage(QWidget):
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
         self.language_combo = QComboBox()
+        self.hide_dotfiles_check = QCheckBox()
 
         self.server_label = QLabel()
         self.remote_dir_label = QLabel()
         self.connection_label = QLabel()
         self.max_parallel_label = QLabel()
         self.language_label = QLabel()
+        self.hide_dotfiles_label = QLabel()
 
         form.addRow(self.server_label, self.server_combo)
         form.addRow(self.remote_dir_label, self.remote_dir_edit)
         form.addRow(self.connection_label, self.auto_connect_check)
         form.addRow(self.max_parallel_label, self.max_parallel_spin)
         form.addRow(self.language_label, self.language_combo)
+        form.addRow(self.hide_dotfiles_label, self.hide_dotfiles_check)
         layout.addWidget(self.general_box)
 
         self.paths_box = QGroupBox()
@@ -110,6 +113,7 @@ class SettingsPage(QWidget):
         self.auto_connect_check.setText(tr("Auto connect selected server", language))
         self.max_parallel_label.setText(tr("Max parallel", language))
         self.language_label.setText(tr("Language:", language))
+        self.hide_dotfiles_label.setText(tr("Hide dotfiles (.xx):", language))
         self.save_btn.setText(tr("Save Settings", language))
         self.reload_btn.setText(tr("Reload Settings", language))
         self.clear_profile_btn.setText(tr("Clear Run Profiles", language))
@@ -145,6 +149,7 @@ class SettingsPage(QWidget):
             self.server_combo.setCurrentIndex(idx)
         self.auto_connect_check.setChecked(settings.auto_connect)
         self.max_parallel_spin.setValue(settings.max_parallel)
+        self.hide_dotfiles_check.setChecked(settings.hide_dotfiles)
         idx = self.language_combo.findData(settings.language)
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
@@ -177,6 +182,7 @@ class SettingsPage(QWidget):
             batch_size=existing.batch_size,
             language=self.language_combo.currentData() or "en",
             column_widths=existing.column_widths or {},
+            hide_dotfiles=self.hide_dotfiles_check.isChecked(),
         )
 
     def _save_settings(self):

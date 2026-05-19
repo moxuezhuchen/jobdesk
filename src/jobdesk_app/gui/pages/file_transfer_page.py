@@ -636,12 +636,16 @@ class FileTransferPage(QWidget):
         self.batch_size_spin.setValue(self._gui_settings.batch_size)
 
     def _refresh_local(self):
+        self._gui_settings = GuiSettingsStore().load()
         base = self.state.current_project_root or Path.cwd()
+        hide_dot = self._gui_settings.hide_dotfiles
         rows = []
         parent = local_parent_row(base)
         if parent is not None:
             rows.append(parent)
         for child in sorted(Path(base).iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name)):
+            if hide_dot and child.name.startswith("."):
+                continue
             rows.append(local_table_row(
                 child.name,
                 child.is_dir(),
@@ -714,6 +718,7 @@ class FileTransferPage(QWidget):
         parent = remote_parent_row(remote_dir)
         if parent is not None:
             rows.append(parent)
+        hide_dot = self._gui_settings.hide_dotfiles
         rows.extend([
             remote_table_row(
                 e.name,
@@ -724,6 +729,7 @@ class FileTransferPage(QWidget):
                 e.path,
             )
             for e in entries
+            if not (hide_dot and e.name.startswith("."))
         ])
         _load_rows(self.remote_table, rows)
         self._update_selection_summary()

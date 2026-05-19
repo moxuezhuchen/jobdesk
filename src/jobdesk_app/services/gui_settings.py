@@ -30,6 +30,7 @@ class GuiSettings:
     auto_download_enabled: bool = False
     notify_enabled: bool = False
     download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
+    hide_dotfiles: bool = True
 
     def __post_init__(self):
         if self.column_widths is None:
@@ -66,6 +67,7 @@ class GuiSettingsStore:
             auto_download_enabled=bool(raw.get("auto_download_enabled", False)),
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
+            hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
         )
 
     def save(self, settings: GuiSettings) -> Path:
@@ -90,6 +92,7 @@ class GuiSettingsStore:
             "auto_download_enabled": settings.auto_download_enabled,
             "notify_enabled": settings.notify_enabled,
             "download_patterns": settings.download_patterns,
+            "hide_dotfiles": settings.hide_dotfiles,
         }
         self.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
         return self.path
