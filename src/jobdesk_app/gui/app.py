@@ -13,11 +13,12 @@ def main():
     configure_qt_windows_dpi_environment()
 
     from PySide6.QtGui import QFont
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QStyleFactory
 
     from .main_window import MainWindow
 
     app = QApplication(sys.argv)
+    app.setStyle(QStyleFactory.create("Fusion"))
     app.setOrganizationName("JobDesk")
     app.setApplicationName("JobDesk")
 
