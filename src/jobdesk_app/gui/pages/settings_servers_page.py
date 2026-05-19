@@ -204,7 +204,7 @@ class SettingsServersPage(QWidget):
         self.server_table.horizontalHeader().setStyleSheet(
             "QHeaderView { background: transparent; }"
             " QHeaderView::section { background: transparent; border: none;"
-            " border-bottom: 1px solid #94a3b8; }"
+            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
         )
         srv_inner.addWidget(self.server_table)
 
