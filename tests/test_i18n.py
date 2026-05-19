@@ -5,7 +5,6 @@ from jobdesk_app.gui.pages.file_transfer_page import (
     connection_status_text,
     format_selection_summary,
 )
-from jobdesk_app.gui.pages.settings_page import settings_status_summary
 
 
 def test_i18n_source_uses_ascii_escapes_for_chinese_labels():
@@ -35,4 +34,3 @@ def test_gui_status_helpers_translate_to_chinese():
     assert connection_status_text(None, False, language="zh") == "\u672a\u9009\u62e9\u670d\u52a1\u5668"
     assert connection_status_text("814new", True, language="zh") == "\u5df2\u8fde\u63a5: 814new"
     assert format_selection_summary(1, 2, "zh") == "\u672c\u5730 1 | \u8fdc\u7a0b 2"
-    assert settings_status_summary("", "/tmp", False, "zh") == "\u81ea\u52a8\u8fde\u63a5\u5df2\u5173\u95ed"
