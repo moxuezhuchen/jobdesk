@@ -1093,15 +1093,82 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a remote file or folder")
             return
         local_base = self.state.current_project_root or Path.cwd()
-        try:
-            target = Path(local_base) / Path(remote_path).name
-            records = self._service.download_path(remote_path, target, OverwritePolicy.skip_same_size)
+        target = Path(local_base) / Path(remote_path).name
+
+        worker = _BackgroundRunWorker(lambda: None)  # placeholder, replaced below
+
+        def _run():
+            def _progress(done, total):
+                worker.progress.emit(int(done), int(total))
+            with self._service._sftp_factory() as sftp:
+                rec = sftp.download_file(remote_path, target,
+                                         overwrite=True, skip_if_same_size=False,
+                                         progress_callback=_progress)
+            return [rec]
+
+        worker._target_fn = _run
+        self._start_transfer_worker(worker, "Download", self._refresh_local)
+
+    def _upload_selected(self):
+        if self._service is None:
+            self._status_cb("Connect to a server first")
+            return
+        local_path = self._selected_local_path()
+        if local_path is None:
+            self._status_cb("Select a local file or folder")
+            return
+        remote_target = self._remote_target_for_local(local_path)
+
+        worker = _BackgroundRunWorker(lambda: None)
+
+        def _run():
+            def _progress(done, total):
+                worker.progress.emit(int(done), int(total))
+            with self._service._sftp_factory() as sftp:
+                if local_path.is_dir():
+                    records = sftp.upload_dir(local_path, remote_target,
+                                              overwrite=False, skip_if_same_size=True)
+                else:
+                    records = [sftp.upload_file(local_path, remote_target,
+                                                overwrite=False, skip_if_same_size=True,
+                                                progress_callback=_progress)]
+            return records
+
+        worker._target_fn = _run
+        self._start_transfer_worker(worker, "Upload", self._refresh_remote)
+
+    def _start_transfer_worker(self, worker, label: str, on_done_refresh):
+        self.progress_bar.setValue(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setFormat(f"{label}: %p%")
+        self.progress_bar.setVisible(True)
+
+        def _on_progress(done, total):
+            if total > 0:
+                self.progress_bar.setValue(int(done * 100 / total))
+                self.progress_bar.setFormat(f"{label}: {done // 1024}K / {total // 1024}K")
+            else:
+                self.progress_bar.setMaximum(0)  # indeterminate
+
+        def _on_done(records):
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setMaximum(100)
             if not isinstance(records, list):
                 records = [records]
             self.queue_label.setText(format_queue_summary([r.status for r in records], self._language))
-            self._refresh_local()
-        except Exception as exc:
-            self._error_cb("Download Error", str(exc))
+            on_done_refresh()
+
+        def _on_error(msg):
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setMaximum(100)
+            self._error_cb(f"{label} Error", msg)
+
+        worker.progress.connect(_on_progress)
+        worker.result.connect(_on_done)
+        worker.error.connect(_on_error)
+        self._background_workers.append(worker)
+        worker.start()
+        self._status_cb(f"{label} started…")
 
     def _upload_dropped_local_paths(self, paths: list[str]):
         if self._service is None:

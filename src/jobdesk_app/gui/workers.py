@@ -10,6 +10,7 @@ class BackgroundWorker(QThread):
     result = Signal(object)
     error = Signal(str)
     log = Signal(str)
+    progress = Signal(int, int)  # bytes_done, bytes_total
 
     def __init__(self, target_fn, *args, **kwargs):
         super().__init__()
