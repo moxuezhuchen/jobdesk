@@ -55,6 +55,11 @@ QCheckBox::indicator:checked {{
     background: #2563eb;
     border-color: #2563eb;
 }}
+/* ─── SpinBox: hide up/down buttons ─── */
+QSpinBox::up-button, QSpinBox::down-button {{
+    width: 0;
+    border: none;
+}}
 /* ─── GroupBox fix ─── */
 QGroupBox {{
     padding-top: 28px;
