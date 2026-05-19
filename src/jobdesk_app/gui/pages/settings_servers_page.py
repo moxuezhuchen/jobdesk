@@ -7,13 +7,65 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
     QSpinBox, QComboBox, QFileDialog, QFrame, QScrollArea, QCheckBox,
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QPropertyAnimation, Property, QRectF
+from PySide6.QtGui import QPainter, QColor
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ..i18n import tr
 from ..workers import BackgroundWorker
 from ..session import create_ssh_client
+
+
+class ToggleSwitch(QWidget):
+    """滑动开关控件。"""
+    toggled = Signal(bool)
+
+    def __init__(self, checked=False, parent=None):
+        super().__init__(parent)
+        self._checked = checked
+        self._offset = 4.0 if not checked else 22.0
+        self.setFixedSize(48, 26)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, v):
+        self._checked = v
+        self._offset = 22.0 if v else 4.0
+        self.update()
+
+    def _get_offset(self):
+        return self._offset
+
+    def _set_offset(self, v):
+        self._offset = v
+        self.update()
+
+    offset = Property(float, _get_offset, _set_offset)
+
+    def mousePressEvent(self, e):
+        self._checked = not self._checked
+        anim = QPropertyAnimation(self, b"offset", self)
+        anim.setDuration(120)
+        anim.setStartValue(self._offset)
+        anim.setEndValue(22.0 if self._checked else 4.0)
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        self.toggled.emit(self._checked)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        # Track
+        track_color = QColor("#3b82f6") if self._checked else QColor("#94a3b8")
+        p.setBrush(track_color)
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(QRectF(0, 0, 48, 26), 13, 13)
+        # Thumb
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QRectF(self._offset, 4, 18, 18))
+        p.end()
 
 
 class SettingCard(QFrame):
@@ -103,13 +155,7 @@ class SettingsServersPage(QWidget):
         layout.addWidget(SettingCard("语言", "界面显示语言，切换后立即生效", self.language_combo))
 
         # ─── 隐藏.文件 ───
-        self.hide_dotfiles_cb = QCheckBox()
-        self.hide_dotfiles_cb.setStyleSheet(
-            "QCheckBox { spacing: 8px; }"
-            "QCheckBox::indicator { width: 40px; height: 22px; border-radius: 11px;"
-            " background: #94a3b8; }"
-            "QCheckBox::indicator:checked { background: #3b82f6; }"
-        )
+        self.hide_dotfiles_cb = ToggleSwitch()
         layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", self.hide_dotfiles_cb))
 
         # ─── 服务器 ───

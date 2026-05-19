@@ -109,13 +109,6 @@ QLineEdit, QComboBox, QSpinBox {{
     max-height: {m.CONTROL_HEIGHT}px;
     padding: 0 8px;
 }}
-QComboBox::drop-down {{
-    border: none;
-    background: transparent;
-    width: 30px;
-}}
-QComboBox::down-arrow {{
-}}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border-color: {c.BORDER_FOCUS};
 }}
