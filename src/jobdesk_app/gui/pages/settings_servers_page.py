@@ -24,8 +24,8 @@ class ToggleSwitch(QWidget):
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
         self._checked = checked
-        self._offset = 4.0 if not checked else 22.0
-        self.setFixedSize(48, 26)
+        self._offset = 6.0 if not checked else 30.0
+        self.setFixedSize(60, 32)
         self.setCursor(Qt.PointingHandCursor)
 
     def isChecked(self):
@@ -33,7 +33,7 @@ class ToggleSwitch(QWidget):
 
     def setChecked(self, v):
         self._checked = v
-        self._offset = 22.0 if v else 4.0
+        self._offset = 30.0 if v else 6.0
         self.update()
 
     def _get_offset(self):
@@ -50,21 +50,19 @@ class ToggleSwitch(QWidget):
         anim = QPropertyAnimation(self, b"offset", self)
         anim.setDuration(120)
         anim.setStartValue(self._offset)
-        anim.setEndValue(22.0 if self._checked else 4.0)
+        anim.setEndValue(30.0 if self._checked else 6.0)
         anim.start(QPropertyAnimation.DeleteWhenStopped)
         self.toggled.emit(self._checked)
 
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        # Track
         track_color = QColor("#3b82f6") if self._checked else QColor("#94a3b8")
         p.setBrush(track_color)
         p.setPen(Qt.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, 48, 26), 13, 13)
-        # Thumb
+        p.drawRoundedRect(QRectF(0, 0, 60, 32), 16, 16)
         p.setBrush(QColor("white"))
-        p.drawEllipse(QRectF(self._offset, 4, 18, 18))
+        p.drawEllipse(QRectF(self._offset, 5, 22, 22))
         p.end()
 
 
@@ -156,7 +154,17 @@ class SettingsServersPage(QWidget):
 
         # ─── 隐藏.文件 ───
         self.hide_dotfiles_cb = ToggleSwitch()
-        layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", self.hide_dotfiles_cb))
+        toggle_ctrl = QWidget()
+        toggle_layout = QHBoxLayout(toggle_ctrl)
+        toggle_layout.setContentsMargins(0, 0, 0, 0)
+        toggle_layout.setSpacing(8)
+        self._toggle_label = QLabel("开" if self.hide_dotfiles_cb.isChecked() else "关")
+        toggle_layout.addWidget(self._toggle_label)
+        toggle_layout.addWidget(self.hide_dotfiles_cb)
+        self.hide_dotfiles_cb.toggled.connect(
+            lambda v: self._toggle_label.setText("开" if v else "关")
+        )
+        layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", toggle_ctrl))
 
         # ─── 服务器 ───
         layout.addSpacing(12)
@@ -280,6 +288,7 @@ class SettingsServersPage(QWidget):
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
         self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
+        self._toggle_label.setText("开" if s.hide_dotfiles else "关")
 
     def _save_settings(self):
         from dataclasses import replace
