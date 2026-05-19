@@ -4,15 +4,34 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QCheckBox,
+    QSpinBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIcon
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..workers import BackgroundWorker as _BackgroundRunWorker
+
+
+def _send_notification(title: str, message: str) -> None:
+    """Send a Windows system tray notification if possible."""
+    try:
+        from PySide6.QtWidgets import QSystemTrayIcon, QApplication
+        from PySide6.QtGui import QIcon
+        app = QApplication.instance()
+        if app is None:
+            return
+        tray = QSystemTrayIcon(app)
+        tray.setIcon(app.windowIcon() or QIcon())
+        tray.show()
+        tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 5000)
+    except Exception:
+        pass  # Notifications are best-effort
 
 
 def format_run_status_summary(summary: dict[str, int]) -> str:
@@ -54,6 +73,7 @@ class RunsPage(QWidget):
         self._log = log_cb
         self._status_cb = status_cb
         self._language = GuiSettingsStore().load().language
+        self._background_workers = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
 
@@ -79,6 +99,23 @@ class RunsPage(QWidget):
         download_row.addWidget(self.download_patterns, 1)
         layout.addLayout(download_row)
 
+        # Auto-refresh controls
+        auto_row = QHBoxLayout()
+        self.auto_refresh_check = QCheckBox()
+        self.auto_refresh_check.toggled.connect(self._on_auto_refresh_toggled)
+        auto_row.addWidget(self.auto_refresh_check)
+        self.auto_refresh_interval = QSpinBox()
+        self.auto_refresh_interval.setRange(10, 3600)
+        self.auto_refresh_interval.setValue(30)
+        self.auto_refresh_interval.setSuffix(" s")
+        auto_row.addWidget(self.auto_refresh_interval)
+        self.auto_download_check = QCheckBox()
+        auto_row.addWidget(self.auto_download_check)
+        self.notify_check = QCheckBox()
+        auto_row.addWidget(self.notify_check)
+        auto_row.addStretch()
+        layout.addLayout(auto_row)
+
         btns = QHBoxLayout()
         self.refresh_btn = QPushButton()
         self.refresh_btn.clicked.connect(self._refresh_all)
@@ -97,6 +134,11 @@ class RunsPage(QWidget):
         btns.addWidget(self.delete_btn)
         btns.addStretch()
         layout.addLayout(btns)
+
+        # Auto-refresh timer
+        self._auto_timer = QTimer(self)
+        self._auto_timer.timeout.connect(self._auto_refresh_tick)
+
         self.apply_language(self._language)
 
     def _context_menu(self, pos):
@@ -119,11 +161,79 @@ class RunsPage(QWidget):
         self.retry_btn.setText(tr("Retry Failed", language))
         self.cancel_btn.setText(tr("Cancel", language))
         self.delete_btn.setText(tr("Delete", language))
+        self.auto_refresh_check.setText(tr("Auto-refresh", language))
+        self.auto_download_check.setText(tr("Auto-download", language))
+        self.notify_check.setText(tr("Notify on complete", language))
         self.table.setHorizontalHeaderLabels([
             tr("run_id", language), tr("server", language), tr("remote_dir", language),
             tr("mode", language), tr("Max parallel", language), tr("status", language),
             tr("command", language), tr("created_at", language),
         ])
+
+    def _on_auto_refresh_toggled(self, checked: bool):
+        if checked:
+            interval_ms = self.auto_refresh_interval.value() * 1000
+            self._auto_timer.start(interval_ms)
+            self._status_cb(f"Auto-refresh every {self.auto_refresh_interval.value()}s")
+        else:
+            self._auto_timer.stop()
+            self._status_cb("Auto-refresh stopped")
+
+    def _auto_refresh_tick(self):
+        """Called by QTimer: refresh all active runs, auto-download if enabled."""
+        self.refresh_run_list()
+        if not self.auto_download_check.isChecked():
+            return
+        # Auto-download any newly completed runs
+        workspace = Path(self.state.current_project_root or Path.cwd())
+        for record in RunService(workspace).list_runs():
+            if record.status_summary.get("remote_completed", 0) > 0:
+                self._auto_download_run(record)
+
+    def _auto_download_run(self, record: RunRecord):
+        """Download results for a completed run in the background."""
+        workspace = Path(self.state.current_project_root or Path.cwd())
+        patterns = parse_download_patterns(self.download_patterns.text())
+        if not patterns:
+            return
+
+        def _run():
+            try:
+                server = load_servers().servers[record.server_id]
+            except KeyError:
+                return None
+            ssh = create_ssh_client(server)
+            ssh.connect()
+            sftp = create_sftp_client(ssh)
+            try:
+                recs, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                return (record.run_id, recs, failures)
+            finally:
+                sftp.close()
+                ssh.close()
+
+        worker = _BackgroundRunWorker(_run)
+        worker.result.connect(lambda r: self._on_auto_download_done(r))
+        worker.error.connect(lambda e: self._log(f"Auto-download error: {e}"))
+        self._background_workers.append(worker)
+        worker.start()
+
+    def _on_auto_download_done(self, result):
+        if result is None:
+            return
+        run_id, records, failures = result
+        transferred = sum(1 for r in records if r.status.value == "transferred")
+        if transferred > 0:
+            self.refresh_run_list()
+            self._log(f"Auto-downloaded {transferred} file(s) for run {run_id}")
+            if self.notify_check.isChecked():
+                _send_notification(f"JobDesk: run {run_id} complete", f"Downloaded {transferred} file(s)")
+
+    def shutdown(self):
+        self._auto_timer.stop()
+        for w in self._background_workers:
+            if hasattr(w, "stop_safely"):
+                w.stop_safely()
 
     def _refresh_all(self):
         """Refresh list, and update status of selected run if any."""
@@ -299,7 +409,3 @@ class RunsPage(QWidget):
             worker.stop_safely()
 
 
-class _BackgroundRunWorker:
-    def __new__(cls, target):
-        from ..workers import BackgroundWorker
-        return BackgroundWorker(target)
