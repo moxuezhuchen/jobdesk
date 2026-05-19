@@ -1,21 +1,46 @@
-"""设置页 — 服务器管理 + 应用设置，统一在一个滚动页面内。"""
+"""设置页 — Windows Terminal 风格卡片布局（白色主题）。"""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QSpinBox, QComboBox, QFileDialog, QGroupBox, QFormLayout,
+    QSpinBox, QComboBox, QFileDialog, QFrame, QScrollArea, QCheckBox,
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ..i18n import tr
 from ..workers import BackgroundWorker
 from ..session import create_ssh_client
+
+
+class SettingCard(QFrame):
+    """Windows Terminal 风格卡片：圆角背景，标题+描述紧贴左侧，控件右侧。"""
+
+    def __init__(self, title: str, description: str, control: QWidget):
+        super().__init__()
+        self.setObjectName("SettingCard")
+        self.setStyleSheet(
+            "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #SettingCard QLabel { background: transparent; }"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+
+        left = QVBoxLayout()
+        left.setSpacing(2)
+        lbl_title = QLabel(title)
+        lbl_desc = QLabel(description)
+        lbl_desc.setStyleSheet("color: #64748b; font-size: 13pt;")
+        left.addWidget(lbl_title)
+        left.addWidget(lbl_desc)
+
+        layout.addLayout(left, 1)
+        control.setMinimumWidth(180)
+        layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
 
 
 class SettingsServersPage(QWidget):
@@ -29,72 +54,124 @@ class SettingsServersPage(QWidget):
         self._store = GuiSettingsStore()
         self._language = self._store.load().language
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Scrollable content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
-        # ─── Settings section ───
-        settings_box = QGroupBox("设置")
-        form = QFormLayout(settings_box)
-        form.setSpacing(8)
+        # Page title
+        title = QLabel("设置")
+        title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        layout.addWidget(title)
+        layout.addSpacing(8)
 
-        folder_row = QHBoxLayout()
+        # ─── 本地目录 ───
+        folder_ctrl = QWidget()
+        fc_layout = QHBoxLayout(folder_ctrl)
+        fc_layout.setContentsMargins(0, 0, 0, 0)
         self.local_folder_edit = QLineEdit()
         self.browse_btn = QPushButton("浏览")
+        self.browse_btn.setStyleSheet(
+            "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
+        )
         self.browse_btn.clicked.connect(self._browse)
-        folder_row.addWidget(self.local_folder_edit, 1)
-        folder_row.addWidget(self.browse_btn)
-        form.addRow("本地目录:", folder_row)
+        fc_layout.addWidget(self.local_folder_edit, 1)
+        fc_layout.addWidget(self.browse_btn)
+        layout.addWidget(SettingCard("本地目录", "下载结果文件的默认保存位置", folder_ctrl))
 
+        # ─── 最大并发 ───
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
-        self.max_parallel_spin.setMaximumWidth(100)
-        form.addRow("最大并发:", self.max_parallel_spin)
+        layout.addWidget(SettingCard("最大并发", "同时运行的远程任务数上限", self.max_parallel_spin))
 
+        # ─── 语言 ───
         self.language_combo = QComboBox()
         self.language_combo.addItem("中文", "zh")
         self.language_combo.addItem("English", "en")
-        self.language_combo.setMaximumWidth(160)
-        form.addRow("语言:", self.language_combo)
+        self.language_combo.setStyleSheet(
+            "QComboBox { background: white; border: 1px solid #cbd5e1;"
+            " border-radius: 4px; padding: 6px 12px; }"
+        )
+        layout.addWidget(SettingCard("语言", "界面显示语言，切换后立即生效", self.language_combo))
 
-        layout.addWidget(settings_box)
+        # ─── 隐藏.文件 ───
+        self.hide_dotfiles_cb = QCheckBox()
+        self.hide_dotfiles_cb.setStyleSheet(
+            "QCheckBox { spacing: 8px; }"
+            "QCheckBox::indicator { width: 40px; height: 22px; border-radius: 11px;"
+            " background: #94a3b8; }"
+            "QCheckBox::indicator:checked { background: #3b82f6; }"
+        )
+        layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", self.hide_dotfiles_cb))
 
-        # ─── Servers section ───
-        servers_box = QGroupBox("服务器")
-        servers_layout = QVBoxLayout(servers_box)
-        servers_layout.setSpacing(6)
+        # ─── 服务器 ───
+        layout.addSpacing(12)
+        srv_title = QLabel("服务器")
+        srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        layout.addWidget(srv_title)
+        layout.addSpacing(4)
+
+        srv_card = QFrame()
+        srv_inner = QVBoxLayout(srv_card)
+        srv_inner.setContentsMargins(0, 0, 0, 0)
+        srv_inner.setSpacing(8)
 
         self.server_table = QTableWidget()
         self.server_table.setColumnCount(5)
-        self.server_table.setMaximumHeight(180)
         self.server_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.server_table.verticalHeader().setVisible(False)
         self.server_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.server_table.setHorizontalHeaderLabels(["ID", "主机", "端口", "用户", "状态"])
         self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        servers_layout.addWidget(self.server_table)
+        self.server_table.setMaximumHeight(200)
+        srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
+        btn_style = "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
         self.reload_srv_btn = QPushButton("刷新")
+        self.reload_srv_btn.setStyleSheet(btn_style)
         self.reload_srv_btn.clicked.connect(self._load_servers)
-        srv_btns.addWidget(self.reload_srv_btn)
         self.test_btn = QPushButton("测试连接")
+        self.test_btn.setStyleSheet(btn_style)
         self.test_btn.clicked.connect(self._test_connection)
+        srv_btns.addWidget(self.reload_srv_btn)
         srv_btns.addWidget(self.test_btn)
         srv_btns.addStretch()
-        servers_layout.addLayout(srv_btns)
+        srv_inner.addLayout(srv_btns)
 
-        layout.addWidget(servers_box)
-
-        # ─── Save button ───
-        save_row = QHBoxLayout()
-        self.save_btn = QPushButton("保存设置")
-        self.save_btn.clicked.connect(self._save_settings)
-        save_row.addWidget(self.save_btn)
-        save_row.addStretch()
-        layout.addLayout(save_row)
-
+        layout.addWidget(srv_card)
         layout.addStretch()
+
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+        # ─── 底部按钮栏（固定） ───
+        bottom_bar = QFrame()
+        bottom_bar.setStyleSheet("border-top: 1px solid #e2e8f0;")
+        bar_layout = QHBoxLayout(bottom_bar)
+        bar_layout.setContentsMargins(24, 10, 24, 10)
+        bar_layout.addStretch()
+        self.save_btn = QPushButton("保存设置")
+        self.save_btn.setStyleSheet(
+            "background: #3b82f6; color: white; padding: 6px 16px; border-radius: 4px;"
+        )
+        self.save_btn.clicked.connect(self._save_settings)
+        self.discard_btn = QPushButton("放弃更改")
+        self.discard_btn.setStyleSheet(
+            "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
+        )
+        self.discard_btn.clicked.connect(self._load_settings)
+        bar_layout.addWidget(self.save_btn)
+        bar_layout.addWidget(self.discard_btn)
+        root.addWidget(bottom_bar)
 
         self._load_servers()
         self._load_settings()
@@ -156,6 +233,7 @@ class SettingsServersPage(QWidget):
         idx = self.language_combo.findData(s.language)
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
+        self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
 
     def _save_settings(self):
         from dataclasses import replace
@@ -165,6 +243,7 @@ class SettingsServersPage(QWidget):
             default_local_folder=self.local_folder_edit.text().strip(),
             max_parallel=self.max_parallel_spin.value(),
             language=self.language_combo.currentData() or "zh",
+            hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
         )
         self._store.save(new_settings)
         self._status_cb("设置已保存")

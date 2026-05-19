@@ -110,11 +110,13 @@ QLineEdit, QComboBox, QSpinBox {{
     padding: 0 8px;
 }}
 QComboBox::drop-down {{
-    width: 28px;
+    border: none;
+    background: transparent;
+    width: 24px;
 }}
 QComboBox::down-arrow {{
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border-color: {c.BORDER_FOCUS};
