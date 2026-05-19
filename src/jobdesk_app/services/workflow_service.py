@@ -142,10 +142,13 @@ class WorkflowRunner:
         self,
         spec: WorkflowSpec,
         wf_run: WorkflowRun,
-        ssh_factory,
-        sftp_factory,
+        ssh_factory=None,
+        sftp_factory=None,
     ) -> list[str]:
-        """Check which steps are ready to run and start them.
+        """Check which steps are ready to run and create their RunService runs.
+
+        This method only creates runs (no SSH needed). The caller is responsible
+        for submitting each created run via RunService.submit_run().
 
         Returns list of step names that were started.
         """

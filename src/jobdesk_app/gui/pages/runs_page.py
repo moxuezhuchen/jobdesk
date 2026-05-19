@@ -138,6 +138,7 @@ class RunsPage(QWidget):
         # Auto-refresh timer
         self._auto_timer = QTimer(self)
         self._auto_timer.timeout.connect(self._auto_refresh_tick)
+        self._downloading_run_ids: set[str] = set()
 
         self.apply_language(self._language)
 
@@ -192,6 +193,9 @@ class RunsPage(QWidget):
 
     def _auto_download_run(self, record: RunRecord):
         """Download results for a completed run in the background."""
+        if record.run_id in self._downloading_run_ids:
+            return
+        self._downloading_run_ids.add(record.run_id)
         workspace = Path(self.state.current_project_root or Path.cwd())
         patterns = parse_download_patterns(self.download_patterns.text())
         if not patterns:
@@ -222,6 +226,7 @@ class RunsPage(QWidget):
         if result is None:
             return
         run_id, records, failures = result
+        self._downloading_run_ids.discard(run_id)
         transferred = sum(1 for r in records if r.status.value == "transferred")
         if transferred > 0:
             self.refresh_run_list()

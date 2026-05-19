@@ -112,10 +112,13 @@ class SlurmAdapter:
         raise RuntimeError(f"sbatch failed: {r.stdout} {r.stderr}")
 
     def poll(self, ssh, job_id: str) -> JobState:
-        r = ssh.run(
-            f"squeue -j {shlex.quote(job_id)} -h -o '%T' 2>/dev/null || echo DONE",
-            timeout=15,
-        )
+        try:
+            r = ssh.run(
+                f"squeue -j {shlex.quote(job_id)} -h -o '%T' 2>/dev/null || echo DONE",
+                timeout=15,
+            )
+        except Exception:
+            return JobState.unknown
         state = r.stdout.strip().upper()
         _MAP = {
             "PENDING": JobState.pending,
@@ -173,10 +176,13 @@ class PBSAdapter:
         return job_id
 
     def poll(self, ssh, job_id: str) -> JobState:
-        r = ssh.run(
-            f"qstat -f {shlex.quote(job_id)} 2>/dev/null | grep 'job_state' || echo DONE",
-            timeout=15,
-        )
+        try:
+            r = ssh.run(
+                f"qstat -f {shlex.quote(job_id)} 2>/dev/null | grep 'job_state' || echo DONE",
+                timeout=15,
+            )
+        except Exception:
+            return JobState.unknown
         text = r.stdout.upper()
         if "DONE" in text or "job_state" not in text.lower():
             return JobState.completed
