@@ -79,7 +79,7 @@ class SettingCard(QFrame):
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
             " #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {"
             " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
-            " padding: 4px 8px; }"
+            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
         )
 
         layout = QHBoxLayout(self)
