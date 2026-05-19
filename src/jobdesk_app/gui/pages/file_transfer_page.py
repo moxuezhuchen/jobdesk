@@ -479,6 +479,17 @@ class FileTransferPage(QWidget):
             local_root = str(self.state.current_project_root or Path.cwd())
             self.local_path_btn.setText(local_root)
             self.local_path_btn.setToolTip(local_root)
+            # Restore last remote dirs and server selection
+            if self._gui_settings.last_remote_dirs:
+                self._server_remote_dirs.update(self._gui_settings.last_remote_dirs)
+            if self._gui_settings.last_server_id:
+                idx = self.server_combo.findData(self._gui_settings.last_server_id)
+                if idx >= 0:
+                    self.server_combo.setCurrentIndex(idx)
+                    # Restore last remote path for this server
+                    last_path = self._server_remote_dirs.get(self._gui_settings.last_server_id)
+                    if last_path:
+                        self.remote_path.setText(last_path)
         self._apply_gui_settings_no_folder()
         self._load_servers()
         self._refresh_local()
@@ -1437,6 +1448,13 @@ class FileTransferPage(QWidget):
         )
 
     def shutdown(self):
+        self._remember_current_remote_dir()
+        store = GuiSettingsStore()
+        current = store.load()
+        store.save(replace(current,
+            last_server_id=self._connected_server_id or "",
+            last_remote_dirs={**dict(current.last_remote_dirs or {}), **self._server_remote_dirs},
+        ))
         workers = list(self._background_workers)
         worker = getattr(self, "worker", None)
         if worker is not None and worker not in workers:

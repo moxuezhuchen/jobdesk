@@ -149,6 +149,28 @@ class RunsPage(QWidget):
         self._downloading_run_ids: set[str] = set()
 
         self.apply_language(self._language)
+        self._restore_state()
+
+    def _restore_state(self):
+        s = GuiSettingsStore().load()
+        self.download_patterns.setText(s.download_patterns)
+        self.auto_refresh_interval.setValue(s.auto_refresh_interval)
+        self.auto_download_check.setChecked(s.auto_download_enabled)
+        self.notify_check.setChecked(s.notify_enabled)
+        # Restore auto-refresh last (triggers timer start if checked)
+        self.auto_refresh_check.setChecked(s.auto_refresh_enabled)
+
+    def _save_state(self):
+        from dataclasses import replace
+        store = GuiSettingsStore()
+        current = store.load()
+        store.save(replace(current,
+            download_patterns=self.download_patterns.text(),
+            auto_refresh_enabled=self.auto_refresh_check.isChecked(),
+            auto_refresh_interval=self.auto_refresh_interval.value(),
+            auto_download_enabled=self.auto_download_check.isChecked(),
+            notify_enabled=self.notify_check.isChecked(),
+        ))
 
     def _context_menu(self, pos):
         from PySide6.QtWidgets import QMenu
@@ -246,6 +268,7 @@ class RunsPage(QWidget):
                 _send_notification(f"JobDesk: run {run_id} complete", f"Downloaded {transferred} file(s)")
 
     def shutdown(self):
+        self._save_state()
         self._auto_timer.stop()
         for w in self._background_workers:
             if hasattr(w, "stop_safely"):
