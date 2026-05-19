@@ -64,33 +64,22 @@ class SettingsPage(QWidget):
         self.remote_dir_edit = QLineEdit()
         self.server_combo = QComboBox()
         self.auto_connect_check = QCheckBox()
-        self.command_edit = QLineEdit()
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
-        self.batch_size_spin = QSpinBox()
-        self.batch_size_spin.setRange(0, 9999)
-        self.batch_size_spin.setSpecialValueText("all")
-        self.overwrite_combo = QComboBox()
         self.language_combo = QComboBox()
 
         self.local_folder_label = QLabel()
         self.server_label = QLabel()
         self.remote_dir_label = QLabel()
         self.connection_label = QLabel()
-        self.command_label = QLabel()
         self.max_parallel_label = QLabel()
-        self.batch_size_label = QLabel()
-        self.transfers_label = QLabel()
         self.language_label = QLabel()
 
         form.addRow(self.local_folder_label, local_row)
         form.addRow(self.server_label, self.server_combo)
         form.addRow(self.remote_dir_label, self.remote_dir_edit)
         form.addRow(self.connection_label, self.auto_connect_check)
-        form.addRow(self.command_label, self.command_edit)
         form.addRow(self.max_parallel_label, self.max_parallel_spin)
-        form.addRow(self.batch_size_label, self.batch_size_spin)
-        form.addRow(self.transfers_label, self.overwrite_combo)
         form.addRow(self.language_label, self.language_combo)
         layout.addWidget(self.general_box)
 
@@ -130,16 +119,12 @@ class SettingsPage(QWidget):
         self.remote_dir_label.setText(tr("Default remote directory:", language))
         self.connection_label.setText(tr("Connection:", language))
         self.auto_connect_check.setText(tr("Auto connect selected server", language))
-        self.command_label.setText(tr("Default command:", language))
         self.max_parallel_label.setText(tr("Max parallel", language))
-        self.batch_size_label.setText(tr("Batch size", language))
-        self.transfers_label.setText(tr("Transfers:", language))
         self.language_label.setText(tr("Language:", language))
         self.save_btn.setText(tr("Save Settings", language))
         self.reload_btn.setText(tr("Reload Settings", language))
         self.clear_profile_btn.setText(tr("Clear Run Profiles", language))
         self.table.setHorizontalHeaderLabels([tr("setting", language), tr("value", language)])
-        self._populate_overwrite_combo()
         self._populate_language_combo()
 
     def refresh(self):
@@ -171,12 +156,7 @@ class SettingsPage(QWidget):
         if idx >= 0:
             self.server_combo.setCurrentIndex(idx)
         self.auto_connect_check.setChecked(settings.auto_connect)
-        self.command_edit.setText(settings.command_template)
         self.max_parallel_spin.setValue(settings.max_parallel)
-        self.batch_size_spin.setValue(settings.batch_size)
-        idx = self.overwrite_combo.findData(settings.overwrite_policy)
-        if idx >= 0:
-            self.overwrite_combo.setCurrentIndex(idx)
         idx = self.language_combo.findData(settings.language)
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
@@ -196,17 +176,18 @@ class SettingsPage(QWidget):
             self.table.setItem(row, 1, QTableWidgetItem(value))
 
     def _settings_from_controls(self) -> GuiSettings:
+        existing = self._store.load()
         return GuiSettings(
             default_local_folder=self.local_folder_edit.text().strip(),
             default_remote_dir=self.remote_dir_edit.text().strip() or "/tmp",
             default_server_id=self.server_combo.currentData() or "",
             auto_connect=self.auto_connect_check.isChecked(),
-            overwrite_policy=self.overwrite_combo.currentData() or "skip_same_size",
-            command_template=self.command_edit.text().strip() or "bash {name}",
+            overwrite_policy=existing.overwrite_policy,
+            command_template=existing.command_template,
             max_parallel=self.max_parallel_spin.value(),
-            batch_size=self.batch_size_spin.value(),
+            batch_size=existing.batch_size,
             language=self.language_combo.currentData() or "en",
-            column_widths=self._store.load().column_widths or {},
+            column_widths=existing.column_widths or {},
         )
 
     def _save_settings(self):
@@ -235,17 +216,6 @@ class SettingsPage(QWidget):
         path.unlink(missing_ok=True)
         self._log(f"Run profiles cleared: {path}")
         self.refresh()
-
-    def _populate_overwrite_combo(self):
-        current = self.overwrite_combo.currentData() if self.overwrite_combo.count() else "skip_same_size"
-        self.overwrite_combo.blockSignals(True)
-        self.overwrite_combo.clear()
-        self.overwrite_combo.addItem(tr("Skip same-size files", self._language), "skip_same_size")
-        self.overwrite_combo.addItem(tr("Overwrite", self._language), "overwrite")
-        self.overwrite_combo.addItem(tr("Never overwrite", self._language), "never")
-        idx = self.overwrite_combo.findData(current)
-        self.overwrite_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.overwrite_combo.blockSignals(False)
 
     def _populate_language_combo(self):
         current = self.language_combo.currentData() if self.language_combo.count() else self._language

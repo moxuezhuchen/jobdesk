@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QLabel, QComboBox, QTextEdit, QHeaderView,
+    QFileDialog,
 )
 
 from ...core.manifest import Manifest
@@ -81,21 +82,26 @@ class ResultsPage(QWidget):
         self.state = state
         self._log = log_cb
         layout = QVBoxLayout(self)
-
-        title = QLabel("Results")
-        title.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        layout.addWidget(title)
+        layout.setContentsMargins(14, 10, 14, 10)
 
         batch_row = QHBoxLayout()
-        batch_row.addWidget(QLabel("Batch:"))
+        batch_row.addWidget(QLabel("批次:"))
         self.batch_combo = QComboBox()
         self.batch_combo.currentTextChanged.connect(self._on_batch_changed)
         batch_row.addWidget(self.batch_combo)
+        self.browse_dir_btn = QPushButton("分析目录...")
+        self.browse_dir_btn.clicked.connect(self._browse_analysis_dir)
+        batch_row.addWidget(self.browse_dir_btn)
         batch_row.addStretch()
         layout.addLayout(batch_row)
 
+        self.guidance_label = QLabel("")
+        self.guidance_label.setStyleSheet("color: #d97706; padding: 4px;")
+        self.guidance_label.setVisible(False)
+        layout.addWidget(self.guidance_label)
+
         file_row = QHBoxLayout()
-        file_row.addWidget(QLabel("Table:"))
+        file_row.addWidget(QLabel("表格:"))
         self.file_combo = QComboBox()
         self.file_combo.addItems(RESULT_TABLES)
         self.file_combo.currentTextChanged.connect(self._load_table)
@@ -109,11 +115,11 @@ class ResultsPage(QWidget):
         self.summary_text = QTextEdit()
         self.summary_text.setReadOnly(True)
         self.summary_text.setMaximumHeight(100)
-        layout.addWidget(QLabel("Summary:"))
+        layout.addWidget(QLabel("摘要:"))
         layout.addWidget(self.summary_text)
 
         btn_row = QHBoxLayout()
-        reload_btn = QPushButton("Reload")
+        reload_btn = QPushButton("刷新")
         reload_btn.clicked.connect(self._load_table)
         btn_row.addWidget(reload_btn)
         btn_row.addStretch()
@@ -187,6 +193,14 @@ class ResultsPage(QWidget):
         self._load_summary_and_diagnostics(batch_dir, result_dir)
 
     def _load_summary_and_diagnostics(self, batch_dir: Path, result_dir: Path):
+        # Download guidance (issue #16)
+        manifest_path = batch_dir / "manifest.tsv"
+        if manifest_path.exists() and not result_dir.exists():
+            self.guidance_label.setText("⚠ 尚未下载结果，请到运行页点击下载。")
+            self.guidance_label.setVisible(True)
+        else:
+            self.guidance_label.setVisible(False)
+
         summary_lines = []
         for bd in [batch_dir, result_dir]:
             sj = bd / "summary.json"
@@ -200,6 +214,22 @@ class ResultsPage(QWidget):
         diagnostics = build_results_diagnostics(batch_dir, result_dir)
         if summary_lines:
             summary_lines.append("")
-        summary_lines.append("Diagnostics")
+        summary_lines.append("诊断信息")
         summary_lines.extend(f"{k}: {v}" for k, v in diagnostics.items())
         self.summary_text.setPlainText("\n".join(summary_lines))
+
+    def _browse_analysis_dir(self):
+        """Allow analyzing any local directory (issue #23)."""
+        folder = QFileDialog.getExistingDirectory(self, "Select directory to analyze")
+        if not folder:
+            return
+        path = Path(folder)
+        # Load TSV files from that directory
+        tsv_files = sorted(path.glob("*.tsv")) + sorted(path.glob("*.csv"))
+        if not tsv_files:
+            self.summary_text.setPlainText(f"未找到 .tsv/.csv 文件: {folder}")
+            return
+        # Load first TSV
+        load_tsv_to_table(self.data_table, tsv_files[0])
+        self.guidance_label.setVisible(False)
+        self.summary_text.setPlainText(f"已加载: {tsv_files[0].name}\n目录: {folder}\n文件: {', '.join(f.name for f in tsv_files)}")

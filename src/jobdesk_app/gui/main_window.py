@@ -1,5 +1,7 @@
 """JobDesk main window: sidebar navigation + page stack."""
 
+import sys
+
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from .state import AppState
@@ -29,10 +31,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("JobDesk")
-        self.resize(1320, 860)
+        self._settings_store = GuiSettingsStore()
+        settings = self._settings_store.load()
+        size = settings.window_size or [1320, 860]
+        self.resize(size[0], size[1])
         self.state = AppState()
-        self.language = GuiSettingsStore().load().language
+        self.language = settings.language
         self._file_logger = configure_file_logging()
+        sys.excepthook = self._make_exception_hook()
         self.setStyleSheet(build_app_stylesheet())
 
         # Build AppShell with translated nav labels
@@ -67,7 +73,7 @@ class MainWindow(QMainWindow):
             page.on_activated()
 
     def _apply_language(self):
-        self.language = GuiSettingsStore().load().language
+        self.language = self._settings_store.load().language
         for i, (_icon, key) in enumerate(_NAV_ITEMS):
             self.shell.set_nav_label(i, tr(key, self.language))
         for page in (self.files_page, self.runs_page, self.results_page,
@@ -82,6 +88,12 @@ class MainWindow(QMainWindow):
     def _log(self, msg: str):
         self._file_logger.info(msg)
 
+    def _make_exception_hook(self):
+        logger = self._file_logger
+        def _hook(exc_type, exc, tb):
+            logger.exception("Uncaught GUI exception: %s", exc)
+        return _hook
+
     def _update_status(self, msg: str):
         self._file_logger.info("STATUS: %s", msg)
 
@@ -91,6 +103,10 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, title, message)
 
     def shutdown(self):
+        # Save window size
+        from dataclasses import replace
+        current = self._settings_store.load()
+        self._settings_store.save(replace(current, window_size=[self.width(), self.height()]))
         for page in (self.files_page, self.runs_page, self.servers_page):
             if hasattr(page, "shutdown"):
                 page.shutdown()

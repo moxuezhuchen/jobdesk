@@ -135,10 +135,13 @@ def _cmd_run_submit(args) -> int:
     ssh = create_ssh_client(server)
     ssh.connect()
     sftp = create_sftp_client(ssh)
+    from .services.scheduler_helpers import scheduler_from_server, resources_from_server
     try:
         result = RunService(args.workspace).submit_run(
             args.run_id, ssh, sftp,
             env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+            scheduler=scheduler_from_server(server),
+            resources=resources_from_server(server),
         )
     finally:
         sftp.close()

@@ -20,25 +20,23 @@ class ServersPage(QWidget):
         self._log = log_cb
         self._status_cb = status_cb
         layout = QVBoxLayout(self)
-
-        title = QLabel("Servers")
-        title.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        layout.addWidget(title)
+        layout.setContentsMargins(14, 10, 14, 10)
 
         self.table = QTableWidget()
         self.table.setColumnCount(6)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setHorizontalHeaderLabels([
-            "server_id", "host", "port", "username", "auth_method", "status"
+            "服务器ID", "主机", "端口", "用户名", "认证方式", "状态"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
 
         btn_row = QHBoxLayout()
-        refresh_btn = QPushButton("Reload servers.yaml")
+        refresh_btn = QPushButton("刷新")
         refresh_btn.clicked.connect(self._load_servers)
         btn_row.addWidget(refresh_btn)
 
-        self.test_btn = QPushButton("Test Connection")
+        self.test_btn = QPushButton("测试连接")
         self.test_btn.clicked.connect(self._test_connection)
         btn_row.addWidget(self.test_btn)
 
@@ -53,7 +51,7 @@ class ServersPage(QWidget):
         except Exception as e:
             self.table.setRowCount(1)
             self.table.setColumnCount(1)
-            self.table.setHorizontalHeaderLabels(["Error"])
+            self.table.setHorizontalHeaderLabels(["错误"])
             self.table.setItem(0, 0, QTableWidgetItem(str(e)))
             return
 
@@ -78,7 +76,7 @@ class ServersPage(QWidget):
             self._status_cb("Please select a server first")
             return
         sid = self.table.item(row, 0).text()
-        self.table.setItem(row, 5, QTableWidgetItem("Testing..."))
+        self.table.setItem(row, 5, QTableWidgetItem("测试中..."))
 
         try:
             cfg = load_servers()

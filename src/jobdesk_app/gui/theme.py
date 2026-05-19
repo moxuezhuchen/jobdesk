@@ -60,13 +60,14 @@ QPushButton:disabled {{
     border-color: {c.BORDER};
 }}
 QPushButton#PrimaryBtn {{
-    background: {c.PRIMARY};
-    color: {c.PRIMARY_TEXT};
-    border: none;
+    background: {c.BG_SURFACE};
+    color: {c.TEXT};
+    border: 1px solid {c.BORDER};
     font-weight: 600;
 }}
 QPushButton#PrimaryBtn:hover {{
-    background: {c.PRIMARY_HOVER};
+    background: {c.INFO_BG};
+    border-color: #93c5fd;
 }}
 QPushButton#PrimaryBtn:pressed {{
     background: {c.PRIMARY_PRESSED};
@@ -80,6 +81,13 @@ QLineEdit, QComboBox, QSpinBox {{
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
     padding: 0 8px;
+}}
+QComboBox::drop-down {{
+    width: 28px;
+}}
+QComboBox::down-arrow {{
+    width: 14px;
+    height: 14px;
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border-color: {c.BORDER_FOCUS};
@@ -128,7 +136,6 @@ QHeaderView::section {{
     padding: 0 8px;
     min-height: {m.TABLE_HEADER_HEIGHT}px;
     max-height: {m.TABLE_HEADER_HEIGHT}px;
-    font-weight: 600;
     color: {c.TEXT_SECONDARY};
 }}
 

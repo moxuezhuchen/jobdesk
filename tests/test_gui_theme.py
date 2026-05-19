@@ -13,7 +13,7 @@ def test_build_app_stylesheet_contains_core_selectors_and_tokens():
     css = build_app_stylesheet()
 
     assert Colors.PRIMARY == "#2563eb"
-    assert ThemeMetrics.CONTROL_HEIGHT == 34
+    assert ThemeMetrics.CONTROL_HEIGHT == 44
     assert "QMainWindow" in css
     assert Colors.PRIMARY in css
     assert "QPushButton#PrimaryBtn" in css

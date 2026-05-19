@@ -88,7 +88,8 @@ class RunService:
         self._write_run_json(record)
         return record
 
-    def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None):
+    def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None,
+                   scheduler=None, resources=None):
         record = self.load_run(run_id)
         submitter = JobSubmitter(
             manifest_path=record.manifest_path,
@@ -98,6 +99,8 @@ class RunService:
             remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
             batch_id=record.run_id,
             env_init_scripts=list(env_init_scripts or []),
+            scheduler=scheduler,
+            resources=resources,
         )
         result = submitter.submit_batch()
         self.update_run_from_manifest(run_id)
@@ -148,6 +151,37 @@ class RunService:
         changed = reset_all_to_uploaded(record.manifest_path)
         self.update_run_from_manifest(run_id)
         return changed
+
+    def mark_run_cancelled(self, run_id: str) -> int:
+        """Mark all unfinished tasks as failed/cancelled."""
+        record = self.load_run(run_id)
+        from ..core.manifest import Manifest
+        from ..core.lifecycle import TaskStatus
+        tasks = list(Manifest.read(record.manifest_path))
+        changed = 0
+        terminal = {TaskStatus.remote_completed, TaskStatus.downloaded, TaskStatus.failed}
+        for task in tasks:
+            if task.status not in terminal:
+                task.status = TaskStatus.failed
+                task.error_message = "cancelled"
+                changed += 1
+        if changed:
+            Manifest.write(record.manifest_path, tasks)
+            self.update_run_from_manifest(run_id)
+        return changed
+
+    def delete_run(self, run_id: str) -> None:
+        """Delete run directory, results, and analysis profile."""
+        import shutil
+        run_dir = self._runs_dir() / run_id
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        results_dir = self._workspace / "results" / run_id
+        if results_dir.exists():
+            shutil.rmtree(results_dir)
+        profile = self._workspace / ".jobdesk" / "analysis_profiles" / f"{run_id}.json"
+        if profile.exists():
+            profile.unlink()
 
     def _record_from_parts(
         self,

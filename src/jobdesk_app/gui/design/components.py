@@ -68,7 +68,7 @@ class PrimaryButton(QPushButton):
 
 
 class _SidebarItem(QWidget):
-    """Single nav item: custom-painted icon + label."""
+    """Single nav item: icon-only with tooltip."""
 
     clicked = Signal()
 
@@ -79,6 +79,7 @@ class _SidebarItem(QWidget):
         self._active = False
         self.setFixedHeight(Metrics.SIDEBAR_ITEM_HEIGHT)
         self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(label)
 
     @property
     def active(self) -> bool:
@@ -91,6 +92,7 @@ class _SidebarItem(QWidget):
 
     def set_label(self, text: str) -> None:
         self._label = text
+        self.setToolTip(text)
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -100,20 +102,13 @@ class _SidebarItem(QWidget):
 
         if self._active:
             p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_HOVER))
-            p.fillRect(0, 6, 3, h - 12, QColor(Colors.SIDEBAR_INDICATOR))
+            p.fillRect(0, 8, 3, h - 16, QColor(Colors.SIDEBAR_INDICATOR))
 
         color = Colors.SIDEBAR_TEXT_ACTIVE if self._active else Colors.SIDEBAR_TEXT
         icon = get_icon(self._icon_name, color, Metrics.SIDEBAR_ICON_SIZE)
-        ix = Spacing.LG
+        ix = (w - Metrics.SIDEBAR_ICON_SIZE) // 2
         iy = (h - Metrics.SIDEBAR_ICON_SIZE) // 2
         icon.paint(p, ix, iy, Metrics.SIDEBAR_ICON_SIZE, Metrics.SIDEBAR_ICON_SIZE)
-
-        p.setPen(QPen(QColor(color)))
-        font = p.font()
-        font.setWeight(QFont.Weight.Medium if self._active else QFont.Weight.Normal)
-        p.setFont(font)
-        tx = ix + Metrics.SIDEBAR_ICON_SIZE + Spacing.MD
-        p.drawText(tx, 0, w - tx - Spacing.SM, h, Qt.AlignVCenter, self._label)
         p.end()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -135,15 +130,15 @@ class Sidebar(QWidget):
         lay.setSpacing(Spacing.XS)
 
         # Logo
-        logo = QLabel("JobDesk")
+        logo = QLabel("J")
         logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedHeight(40)
+        logo.setFixedHeight(36)
         logo.setStyleSheet(
-            f"color:{Colors.SIDEBAR_TEXT_ACTIVE}; font-size:13pt; "
+            f"color:{Colors.SIDEBAR_TEXT_ACTIVE}; font-size:15pt; "
             f"font-weight:700; background:transparent;"
         )
         lay.addWidget(logo)
-        lay.addSpacing(Spacing.MD)
+        lay.addSpacing(Spacing.SM)
 
         self._items: list[_SidebarItem] = []
         self._current = -1

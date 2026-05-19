@@ -59,6 +59,20 @@ class RunProfileStore:
         raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
         return raw.get("profiles", {}) or {}
 
+    def save_command_history(self, commands: list[str]) -> None:
+        raw = {}
+        if self.path.exists():
+            raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
+        raw["command_history"] = commands[:20]
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(yaml.safe_dump(raw, sort_keys=True), encoding="utf-8")
+
+    def load_command_history(self) -> list[str]:
+        if not self.path.exists():
+            return []
+        raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
+        return list(raw.get("command_history", []) or [])
+
 
 def _key(server_id: str, remote_dir: str) -> str:
     return f"{server_id}|{remote_dir.rstrip('/') or '/'}"

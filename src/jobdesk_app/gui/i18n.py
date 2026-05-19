@@ -3,8 +3,10 @@ from __future__ import annotations
 
 ZH: dict[str, str] = {
     "Projects": "\u9879\u76ee",
-    "(first server)": "(\u7b2c\u4e00\u4e2a\u670d\u52a1\u5668)",
+    "(first server)": "\u7b2c\u4e00\u4e2a\u670d\u52a1\u5668)",
     "Add": "\u6dfb\u52a0",
+    "Create tasks only": "\u53ea\u521b\u5efa\u4efb\u52a1",
+    "Cancel": "\u53d6\u6d88",
     "Analysis:": "\u5206\u6790:",
     "Auto connect disabled": "\u81ea\u52a8\u8fde\u63a5\u5df2\u5173\u95ed",
     "Auto connect selected server": "\u81ea\u52a8\u8fde\u63a5\u6240\u9009\u670d\u52a1\u5668",

@@ -4,8 +4,9 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
 )
+from PySide6.QtCore import Qt
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
@@ -54,14 +55,21 @@ class RunsPage(QWidget):
         self._status_cb = status_cb
         self._language = GuiSettingsStore().load().language
         layout = QVBoxLayout(self)
-
-        self.title = QLabel()
-        self.title.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        layout.addWidget(self.title)
+        layout.setContentsMargins(14, 10, 14, 10)
 
         self.table = QTableWidget()
         self.table.setColumnCount(8)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        # Hide low-value columns: mode(3), max_parallel(4)
+        self.table.setColumnHidden(3, True)
+        self.table.setColumnHidden(4, True)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
         layout.addWidget(self.table)
 
         download_row = QHBoxLayout()
@@ -73,29 +81,31 @@ class RunsPage(QWidget):
 
         btns = QHBoxLayout()
         self.refresh_btn = QPushButton()
-        self.refresh_btn.clicked.connect(self.refresh_run_list)
+        self.refresh_btn.clicked.connect(self._refresh_all)
         btns.addWidget(self.refresh_btn)
-        self.refresh_status_btn = QPushButton()
-        self.refresh_status_btn.clicked.connect(self._refresh_status)
-        btns.addWidget(self.refresh_status_btn)
         self.download_btn = QPushButton()
         self.download_btn.clicked.connect(self._download_results)
         btns.addWidget(self.download_btn)
         self.retry_btn = QPushButton()
         self.retry_btn.clicked.connect(self._retry_failed)
         btns.addWidget(self.retry_btn)
-        self.rerun_btn = QPushButton()
-        self.rerun_btn.clicked.connect(self._rerun_all)
-        btns.addWidget(self.rerun_btn)
-        self.logs_btn = QPushButton()
-        self.logs_btn.clicked.connect(self._show_logs)
-        btns.addWidget(self.logs_btn)
-        self.details_btn = QPushButton()
-        self.details_btn.clicked.connect(self._show_paths)
-        btns.addWidget(self.details_btn)
+        self.cancel_btn = QPushButton()
+        self.cancel_btn.clicked.connect(self._cancel_run)
+        btns.addWidget(self.cancel_btn)
+        self.delete_btn = QPushButton()
+        self.delete_btn.clicked.connect(self._delete_run)
+        btns.addWidget(self.delete_btn)
         btns.addStretch()
         layout.addLayout(btns)
         self.apply_language(self._language)
+
+    def _context_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction(tr("Rerun", self._language), self._rerun_all)
+        menu.addAction(tr("Show Logs", self._language), self._show_logs)
+        menu.addAction(tr("Show Paths", self._language), self._show_paths)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def on_activated(self):
         self.apply_language(GuiSettingsStore().load().language)
@@ -103,20 +113,24 @@ class RunsPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
-        self.title.setText(tr("Runs", language))
         self.download_label.setText(tr("Download files:", language))
-        self.refresh_btn.setText(tr("Refresh List", language))
-        self.refresh_status_btn.setText(tr("Refresh Status", language))
+        self.refresh_btn.setText(tr("Refresh", language))
         self.download_btn.setText(tr("Download", language))
         self.retry_btn.setText(tr("Retry Failed", language))
-        self.rerun_btn.setText(tr("Rerun", language))
-        self.logs_btn.setText(tr("Show Logs", language))
-        self.details_btn.setText(tr("Show Paths", language))
+        self.cancel_btn.setText(tr("Cancel", language))
+        self.delete_btn.setText(tr("Delete", language))
         self.table.setHorizontalHeaderLabels([
             tr("run_id", language), tr("server", language), tr("remote_dir", language),
             tr("mode", language), tr("Max parallel", language), tr("status", language),
             tr("command", language), tr("created_at", language),
         ])
+
+    def _refresh_all(self):
+        """Refresh list, and update status of selected run if any."""
+        self.refresh_run_list()
+        row = self.table.currentRow()
+        if row >= 0:
+            self._refresh_status()
 
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
@@ -203,8 +217,14 @@ class RunsPage(QWidget):
             ssh = create_ssh_client(server)
             ssh.connect()
             sftp = create_sftp_client(ssh)
+            from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
             try:
-                return RunService(workspace).submit_run(record.run_id, ssh, sftp)
+                return RunService(workspace).submit_run(
+                    record.run_id, ssh, sftp,
+                    env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+                    scheduler=scheduler_from_server(server),
+                    resources=resources_from_server(server),
+                )
             finally:
                 sftp.close()
                 ssh.close()
@@ -222,6 +242,38 @@ class RunsPage(QWidget):
         for error in result.errors:
             self._log(f"  {error}")
         self._status_cb(f"Submitted {result.batch_id}")
+
+    def _cancel_run(self):
+        record = self._selected_record()
+        if record is None:
+            return
+        if QMessageBox.question(
+            self, "Cancel Run", f"Cancel run {record.run_id}?",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            RunService(self._workspace()).mark_run_cancelled(record.run_id)
+            self.refresh_run_list()
+            self._status_cb(f"Cancelled: {record.run_id}")
+        except Exception as exc:
+            self._status_cb(f"Cancel failed: {exc}")
+
+    def _delete_run(self):
+        record = self._selected_record()
+        if record is None:
+            return
+        if QMessageBox.question(
+            self, "Delete Run", f"Delete run {record.run_id} and its results?",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            RunService(self._workspace()).delete_run(record.run_id)
+            self.refresh_run_list()
+            self._status_cb(f"Deleted: {record.run_id}")
+        except Exception as exc:
+            self._status_cb(f"Delete failed: {exc}")
 
     def _show_logs(self):
         record = self._selected_record()

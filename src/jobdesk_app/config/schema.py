@@ -39,6 +39,20 @@ class ServerConfig(BaseModel):
     key_path: str | None = Field(default=None, description="SSH 私钥路径")
     default_shell: str = Field(default="bash", description="默认 shell")
     env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")
+    scheduler: "SchedulerConfig" = Field(default_factory=lambda: SchedulerConfig(), description="作业调度器配置")
+
+
+class SchedulerConfig(BaseModel):
+    """作业调度器配置（嵌套在 ServerConfig 中）。"""
+
+    type: str = Field(default="nohup", description="调度器类型: nohup / slurm / pbs")
+    default_partition: str = Field(default="", description="默认队列/分区")
+    default_account: str = Field(default="", description="默认账户")
+    default_walltime_minutes: int = Field(default=1440, description="默认 walltime（分钟）")
+    default_cpus: int = Field(default=1, description="默认 CPU 核数")
+    default_memory_mb: int = Field(default=2048, description="默认内存（MB）")
+    default_gpus: int = Field(default=0, description="默认 GPU 数")
+    extra_directives: list[str] = Field(default_factory=list, description="额外调度器指令（如 #SBATCH --qos=high）")
 
 
 class ServersConfig(BaseModel):

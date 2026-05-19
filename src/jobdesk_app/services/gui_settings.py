@@ -20,6 +20,7 @@ class GuiSettings:
     batch_size: int = 0
     language: str = "en"
     column_widths: dict[str, list[int]] | None = None
+    window_size: list[int] | None = None
 
     def __post_init__(self):
         if self.column_widths is None:
@@ -45,6 +46,7 @@ class GuiSettingsStore:
             batch_size=max(0, int(raw.get("batch_size", 0) or 0)),
             language=str(raw.get("language", "en") or "en"),
             column_widths=dict(raw.get("column_widths", {}) or {}),
+            window_size=raw.get("window_size"),
         )
 
     def save(self, settings: GuiSettings) -> Path:
@@ -60,6 +62,7 @@ class GuiSettingsStore:
             "batch_size": settings.batch_size,
             "language": settings.language,
             "column_widths": settings.column_widths or {},
+            "window_size": settings.window_size,
         }
         self.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
         return self.path

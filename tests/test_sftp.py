@@ -44,17 +44,39 @@ class FakeSFTPClient:
         self._attrs: dict[str, "FakeStat"] = {}
         self._closed = False
 
-    def put(self, local_path: str, remote_path: str, confirm: bool = True):
+    def put(self, local_path: str, remote_path: str, confirm: bool = True, callback=None):
         content = Path(local_path).read_bytes()
         self._files[remote_path] = content
         self._attrs[remote_path] = FakeStat.from_bytes(content)
+        if callback:
+            callback(len(content), len(content))
         return MagicMock()
 
-    def get(self, remote_path: str, local_path: str):
+    def get(self, remote_path: str, local_path: str, callback=None):
         data = self._files.get(remote_path)
         if data is None:
             raise FileNotFoundError(remote_path)
         Path(local_path).write_bytes(data)
+        if callback:
+            callback(len(data), len(data))
+
+    def open(self, remote_path: str, mode: str = "rb"):
+        """Fake file-like object for reading/writing remote files."""
+        fake = self
+        class _FakeFile:
+            def __init__(self):
+                self._buf = b""
+            def write(self, data: bytes):
+                self._buf += data
+            def read(self, size: int = -1):
+                return fake._files.get(remote_path, b"")[:size] if size > 0 else fake._files.get(remote_path, b"")
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                if "w" in mode:
+                    fake._files[remote_path] = self._buf
+                    fake._attrs[remote_path] = FakeStat.from_bytes(self._buf)
+        return _FakeFile()
 
     def stat(self, remote_path: str):
         if remote_path in self._attrs:

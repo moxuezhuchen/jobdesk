@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
     QInputDialog, QMessageBox, QTextEdit, QSpinBox, QAbstractItemView,
-    QFileDialog, QSizePolicy, QGridLayout, QAbstractSpinBox,
+    QFileDialog, QSizePolicy, QGridLayout, QAbstractSpinBox, QMenu,
+    QProgressBar,
 )
 from PySide6.QtCore import Qt, QTimer, QMimeData, QUrl, Signal
 from PySide6.QtGui import QDrag
@@ -282,13 +283,10 @@ class FileTransferPage(QWidget):
         layout.setSpacing(8)
 
         self._apply_default_local_folder()
-        self.local_root_label = QLabel(str(self.state.current_project_root or Path.cwd()))
-        self.local_root_label.setToolTip(self.local_root_label.text())
-        self.local_root_label.setMinimumWidth(120)
-        self.local_root_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        self.local_root_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.local_btn = QPushButton(tr("Local Folder", self._language))
-        self.local_btn.clicked.connect(self._choose_local_folder)
+        self.local_path_btn = QPushButton(str(self.state.current_project_root or Path.cwd()))
+        self.local_path_btn.setToolTip(self.local_path_btn.text())
+        self.local_path_btn.setStyleSheet("text-align: left; padding: 0 8px;")
+        self.local_path_btn.clicked.connect(self._choose_local_folder)
         self.server_combo = QComboBox()
         self.server_combo.setMinimumWidth(90)
         self.server_combo.setMaximumWidth(150)
@@ -300,24 +298,21 @@ class FileTransferPage(QWidget):
         self.connection_label.setVisible(False)
         self.remote_path = QLineEdit(self._gui_settings.default_remote_dir)
         self.remote_path.setMinimumWidth(80)
-        self.remote_path.setMaximumWidth(300)
         self.remote_path.returnPressed.connect(self._refresh_remote)
-        self.remote_label = QLabel(tr("Remote:", self._language))
-        for label in (self.server_label, self.remote_label, self.local_root_label):
+        for label in (self.server_label,):
             label.setFixedHeight(36)
             label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        labels = file_action_labels()
-        self.up_btn = QPushButton(tr(labels["up"], self._language))
-        self.up_btn.clicked.connect(self._remote_up)
-        self.home_btn = QPushButton(tr(labels["home"], self._language))
-        self.home_btn.clicked.connect(self._remote_home)
         self._normalize_control_heights(
-            self.local_btn,
+            self.local_path_btn,
             self.server_combo,
             self.remote_path,
-            self.up_btn,
-            self.home_btn,
         )
+
+        self.refresh_btn = QPushButton("⟳")
+        self.refresh_btn.setFixedWidth(44)
+        self.refresh_btn.setToolTip(tr("Refresh", self._language))
+        self.refresh_btn.clicked.connect(self._refresh_all)
+        self._normalize_control_heights(self.refresh_btn)
 
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.setHandleWidth(8)
@@ -344,22 +339,25 @@ class FileTransferPage(QWidget):
         self.remote_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_column_widths(self.remote_table, "files.remote"))
         self.local_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.remote_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.local_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.local_table.customContextMenuRequested.connect(self._local_context_menu)
+        self.remote_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.remote_table.customContextMenuRequested.connect(self._remote_context_menu)
         self.local_table.itemDoubleClicked.connect(self._open_local_item)
         self.remote_table.itemDoubleClicked.connect(self._open_remote_item)
         local_pane = QWidget()
         local_pane.setMinimumWidth(160)
         local_pane_layout = QVBoxLayout(local_pane)
         local_pane_layout.setContentsMargins(0, 0, 0, 0)
-        local_pane_layout.setSpacing(6)
+        local_pane_layout.setSpacing(4)
         local_header_widget = QWidget()
-        local_header_widget.setFixedHeight(46)
+        local_header_widget.setFixedHeight(40)
         local_header = QHBoxLayout()
         local_header_widget.setLayout(local_header)
         local_header.setContentsMargins(0, 0, 0, 0)
-        local_header.setSpacing(8)
-        local_header.setAlignment(Qt.AlignVCenter)
-        local_header.addWidget(self.local_btn, 0, Qt.AlignVCenter)
-        local_header.addWidget(self.local_root_label, 1, Qt.AlignVCenter)
+        local_header.setSpacing(4)
+        local_header.addWidget(self.local_path_btn, 1)
+        local_header.addWidget(self.refresh_btn, 0)
         local_pane_layout.addWidget(local_header_widget)
         local_pane_layout.addWidget(self.local_table, 1)
 
@@ -367,19 +365,17 @@ class FileTransferPage(QWidget):
         remote_pane.setMinimumWidth(180)
         remote_pane_layout = QVBoxLayout(remote_pane)
         remote_pane_layout.setContentsMargins(0, 0, 0, 0)
-        remote_pane_layout.setSpacing(6)
+        remote_pane_layout.setSpacing(4)
         remote_header_widget = QWidget()
-        remote_header_widget.setFixedHeight(46)
+        remote_header_widget.setFixedHeight(40)
         remote_header = QHBoxLayout()
         remote_header_widget.setLayout(remote_header)
         remote_header.setContentsMargins(0, 0, 0, 0)
-        remote_header.setSpacing(8)
-        remote_header.setAlignment(Qt.AlignVCenter)
-        remote_header.addWidget(self.server_label, 0, Qt.AlignVCenter)
-        remote_header.addWidget(self.server_combo, 0, Qt.AlignVCenter)
+        remote_header.setSpacing(4)
+        remote_header.addWidget(self.server_label, 0)
+        remote_header.addWidget(self.server_combo, 0)
         remote_header.addWidget(self.connection_label)
-        remote_header.addWidget(self.remote_label, 0, Qt.AlignVCenter)
-        remote_header.addWidget(self.remote_path, 1, Qt.AlignVCenter)
+        remote_header.addWidget(self.remote_path, 1)
         remote_pane_layout.addWidget(remote_header_widget)
         remote_pane_layout.addWidget(self.remote_table, 1)
 
@@ -390,65 +386,21 @@ class FileTransferPage(QWidget):
         splitter.setSizes([500, 620])
         main_splitter.addWidget(splitter)
 
-        actions_box = QGridLayout()
-        actions_box.setHorizontalSpacing(8)
-        actions_box.setVerticalSpacing(6)
-        self.refresh_btn = QPushButton(tr("Refresh", self._language))
-        self.refresh_btn.clicked.connect(self._refresh_all)
-        self.upload_btn = QPushButton(tr(labels["upload"], self._language))
-        self.upload_btn.clicked.connect(self._upload_selected)
-        self.download_btn = QPushButton(tr(labels["download"], self._language))
-        self.download_btn.clicked.connect(self._download_selected)
-        self.mkdir_btn = QPushButton(tr(labels["mkdir"], self._language))
-        self.mkdir_btn.clicked.connect(self._mkdir_remote)
-        self.rename_btn = QPushButton(tr(labels["rename"], self._language))
-        self.rename_btn.clicked.connect(self._rename_remote)
-        self.delete_btn = QPushButton(tr(labels["delete"], self._language))
-        self.delete_btn.clicked.connect(self._delete_selected)
-        self.selection_label = QLabel(format_selection_summary(0, 0, self._language))
-
-        self.queue_label = QLabel(format_queue_summary([], self._language))
-        for button in (
-            self.refresh_btn,
-            self.upload_btn,
-            self.download_btn,
-            self.mkdir_btn,
-            self.rename_btn,
-            self.delete_btn,
-        ):
-            button.setMinimumWidth(90)
-            button.setMaximumWidth(130)
-            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.selection_label.setVisible(False)
-        self.queue_label.setVisible(False)
-        actions_box.addWidget(self.refresh_btn, 0, 0)
-        actions_box.addWidget(self.upload_btn, 0, 1)
-        actions_box.addWidget(self.download_btn, 0, 2)
-        actions_box.addWidget(self.mkdir_btn, 0, 3)
-        actions_box.addWidget(self.rename_btn, 0, 4)
-        actions_box.addWidget(self.delete_btn, 0, 5)
-        actions_box.setColumnStretch(6, 1)
-        self._normalize_control_heights(
-            self.refresh_btn,
-            self.upload_btn,
-            self.download_btn,
-            self.mkdir_btn,
-            self.rename_btn,
-            self.delete_btn,
-        )
-
         run_panel = QWidget()
-        run_panel.setMinimumHeight(225)
+        run_panel.setMinimumHeight(68)
         run_layout = QVBoxLayout(run_panel)
-        run_layout.setContentsMargins(0, 6, 0, 0)
-        run_layout.setSpacing(6)
-        run_layout.addLayout(actions_box)
+        run_layout.setContentsMargins(0, 4, 0, 0)
+        run_layout.setSpacing(4)
 
         command_row = QHBoxLayout()
         command_row.setSpacing(6)
         self.command_label = QLabel(tr("Command:", self._language))
         command_row.addWidget(self.command_label)
-        self.command_edit = QLineEdit(self._gui_settings.command_template)
+        self.command_edit = QComboBox()
+        self.command_edit.setEditable(True)
+        self.command_edit.setInsertPolicy(QComboBox.NoInsert)
+        self._load_command_history()
+        self.command_edit.setCurrentText(self._gui_settings.command_template)
         command_row.addWidget(self.command_edit, 1)
         self.preview_commands_btn = QPushButton(tr("Preview Commands", self._language))
         self.preview_commands_btn.clicked.connect(self._preview_run_commands)
@@ -469,32 +421,15 @@ class FileTransferPage(QWidget):
         self.max_parallel_spin.setRange(1, 9999)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
         run_options_row.addWidget(self.max_parallel_spin)
-        self.batch_size_label = QLabel(tr("Batch size:", self._language))
-        run_options_row.addWidget(self.batch_size_label)
-        self.batch_size_spin = QSpinBox()
-        self.batch_size_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.batch_size_spin.setRange(0, 9999)
-        self.batch_size_spin.setSpecialValueText(tr("all", self._language))
-        self.batch_size_spin.setValue(self._gui_settings.batch_size)
-        run_options_row.addWidget(self.batch_size_spin)
-        run_options_row.addStretch()
-        run_layout.addLayout(run_options_row)
-
-        submit_row = QHBoxLayout()
-        submit_row.setSpacing(6)
-        self.submit_label = QLabel(tr("Submit:", self._language))
-        submit_row.addWidget(self.submit_label)
-        self.submit_mode_combo = QComboBox()
-        self._populate_submit_mode_combo()
-        submit_row.addWidget(self.submit_mode_combo)
         self.run_btn = QPushButton(tr("Run Selected", self._language))
         self.run_btn.clicked.connect(self._run_selected)
-        submit_row.addWidget(self.run_btn)
-        self.run_batches_btn = QPushButton(tr("Run in Batches", self._language))
-        self.run_batches_btn.clicked.connect(self._run_in_batches)
-        submit_row.addWidget(self.run_batches_btn)
-        submit_row.addStretch()
-        run_layout.addLayout(submit_row)
+        self.run_btn.setObjectName("PrimaryBtn")
+        run_options_row.addWidget(self.run_btn)
+        self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
+        self.create_only_btn.clicked.connect(self._create_only)
+        run_options_row.addWidget(self.create_only_btn)
+        run_options_row.addStretch()
+        run_layout.addLayout(run_options_row)
 
         self.command_preview = QTextEdit()
         self.command_preview.setReadOnly(True)
@@ -502,12 +437,18 @@ class FileTransferPage(QWidget):
         self.command_preview.setMaximumHeight(90)
         self.command_preview.setVisible(False)
         run_layout.addWidget(self.command_preview)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximumHeight(18)
+        self.progress_bar.setTextVisible(True)
+        run_layout.addWidget(self.progress_bar)
         main_splitter.addWidget(run_panel)
         main_splitter.setChildrenCollapsible(False)
         main_splitter.setCollapsible(1, False)
         main_splitter.setStretchFactor(0, 8)
         main_splitter.setStretchFactor(1, 2)
-        main_splitter.setSizes([560, 250])
+        main_splitter.setSizes([620, 100])
         layout.addWidget(main_splitter, 1)
 
         self._load_servers()
@@ -523,8 +464,8 @@ class FileTransferPage(QWidget):
         if not path:
             return
         self.state.current_project_root = Path(path)
-        self.local_root_label.setText(path)
-        self.local_root_label.setToolTip(path)
+        self.local_path_btn.setText(path)
+        self.local_path_btn.setToolTip(path)
         self._refresh_local()
 
     def on_activated(self):
@@ -536,39 +477,21 @@ class FileTransferPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
-        labels = file_action_labels()
-        self.local_btn.setText(tr("Local Folder", language))
         self.server_label.setText(tr("Server:", language))
-        self.remote_label.setText(tr("Remote:", language))
-        self.up_btn.setText(tr(labels["up"], language))
-        self.home_btn.setText(tr(labels["home"], language))
-        self.refresh_btn.setText(tr("Refresh", language))
-        self.upload_btn.setText(tr(labels["upload"], language))
-        self.download_btn.setText(tr(labels["download"], language))
-        self.mkdir_btn.setText(tr(labels["mkdir"], language))
-        self.rename_btn.setText(tr(labels["rename"], language))
-        self.delete_btn.setText(tr(labels["delete"], language))
         self.command_label.setText(tr("Command:", language))
         self.preview_commands_btn.setText(tr("Preview Commands", language))
         self.run_mode_label.setText(tr("Run mode:", language))
         self.max_parallel_label.setText(tr("Max parallel:", language))
-        self.batch_size_label.setText(tr("Batch size:", language))
-        self.batch_size_spin.setSpecialValueText(tr("all", language))
-        self.submit_label.setText(tr("Submit:", language))
         self.run_btn.setText(tr("Run Selected", language))
-        self.run_batches_btn.setText(tr("Run in Batches", language))
+        self.create_only_btn.setText(tr("Create tasks only", language))
         self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
         self.remote_table.setHorizontalHeaderLabels(self._translated_table_headers("remote"))
         self._populate_run_mode_combo()
-        self._populate_submit_mode_combo()
-        self._normalize_all_control_heights()
         self.connection_label.setText(connection_status_text(
             self._connected_server_id,
             self._service is not None,
             language=language,
         ))
-        self._update_selection_summary()
-        self.queue_label.setText(format_queue_summary([], language))
 
     def _translated_table_headers(self, kind: str) -> list[str]:
         return [tr(header, self._language) for header in file_table_headers(kind)] + ["type", "path"]
@@ -674,12 +597,12 @@ class FileTransferPage(QWidget):
         self._apply_default_local_folder()
         if self._gui_settings.default_remote_dir:
             self.remote_path.setText(self._gui_settings.default_remote_dir)
-        self.command_edit.setText(self._gui_settings.command_template)
+        self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
         self.batch_size_spin.setValue(self._gui_settings.batch_size)
         local_root = str(self.state.current_project_root or Path.cwd())
-        self.local_root_label.setText(local_root)
-        self.local_root_label.setToolTip(local_root)
+        self.local_path_btn.setText(local_root)
+        self.local_path_btn.setToolTip(local_root)
 
     def _refresh_local(self):
         base = self.state.current_project_root or Path.cwd()
@@ -904,6 +827,29 @@ class FileTransferPage(QWidget):
         self.local_table.itemSelectionChanged.connect(self._update_selection_summary)
         self.remote_table.itemSelectionChanged.connect(self._update_selection_summary)
 
+    def _local_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction(tr("Upload ->", self._language), self._upload_selected)
+        menu.addAction(tr("Refresh", self._language), self._refresh_local)
+        menu.addAction(tr("Delete", self._language), self._delete_local)
+        menu.exec(self.local_table.viewport().mapToGlobal(pos))
+
+    def _remote_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction(tr("<- Download", self._language), self._download_selected)
+        menu.addAction(tr("Refresh", self._language), self._refresh_remote)
+        menu.addSeparator()
+        menu.addAction(tr("New Folder", self._language), self._mkdir_remote)
+        menu.addAction(tr("Rename", self._language), self._rename_remote)
+        menu.addAction(tr("Delete", self._language), self._delete_remote)
+        menu.addSeparator()
+        menu.addAction(tr("Preview", self._language), self._preview_remote)
+        menu.exec(self.remote_table.viewport().mapToGlobal(pos))
+
+    def _create_only(self):
+        """Create run record without submitting."""
+        self._run_selected_chunks(submit=False)
+
     def _remote_target_for_local(self, local_path: Path) -> str:
         return remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
 
@@ -916,8 +862,8 @@ class FileTransferPage(QWidget):
         path = Path(path_item.text())
         if kind_item.text() == "dir":
             self.state.current_project_root = path
-            self.local_root_label.setText(str(path))
-            self.local_root_label.setToolTip(str(path))
+            self.local_path_btn.setText(str(path))
+            self.local_path_btn.setToolTip(str(path))
             self._refresh_local_after_navigation()
             return
         try:
@@ -1110,7 +1056,7 @@ class FileTransferPage(QWidget):
                 files,
                 dirs,
                 self.remote_path.text().strip() or "/",
-                self.command_edit.text(),
+                self.command_edit.currentText(),
                 self.run_mode_combo.currentData(),
             )
             self.command_preview.setPlainText("\n".join(rows) if rows else "No commands to run")
@@ -1119,20 +1065,22 @@ class FileTransferPage(QWidget):
             self._error_cb("Preview Commands Error", str(exc))
 
     def _run_selected(self):
-        self._run_selected_chunks(run_batches=False)
+        self._run_selected_chunks(submit=True)
 
-    def _run_in_batches(self):
-        self._run_selected_chunks(run_batches=True)
-
-    def _run_selected_chunks(self, run_batches: bool):
+    def _run_selected_chunks(self, submit: bool = True):
         files, dirs = self._selected_remote_entries()
         reason = run_button_reason(
             self._service is not None and self._connected_server is not None,
             len(files) + len(dirs) if self.run_mode_combo.currentData() != RunMode.current_directory.value else 1,
-            self.command_edit.text(),
+            self.command_edit.currentText(),
         )
         if reason:
             self._status_cb(reason)
+            return
+        if submit and QMessageBox.question(
+            self, "Confirm", tr("Submit tasks to remote server?", self._language),
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
             return
         local_base = self.state.current_project_root or Path.cwd()
         all_sources = [RunSource(path=p, is_dir=False) for p in files] + [
@@ -1140,48 +1088,52 @@ class FileTransferPage(QWidget):
         ]
         if self.run_mode_combo.currentData() == RunMode.current_directory.value:
             all_sources = []
-        batch_size = self.batch_size_spin.value() if run_batches else 0
-        chunks = chunk_sources(all_sources, batch_size)
+        chunks = chunk_sources(all_sources, 0)
         if self.run_mode_combo.currentData() == RunMode.current_directory.value:
             chunks = [[]]
         service = RunService(local_base)
         run_records = []
-        specs = []
         for chunk in chunks:
             spec = RunSpec(
                 server_id=self._connected_server_id or "",
                 remote_dir=self.remote_path.text().strip() or "/",
-                command_template=self.command_edit.text().strip(),
+                command_template=self.command_edit.currentText().strip(),
                 max_parallel=self.max_parallel_spin.value(),
                 mode=RunMode(self.run_mode_combo.currentData()),
                 sources=chunk,
-                batch_size=batch_size or None,
             )
-            specs.append(spec)
             run_records.append(service.create_run(spec))
         run_record = run_records[0]
         self.state.current_project_root = Path(local_base)
         self.state.current_batch_id = run_record.run_id
         self.state.current_manifest_path = run_record.manifest_path
         self._save_remembered_profile()
+        self._save_command_history()
+
+        if not submit:
+            self._status_cb(f"Created {len(run_records)} run(s)")
+            return
 
         def _run():
             results = []
-            for record in choose_chunks_to_submit(run_records, self.submit_mode_combo.currentData()):
+            from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
+            for record in run_records:
                 ssh = create_ssh_client(self._connected_server)
                 ssh.connect()
                 sftp = create_sftp_client(ssh)
                 try:
-                    results.append(RunService(local_base).submit_run(record.run_id, ssh, sftp))
+                    results.append(RunService(local_base).submit_run(
+                        record.run_id, ssh, sftp,
+                        env_init_scripts=list(getattr(self._connected_server, "env_init_scripts", []) or []),
+                        scheduler=scheduler_from_server(self._connected_server),
+                        resources=resources_from_server(self._connected_server),
+                    ))
                 finally:
                     sftp.close()
                     ssh.close()
             return results
 
         self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
-        if self.submit_mode_combo.currentData() == "create_only":
-            self._status_cb(f"Created {len(run_records)} run(s)")
-            return
         self._status_cb(f"Running {run_record.run_id}...")
         self.worker = _BackgroundRunWorker(_run)
         self.worker.result.connect(lambda results: self._on_runs_done(results))
@@ -1201,10 +1153,42 @@ class FileTransferPage(QWidget):
         RunProfileStore().save_last(
             server_id=self._connected_server_id,
             remote_dir=self.remote_path.text().strip() or "/",
-            command_template=self.command_edit.text().strip(),
+            command_template=self.command_edit.currentText().strip(),
             max_parallel=self.max_parallel_spin.value(),
             download_patterns=[],
         )
+
+    def _save_command_history(self):
+        cmd = self.command_edit.currentText().strip()
+        if not cmd:
+            return
+        # Avoid duplicates; insert at top
+        idx = self.command_edit.findText(cmd)
+        if idx >= 0:
+            self.command_edit.removeItem(idx)
+        self.command_edit.insertItem(0, cmd)
+        self.command_edit.setCurrentIndex(0)
+        # Persist via RunProfileStore (limited to 20 entries)
+        items = [self.command_edit.itemText(i) for i in range(min(self.command_edit.count(), 20))]
+        RunProfileStore().save_command_history(items)
+
+    def _load_command_history(self):
+        history = RunProfileStore().load_command_history()
+        self.command_edit.clear()
+        for cmd in history:
+            self.command_edit.addItem(cmd)
+
+    def _progress_callback(self, transferred: int, total: int) -> None:
+        if total > 0:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(transferred)
+            self.progress_bar.setVisible(True)
+            pct = transferred * 100 // total
+            self.progress_bar.setFormat(f"{pct}% ({transferred // 1024}KB / {total // 1024}KB)")
+
+    def _reset_progress(self) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setValue(0)
 
     def _load_remembered_profile(self):
         if not self._connected_server_id:
@@ -1215,32 +1199,25 @@ class FileTransferPage(QWidget):
         )
         if profile is None:
             return
-        self.command_edit.setText(profile.command_template)
+        self.command_edit.setCurrentText(profile.command_template)
         self.max_parallel_spin.setValue(profile.max_parallel)
 
     def _allow_width_shrink(self):
         for widget in (
-            self.local_root_label,
+            self.local_path_btn,
             self.connection_label,
             self.remote_path,
             self.command_edit,
-            self.selection_label,
-            self.queue_label,
         ):
             policy = widget.sizePolicy()
             widget.setMinimumWidth(0)
             widget.setSizePolicy(QSizePolicy.Ignored, policy.verticalPolicy())
         for widget in (
             self.server_combo,
-            self.local_btn,
-            self.up_btn,
-            self.home_btn,
             self.run_mode_combo,
-            self.submit_mode_combo,
             self.max_parallel_spin,
-            self.batch_size_spin,
             self.run_btn,
-            self.run_batches_btn,
+            self.create_only_btn,
         ):
             policy = widget.sizePolicy()
             widget.setMinimumWidth(0)
@@ -1255,23 +1232,15 @@ class FileTransferPage(QWidget):
 
     def _normalize_all_control_heights(self):
         self._normalize_control_heights(
-            self.local_btn,
+            self.local_path_btn,
             self.server_combo,
             self.remote_path,
-            self.refresh_btn,
-            self.upload_btn,
-            self.download_btn,
-            self.mkdir_btn,
-            self.rename_btn,
-            self.delete_btn,
             self.command_edit,
             self.preview_commands_btn,
             self.run_mode_combo,
             self.max_parallel_spin,
-            self.batch_size_spin,
-            self.submit_mode_combo,
             self.run_btn,
-            self.run_batches_btn,
+            self.create_only_btn,
         )
 
     def shutdown(self):
@@ -1387,9 +1356,12 @@ class _BackgroundRunWorker:
 
 
 def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[int] | None = None) -> None:
+    from PySide6.QtCore import QSize
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
     table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.verticalHeader().setVisible(False)
+    table.setIconSize(QSize(24, 24))
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     table.horizontalHeader().setStretchLastSection(False)
     table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
@@ -1398,10 +1370,28 @@ def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[i
 
 
 def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
+    from PySide6.QtWidgets import QStyle
+    from PySide6.QtGui import QIcon
+    style = table.style()
+    folder_icon = style.standardIcon(QStyle.SP_DirIcon)
+    file_icon = style.standardIcon(QStyle.SP_FileIcon)
+    up_icon = style.standardIcon(QStyle.SP_ArrowUp)
+    # kind column: local=3, remote=4
+    kind_col = 4 if table.role == "remote" else 3
     table.setRowCount(len(rows))
     for r, row in enumerate(rows):
         for c, value in enumerate(row):
-            table.setItem(r, c, QTableWidgetItem(str(value)))
+            item = QTableWidgetItem(str(value))
+            if c == 0:
+                name = str(value)
+                kind = row[kind_col] if kind_col < len(row) else ""
+                if name == "..":
+                    item.setIcon(up_icon)
+                elif kind == "dir":
+                    item.setIcon(folder_icon)
+                else:
+                    item.setIcon(file_icon)
+            table.setItem(r, c, item)
 
 
 def _default_column_widths(key: str) -> list[int]:

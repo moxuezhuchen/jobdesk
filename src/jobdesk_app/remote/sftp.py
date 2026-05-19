@@ -167,6 +167,7 @@ class SFTPClientWrapper:
         overwrite: bool = False,
         skip_if_same_size: bool = True,
         dry_run: bool = False,
+        progress_callback=None,
     ) -> TransferRecord:
         """上传单个文件到远程。
 
@@ -235,7 +236,15 @@ class SFTPClientWrapper:
         if remote_dir and remote_dir != "/":
             self.mkdir_p(remote_dir)
 
-        self._sftp.put(str(local_path), remote_path, confirm=True)
+        # Normalize CRLF→LF for text files (issue #2)
+        if _is_text_file(local_path):
+            data = local_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            with self._sftp.open(remote_path, "wb") as f:
+                f.write(data)
+            if progress_callback:
+                progress_callback(len(data), len(data))
+        else:
+            self._sftp.put(str(local_path), remote_path, confirm=True, callback=progress_callback)
         rec.status = TransferStatus.transferred
         rec.reason = "上传成功"
         return rec
@@ -249,6 +258,7 @@ class SFTPClientWrapper:
         overwrite: bool = False,
         skip_if_same_size: bool = True,
         dry_run: bool = False,
+        progress_callback=None,
     ) -> TransferRecord:
         """从远程下载单个文件到本地。
 
@@ -315,7 +325,7 @@ class SFTPClientWrapper:
                 return rec
 
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        self._sftp.get(remote_path, str(local_path))
+        self._sftp.get(remote_path, str(local_path), callback=progress_callback)
         rec.status = TransferStatus.transferred
         rec.reason = "下载成功"
         return rec
@@ -482,7 +492,16 @@ class SFTPClientWrapper:
             self._sftp = None
 
 
-# ---- 内部 glob 匹配 --------------------------------------------------------
+_TEXT_EXTENSIONS = {
+    ".txt", ".sh", ".bash", ".py", ".gjf", ".com", ".inp", ".yaml", ".yml",
+    ".json", ".xml", ".csv", ".tsv", ".log", ".md", ".rst", ".cfg", ".conf",
+    ".toml", ".ini", ".env", ".cif", ".xyz", ".mol", ".pdb", ".smi",
+}
+
+
+def _is_text_file(path: Path) -> bool:
+    return path.suffix.lower() in _TEXT_EXTENSIONS
+
 
 def _matches_globs(
     rel_path: str,

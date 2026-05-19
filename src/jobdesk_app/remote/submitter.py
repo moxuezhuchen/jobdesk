@@ -44,6 +44,8 @@ class JobSubmitter:
         batch_id: str,
         control_subdir: str = "_batch",
         env_init_scripts: list[str] | None = None,
+        scheduler=None,   # SchedulerAdapter | None
+        resources=None,   # ResourceSpec | None
     ):
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
@@ -55,6 +57,9 @@ class JobSubmitter:
         self._batch_id = batch_id
         self._control_subdir = control_subdir
         self._env_init_scripts: list[str] = list(env_init_scripts or [])
+        from .scheduler import NohupAdapter, ResourceSpec
+        self._scheduler = scheduler if scheduler is not None else NohupAdapter()
+        self._resources = resources if resources is not None else ResourceSpec()
 
     # -- 任务选择 ---------------------------------------------------------
 
@@ -201,6 +206,33 @@ class JobSubmitter:
         ]
         return "\n".join(lines)
 
+    def generate_scheduler_script(
+        self,
+        task: TaskRecord,
+        runner_path: str,
+    ) -> str:
+        """Generate a scheduler-specific job script wrapping the runner.
+
+        For nohup: returns empty string (batch_control.sh handles submission).
+        For Slurm/PBS: returns a script with resource directives.
+        """
+        from .scheduler import SlurmAdapter, PBSAdapter, NohupAdapter
+        if isinstance(self._scheduler, NohupAdapter):
+            return ""
+        job_name = f"jd_{task.task_id[:16]}"
+        if isinstance(self._scheduler, SlurmAdapter):
+            header = SlurmAdapter.build_header(self._resources, job_name)
+        elif isinstance(self._scheduler, PBSAdapter):
+            header = PBSAdapter.build_header(self._resources, job_name)
+        else:
+            return ""
+        lines = header + [
+            "",
+            f"cd {shlex.quote(task.remote_job_dir)} || exit 1",
+            f"bash {shlex.quote(runner_path)}",
+        ]
+        return "\n".join(lines) + "\n"
+
     # -- 提交流程 ----------------------------------------------------------
 
     def prepare_plan(
@@ -271,87 +303,116 @@ class JobSubmitter:
             result.errors.append("没有可提交的任务 (状态为 uploaded)")
             return result
 
+        from .scheduler import NohupAdapter
+        if isinstance(self._scheduler, NohupAdapter):
+            return self._submit_nohup(tasks, result, control_dir)
+        else:
+            return self._submit_scheduler(tasks, result)
+
+    def _submit_nohup(self, tasks, result, control_dir):
+        """Original nohup batch_control.sh submission path."""
         try:
-            # 1. 生成脚本内容
             runner_contents: dict[str, str] = {}
             launch_contents: dict[str, str] = {}
             for t in tasks:
                 runner_contents[t.task_id] = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
-                launch_contents[t.task_id] = self.generate_launch_script(
-                    t.task_id, t.remote_job_dir
-                )
+                launch_contents[t.task_id] = self.generate_launch_script(t.task_id, t.remote_job_dir)
             tasks_tsv_content = self.generate_tasks_tsv(tasks, self._remote_batch_dir, self._control_subdir)
             batch_control_content = self.generate_batch_control(
-                self._max_parallel, self._remote_batch_dir, task_count, self._control_subdir
+                self._max_parallel, self._remote_batch_dir, len(tasks), self._control_subdir
             )
-
-            # 2. 创建远程目录
             self._sftp.mkdir_p(control_dir)
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
-
-            # 3. 上传脚本 (via a temp local dir write + upload)
             import tempfile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp = Path(tmpdir)
-                # 写入 run scripts
                 for t in tasks:
-                    rpath = tmp / f"{t.task_id}_jobdesk_run.sh"
-                    rpath.write_text(runner_contents[t.task_id], encoding="utf-8", newline="\n")
-                    self._sftp.upload_file(rpath, f"{t.remote_job_dir}/.jobdesk_run.sh", overwrite=True)
-                # 写入 launch scripts
+                    p = tmp / f"{t.task_id}_run.sh"
+                    p.write_text(runner_contents[t.task_id], encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(p, f"{t.remote_job_dir}/.jobdesk_run.sh", overwrite=True)
                 for t in tasks:
-                    lpath = tmp / f"launch_{t.task_id}.sh"
-                    lpath.write_text(launch_contents[t.task_id], encoding="utf-8", newline="\n")
-                    self._sftp.upload_file(lpath, f"{control_dir}/launch_{t.task_id}.sh", overwrite=True)
-                # 写入 tasks.tsv
-                tsv_path = tmp / "tasks.tsv"
-                tsv_path.write_text(tasks_tsv_content, encoding="utf-8", newline="\n")
-                self._sftp.upload_file(tsv_path, f"{control_dir}/tasks.tsv", overwrite=True)
-                # 写入 batch_control.sh
-                bc_path = tmp / "batch_control.sh"
-                bc_path.write_text(batch_control_content, encoding="utf-8", newline="\n")
-                self._sftp.upload_file(bc_path, f"{control_dir}/batch_control.sh", overwrite=True)
-
-            # 4. chmod +x 所有脚本
+                    p = tmp / f"launch_{t.task_id}.sh"
+                    p.write_text(launch_contents[t.task_id], encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(p, f"{control_dir}/launch_{t.task_id}.sh", overwrite=True)
+                p = tmp / "tasks.tsv"
+                p.write_text(tasks_tsv_content, encoding="utf-8", newline="\n")
+                self._sftp.upload_file(p, f"{control_dir}/tasks.tsv", overwrite=True)
+                p = tmp / "batch_control.sh"
+                p.write_text(batch_control_content, encoding="utf-8", newline="\n")
+                self._sftp.upload_file(p, f"{control_dir}/batch_control.sh", overwrite=True)
             script_paths = []
             for t in tasks:
                 script_paths.append(shlex.quote(f"{t.remote_job_dir}/.jobdesk_run.sh"))
                 script_paths.append(shlex.quote(f"{control_dir}/launch_{t.task_id}.sh"))
             script_paths.append(shlex.quote(f"{control_dir}/batch_control.sh"))
-            chmod_cmd = "chmod +x " + " ".join(script_paths)
-            chmod_result = self._ssh.run(chmod_cmd, timeout=30)
+            chmod_result = self._ssh.run("chmod +x " + " ".join(script_paths), timeout=30)
             if chmod_result.exit_code != 0:
                 result.errors.append(f"chmod 失败: {chmod_result.stderr}")
                 return result
-
-            # 5. nohup 启动
             cd_q = shlex.quote(control_dir)
-            nohup_cmd = (
-                f"cd {cd_q} && nohup bash './batch_control.sh'"
-                f" > './batch_control.nohup.log' 2>&1 &"
-            )
+            nohup_cmd = f"cd {cd_q} && nohup bash './batch_control.sh' > './batch_control.nohup.log' 2>&1 &"
             result.nohup_command = nohup_cmd
             ssh_result = self._ssh.run(nohup_cmd, timeout=30)
             if ssh_result.exit_code != 0:
                 result.errors.append(f"nohup 启动失败: {ssh_result.stderr}")
                 return result
-
-            # 6. 更新 Manifest 状态: uploaded → submitted
-            now = datetime.now()
-            updated_ids: list[str] = []
-            all_tasks = Manifest.read(self._manifest_path)
-            tid_map = {t.task_id: t for t in all_tasks}
-            for t in tasks:
-                if t.task_id in tid_map:
-                    tid_map[t.task_id].status = TaskStatus.submitted
-                    tid_map[t.task_id].submitted_at = now
-                    updated_ids.append(t.task_id)
-            Manifest.write(self._manifest_path, all_tasks)
-            result.updated_task_ids = updated_ids
-
+            return self._mark_submitted(tasks, result)
         except Exception as e:
             result.errors.append(f"提交异常: {e}")
             return result
 
+    def _submit_scheduler(self, tasks, result):
+        """Slurm/PBS per-task submission path."""
+        try:
+            import tempfile
+            updated_ids: list[str] = []
+            now = datetime.now()
+            for t in tasks:
+                self._sftp.mkdir_p(t.remote_job_dir)
+                runner = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
+                runner_remote = f"{t.remote_job_dir}/.jobdesk_run.sh"
+                sched_script = self.generate_scheduler_script(t, runner_remote)
+                sched_remote = f"{t.remote_job_dir}/.jobdesk_submit.sh"
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp = Path(tmpdir)
+                    rp = tmp / "run.sh"
+                    rp.write_text(runner, encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(rp, runner_remote, overwrite=True)
+                    sp = tmp / "submit.sh"
+                    sp.write_text(sched_script, encoding="utf-8", newline="\n")
+                    self._sftp.upload_file(sp, sched_remote, overwrite=True)
+                self._ssh.run(f"chmod +x {shlex.quote(runner_remote)} {shlex.quote(sched_remote)}", timeout=15)
+                try:
+                    job_id = self._scheduler.submit(self._ssh, sched_remote, self._resources)
+                except Exception as e:
+                    result.errors.append(f"task {t.task_id}: submit failed: {e}")
+                    continue
+                # Store job_id in manifest error_message field temporarily (repurposed)
+                all_tasks = Manifest.read(self._manifest_path)
+                for mt in all_tasks:
+                    if mt.task_id == t.task_id:
+                        mt.status = TaskStatus.submitted
+                        mt.submitted_at = now
+                        mt.error_message = f"scheduler_job_id={job_id}"
+                Manifest.write(self._manifest_path, all_tasks)
+                updated_ids.append(t.task_id)
+            result.updated_task_ids = updated_ids
+            result.submitted_task_count = len(updated_ids)
+        except Exception as e:
+            result.errors.append(f"提交异常: {e}")
+        return result
+
+    def _mark_submitted(self, tasks, result):
+        now = datetime.now()
+        updated_ids: list[str] = []
+        all_tasks = Manifest.read(self._manifest_path)
+        tid_map = {t.task_id: t for t in all_tasks}
+        for t in tasks:
+            if t.task_id in tid_map:
+                tid_map[t.task_id].status = TaskStatus.submitted
+                tid_map[t.task_id].submitted_at = now
+                updated_ids.append(t.task_id)
+        Manifest.write(self._manifest_path, all_tasks)
+        result.updated_task_ids = updated_ids
         return result

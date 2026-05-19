@@ -22,7 +22,7 @@ def main():
     app.setApplicationName("JobDesk")
 
     # Set application font — Medium weight for crisp text on Windows
-    font = QFont("Microsoft YaHei UI", 10)
+    font = QFont("Microsoft YaHei UI", 20)
     font.setWeight(QFont.Weight.Medium)
     font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     app.setFont(font)
