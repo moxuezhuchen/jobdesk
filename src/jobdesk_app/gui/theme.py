@@ -39,11 +39,12 @@ QLabel#PageTitle {{
 
 /* ─── Buttons ─── */
 QCheckBox::indicator {{
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
 }}
 QCheckBox {{
     spacing: 8px;
+    min-height: 36px;
 }}
 QPushButton {{
     background: {c.BG_SURFACE};
