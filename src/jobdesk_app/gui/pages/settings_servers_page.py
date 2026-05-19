@@ -173,8 +173,15 @@ class SettingsServersPage(QWidget):
         layout.addSpacing(4)
 
         srv_card = QFrame()
+        srv_card.setObjectName("SettingCard")
+        srv_card.setStyleSheet(
+            "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            " #SettingCard QLabel { background: transparent; }"
+            " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 6px 16px; border-radius: 4px; }"
+        )
         srv_inner = QVBoxLayout(srv_card)
-        srv_inner.setContentsMargins(0, 0, 0, 0)
+        srv_inner.setContentsMargins(16, 12, 16, 12)
         srv_inner.setSpacing(8)
 
         self.server_table = QTableWidget()
