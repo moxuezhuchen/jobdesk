@@ -840,6 +840,9 @@ class FileTransferPage(QWidget):
         menu = QMenu(self)
         menu.addAction(tr("Upload ->", self._language), self._upload_selected)
         menu.addAction(tr("Refresh", self._language), self._refresh_local)
+        menu.addSeparator()
+        menu.addAction(tr("New Folder", self._language), self._mkdir_local)
+        menu.addAction(tr("New File", self._language), self._new_file_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
         menu.addSeparator()
         menu.addAction(tr("Generate GJF from XYZ…", self._language), self._local_generate_gjf)
@@ -852,6 +855,7 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("Refresh", self._language), self._refresh_remote)
         menu.addSeparator()
         menu.addAction(tr("New Folder", self._language), self._mkdir_remote)
+        menu.addAction(tr("New File", self._language), self._new_file_remote)
         menu.addAction(tr("Rename", self._language), self._rename_remote)
         menu.addAction(tr("Delete", self._language), self._delete_remote)
         menu.addSeparator()
@@ -1107,6 +1111,51 @@ class FileTransferPage(QWidget):
                 self._refresh_local()
         except Exception as exc:
             self._error_cb("Drop Download Error", str(exc))
+
+    def _mkdir_local(self):
+        name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
+        if not ok or not name.strip():
+            return
+        base = self.state.current_project_root or Path.cwd()
+        new_dir = Path(base) / name.strip()
+        try:
+            new_dir.mkdir(parents=True, exist_ok=False)
+            self._refresh_local()
+        except Exception as exc:
+            self._error_cb("Mkdir Error", str(exc))
+
+    def _new_file_local(self):
+        name, ok = QInputDialog.getText(self, tr("New File", self._language), tr("File name:", self._language))
+        if not ok or not name.strip():
+            return
+        base = self.state.current_project_root or Path.cwd()
+        new_file = Path(base) / name.strip()
+        try:
+            new_file.touch(exist_ok=False)
+            self._refresh_local()
+            os.startfile(str(new_file))
+        except Exception as exc:
+            self._error_cb("New File Error", str(exc))
+
+    def _new_file_remote(self):
+        if self._service is None:
+            self._status_cb("Connect to a server first")
+            return
+        name, ok = QInputDialog.getText(self, tr("New File", self._language), tr("File name:", self._language))
+        if not ok or not name.strip():
+            return
+        base = self.remote_path.text().strip().rstrip("/") or "/"
+        remote_file = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
+        import tempfile
+        tmp = Path(tempfile.mktemp(suffix=Path(name).suffix or ".tmp"))
+        try:
+            tmp.write_bytes(b"")
+            self._service.upload_path(tmp, remote_file)
+            self._refresh_remote()
+        except Exception as exc:
+            self._error_cb("New File Error", str(exc))
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _mkdir_remote(self):
         if self._service is None:

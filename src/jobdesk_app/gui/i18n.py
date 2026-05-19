@@ -148,6 +148,9 @@ ZH: dict[str, str] = {
     "Open servers.yaml": "\u6253\u5f00 servers.yaml",
     "scheduler": "\u8c03\u5ea6\u5668",
     "Select a server first": "\u8bf7\u5148\u9009\u62e9\u670d\u52a1\u5668",
+    "New File": "\u65b0\u5efa\u6587\u4ef6",
+    "File name:": "\u6587\u4ef6\u540d:",
+    "Folder name:": "\u76ee\u5f55\u540d:",
 }
 
 
