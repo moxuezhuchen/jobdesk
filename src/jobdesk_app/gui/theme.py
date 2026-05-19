@@ -19,6 +19,8 @@ class ThemeMetrics:
 def build_app_stylesheet() -> str:
     c = Colors
     m = Metrics
+    from pathlib import Path
+    arrow_path = str(Path(__file__).parent / "resources" / "chevron-down.svg").replace("\\", "/")
     return f"""
 * {{
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
@@ -115,9 +117,14 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
 QComboBox::drop-down {{
     subcontrol-origin: padding;
     subcontrol-position: center right;
-    width: 20px;
+    width: 24px;
     border: none;
     background: transparent;
+}}
+QComboBox::down-arrow {{
+    image: url({arrow_path});
+    width: 14px;
+    height: 14px;
 }}
 QTextEdit {{
     background: {c.BG_SURFACE};
