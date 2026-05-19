@@ -38,6 +38,13 @@ QLabel#PageTitle {{
 }}
 
 /* ─── Buttons ─── */
+QCheckBox::indicator {{
+    width: 22px;
+    height: 22px;
+}}
+QCheckBox {{
+    spacing: 8px;
+}}
 QPushButton {{
     background: {c.BG_SURFACE};
     border: 1px solid {c.BORDER};
