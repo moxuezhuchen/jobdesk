@@ -111,6 +111,7 @@ class JobSubmitter:
             *init_lines,
             "set +e",
             "echo 'running' > .jobdesk_status",
+            f"echo \"RUNNING {shlex.quote(task.task_id)}\" >> ../_batch/events.log",
             "(",
             f"  {rendered}",
             ") > .jobdesk_submit.log 2>&1",

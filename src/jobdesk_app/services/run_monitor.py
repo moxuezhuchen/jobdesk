@@ -17,7 +17,7 @@ class DoneEvent:
     run_id: str
     server_id: str
     task_id: str
-    exit_code: int
+    exit_code: int | None  # None for RUNNING events
 
 
 class RunMonitor(QObject):
@@ -57,14 +57,17 @@ class RunMonitor(QObject):
     def _dispatch(self, run_id: str, server_id: str, line: str):
         """Called from background thread — emit signal (thread-safe via AutoConnection)."""
         parts = line.strip().split()
-        if len(parts) >= 3 and parts[0] == "DONE":
+        if len(parts) >= 2 and parts[0] in ("DONE", "RUNNING"):
             task_id = parts[1]
-            try:
-                rc = int(parts[2])
-            except ValueError:
-                rc = -1
+            rc = -1
+            if parts[0] == "DONE" and len(parts) >= 3:
+                try:
+                    rc = int(parts[2])
+                except ValueError:
+                    rc = -1
             self.task_done.emit(DoneEvent(
-                run_id=run_id, server_id=server_id, task_id=task_id, exit_code=rc
+                run_id=run_id, server_id=server_id, task_id=task_id,
+                exit_code=rc if parts[0] == "DONE" else None,
             ))
 
 

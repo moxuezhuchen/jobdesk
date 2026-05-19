@@ -192,7 +192,7 @@ class RunsResultsPage(QWidget):
             pass
 
     def _on_task_done(self, event):
-        """Called when a remote task completes — auto refresh+download in background."""
+        """Called when a remote task changes state — refresh in background."""
         workspace = self._workspace()
 
         def _run():
@@ -211,11 +211,13 @@ class RunsResultsPage(QWidget):
                     write=True,
                 )
                 RunService(workspace).update_run_from_manifest(record.run_id)
-                updated = RunService(workspace).load_run(record.run_id)
-                if updated.status_summary.get("remote_completed", 0) > 0:
-                    patterns = self._get_download_patterns(record)
-                    RunService(workspace).download_completed(record.run_id, sftp, patterns)
-                RunService(workspace).update_run_from_manifest(record.run_id)
+                # Only download on DONE (exit_code is not None)
+                if event.exit_code is not None:
+                    updated = RunService(workspace).load_run(record.run_id)
+                    if updated.status_summary.get("remote_completed", 0) > 0:
+                        patterns = self._get_download_patterns(record)
+                        RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                    RunService(workspace).update_run_from_manifest(record.run_id)
             finally:
                 sftp.close()
                 ssh.close()
