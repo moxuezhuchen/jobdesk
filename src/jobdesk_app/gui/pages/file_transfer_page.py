@@ -474,33 +474,27 @@ class FileTransferPage(QWidget):
         self._gui_settings = GuiSettingsStore().load()
         self.apply_language(self._gui_settings.language)
         self._apply_gui_settings_no_folder()
-        if not self._initialized:
+
+        first_run = not self._initialized
+        if first_run:
             self._initialized = True
             self._apply_default_local_folder()
             local_root = str(self.state.current_project_root or Path.cwd())
             self.local_path_btn.setText(local_root)
             self.local_path_btn.setToolTip(local_root)
-            # Populate _server_remote_dirs BEFORE _load_servers so that
-            # when auto-connect fires, it finds the saved path
             if self._gui_settings.last_remote_dirs:
                 self._server_remote_dirs.update(self._gui_settings.last_remote_dirs)
-        # Block signals during _load_servers on first run to prevent
-        # auto-connect with default_server_id overriding last_server_id
-        first_run = not hasattr(self, "_restore_done")
+
+        # Always reload server list, but block signals to prevent auto-connect
+        self.server_combo.blockSignals(True)
+        self._load_servers_inner()
+        if first_run and self._gui_settings.last_server_id:
+            idx = self.server_combo.findData(self._gui_settings.last_server_id)
+            if idx >= 0:
+                self.server_combo.setCurrentIndex(idx)
+        self.server_combo.blockSignals(False)
+
         if first_run:
-            self.server_combo.blockSignals(True)
-        self._load_servers()
-        if first_run:
-            self.server_combo.blockSignals(False)
-            self._restore_done = True
-            # Override server selection to last used (not default)
-            if self._gui_settings.last_server_id:
-                self.server_combo.blockSignals(True)
-                idx = self.server_combo.findData(self._gui_settings.last_server_id)
-                if idx >= 0:
-                    self.server_combo.setCurrentIndex(idx)
-                self.server_combo.blockSignals(False)
-            # Set remote path and connect
             server_id = self.server_combo.currentData()
             if server_id:
                 last_path = self._server_remote_dirs.get(server_id)
@@ -553,11 +547,17 @@ class FileTransferPage(QWidget):
         self.submit_mode_combo.blockSignals(False)
 
     def _load_servers(self):
+        """Reload servers (used by tab switches after first init)."""
+        self.server_combo.blockSignals(True)
+        self._load_servers_inner()
+        self.server_combo.blockSignals(False)
+
+    def _load_servers_inner(self):
+        """Populate server_combo. Caller must handle signal blocking."""
         try:
             cfg = load_servers()
             self._servers = cfg.servers
             current = self.server_combo.currentData()
-            self.server_combo.blockSignals(True)
             self.server_combo.clear()
             for sid in sorted(self._servers):
                 self.server_combo.addItem(sid, sid)
@@ -569,7 +569,6 @@ class FileTransferPage(QWidget):
                 idx = self.server_combo.findData(current)
                 if idx >= 0:
                     self.server_combo.setCurrentIndex(idx)
-            self.server_combo.blockSignals(False)
         except Exception as exc:
             self._error_cb("Servers Error", str(exc))
 

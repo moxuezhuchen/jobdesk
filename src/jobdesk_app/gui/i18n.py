@@ -152,6 +152,7 @@ ZH: dict[str, str] = {
     "File name:": "\u6587\u4ef6\u540d:",
     "Folder name:": "\u76ee\u5f55\u540d:",
     "Hide dotfiles (.xx):": "\u9690\u85cf\u70b9\u6587\u4ef6 (.xx):",
+    "Hide dotfiles (.xx)": "\u9690\u85cf\u70b9\u6587\u4ef6 (.xx)",
 }
 
 
