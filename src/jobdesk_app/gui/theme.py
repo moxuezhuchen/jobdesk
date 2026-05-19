@@ -112,6 +112,13 @@ QLineEdit, QComboBox, QSpinBox {{
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border-color: {c.BORDER_FOCUS};
 }}
+QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 20px;
+    border: none;
+    background: transparent;
+}}
 QTextEdit {{
     background: {c.BG_SURFACE};
     border: 1px solid {c.BORDER};
