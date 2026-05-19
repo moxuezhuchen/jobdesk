@@ -248,3 +248,20 @@ def _status_summary(tasks: list[TaskRecord]) -> dict[str, int]:
     for task in tasks:
         summary[task.status.value] = summary.get(task.status.value, 0) + 1
     return summary
+
+
+    def analyze_run(self, run_id: str, profile_name: str = "gaussian_opt_freq") -> tuple[list, list]:
+        """Run result extraction on downloaded files for a run.
+
+        Uses the named AnalysisProfile (built-in or user-defined).
+        Returns (results, failures).
+        """
+        from ..core.analyzer import analyze_tasks
+        from ..services.analysis_profiles import AnalysisProfileStore
+        record = self.load_run(run_id)
+        tasks = Manifest.read(record.manifest_path)
+        profile = AnalysisProfileStore().get(profile_name)
+        if profile is None:
+            return [], [{"error": f"profile not found: {profile_name}"}]
+        results_dir = self.workspace_dir / "results"
+        return analyze_tasks(profile.extract_rules, tasks, results_dir, run_id)
