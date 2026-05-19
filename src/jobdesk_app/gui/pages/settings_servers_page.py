@@ -76,7 +76,7 @@ class SettingCard(QFrame):
             "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
             " #SettingCard QLabel { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 6px 16px; border-radius: 4px; }"
+            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
             " #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {"
             " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
             " padding: 4px 8px; }"
@@ -183,7 +183,7 @@ class SettingsServersPage(QWidget):
             " #SettingCard QHeaderView::section { background: transparent; }"
             " #SettingCard QTableCornerButton::section { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 6px 16px; border-radius: 4px; }"
+            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
         )
         srv_inner = QVBoxLayout(srv_card)
         srv_inner.setContentsMargins(16, 12, 16, 12)
@@ -233,12 +233,14 @@ class SettingsServersPage(QWidget):
         bar_layout.addStretch()
         self.save_btn = QPushButton("保存设置")
         self.save_btn.setStyleSheet(
-            "background: #3b82f6; color: white; padding: 6px 16px; border-radius: 4px;"
+            "background: #3b82f6; color: white; padding: 0 16px; border-radius: 4px;"
+            " min-height: 44px; max-height: 44px;"
         )
         self.save_btn.clicked.connect(self._save_settings)
         self.discard_btn = QPushButton("放弃更改")
         self.discard_btn.setStyleSheet(
-            "background: #cbd5e1; border: 1px solid #94a3b8; padding: 6px 16px; border-radius: 4px;"
+            "background: #cbd5e1; border: 1px solid #94a3b8; padding: 0 16px; border-radius: 4px;"
+            " min-height: 44px; max-height: 44px;"
         )
         self.discard_btn.clicked.connect(self._load_settings)
         bar_layout.addWidget(self.save_btn)
