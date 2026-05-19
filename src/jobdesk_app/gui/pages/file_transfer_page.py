@@ -645,7 +645,6 @@ class FileTransferPage(QWidget):
         """Apply settings that don't touch the local folder or remote path."""
         self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
-        self.batch_size_spin.setValue(self._gui_settings.batch_size)
 
     def _refresh_local(self):
         self._gui_settings = GuiSettingsStore().load()
@@ -1536,9 +1535,11 @@ class FileTransferPage(QWidget):
         self._remember_current_remote_dir()
         store = GuiSettingsStore()
         current = store.load()
+        new_server_id = self._connected_server_id or self.server_combo.currentData() or ""
+        new_remote_dirs = {**dict(current.last_remote_dirs or {}), **self._server_remote_dirs}
         store.save(replace(current,
-            last_server_id=self._connected_server_id or "",
-            last_remote_dirs={**dict(current.last_remote_dirs or {}), **self._server_remote_dirs},
+            last_server_id=new_server_id,
+            last_remote_dirs=new_remote_dirs,
         ))
         workers = list(self._background_workers)
         worker = getattr(self, "worker", None)
