@@ -473,6 +473,8 @@ class FileTransferPage(QWidget):
     def on_activated(self):
         self._gui_settings = GuiSettingsStore().load()
         self.apply_language(self._gui_settings.language)
+        self._apply_gui_settings_no_folder()
+        self._load_servers()
         if not self._initialized:
             self._initialized = True
             self._apply_default_local_folder()
@@ -480,18 +482,22 @@ class FileTransferPage(QWidget):
             self.local_path_btn.setText(local_root)
             self.local_path_btn.setToolTip(local_root)
             # Restore last remote dirs and server selection
+            # Block signals so _auto_connect doesn't fire mid-restore
+            self.server_combo.blockSignals(True)
             if self._gui_settings.last_remote_dirs:
                 self._server_remote_dirs.update(self._gui_settings.last_remote_dirs)
             if self._gui_settings.last_server_id:
                 idx = self.server_combo.findData(self._gui_settings.last_server_id)
                 if idx >= 0:
                     self.server_combo.setCurrentIndex(idx)
-                    # Restore last remote path for this server
-                    last_path = self._server_remote_dirs.get(self._gui_settings.last_server_id)
-                    if last_path:
-                        self.remote_path.setText(last_path)
-        self._apply_gui_settings_no_folder()
-        self._load_servers()
+            self.server_combo.blockSignals(False)
+            # Now set remote path and connect
+            server_id = self.server_combo.currentData()
+            if server_id:
+                last_path = self._server_remote_dirs.get(server_id)
+                if last_path:
+                    self.remote_path.setText(last_path)
+                self._auto_connect_selected_server()
         self._refresh_local()
 
     def apply_language(self, language: str):
@@ -628,9 +634,7 @@ class FileTransferPage(QWidget):
         self.local_path_btn.setToolTip(local_root)
 
     def _apply_gui_settings_no_folder(self):
-        """Apply settings that don't touch the local folder (safe to call on every tab switch)."""
-        if self._gui_settings.default_remote_dir:
-            self.remote_path.setText(self._gui_settings.default_remote_dir)
+        """Apply settings that don't touch the local folder or remote path."""
         self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
         self.batch_size_spin.setValue(self._gui_settings.batch_size)
