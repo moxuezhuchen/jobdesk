@@ -5,9 +5,9 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-    QSpinBox, QComboBox, QGroupBox, QGridLayout,
+    QSpinBox, QComboBox, QGroupBox,
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal
 
 from ...config.servers import get_default_servers_path
 from ...services.gui_settings import GuiSettings, GuiSettingsStore
@@ -48,29 +48,36 @@ class SettingsPage(QWidget):
 
         # ── General settings ──────────────────────────────────────────────
         self.general_box = QGroupBox()
-        grid = QGridLayout(self.general_box)
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(12)
-        grid.setColumnMinimumWidth(0, 120)
+        form = QVBoxLayout(self.general_box)
+        form.setSpacing(14)
+        form.setContentsMargins(16, 16, 16, 16)
 
-        # Row 0: Language
+        # Row: Language
+        row1 = QHBoxLayout()
         self.language_label = QLabel()
+        self.language_label.setFixedWidth(100)
         self.language_combo = QComboBox()
-        self.language_combo.setFixedWidth(160)
-        grid.addWidget(self.language_label, 0, 0, Qt.AlignRight | Qt.AlignVCenter)
-        grid.addWidget(self.language_combo, 0, 1, Qt.AlignLeft)
+        self.language_combo.setFixedWidth(140)
+        row1.addWidget(self.language_label)
+        row1.addWidget(self.language_combo)
+        row1.addStretch()
+        form.addLayout(row1)
 
-        # Row 1: Max parallel
+        # Row: Max parallel
+        row2 = QHBoxLayout()
         self.max_parallel_label = QLabel()
+        self.max_parallel_label.setFixedWidth(100)
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
         self.max_parallel_spin.setFixedWidth(80)
-        grid.addWidget(self.max_parallel_label, 1, 0, Qt.AlignRight | Qt.AlignVCenter)
-        grid.addWidget(self.max_parallel_spin, 1, 1, Qt.AlignLeft)
+        row2.addWidget(self.max_parallel_label)
+        row2.addWidget(self.max_parallel_spin)
+        row2.addStretch()
+        form.addLayout(row2)
 
-        # Row 2: Hide dotfiles
+        # Row: Hide dotfiles
         self.hide_dotfiles_check = QCheckBox()
-        grid.addWidget(self.hide_dotfiles_check, 2, 0, 1, 2)
+        form.addWidget(self.hide_dotfiles_check)
 
         layout.addWidget(self.general_box)
 
