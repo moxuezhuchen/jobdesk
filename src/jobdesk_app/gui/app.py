@@ -9,7 +9,6 @@ from .dpi import configure_qt_windows_dpi_environment
 
 
 def main():
-    # Must run before QApplication is created
     configure_qt_windows_dpi_environment()
 
     from PySide6.QtGui import QFont
@@ -22,7 +21,6 @@ def main():
     app.setOrganizationName("JobDesk")
     app.setApplicationName("JobDesk")
 
-    # Set application font — Medium weight for crisp text on Windows
     font = QFont("Microsoft YaHei UI", 20)
     font.setWeight(QFont.Weight.Medium)
     font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)

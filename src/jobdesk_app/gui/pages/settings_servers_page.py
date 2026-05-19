@@ -75,20 +75,24 @@ class SettingCard(QFrame):
         self.setStyleSheet(
             "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
             " #SettingCard QLabel { background: transparent; }"
+            " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 6px 16px; border-radius: 4px; }"
+            " #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {"
+            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
+            " padding: 4px 8px; }"
         )
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
 
-        left = QVBoxLayout()
-        left.setSpacing(2)
         lbl_title = QLabel(title)
         lbl_desc = QLabel(description)
-        lbl_desc.setStyleSheet("color: #64748b; font-size: 13pt;")
-        left.addWidget(lbl_title)
-        left.addWidget(lbl_desc)
+        lbl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
 
-        layout.addLayout(left, 1)
+        layout.addWidget(lbl_title)
+        layout.addSpacing(16)
+        layout.addWidget(lbl_desc)
+        layout.addStretch()
         control.setMinimumWidth(180)
         layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
 
@@ -129,9 +133,6 @@ class SettingsServersPage(QWidget):
         fc_layout.setContentsMargins(0, 0, 0, 0)
         self.local_folder_edit = QLineEdit()
         self.browse_btn = QPushButton("浏览")
-        self.browse_btn.setStyleSheet(
-            "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
-        )
         self.browse_btn.clicked.connect(self._browse)
         fc_layout.addWidget(self.local_folder_edit, 1)
         fc_layout.addWidget(self.browse_btn)
@@ -146,10 +147,6 @@ class SettingsServersPage(QWidget):
         self.language_combo = QComboBox()
         self.language_combo.addItem("中文", "zh")
         self.language_combo.addItem("English", "en")
-        self.language_combo.setStyleSheet(
-            "QComboBox { background: white; border: 1px solid #cbd5e1;"
-            " border-radius: 4px; padding: 6px 12px; }"
-        )
         layout.addWidget(SettingCard("语言", "界面显示语言，切换后立即生效", self.language_combo))
 
         # ─── 隐藏.文件 ───
@@ -191,12 +188,9 @@ class SettingsServersPage(QWidget):
         srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
-        btn_style = "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
         self.reload_srv_btn = QPushButton("刷新")
-        self.reload_srv_btn.setStyleSheet(btn_style)
         self.reload_srv_btn.clicked.connect(self._load_servers)
         self.test_btn = QPushButton("测试连接")
-        self.test_btn.setStyleSheet(btn_style)
         self.test_btn.clicked.connect(self._test_connection)
         srv_btns.addWidget(self.reload_srv_btn)
         srv_btns.addWidget(self.test_btn)
@@ -222,7 +216,7 @@ class SettingsServersPage(QWidget):
         self.save_btn.clicked.connect(self._save_settings)
         self.discard_btn = QPushButton("放弃更改")
         self.discard_btn.setStyleSheet(
-            "background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px;"
+            "background: #cbd5e1; border: 1px solid #94a3b8; padding: 6px 16px; border-radius: 4px;"
         )
         self.discard_btn.clicked.connect(self._load_settings)
         bar_layout.addWidget(self.save_btn)
