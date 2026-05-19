@@ -37,14 +37,21 @@ QLabel#PageTitle {{
     padding: 0 0 2px 0;
 }}
 
-/* ─── Buttons ─── */
+/* ─── Checkboxes ─── */
 QCheckBox::indicator {{
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
+    margin-top: 4px;
+    margin-bottom: 4px;
 }}
 QCheckBox {{
     spacing: 8px;
-    min-height: 36px;
+    padding: 6px 0;
+}}
+/* ─── GroupBox fix ─── */
+QGroupBox {{
+    padding-top: 28px;
+    margin-top: 8px;
 }}
 QPushButton {{
     background: {c.BG_SURFACE};
