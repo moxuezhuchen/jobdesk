@@ -198,7 +198,8 @@ class SettingsServersPage(QWidget):
         self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.server_table.setMaximumHeight(200)
         self.server_table.setStyleSheet(
-            "QTableWidget { background: transparent; border: none; alternate-background-color: transparent; }"
+            "QTableWidget { background: transparent; border: none;"
+            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
             " QTableWidget::item { background: transparent; }"
         )
         self.server_table.horizontalHeader().setStyleSheet(
