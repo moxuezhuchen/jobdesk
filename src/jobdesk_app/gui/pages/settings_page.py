@@ -55,11 +55,15 @@ class SettingsPage(QWidget):
         form = QFormLayout(self.general_box)
 
         self.remote_dir_edit = QLineEdit()
+        self.remote_dir_edit.setMaximumWidth(300)
         self.server_combo = QComboBox()
+        self.server_combo.setMaximumWidth(200)
         self.auto_connect_check = QCheckBox()
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
+        self.max_parallel_spin.setMaximumWidth(80)
         self.language_combo = QComboBox()
+        self.language_combo.setMaximumWidth(200)
         self.hide_dotfiles_check = QCheckBox()
 
         self.server_label = QLabel()
