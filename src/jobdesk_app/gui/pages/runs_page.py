@@ -84,7 +84,6 @@ class RunsPage(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.horizontalHeader().setStretchLastSection(True)
         # Hide low-value columns: mode(3), max_parallel(4)
         self.table.setColumnHidden(3, True)
         self.table.setColumnHidden(4, True)

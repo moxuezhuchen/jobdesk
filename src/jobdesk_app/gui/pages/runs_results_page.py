@@ -62,10 +62,13 @@ class RunsResultsPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.currentCellChanged.connect(self._on_run_selected)
+        self._restore_runs_column_widths()
+        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_runs_column_widths())
         top_layout.addWidget(self.table)
 
         # Buttons row
@@ -139,6 +142,26 @@ class RunsResultsPage(QWidget):
         self.table.setHorizontalHeaderLabels([
             "运行ID", "服务器", "远程目录", "状态", "命令", "创建时间",
         ])
+
+    def _restore_runs_column_widths(self):
+        from ...services.gui_settings import GuiSettingsStore
+        widths = (GuiSettingsStore().load().column_widths or {}).get("runs_v2")
+        if widths:
+            for col, w in enumerate(widths):
+                if col < self.table.columnCount() and w > 0:
+                    self.table.setColumnWidth(col, w)
+
+    def _save_runs_column_widths(self):
+        from dataclasses import replace
+        from ...services.gui_settings import GuiSettingsStore
+        store = GuiSettingsStore()
+        current = store.load()
+        widths = dict(current.column_widths or {})
+        widths["runs_v2"] = [
+            self.table.columnWidth(c) for c in range(self.table.columnCount())
+            if not self.table.isColumnHidden(c)
+        ]
+        store.save(replace(current, column_widths=widths))
 
     def _context_menu(self, pos):
         menu = QMenu(self)
