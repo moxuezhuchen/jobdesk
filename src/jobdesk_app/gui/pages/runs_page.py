@@ -92,6 +92,14 @@ class RunsPage(QWidget):
         self.table.customContextMenuRequested.connect(self._context_menu)
         layout.addWidget(self.table)
 
+        # Workflow toolbar
+        wf_row = QHBoxLayout()
+        self.new_workflow_btn = QPushButton()
+        self.new_workflow_btn.clicked.connect(self._start_workflow)
+        wf_row.addWidget(self.new_workflow_btn)
+        wf_row.addStretch()
+        layout.addLayout(wf_row)
+
         download_row = QHBoxLayout()
         self.download_label = QLabel()
         download_row.addWidget(self.download_label)
@@ -148,6 +156,8 @@ class RunsPage(QWidget):
         menu.addAction(tr("Rerun", self._language), self._rerun_all)
         menu.addAction(tr("Show Logs", self._language), self._show_logs)
         menu.addAction(tr("Show Paths", self._language), self._show_paths)
+        menu.addSeparator()
+        menu.addAction(tr("Analyze Run", self._language), self._analyze_run)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def on_activated(self):
@@ -165,6 +175,7 @@ class RunsPage(QWidget):
         self.auto_refresh_check.setText(tr("Auto-refresh", language))
         self.auto_download_check.setText(tr("Auto-download", language))
         self.notify_check.setText(tr("Notify on complete", language))
+        self.new_workflow_btn.setText(tr("New Workflow…", language))
         self.table.setHorizontalHeaderLabels([
             tr("run_id", language), tr("server", language), tr("remote_dir", language),
             tr("mode", language), tr("Max parallel", language), tr("status", language),
@@ -407,6 +418,57 @@ class RunsPage(QWidget):
         self._log(f"  batch: {record.batch_path}")
         self._log(f"  dir: {record.run_dir}")
         self._log(f"  results: {self._workspace() / 'results' / record.run_id}")
+
+    def _analyze_run(self):
+        """Analyze selected run and navigate to Results page."""
+        record = self._selected_record()
+        if record is None:
+            return
+        # Store run_id in state so Results page can pre-select it
+        self.state.current_batch_id = record.run_id
+        # Navigate to Results tab (index 2) via parent MainWindow
+        mw = self.window()
+        if hasattr(mw, "shell"):
+            mw.shell.set_current(2)
+            results_page = mw.shell.pages.widget(2)
+            if hasattr(results_page, "on_activated"):
+                results_page.on_activated()
+        self._status_cb(f"Analyzing run: {record.run_id}")
+
+    def _start_workflow(self):
+        """Open WorkflowDialog and launch a workflow."""
+        from ..dialogs.workflow_dialog import WorkflowDialog
+        from ...services.workflow_service import WorkflowRunner, BUILTIN_WORKFLOWS
+        from ...core.run import RunSpec, RunMode, RunSource
+
+        dlg = WorkflowDialog(self, workspace=self._workspace())
+        if dlg.exec() != WorkflowDialog.Accepted:
+            return
+
+        wf_name = dlg.workflow_name()
+        spec = BUILTIN_WORKFLOWS.get(wf_name)
+        if spec is None:
+            self._status_cb(f"Unknown workflow: {wf_name}")
+            return
+
+        workspace = self._workspace()
+        runner = WorkflowRunner(workspace)
+        wf_run = runner.create(spec, dlg.server_id(), dlg.remote_dir(), dlg.input_file())
+
+        # Advance: create first-step runs
+        started = runner.advance(spec, wf_run)
+        if not started:
+            self._status_cb("Workflow: no steps ready to start")
+            return
+
+        # Submit each created run
+        for step_name in started:
+            run_id = wf_run.step_run_ids.get(step_name)
+            if run_id:
+                self._submit_record(run_id, f"Workflow {wf_name} step {step_name}")
+
+        self.refresh_run_list()
+        self._status_cb(f"Workflow {wf_name} started: {len(started)} step(s)")
 
     def shutdown(self):
         worker = getattr(self, "worker", None)

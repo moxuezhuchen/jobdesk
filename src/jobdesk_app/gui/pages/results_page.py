@@ -1,79 +1,33 @@
-"""Results 页面 — 显示分析结果 TSV 和 summary.json，联动 Tasks。"""
+"""Results page — RunService-based analysis, profile selector, cross-run comparison, CSV export."""
+from __future__ import annotations
 
-import json
-import csv
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidget, QLabel, QComboBox, QTextEdit, QHeaderView,
-    QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QFileDialog, QListWidget, QAbstractItemView, QSplitter,
+    QMessageBox,
 )
+from PySide6.QtCore import Qt
 
-from ...core.manifest import Manifest
-from ..table_models import load_rows_to_table, load_tsv_to_table
-
-
-RESULT_TABLES = [
-    "enriched_results",
-    "final_results.tsv",
-    "failures.tsv",
-    "group_summary.tsv",
-    "job_status.tsv",
-]
+from ...services.run_service import RunService
+from ...services.analysis_profiles import AnalysisProfileStore
+from ...services.comparison import compare_runs, export_csv, export_markdown
+from ..i18n import tr
+from ..table_models import load_rows_to_table
 
 
-def load_enriched_results_rows(
-    final_results_path: Path,
-    manifest_path: Path,
-) -> tuple[list[str], list[list[str]]]:
-    if not final_results_path.exists() or not manifest_path.exists():
-        return [], []
-    with open(final_results_path, "r", newline="", encoding="utf-8") as f:
-        rows = [row for row in csv.reader(f, delimiter="\t") if row and any(row)]
-    if not rows:
-        return [], []
-    base_header = rows[0]
-    task_id_index = base_header.index("task_id") if "task_id" in base_header else -1
-    metadata_header = [
-        "discovery_name",
-        "execution_profile",
-        "server_id",
-        "remote_work_dir",
-        "status",
-        "remote_job_dir",
-    ]
-    tasks = {task.task_id: task for task in Manifest.read(manifest_path)}
-    enriched_rows: list[list[str]] = []
-    for row in rows[1:]:
-        task_id = row[task_id_index] if task_id_index >= 0 and task_id_index < len(row) else ""
-        task = tasks.get(task_id)
-        metadata = [
-            task.discovery_name if task else "",
-            task.execution_profile if task else "",
-            task.server_id if task else "",
-            task.remote_work_dir if task else "",
-            task.status.value if task else "",
-            task.remote_job_dir if task else "",
-        ]
-        enriched_rows.append(row + metadata)
-    return base_header + metadata_header, enriched_rows
-
-
-def build_results_diagnostics(batch_dir: Path, result_dir: Path) -> dict[str, str]:
-    files = {
-        "manifest.tsv": batch_dir / "manifest.tsv",
-        "batch.json": batch_dir / "batch.json",
-        "failures.tsv": batch_dir / "failures.tsv",
-        "job_status.tsv": batch_dir / "job_status.tsv",
-        "final_results.tsv": result_dir / "final_results.tsv",
-        "group_summary.tsv": result_dir / "group_summary.tsv",
-        "summary.json": result_dir / "summary.json",
-    }
-    return {
-        name: f"{path} - {'present' if path.exists() else 'missing'}"
-        for name, path in files.items()
-    }
+def _fill_table(table: QTableWidget, field_names: list[str], rows: list[dict]) -> None:
+    table.clear()
+    table.setColumnCount(len(field_names))
+    table.setHorizontalHeaderLabels(field_names)
+    table.setRowCount(len(rows))
+    for r, row in enumerate(rows):
+        for c, key in enumerate(field_names):
+            table.setItem(r, c, QTableWidgetItem(str(row.get(key, ""))))
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+    table.horizontalHeader().setStretchLastSection(True)
 
 
 class ResultsPage(QWidget):
@@ -81,155 +35,208 @@ class ResultsPage(QWidget):
         super().__init__()
         self.state = state
         self._log = log_cb
+        self._language = "en"
+        self._last_comparison = None
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(6)
 
-        batch_row = QHBoxLayout()
-        batch_row.addWidget(QLabel("批次:"))
-        self.batch_combo = QComboBox()
-        self.batch_combo.currentTextChanged.connect(self._on_batch_changed)
-        batch_row.addWidget(self.batch_combo)
-        self.browse_dir_btn = QPushButton("分析目录...")
-        self.browse_dir_btn.clicked.connect(self._browse_analysis_dir)
-        batch_row.addWidget(self.browse_dir_btn)
-        batch_row.addStretch()
-        layout.addLayout(batch_row)
+        # ── top controls ──────────────────────────────────────────────────
+        ctrl = QHBoxLayout()
 
-        self.guidance_label = QLabel("")
-        self.guidance_label.setStyleSheet("color: #d97706; padding: 4px;")
-        self.guidance_label.setVisible(False)
-        layout.addWidget(self.guidance_label)
+        self.profile_label = QLabel()
+        ctrl.addWidget(self.profile_label)
+        self.profile_combo = QComboBox()
+        self.profile_combo.setMinimumWidth(200)
+        ctrl.addWidget(self.profile_combo)
 
-        file_row = QHBoxLayout()
-        file_row.addWidget(QLabel("表格:"))
-        self.file_combo = QComboBox()
-        self.file_combo.addItems(RESULT_TABLES)
-        self.file_combo.currentTextChanged.connect(self._load_table)
-        file_row.addWidget(self.file_combo)
-        file_row.addStretch()
-        layout.addLayout(file_row)
+        self.analyze_btn = QPushButton()
+        self.analyze_btn.clicked.connect(self._analyze_selected)
+        ctrl.addWidget(self.analyze_btn)
 
-        self.data_table = QTableWidget()
-        layout.addWidget(self.data_table)
+        self.compare_btn = QPushButton()
+        self.compare_btn.clicked.connect(self._compare_selected)
+        ctrl.addWidget(self.compare_btn)
 
-        self.summary_text = QTextEdit()
-        self.summary_text.setReadOnly(True)
-        self.summary_text.setMaximumHeight(100)
-        layout.addWidget(QLabel("摘要:"))
-        layout.addWidget(self.summary_text)
+        ctrl.addStretch()
 
-        btn_row = QHBoxLayout()
-        reload_btn = QPushButton("刷新")
-        reload_btn.clicked.connect(self._load_table)
-        btn_row.addWidget(reload_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
+        self.export_csv_btn = QPushButton()
+        self.export_csv_btn.clicked.connect(self._export_csv)
+        ctrl.addWidget(self.export_csv_btn)
+
+        self.export_md_btn = QPushButton()
+        self.export_md_btn.clicked.connect(self._export_markdown)
+        ctrl.addWidget(self.export_md_btn)
+
+        layout.addLayout(ctrl)
+
+        # ── splitter: run list | result table ─────────────────────────────
+        splitter = QSplitter(Qt.Horizontal)
+
+        self.run_list = QListWidget()
+        self.run_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.run_list.setMaximumWidth(260)
+        self.run_list.setMinimumWidth(140)
+        splitter.addWidget(self.run_list)
+
+        self.result_table = QTableWidget()
+        self.result_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.result_table.setAlternatingRowColors(True)
+        self.result_table.verticalHeader().setVisible(False)
+        splitter.addWidget(self.result_table)
+
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter, 1)
+
+        # ── status label ──────────────────────────────────────────────────
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        layout.addWidget(self.status_label)
+
+        self._populate_profiles()
+        self.apply_language(self._language)
+
+    # ── public API ────────────────────────────────────────────────────────
 
     def on_activated(self):
-        self.refresh_batch_list()
+        self._populate_profiles()
+        self._refresh_run_list()
 
-    def _ensure_ctx(self):
-        ctx = self.state.current_project_context
-        if ctx is None:
-            return None
-        return ctx
+    def apply_language(self, language: str):
+        self._language = language
+        self.profile_label.setText(tr("Profile:", language))
+        self.analyze_btn.setText(tr("Analyze", language))
+        self.compare_btn.setText(tr("Compare Runs", language))
+        self.export_csv_btn.setText(tr("Export CSV", language))
+        self.export_md_btn.setText(tr("Copy Markdown", language))
 
-    def refresh_batch_list(self):
-        ctx = self._ensure_ctx()
-        if not ctx:
+    # ── internal ──────────────────────────────────────────────────────────
+
+    def _workspace(self) -> Path:
+        return Path(self.state.current_project_root or Path.cwd())
+
+    def _populate_profiles(self):
+        current = self.profile_combo.currentText()
+        self.profile_combo.clear()
+        for name in AnalysisProfileStore().list_names():
+            self.profile_combo.addItem(name)
+        if current:
+            idx = self.profile_combo.findText(current)
+            if idx >= 0:
+                self.profile_combo.setCurrentIndex(idx)
+
+    def _refresh_run_list(self):
+        self.run_list.clear()
+        try:
+            runs = RunService(self._workspace()).list_runs()
+        except Exception:
             return
-        current = self.batch_combo.currentText()
-        self.batch_combo.clear()
-        seen = set()
-        for base in [ctx.batches_dir, ctx.local_result_dir]:
-            if base.exists():
-                for d in sorted(base.iterdir(), reverse=True):
-                    if d.is_dir() and d.name not in seen:
-                        seen.add(d.name)
-                        self.batch_combo.addItem(d.name)
-        if current and current in seen:
-            self.batch_combo.setCurrentText(current)
+        for r in runs:
+            summary = " | ".join(f"{k}={v}" for k, v in r.status_summary.items())
+            self.run_list.addItem(f"{r.run_id[:12]}  {summary}")
+            self.run_list.item(self.run_list.count() - 1).setData(Qt.UserRole, r.run_id)
 
-    def _on_batch_changed(self, bid: str):
-        self.batch_combo.blockSignals(True)
-        self.refresh_batch_list()
-        self.batch_combo.blockSignals(False)
-        if bid:
-            self.state.current_batch_id = bid
-        self._load_table()
-
-    def _load_table(self):
-        ctx = self._ensure_ctx()
-        bid = self.state.current_batch_id
-        if not ctx or not bid:
-            return
-        filename = self.file_combo.currentText()
-        batch_dir = ctx.batches_dir / bid
-        result_dir = ctx.local_result_dir / bid
-        if filename == "enriched_results":
-            header, rows = load_enriched_results_rows(
-                result_dir / "final_results.tsv",
-                batch_dir / "manifest.tsv",
-            )
-            load_rows_to_table(self.data_table, header, rows)
-            self._load_summary_and_diagnostics(batch_dir, result_dir)
-            return
-
-        candidates = [
-            batch_dir / filename,
-            result_dir / filename,
+    def _selected_run_ids(self) -> list[str]:
+        return [
+            item.data(Qt.UserRole)
+            for item in self.run_list.selectedItems()
+            if item.data(Qt.UserRole)
         ]
-        found = False
-        for fp in candidates:
-            if fp.exists():
-                load_tsv_to_table(self.data_table, fp)
-                found = True
-                break
-        if not found:
-            self.data_table.clear()
-            self.data_table.setRowCount(0)
-            self.data_table.setColumnCount(0)
 
-        self._load_summary_and_diagnostics(batch_dir, result_dir)
-
-    def _load_summary_and_diagnostics(self, batch_dir: Path, result_dir: Path):
-        # Download guidance (issue #16)
-        manifest_path = batch_dir / "manifest.tsv"
-        if manifest_path.exists() and not result_dir.exists():
-            self.guidance_label.setText("⚠ 尚未下载结果，请到运行页点击下载。")
-            self.guidance_label.setVisible(True)
-        else:
-            self.guidance_label.setVisible(False)
-
-        summary_lines = []
-        for bd in [batch_dir, result_dir]:
-            sj = bd / "summary.json"
-            if sj.exists():
-                try:
-                    data = json.loads(sj.read_text(encoding="utf-8"))
-                    summary_lines.extend(f"{k}: {v}" for k, v in data.items())
-                except Exception:
-                    pass
-                break
-        diagnostics = build_results_diagnostics(batch_dir, result_dir)
-        if summary_lines:
-            summary_lines.append("")
-        summary_lines.append("诊断信息")
-        summary_lines.extend(f"{k}: {v}" for k, v in diagnostics.items())
-        self.summary_text.setPlainText("\n".join(summary_lines))
-
-    def _browse_analysis_dir(self):
-        """Allow analyzing any local directory (issue #23)."""
-        folder = QFileDialog.getExistingDirectory(self, "Select directory to analyze")
-        if not folder:
+    def _analyze_selected(self):
+        run_ids = self._selected_run_ids()
+        if not run_ids:
+            self.status_label.setText(tr("Select one or more runs first", self._language))
             return
-        path = Path(folder)
-        # Load TSV files from that directory
-        tsv_files = sorted(path.glob("*.tsv")) + sorted(path.glob("*.csv"))
-        if not tsv_files:
-            self.summary_text.setPlainText(f"未找到 .tsv/.csv 文件: {folder}")
+        profile_name = self.profile_combo.currentText()
+        if not profile_name:
+            self.status_label.setText(tr("Select a profile first", self._language))
             return
-        # Load first TSV
-        load_tsv_to_table(self.data_table, tsv_files[0])
-        self.guidance_label.setVisible(False)
-        self.summary_text.setPlainText(f"已加载: {tsv_files[0].name}\n目录: {folder}\n文件: {', '.join(f.name for f in tsv_files)}")
+
+        from ...core.analyzer import analyze_tasks
+        from ...core.manifest import Manifest
+
+        workspace = self._workspace()
+        svc = RunService(workspace)
+        profile = AnalysisProfileStore().get(profile_name)
+        if profile is None:
+            self.status_label.setText(f"Profile not found: {profile_name}")
+            return
+
+        all_rows: list[dict] = []
+        field_set: list[str] = []
+        seen_fields: set[str] = set()
+
+        for run_id in run_ids:
+            try:
+                record = svc.load_run(run_id)
+                tasks = Manifest.read(record.manifest_path)
+                results, _ = analyze_tasks(
+                    profile.extract_rules, tasks,
+                    workspace / "results", run_id,
+                )
+            except Exception as exc:
+                self._log(f"Analyze {run_id}: {exc}")
+                continue
+
+            task_data: dict[str, dict] = {}
+            for r in results:
+                if r.task_id not in task_data:
+                    task_data[r.task_id] = {"run_id": run_id, "task_id": r.task_id}
+                task_data[r.task_id][r.field_name] = r.value
+                if r.field_name not in seen_fields:
+                    seen_fields.add(r.field_name)
+                    field_set.append(r.field_name)
+            all_rows.extend(task_data.values())
+
+        if not all_rows:
+            self.status_label.setText(tr("No results found", self._language))
+            return
+
+        fields = ["run_id", "task_id"] + field_set
+        _fill_table(self.result_table, fields, all_rows)
+        self._last_comparison = None
+        self.status_label.setText(
+            tr("{n} rows from {r} run(s)", self._language, n=len(all_rows), r=len(run_ids))
+        )
+
+    def _compare_selected(self):
+        run_ids = self._selected_run_ids()
+        if len(run_ids) < 2:
+            self.status_label.setText(tr("Select at least 2 runs to compare", self._language))
+            return
+        profile_name = self.profile_combo.currentText()
+        from ...services.comparison import compare_runs
+        comparison = compare_runs(self._workspace(), run_ids, profile_name=profile_name)
+        if not comparison.rows:
+            self.status_label.setText(tr("No results found", self._language))
+            return
+        _fill_table(self.result_table, comparison.field_names, comparison.rows)
+        self._last_comparison = comparison
+        self.status_label.setText(
+            tr("{n} rows compared across {r} runs", self._language,
+               n=len(comparison.rows), r=len(run_ids))
+        )
+
+    def _export_csv(self):
+        if self._last_comparison is None:
+            self.status_label.setText(tr("Run Compare Runs first", self._language))
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, tr("Export CSV", self._language), "", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        export_csv(self._last_comparison, path)
+        self.status_label.setText(f"Exported: {path}")
+
+    def _export_markdown(self):
+        if self._last_comparison is None:
+            self.status_label.setText(tr("Run Compare Runs first", self._language))
+            return
+        from PySide6.QtWidgets import QApplication
+        md = export_markdown(self._last_comparison)
+        QApplication.clipboard().setText(md)
+        self.status_label.setText(tr("Markdown copied to clipboard", self._language))

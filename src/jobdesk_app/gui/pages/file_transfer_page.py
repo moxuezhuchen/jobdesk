@@ -832,6 +832,9 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("Upload ->", self._language), self._upload_selected)
         menu.addAction(tr("Refresh", self._language), self._refresh_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
+        menu.addSeparator()
+        menu.addAction(tr("Generate GJF from XYZ…", self._language), self._local_generate_gjf)
+        self._add_viewer_submenu(menu, local=True)
         menu.exec(self.local_table.viewport().mapToGlobal(pos))
 
     def _remote_context_menu(self, pos):
@@ -844,7 +847,95 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("Delete", self._language), self._delete_remote)
         menu.addSeparator()
         menu.addAction(tr("Preview", self._language), self._preview_remote)
+        menu.addSeparator()
+        menu.addAction(tr("Generate GJF from XYZ…", self._language), self._remote_generate_gjf)
+        self._add_viewer_submenu(menu, local=False)
         menu.exec(self.remote_table.viewport().mapToGlobal(pos))
+
+    def _add_viewer_submenu(self, menu: QMenu, local: bool):
+        from ...core.viewer import list_available_viewers
+        viewers = list_available_viewers()
+        if not viewers:
+            return
+        sub = menu.addMenu(tr("Open in Viewer", self._language))
+        for name, exe in sorted(viewers.items()):
+            if local:
+                sub.addAction(name, lambda _exe=exe: self._open_local_in_viewer(_exe))
+            else:
+                sub.addAction(name, lambda _exe=exe: self._open_remote_in_viewer(_exe))
+
+    # ── Generate GJF ──────────────────────────────────────────────────────
+
+    def _local_generate_gjf(self):
+        row = self.local_table.currentRow()
+        path_item = self.local_table.item(row, 4) if row >= 0 else None
+        xyz_path = path_item.text() if path_item else ""
+        from ..dialogs.input_builder_dialog import InputBuilderDialog
+        dlg = InputBuilderDialog(self, xyz_path=xyz_path)
+        dlg.exec()
+
+    def _remote_generate_gjf(self):
+        """Download selected remote .xyz to a temp file, open InputBuilderDialog."""
+        row = self.remote_table.currentRow()
+        path_item = self.remote_table.item(row, 5) if row >= 0 else None
+        if path_item is None or self._service is None:
+            return
+        remote_path = path_item.text()
+        if not remote_path.lower().endswith(".xyz"):
+            self._status_cb("Select a .xyz file first")
+            return
+        import tempfile
+        tmp = Path(tempfile.mktemp(suffix=".xyz"))
+        try:
+            self._service.sftp.get(remote_path, str(tmp))
+        except Exception as exc:
+            self._status_cb(f"Download failed: {exc}")
+            return
+        from ..dialogs.input_builder_dialog import InputBuilderDialog
+        dlg = InputBuilderDialog(self, xyz_path=tmp)
+        if dlg.exec() and dlg.generated_path():
+            # Upload generated file back to remote dir
+            gen = dlg.generated_path()
+            remote_dest = f"{self.remote_path.text().rstrip('/')}/{gen.name}"
+            try:
+                self._service.sftp.put(str(gen), remote_dest)
+                self._refresh_remote()
+                self._status_cb(f"Uploaded: {remote_dest}")
+            except Exception as exc:
+                self._status_cb(f"Upload failed: {exc}")
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    # ── Open in Viewer ────────────────────────────────────────────────────
+
+    def _open_local_in_viewer(self, exe: str):
+        row = self.local_table.currentRow()
+        path_item = self.local_table.item(row, 4) if row >= 0 else None
+        if path_item is None:
+            return
+        from ...core.viewer import open_in_viewer
+        open_in_viewer(path_item.text(), custom_path=exe)
+
+    def _open_remote_in_viewer(self, exe: str):
+        """Download remote file to temp, open in viewer."""
+        row = self.remote_table.currentRow()
+        path_item = self.remote_table.item(row, 5) if row >= 0 else None
+        if path_item is None or self._service is None:
+            return
+        remote_path = path_item.text()
+        import tempfile
+        suffix = Path(remote_path).suffix or ".tmp"
+        tmp = Path(tempfile.mktemp(suffix=suffix))
+        try:
+            self._service.sftp.get(remote_path, str(tmp))
+        except Exception as exc:
+            self._status_cb(f"Download failed: {exc}")
+            return
+        from ...core.viewer import open_in_viewer
+        open_in_viewer(tmp, custom_path=exe)
+        self._status_cb(f"Opened in viewer: {Path(remote_path).name}")
 
     def _create_only(self):
         """Create run record without submitting."""
