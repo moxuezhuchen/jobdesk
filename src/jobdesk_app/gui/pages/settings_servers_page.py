@@ -200,6 +200,9 @@ class SettingsServersPage(QWidget):
         self.server_table.setStyleSheet(
             "QTableWidget { background: transparent; border: none; alternate-background-color: transparent; }"
             " QTableWidget::item { background: transparent; }"
+        )
+        self.server_table.horizontalHeader().setStyleSheet(
+            "QHeaderView { background: transparent; }"
             " QHeaderView::section { background: transparent; border: none; }"
         )
         srv_inner.addWidget(self.server_table)
