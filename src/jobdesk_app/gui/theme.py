@@ -38,15 +38,22 @@ QLabel#PageTitle {{
 }}
 
 /* ─── Checkboxes ─── */
-QCheckBox::indicator {{
-    width: 24px;
-    height: 24px;
-    margin-top: 4px;
-    margin-bottom: 4px;
-}}
 QCheckBox {{
-    spacing: 8px;
-    padding: 6px 0;
+    spacing: 10px;
+}}
+QCheckBox::indicator {{
+    width: 20px;
+    height: 20px;
+    border: 2px solid {c.BORDER};
+    border-radius: 4px;
+    background: {c.BG_SURFACE};
+}}
+QCheckBox::indicator:hover {{
+    border-color: #93c5fd;
+}}
+QCheckBox::indicator:checked {{
+    background: #2563eb;
+    border-color: #2563eb;
 }}
 /* ─── GroupBox fix ─── */
 QGroupBox {{

@@ -1698,9 +1698,8 @@ def _default_column_widths(key: str) -> list[int]:
 
 
 def _clamp_column_widths(key: str, widths: list[int]) -> list[int]:
-    limits = [90, 60, 110, 55]
-    maximums = [560, 140, 190, 110] if key == "files.remote" else [560, 140, 190]
+    minimums = [90, 60, 110, 55]
     return [
-        max(limits[min(index, len(limits) - 1)], min(int(width), maximums[min(index, len(maximums) - 1)]))
+        max(minimums[min(index, len(minimums) - 1)], int(width))
         for index, width in enumerate(widths)
     ]
