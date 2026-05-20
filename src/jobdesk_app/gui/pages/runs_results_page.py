@@ -76,7 +76,7 @@ class RunsResultsPage(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -561,15 +561,28 @@ class RunsResultsPage(QWidget):
         self._status_cb(f"已取消: {record.run_id}")
 
     def _delete_run(self):
-        record = self._selected_record()
-        if record is None:
+        rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
+        if not rows:
             return
-        if QMessageBox.question(self, "删除", f"删除运行 {record.run_id} 及其结果?",
+        run_ids = []
+        for row in rows:
+            item = self.table.item(row, 0)
+            if item:
+                run_ids.append(item.text())
+        if not run_ids:
+            return
+        msg = f"删除 {len(run_ids)} 个运行记录?" if len(run_ids) > 1 else f"删除运行 {run_ids[0]} 及其结果?"
+        if QMessageBox.question(self, "删除", msg,
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
-        RunService(self._workspace()).delete_run(record.run_id)
+        svc = RunService(self._workspace())
+        for rid in run_ids:
+            try:
+                svc.delete_run(rid)
+            except Exception:
+                pass
         self.refresh_run_list()
-        self._status_cb(f"已删除: {record.run_id}")
+        self._status_cb(f"已删除: {len(run_ids)} 条记录")
 
     def _submit_record(self, run_id: str):
         workspace = self._workspace()
