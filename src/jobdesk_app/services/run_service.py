@@ -141,23 +141,27 @@ class RunService:
             if task.status != TaskStatus.remote_completed:
                 continue
             try:
-                recs = sftp.download_dir(
-                    task.remote_job_dir,
-                    dest_dir,
-                    include_globs=patterns,
-                    overwrite=False,
-                    skip_if_same_size=True,
-                )
+                # Derive stem from input file
+                input_name = task.remote_task_files[0] if task.remote_task_files else task.task_id
+                stem = input_name.rsplit(".", 1)[0] if "." in input_name else input_name
+                recs = []
+                for pat in patterns:
+                    # Pattern is either ".log" (extension) or "*.log" (glob)
+                    ext = pat if pat.startswith(".") else pat.lstrip("*")
+                    remote_file = f"{task.remote_job_dir.rstrip('/')}/{stem}{ext}"
+                    local_file = dest_dir / f"{stem}{ext}"
+                    try:
+                        rec = sftp.download_file(remote_file, local_file, overwrite=False, skip_if_same_size=True)
+                        recs.append(rec)
+                    except Exception:
+                        pass
                 records.extend(recs)
                 task_ok = any(
                     r.status in (TransferStatus.transferred, TransferStatus.skipped)
-                    and not r.remote_path.split("/")[-1].startswith(".jobdesk")
                     for r in recs
                 )
                 if not task_ok:
-                    for r in recs:
-                        if r.status not in (TransferStatus.transferred, TransferStatus.skipped):
-                            failures.append((task.task_id, r.reason))
+                    failures.append((task.task_id, "无匹配输出文件"))
             except Exception as exc:
                 task_ok = False
                 failures.append((task.task_id, str(exc)))

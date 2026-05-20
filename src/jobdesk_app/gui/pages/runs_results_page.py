@@ -528,7 +528,7 @@ class RunsResultsPage(QWidget):
             if base and base in cmd:
                 raw = profile.get("download_patterns", "")
                 return [p.strip() for p in raw.split(",") if p.strip()]
-        return ["*.log", "*.out"]
+        return [".log", ".out"]
 
     def _retry_failed(self):
         record = self._selected_record()

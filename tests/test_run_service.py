@@ -98,31 +98,17 @@ def test_download_completed_run_outputs(tmp_path):
 
     class FakeSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
+            local_path = Path(local_path) if not isinstance(local_path, Path) else local_path
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
             return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
 
-        def download_dir(self, remote_dir, local_dir, **kwargs):
-            patterns = kwargs.get("include_globs", ["*"])
-            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
-            results = []
-            for pat in patterns:
-                fname = pat.replace("*", "a")
-                local_path = Path(local_dir) / fname
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                local_path.write_text("ok", encoding="utf-8")
-                results.append(TransferRecord(TransferDirection.download, str(local_path), f"{remote_dir}/{fname}", status=TransferStatus.transferred))
-            return results
-
-        def stat(self, path):
-            return None
-
-    records, failures = service.download_completed("run001", FakeSFTP(), ["result.log"])
+    records, failures = service.download_completed("run001", FakeSFTP(), [".log"])
 
     assert not failures
     assert len(records) == 1
-    assert (tmp_path / "results" / "run001" / "result.log").read_text(encoding="utf-8") == "ok"
+    assert (tmp_path / "results" / "run001" / "a.log").read_text(encoding="utf-8") == "ok"
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.downloaded
 
 

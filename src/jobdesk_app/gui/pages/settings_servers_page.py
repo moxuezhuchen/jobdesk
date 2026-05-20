@@ -208,11 +208,11 @@ class SettingsServersPage(QWidget):
             return row, ext, cmd, dl
 
         row_g, self.gaussian_extensions, self.gaussian_command, self.gaussian_patterns = \
-            _make_profile_row("Gaussian", ".gjf,.com", "g16 {name}", "*.log,*.chk")
+            _make_profile_row("Gaussian", ".gjf,.com", "g16 {name}", ".log,.chk")
         layout.addWidget(row_g)
 
         row_o, self.orca_extensions, self.orca_command, self.orca_patterns = \
-            _make_profile_row("ORCA", ".inp", "orca {name} > {basename}.out", "*.out,*.gbw")
+            _make_profile_row("ORCA", ".inp", "orca {name} > {basename}.out", ".out,.gbw")
         layout.addWidget(row_o)
 
         # ─── 服务器 ───
@@ -389,11 +389,11 @@ class SettingsServersPage(QWidget):
         g = patterns.get("Gaussian", {})
         self.gaussian_extensions.setText(g.get("input_extensions", ".gjf,.com"))
         self.gaussian_command.setText(g.get("command_template", "g16 {name}"))
-        self.gaussian_patterns.setText(g.get("download_patterns", "*.log,*.chk"))
+        self.gaussian_patterns.setText(g.get("download_patterns", ".log,.chk"))
         o = patterns.get("ORCA", {})
         self.orca_extensions.setText(o.get("input_extensions", ".inp"))
         self.orca_command.setText(o.get("command_template", "orca {name}"))
-        self.orca_patterns.setText(o.get("download_patterns", "*.out,*.gbw"))
+        self.orca_patterns.setText(o.get("download_patterns", ".out,.gbw"))
 
     def _save_settings(self):
         from dataclasses import replace
@@ -408,12 +408,12 @@ class SettingsServersPage(QWidget):
                 "Gaussian": {
                     "input_extensions": self.gaussian_extensions.text().strip() or ".gjf,.com",
                     "command_template": self.gaussian_command.text().strip() or "g16 {name}",
-                    "download_patterns": self.gaussian_patterns.text().strip() or "*.log,*.chk",
+                    "download_patterns": self.gaussian_patterns.text().strip() or ".log,.chk",
                 },
                 "ORCA": {
                     "input_extensions": self.orca_extensions.text().strip() or ".inp",
-                    "command_template": self.orca_command.text().strip() or "orca {name}",
-                    "download_patterns": self.orca_patterns.text().strip() or "*.out,*.gbw",
+                    "command_template": self.orca_command.text().strip() or "orca {name} > {basename}.out",
+                    "download_patterns": self.orca_patterns.text().strip() or ".out,.gbw",
                 },
             },
         )
