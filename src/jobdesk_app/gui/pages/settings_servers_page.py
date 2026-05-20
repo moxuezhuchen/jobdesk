@@ -173,47 +173,37 @@ class SettingsServersPage(QWidget):
         dl_title = QLabel("软件配置")
         dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         dl_header.addWidget(dl_title)
-        dl_desc = QLabel("格式：输入后缀 | 命令模板（{name}=文件名, {basename}=无后缀名） | 完成后下载")
+        dl_desc = QLabel("{name}=文件名, {basename}=无后缀名")
         dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
         dl_header.addWidget(dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
         layout.addSpacing(4)
 
-        def _make_profile_row(label, ext_ph, cmd_ph, dl_ph):
-            row = QFrame()
-            row.setObjectName("SettingCard")
-            row.setStyleSheet(
-                "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
-                " #SettingCard QLabel { background: transparent; }"
-                " #SettingCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
-                " border-radius: 4px; padding: 0 8px; min-height: 44px; max-height: 44px; }"
-            )
-            row.setFixedHeight(60)
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(16, 0, 16, 0)
-            rl.setSpacing(8)
-            lbl = QLabel(label)
-            lbl.setFixedWidth(100)
-            rl.addWidget(lbl)
-            ext = QLineEdit()
-            ext.setPlaceholderText(ext_ph)
-            rl.addWidget(ext, 1)
-            cmd = QLineEdit()
-            cmd.setPlaceholderText(cmd_ph)
-            rl.addWidget(cmd, 2)
-            dl = QLineEdit()
-            dl.setPlaceholderText(dl_ph)
-            rl.addWidget(dl, 1)
-            return row, ext, cmd, dl
+        self.profile_table = QTableWidget()
+        self.profile_table.setColumnCount(4)
+        self.profile_table.setHorizontalHeaderLabels(["软件名称", "输入后缀", "命令模板", "下载后缀"])
+        self.profile_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.profile_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().resizeSection(0, 100)
+        self.profile_table.horizontalHeader().resizeSection(1, 120)
+        self.profile_table.horizontalHeader().resizeSection(3, 120)
+        self.profile_table.verticalHeader().setVisible(False)
+        self.profile_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.profile_table.setMaximumHeight(160)
+        layout.addWidget(self.profile_table)
 
-        row_g, self.gaussian_extensions, self.gaussian_command, self.gaussian_patterns = \
-            _make_profile_row("Gaussian", ".gjf,.com", "g16 {name}", ".log,.chk")
-        layout.addWidget(row_g)
-
-        row_o, self.orca_extensions, self.orca_command, self.orca_patterns = \
-            _make_profile_row("ORCA", ".inp", "orca {name} > {basename}.out", ".out,.gbw")
-        layout.addWidget(row_o)
+        profile_btns = QHBoxLayout()
+        add_profile_btn = QPushButton("添加")
+        add_profile_btn.clicked.connect(self._add_profile_row)
+        del_profile_btn = QPushButton("删除")
+        del_profile_btn.clicked.connect(self._del_profile_row)
+        profile_btns.addWidget(add_profile_btn)
+        profile_btns.addWidget(del_profile_btn)
+        profile_btns.addStretch()
+        layout.addLayout(profile_btns)
 
         # ─── 服务器 ───
         layout.addSpacing(12)
@@ -385,42 +375,50 @@ class SettingsServersPage(QWidget):
             self.language_combo.setCurrentIndex(idx)
         self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
         self._toggle_label.setText("开" if s.hide_dotfiles else "关")
-        patterns = s.software_profiles or {}
-        g = patterns.get("Gaussian", {})
-        self.gaussian_extensions.setText(g.get("input_extensions", ".gjf,.com"))
-        self.gaussian_command.setText(g.get("command_template", "g16 {name}"))
-        self.gaussian_patterns.setText(g.get("download_patterns", ".log,.chk"))
-        o = patterns.get("ORCA", {})
-        self.orca_extensions.setText(o.get("input_extensions", ".inp"))
-        self.orca_command.setText(o.get("command_template", "orca {name}"))
-        self.orca_patterns.setText(o.get("download_patterns", ".out,.gbw"))
+        # Load software profiles into table
+        profiles = s.software_profiles or {}
+        self.profile_table.setRowCount(len(profiles))
+        for row, (name, p) in enumerate(profiles.items()):
+            self.profile_table.setItem(row, 0, QTableWidgetItem(name))
+            self.profile_table.setItem(row, 1, QTableWidgetItem(p.get("input_extensions", "")))
+            self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
+            self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
 
     def _save_settings(self):
         from dataclasses import replace
         existing = self._store.load()
+        # Read profiles from table
+        profiles = {}
+        for row in range(self.profile_table.rowCount()):
+            name = (self.profile_table.item(row, 0) or QTableWidgetItem("")).text().strip()
+            if not name:
+                continue
+            profiles[name] = {
+                "input_extensions": (self.profile_table.item(row, 1) or QTableWidgetItem("")).text().strip(),
+                "command_template": (self.profile_table.item(row, 2) or QTableWidgetItem("")).text().strip(),
+                "download_patterns": (self.profile_table.item(row, 3) or QTableWidgetItem("")).text().strip(),
+            }
         new_settings = replace(
             existing,
             default_local_folder=self.local_folder_edit.text().strip(),
             max_parallel=self.max_parallel_spin.value(),
             language=self.language_combo.currentData() or "zh",
             hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
-            software_profiles={
-                "Gaussian": {
-                    "input_extensions": self.gaussian_extensions.text().strip() or ".gjf,.com",
-                    "command_template": self.gaussian_command.text().strip() or "g16 {name}",
-                    "download_patterns": self.gaussian_patterns.text().strip() or ".log,.chk",
-                },
-                "ORCA": {
-                    "input_extensions": self.orca_extensions.text().strip() or ".inp",
-                    "command_template": self.orca_command.text().strip() or "orca {name} > {basename}.out",
-                    "download_patterns": self.orca_patterns.text().strip() or ".out,.gbw",
-                },
-            },
+            software_profiles=profiles,
         )
         self._store.save(new_settings)
         self._status_cb("设置已保存")
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
+
+    def _add_profile_row(self):
+        row = self.profile_table.rowCount()
+        self.profile_table.insertRow(row)
+
+    def _del_profile_row(self):
+        row = self.profile_table.currentRow()
+        if row >= 0:
+            self.profile_table.removeRow(row)
 
     def _browse(self):
         path = QFileDialog.getExistingDirectory(self, "选择本地目录", self.local_folder_edit.text())
