@@ -1300,7 +1300,7 @@ class FileTransferPage(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
-        if "/" in name or "\\" in name or name == ".." or name.startswith(".."):
+        if "/" in name or "\\" in name or name in (".", ".."):
             self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
             return
         base = self.state.current_project_root or Path.cwd()
@@ -1316,7 +1316,7 @@ class FileTransferPage(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
-        if "/" in name or "\\" in name or name == ".." or name.startswith(".."):
+        if "/" in name or "\\" in name or name in (".", ".."):
             self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
             return
         base = self.state.current_project_root or Path.cwd()
