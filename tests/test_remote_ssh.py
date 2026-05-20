@@ -32,16 +32,44 @@ class MockSSHWrapper(SSHClientWrapper):
         return MagicMock(spec=paramiko.PKey)
 
 
-def _mock_channel():
-    """创建一个模拟的 channel，返回 stdout/stderr。"""
+def _mock_channel(stdout_data: bytes = b"", stderr_data: bytes = b"", exit_code: int = 0):
+    """创建一个模拟的 channel，支持 recv_ready/recv/exit_status_ready 循环。"""
     mock = MagicMock()
-    mock.recv_exit_status.return_value = 0
+    stdout_buf = [stdout_data]
+    stderr_buf = [stderr_data]
+    mock.recv_exit_status.return_value = exit_code
+
+    def _recv_ready():
+        return len(stdout_buf[0]) > 0
+
+    def _recv_stderr_ready():
+        return len(stderr_buf[0]) > 0
+
+    def _recv(size):
+        data = stdout_buf[0][:size]
+        stdout_buf[0] = stdout_buf[0][size:]
+        return data
+
+    def _recv_stderr(size):
+        data = stderr_buf[0][:size]
+        stderr_buf[0] = stderr_buf[0][size:]
+        return data
+
+    def _exit_status_ready():
+        return len(stdout_buf[0]) == 0 and len(stderr_buf[0]) == 0
+
+    mock.recv_ready = _recv_ready
+    mock.recv_stderr_ready = _recv_stderr_ready
+    mock.recv = _recv
+    mock.recv_stderr = _recv_stderr
+    mock.exit_status_ready = _exit_status_ready
+    mock.settimeout = MagicMock()
     return mock
 
 
-def _mock_stdout(content: str):
+def _mock_stdout(content: str, stderr_content: str = ""):
     m = MagicMock()
-    m.channel = _mock_channel()
+    m.channel = _mock_channel(stdout_data=content.encode("utf-8"), stderr_data=stderr_content.encode("utf-8"))
     m.read.return_value = content.encode("utf-8")
     return m
 
@@ -93,7 +121,7 @@ class TestSSHClientWrapper:
         with patch("paramiko.SSHClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
-            stdout = _mock_stdout("output")
+            stdout = _mock_stdout("output", stderr_content="error")
             stderr = _mock_stderr("error")
             stdout.channel.recv_exit_status.return_value = 1
             mock_client.exec_command.return_value = (MagicMock(), stdout, stderr)

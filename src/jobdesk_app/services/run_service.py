@@ -240,7 +240,7 @@ class RunService:
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
         import re, shutil
-        if not re.match(r'^[A-Za-z0-9_\-]+$', run_id):
+        if not re.fullmatch(r'[A-Za-z0-9_\-]+', run_id):
             raise ValueError(f"Invalid run_id: {run_id}")
         run_dir = (self.runs_dir / run_id).resolve()
         if not run_dir.is_relative_to(self.runs_dir.resolve()):
