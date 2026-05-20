@@ -133,9 +133,9 @@ class SSHClientWrapper:
                     raise TimeoutError(f"Command timed out after {_timeout}s")
                 if channel.recv_ready():
                     out_chunks.append(channel.recv(65536))
-                elif channel.recv_stderr_ready():
+                if channel.recv_stderr_ready():
                     err_chunks.append(channel.recv_stderr(65536))
-                else:
+                if not channel.recv_ready() and not channel.recv_stderr_ready() and not channel.exit_status_ready():
                     time.sleep(0.01)
             # Drain remaining
             while channel.recv_ready():
