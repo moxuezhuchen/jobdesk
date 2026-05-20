@@ -154,7 +154,7 @@ class RunService:
                     remote_file = f"{task.remote_job_dir.rstrip('/')}/{stem}{ext}"
                     local_file = dest_dir / f"{stem}{ext}"
                     try:
-                        rec = sftp.download_file(remote_file, local_file, overwrite=False, skip_if_same_size=True)
+                        rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
                     except Exception:
                         pass

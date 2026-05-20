@@ -1538,11 +1538,11 @@ class FileTransferPage(QWidget):
                     uploaded_dirs = []
                     for lp in local_paths_files:
                         target = remote_child_path(remote_dir, Path(lp).name)
-                        file_service.upload_path(Path(lp), target, OverwritePolicy.skip_same_size)
+                        file_service.upload_path(Path(lp), target, OverwritePolicy.overwrite)
                         uploaded_files.append(target)
                     for ld in local_paths_dirs:
                         target = remote_child_path(remote_dir, Path(ld).name)
-                        file_service.upload_path(Path(ld), target, OverwritePolicy.skip_same_size)
+                        file_service.upload_path(Path(ld), target, OverwritePolicy.overwrite)
                         uploaded_dirs.append(target)
                     # 2. Create run
                     all_sources = [RunSource(path=p, is_dir=False) for p in uploaded_files] + [
