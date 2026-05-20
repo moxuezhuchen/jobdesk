@@ -16,10 +16,12 @@ from ..i18n import tr
 
 
 def build_settings_rows(workspace_dir: str | Path) -> list[tuple[str, str]]:
+    import os
     workspace = Path(workspace_dir).resolve()
+    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
     return [
         ("workspace", str(workspace)),
-        ("runs", str(workspace / ".jobdesk" / "runs")),
+        ("runs", str(Path(appdata) / "JobDesk" / "runs")),
         ("results", str(workspace / "results")),
         ("servers_config", str(get_default_servers_path())),
         ("run_profiles", str(RunProfileStore().path)),

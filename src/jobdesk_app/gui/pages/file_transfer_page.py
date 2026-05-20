@@ -1299,8 +1299,12 @@ class FileTransferPage(QWidget):
         name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
         if not ok or not name.strip():
             return
+        name = name.strip()
+        if "/" in name or "\\" in name or name == ".." or name.startswith(".."):
+            self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
+            return
         base = self.state.current_project_root or Path.cwd()
-        new_dir = Path(base) / name.strip()
+        new_dir = Path(base) / name
         try:
             new_dir.mkdir(parents=True, exist_ok=False)
             self._refresh_local()
@@ -1311,8 +1315,12 @@ class FileTransferPage(QWidget):
         name, ok = QInputDialog.getText(self, tr("New File", self._language), tr("File name:", self._language))
         if not ok or not name.strip():
             return
+        name = name.strip()
+        if "/" in name or "\\" in name or name == ".." or name.startswith(".."):
+            self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
+            return
         base = self.state.current_project_root or Path.cwd()
-        new_file = Path(base) / name.strip()
+        new_file = Path(base) / name
         try:
             new_file.touch(exist_ok=False)
             self._refresh_local()

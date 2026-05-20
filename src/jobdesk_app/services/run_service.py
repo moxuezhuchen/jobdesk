@@ -225,13 +225,31 @@ class RunService:
             self.update_run_from_manifest(run_id)
         return changed
 
+    def analyze_run(self, run_id: str, profile_name: str = "gaussian_opt_freq") -> tuple[list, list]:
+        """Run result extraction on downloaded files for a run."""
+        from ..core.analyzer import analyze_tasks
+        from ..services.analysis_profiles import AnalysisProfileStore
+        record = self.load_run(run_id)
+        tasks = Manifest.read(record.manifest_path)
+        profile = AnalysisProfileStore().get(profile_name)
+        if profile is None:
+            return [], [{"error": f"profile not found: {profile_name}"}]
+        results_dir = self.workspace_dir / "results"
+        return analyze_tasks(profile.extract_rules, tasks, results_dir, run_id)
+
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
-        import shutil
-        run_dir = self.runs_dir / run_id
+        import re, shutil
+        if not re.match(r'^[A-Za-z0-9_\-]+$', run_id):
+            raise ValueError(f"Invalid run_id: {run_id}")
+        run_dir = (self.runs_dir / run_id).resolve()
+        if not str(run_dir).startswith(str(self.runs_dir.resolve())):
+            raise ValueError(f"run_id escapes runs_dir: {run_id}")
         if run_dir.exists():
             shutil.rmtree(run_dir)
-        results_dir = self.workspace_dir / "results" / run_id
+        results_dir = (self.workspace_dir / "results" / run_id).resolve()
+        if not str(results_dir).startswith(str((self.workspace_dir / "results").resolve())):
+            raise ValueError(f"run_id escapes results dir: {run_id}")
         if results_dir.exists():
             shutil.rmtree(results_dir)
 
@@ -300,20 +318,3 @@ def _status_summary(tasks: list[TaskRecord]) -> dict[str, int]:
     for task in tasks:
         summary[task.status.value] = summary.get(task.status.value, 0) + 1
     return summary
-
-
-    def analyze_run(self, run_id: str, profile_name: str = "gaussian_opt_freq") -> tuple[list, list]:
-        """Run result extraction on downloaded files for a run.
-
-        Uses the named AnalysisProfile (built-in or user-defined).
-        Returns (results, failures).
-        """
-        from ..core.analyzer import analyze_tasks
-        from ..services.analysis_profiles import AnalysisProfileStore
-        record = self.load_run(run_id)
-        tasks = Manifest.read(record.manifest_path)
-        profile = AnalysisProfileStore().get(profile_name)
-        if profile is None:
-            return [], [{"error": f"profile not found: {profile_name}"}]
-        results_dir = self.workspace_dir / "results"
-        return analyze_tasks(profile.extract_rules, tasks, results_dir, run_id)

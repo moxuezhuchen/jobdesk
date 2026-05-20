@@ -121,9 +121,9 @@ class SSHClientWrapper:
             stdin, stdout, stderr = self._client.exec_command(
                 command, timeout=timeout or self._timeout
             )
-            exit_code = stdout.channel.recv_exit_status()
             stdout_str = stdout.read().decode("utf-8", errors="replace").rstrip("\n")
             stderr_str = stderr.read().decode("utf-8", errors="replace").rstrip("\n")
+            exit_code = stdout.channel.recv_exit_status()
         except Exception as e:
             dt = time.monotonic() - t0
             raise SSHCommandError(
