@@ -203,6 +203,8 @@ class SettingsServersPage(QWidget):
             " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
         )
         layout.addWidget(self.profile_table)
+        self._restore_profile_column_widths()
+        self.profile_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_profile_column_widths())
 
         profile_btns = QHBoxLayout()
         add_profile_btn = QPushButton("添加")
@@ -419,6 +421,19 @@ class SettingsServersPage(QWidget):
         self._status_cb("设置已保存")
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
+
+    def _restore_profile_column_widths(self):
+        widths = (self._store.load().column_widths or {}).get("software_profiles")
+        if widths and len(widths) == self.profile_table.columnCount():
+            for i, w in enumerate(widths):
+                self.profile_table.horizontalHeader().resizeSection(i, w)
+
+    def _save_profile_column_widths(self):
+        from dataclasses import replace
+        s = self._store.load()
+        cw = dict(s.column_widths or {})
+        cw["software_profiles"] = [self.profile_table.columnWidth(i) for i in range(self.profile_table.columnCount())]
+        self._store.save(replace(s, column_widths=cw))
 
     def _add_profile_row(self):
         row = self.profile_table.rowCount()
