@@ -192,16 +192,13 @@ class SettingsServersPage(QWidget):
             rl.addWidget(lbl)
             ext = QLineEdit()
             ext.setPlaceholderText(ext_ph)
-            ext.setMaximumWidth(100)
-            rl.addWidget(ext)
+            rl.addWidget(ext, 1)
             cmd = QLineEdit()
             cmd.setPlaceholderText(cmd_ph)
-            cmd.setMaximumWidth(260)
-            rl.addWidget(cmd)
+            rl.addWidget(cmd, 2)
             dl = QLineEdit()
             dl.setPlaceholderText(dl_ph)
-            dl.setMaximumWidth(160)
-            rl.addWidget(dl)
+            rl.addWidget(dl, 1)
             return row, ext, cmd, dl
 
         row_g, self.gaussian_extensions, self.gaussian_command, self.gaussian_patterns = \
