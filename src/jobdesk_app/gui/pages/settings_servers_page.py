@@ -196,10 +196,11 @@ class SettingsServersPage(QWidget):
             rl.addWidget(ext)
             cmd = QLineEdit()
             cmd.setPlaceholderText(cmd_ph)
-            rl.addWidget(cmd, 1)
+            cmd.setMaximumWidth(260)
+            rl.addWidget(cmd)
             dl = QLineEdit()
             dl.setPlaceholderText(dl_ph)
-            dl.setMaximumWidth(140)
+            dl.setMaximumWidth(160)
             rl.addWidget(dl)
             return row, ext, cmd, dl
 
