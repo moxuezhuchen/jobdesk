@@ -151,7 +151,9 @@ class RunService:
                 for pat in patterns:
                     # Pattern is either ".log" (extension) or "*.log" (glob)
                     ext = pat if pat.startswith(".") else pat.lstrip("*")
-                    remote_file = f"{task.remote_job_dir.rstrip('/')}/{stem}{ext}"
+                    # Output files are in remote_work_dir (where command runs), not remote_job_dir
+                    work_dir = task.remote_work_dir or task.remote_job_dir
+                    remote_file = f"{work_dir.rstrip('/')}/{stem}{ext}"
                     local_file = dest_dir / f"{stem}{ext}"
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
