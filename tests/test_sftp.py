@@ -98,6 +98,25 @@ class FakeSFTPClient:
                 names.add(name)
         return sorted(names)
 
+    def listdir_attr(self, remote_path: str):
+        prefix = remote_path.rstrip("/") + "/" if remote_path != "/" else "/"
+        entries = {}
+        for p, attr in self._attrs.items():
+            if p == prefix.rstrip("/"):
+                continue
+            if p.startswith(prefix):
+                rest = p[len(prefix):]
+                name = rest.split("/")[0]
+                if name not in entries:
+                    child_path = prefix + name
+                    child_attr = self._attrs.get(child_path, self._attrs.get(child_path.rstrip("/"), FakeStat()))
+                    entry = MagicMock()
+                    entry.filename = name
+                    entry.st_mode = child_attr.st_mode
+                    entry.st_size = child_attr.st_size
+                    entries[name] = entry
+        return list(entries.values())
+
     def isdir(self, remote_path: str):
         return self._attrs.get(remote_path, FakeStat()).is_dir()
 

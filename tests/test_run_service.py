@@ -1,10 +1,26 @@
 from pathlib import Path
 
+import pytest
+
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.core.transfer import TransferStatus
+
+
+@pytest.fixture(autouse=True)
+def isolate_runs_dir(tmp_path, monkeypatch):
+    """Make RunService use tmp_path for runs_dir."""
+    runs_dir = tmp_path / "_global_runs"
+    runs_dir.mkdir()
+    original_init = RunService.__init__
+
+    def _patched(self, workspace_dir=None):
+        original_init(self, workspace_dir)
+        self.runs_dir = runs_dir
+
+    monkeypatch.setattr(RunService, "__init__", _patched)
 
 
 def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
@@ -19,12 +35,12 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
 
     record = RunService(tmp_path).create_run(spec, run_id="run001")
 
-    run_dir = tmp_path / ".jobdesk" / "runs" / "run001"
     assert record.run_id == "run001"
-    assert (run_dir / "run.json").exists()
-    assert (run_dir / "batch.json").exists()
-    assert (run_dir / "manifest.tsv").exists()
-    tasks = Manifest.read(run_dir / "manifest.tsv")
+    assert record.run_dir.exists()
+    assert (record.run_dir / "run.json").exists()
+    assert (record.run_dir / "batch.json").exists()
+    assert (record.run_dir / "manifest.tsv").exists()
+    tasks = Manifest.read(record.manifest_path)
     assert [task.task_id for task in tasks] == ["a", "b"]
     assert all(task.status == TaskStatus.uploaded for task in tasks)
     assert all(task.server_id == "s1" for task in tasks)
@@ -82,9 +98,25 @@ def test_download_completed_run_outputs(tmp_path):
 
     class FakeSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
             return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+        def download_dir(self, remote_dir, local_dir, **kwargs):
+            patterns = kwargs.get("include_globs", ["*"])
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+            results = []
+            for pat in patterns:
+                fname = pat.replace("*", "a")
+                local_path = Path(local_dir) / fname
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_text("ok", encoding="utf-8")
+                results.append(TransferRecord(TransferDirection.download, str(local_path), f"{remote_dir}/{fname}", status=TransferStatus.transferred))
+            return results
+
+        def stat(self, path):
+            return None
 
     records, failures = service.download_completed("run001", FakeSFTP(), ["result.log"])
 
