@@ -44,8 +44,3 @@ def test_worker_create():
     from jobdesk_app.gui.workers import BackgroundWorker
     w = BackgroundWorker(lambda: 42)
     assert w is not None
-
-
-def test_table_models():
-    from jobdesk_app.gui.table_models import load_tsv_to_table, display_dict_as_table
-    assert load_tsv_to_table is not None

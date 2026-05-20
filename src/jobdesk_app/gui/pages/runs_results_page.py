@@ -206,25 +206,27 @@ class RunsResultsPage(QWidget):
             server = load_servers().servers[record.server_id]
             ssh = create_ssh_client(server)
             ssh.connect()
-            sftp = create_sftp_client(ssh)
             try:
-                refresh_batch_status(
-                    ssh=ssh,
-                    manifest_path=record.manifest_path,
-                    remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
-                    batch_id=record.run_id,
-                    write=True,
-                )
-                RunService(workspace).update_run_from_manifest(record.run_id)
-                # Only download on DONE (exit_code is not None)
-                if event.exit_code is not None:
-                    updated = RunService(workspace).load_run(record.run_id)
-                    if updated.status_summary.get("remote_completed", 0) > 0:
-                        patterns = self._get_download_patterns(record)
-                        RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                sftp = create_sftp_client(ssh)
+                try:
+                    refresh_batch_status(
+                        ssh=ssh,
+                        manifest_path=record.manifest_path,
+                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                        batch_id=record.run_id,
+                        write=True,
+                    )
                     RunService(workspace).update_run_from_manifest(record.run_id)
+                    # Only download on DONE (exit_code is not None)
+                    if event.exit_code is not None:
+                        updated = RunService(workspace).load_run(record.run_id)
+                        if updated.status_summary.get("remote_completed", 0) > 0:
+                            patterns = self._get_download_patterns(record)
+                            RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                        RunService(workspace).update_run_from_manifest(record.run_id)
+                finally:
+                    sftp.close()
             finally:
-                sftp.close()
                 ssh.close()
 
         from ..workers import BackgroundWorker
@@ -502,22 +504,24 @@ class RunsResultsPage(QWidget):
                 try:
                     ssh = create_ssh_client(srv)
                     ssh.connect()
-                    sftp = create_sftp_client(ssh)
                     try:
-                        refresh_batch_status(
-                            ssh=ssh,
-                            manifest_path=record.manifest_path,
-                            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
-                            batch_id=record.run_id,
-                            write=True,
-                        )
-                        RunService(workspace).update_run_from_manifest(record.run_id)
-                        updated = RunService(workspace).load_run(record.run_id)
-                        if updated.status_summary.get("remote_completed", 0) > 0:
-                            patterns = self._get_download_patterns(record)
-                            RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                        sftp = create_sftp_client(ssh)
+                        try:
+                            refresh_batch_status(
+                                ssh=ssh,
+                                manifest_path=record.manifest_path,
+                                remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                                batch_id=record.run_id,
+                                write=True,
+                            )
+                            RunService(workspace).update_run_from_manifest(record.run_id)
+                            updated = RunService(workspace).load_run(record.run_id)
+                            if updated.status_summary.get("remote_completed", 0) > 0:
+                                patterns = self._get_download_patterns(record)
+                                RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                        finally:
+                            sftp.close()
                     finally:
-                        sftp.close()
                         ssh.close()
                 except Exception:
                     pass

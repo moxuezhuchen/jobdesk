@@ -558,7 +558,7 @@ class SettingsServersPage(QWidget):
         if new_sid != sid:
             data["servers"].pop(sid, None)
         # Preserve existing keys not shown in dialog (e.g. env_init_scripts)
-        existing = srv.copy() if new_sid == sid else {}
+        existing = srv.copy()
         existing.update({
             "host": host_edit.text().strip(),
             "port": port_edit.value(),

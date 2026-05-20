@@ -137,13 +137,14 @@ class RunService:
         tasks = Manifest.read(record.manifest_path)
         records = []
         failures = []
-        # Download destination: record.local_dir (flat) or fallback to workspace/results
-        dest_dir = Path(record.local_dir) if record.local_dir else self.workspace_dir / "results" / run_id
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        # Download destination uses task_id subdirs to match analyze_tasks expectations
+        results_base = self.workspace_dir / "results" / run_id
         for task in tasks:
             if task.status != TaskStatus.remote_completed:
                 continue
             try:
+                task_dir = results_base / task.task_id
+                task_dir.mkdir(parents=True, exist_ok=True)
                 # Derive stem from input file
                 input_name = task.remote_task_files[0] if task.remote_task_files else task.task_id
                 stem = input_name.rsplit(".", 1)[0] if "." in input_name else input_name
@@ -154,7 +155,7 @@ class RunService:
                     # Output files are in remote_work_dir (where command runs), not remote_job_dir
                     work_dir = task.remote_work_dir or task.remote_job_dir
                     remote_file = f"{work_dir.rstrip('/')}/{stem}{ext}"
-                    local_file = dest_dir / f"{stem}{ext}"
+                    local_file = task_dir / f"{stem}{ext}"
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
