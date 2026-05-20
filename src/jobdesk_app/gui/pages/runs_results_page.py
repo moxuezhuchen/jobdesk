@@ -19,18 +19,19 @@ from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 
 
-def _format_status(summary: dict[str, int]) -> str:
+def _format_status(summary: dict[str, int], language: str = "zh") -> str:
     if not summary:
         return ""
+    from ..i18n import tr
     _LABELS = {
-        "local_ready": "准备中",
-        "uploaded": "已上传",
-        "submitted": "已提交",
-        "running": "运行中",
-        "remote_completed": "已完成",
-        "downloaded": "已下载",
-        "analyzed": "已分析",
-        "failed": "失败",
+        "local_ready": tr("Preparing", language),
+        "uploaded": tr("Uploaded", language),
+        "submitted": tr("Submitted", language),
+        "running": tr("Running", language),
+        "remote_completed": tr("Completed", language),
+        "downloaded": tr("Downloaded", language),
+        "analyzed": tr("Analyzed", language),
+        "failed": tr("Failed", language),
     }
     parts = []
     total = sum(summary.values())
@@ -40,12 +41,12 @@ def _format_status(summary: dict[str, int]) -> str:
     return " | ".join(parts)
 
 
-def _format_row(record: RunRecord) -> list[str]:
+def _format_row(record: RunRecord, language: str = "zh") -> list[str]:
     return [
         record.run_id,
         record.server_id,
         record.remote_dir,
-        _format_status(record.status_summary),
+        _format_status(record.status_summary, language),
         record.command_template,
         record.created_at,
     ]
@@ -119,13 +120,13 @@ class RunsResultsPage(QWidget):
         btn_card.setFixedHeight(60)
         btn_row = QHBoxLayout(btn_card)
         btn_row.setContentsMargins(16, 0, 16, 0)
-        self.retry_btn = QPushButton("重试失败项")
+        self.retry_btn = QPushButton(tr("Retry Failed", self._language))
         self.retry_btn.clicked.connect(self._retry_failed)
         btn_row.addWidget(self.retry_btn)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton(tr("Cancel", self._language))
         self.cancel_btn.clicked.connect(self._cancel_run)
         btn_row.addWidget(self.cancel_btn)
-        self.delete_btn = QPushButton("删除")
+        self.delete_btn = QPushButton(tr("Delete", self._language))
         self.delete_btn.clicked.connect(self._delete_run)
         btn_row.addWidget(self.delete_btn)
         btn_row.addStretch()
@@ -150,7 +151,7 @@ class RunsResultsPage(QWidget):
         bottom_layout.setContentsMargins(16, 12, 16, 12)
         bottom_layout.setSpacing(4)
 
-        self.result_label = QLabel("结果预览")
+        self.result_label = QLabel(tr("Result Preview", self._language))
         self.result_label.setStyleSheet("color: #0f172a; font-weight: 600;")
         bottom_layout.addWidget(self.result_label)
 
@@ -259,7 +260,8 @@ class RunsResultsPage(QWidget):
 
     def _set_headers(self):
         self.table.setHorizontalHeaderLabels([
-            "运行ID", "服务器", "远程目录", "状态", "命令", "创建时间",
+            tr("Run ID", self._language), tr("Server", self._language), tr("Remote Dir", self._language),
+            tr("Status", self._language), tr("Command", self._language), tr("Created At", self._language),
         ])
 
     def _restore_runs_column_widths(self):
@@ -284,10 +286,10 @@ class RunsResultsPage(QWidget):
 
     def _context_menu(self, pos):
         menu = QMenu(self)
-        menu.addAction("刷新状态", self._refresh_all)
-        menu.addAction("重新运行", self._rerun_all)
-        menu.addAction("显示日志", self._show_logs)
-        menu.addAction("显示路径", self._show_paths)
+        menu.addAction(tr("Refresh Status", self._language), self._refresh_all)
+        menu.addAction(tr("Rerun", self._language), self._rerun_all)
+        menu.addAction(tr("Show Logs", self._language), self._show_logs)
+        menu.addAction(tr("Show Paths", self._language), self._show_paths)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def _refresh_all(self):
@@ -302,9 +304,9 @@ class RunsResultsPage(QWidget):
         self._set_headers()
         self.table.setRowCount(len(runs))
         for row, record in enumerate(runs):
-            for col, value in enumerate(_format_row(record)):
+            for col, value in enumerate(_format_row(record, self._language)):
                 self.table.setItem(row, col, QTableWidgetItem(value))
-        self._status_cb(f"运行记录: {len(runs)}")
+        self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
 
     def _workspace(self) -> Path:
         return Path(self.state.current_project_root or Path.cwd())
@@ -342,7 +344,7 @@ class RunsResultsPage(QWidget):
                 rows = self._auto_analyze(result_dir)
                 if rows:
                     self._show_analysis_rows(rows)
-                    self.result_label.setText("结果预览 — 自动分析")
+                    self.result_label.setText(tr("Result Preview — Auto Analysis", self._language))
                     return
 
         # Fallback: analyze output files in workspace root
@@ -350,7 +352,7 @@ class RunsResultsPage(QWidget):
             rows = self._analyze_workspace_files(record, base)
             if rows:
                 self._show_analysis_rows(rows)
-                self.result_label.setText("结果预览 — 本地文件")
+                self.result_label.setText(tr("Result Preview — Local Files", self._language))
                 return
 
         # Last resort: read existing TSV
@@ -360,10 +362,10 @@ class RunsResultsPage(QWidget):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
                     self._load_tsv(tsv)
-                    self.result_label.setText(f"结果预览 — {name}")
+                    self.result_label.setText(f"{tr('Result Preview', self._language)} — {name}")
                     return
 
-        self.result_label.setText("⚠ 尚未下载结果")
+        self.result_label.setText(tr("No results downloaded yet", self._language))
         self.result_table.setRowCount(0)
 
     def _analyze_workspace_files(self, record: RunRecord, workspace: Path) -> list[list[str]]:
@@ -393,9 +395,9 @@ class RunsResultsPage(QWidget):
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                     rows.append([task.task_id, log_file.name, "Gaussian", energy, gibbs,
-                                 "是" if r.normal_termination else "否"])
+                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
                 except Exception:
-                    rows.append([task.task_id, log_file.name, "Gaussian", "解析错误", "", ""])
+                    rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
             # Check .out (ORCA)
             out_file = workspace / f"{stem}.out"
             if out_file.is_file():
@@ -405,9 +407,9 @@ class RunsResultsPage(QWidget):
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                     rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
-                                 "是" if r.normal_termination else "否"])
+                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
                 except Exception:
-                    rows.append([task.task_id, out_file.name, "ORCA", "解析错误", "", ""])
+                    rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
             if found and task.status == TaskStatus.remote_completed:
                 task.status = TaskStatus.downloaded
                 changed = True
@@ -435,9 +437,9 @@ class RunsResultsPage(QWidget):
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                     rows.append([stem, log_file.name, "Gaussian", energy, gibbs,
-                                 "是" if r.normal_termination else "否"])
+                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
                 except Exception:
-                    rows.append([stem, log_file.name, "Gaussian", "解析错误", "", ""])
+                    rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
             # ORCA .out
             out_file = task_dir / f"{stem}.out"
             if out_file.is_file():
@@ -446,13 +448,13 @@ class RunsResultsPage(QWidget):
                     energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                     gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                     rows.append([stem, out_file.name, "ORCA", energy, gibbs,
-                                 "是" if r.normal_termination else "否"])
+                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
                 except Exception:
-                    rows.append([stem, out_file.name, "ORCA", "解析错误", "", ""])
+                    rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
         return rows
 
     def _show_analysis_rows(self, rows: list[list[str]]):
-        headers = ["任务", "文件", "程序", "能量(Hartree)", "Gibbs(Hartree)", "正常结束"]
+        headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", tr("Normal Term", self._language)]
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
         self.result_table.setRowCount(len(rows))
@@ -548,7 +550,7 @@ class RunsResultsPage(QWidget):
                 if updated.status_summary.get("remote_completed", 0) > 0:
                     patterns = self._get_download_patterns(record)
                     recs, fails = RunService(workspace).download_completed(run_id, sftp, patterns)
-                    return f"下载完成: {len(recs)} 文件, 失败: {len(fails)}"
+                    return tr("Download done: {n} files, failed: {f}", self._language, n=len(recs), f=len(fails))
             finally:
                 sftp.close()
                 ssh.close()
@@ -556,7 +558,7 @@ class RunsResultsPage(QWidget):
         from ..workers import BackgroundWorker
         self._worker = BackgroundWorker(_run)
         self._worker.result.connect(lambda msg: self._status_cb(msg) if msg else None)
-        self._worker.error.connect(lambda e: self._status_cb(f"刷新失败: {e}"))
+        self._worker.error.connect(lambda e: self._status_cb(tr("Refresh failed: {e}", self._language, e=e)))
         self._worker.finished.connect(lambda: self._on_refresh_done())
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
@@ -588,7 +590,7 @@ class RunsResultsPage(QWidget):
         changed = RunService(self._workspace()).prepare_retry_failed(record.run_id)
         self.refresh_run_list()
         if changed <= 0:
-            self._status_cb("没有失败的任务")
+            self._status_cb(tr("No failed tasks", self._language))
             return
         self._submit_record(record.run_id)
 
@@ -604,12 +606,12 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        if QMessageBox.question(self, "取消", f"取消运行 {record.run_id}?",
+        if QMessageBox.question(self, tr("Cancel", self._language), tr("Cancel run {run_id}?", self._language, run_id=record.run_id),
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         RunService(self._workspace()).mark_run_cancelled(record.run_id)
         self.refresh_run_list()
-        self._status_cb(f"已取消: {record.run_id}")
+        self._status_cb(tr("Cancelled: {run_id}", self._language, run_id=record.run_id))
 
     def _delete_run(self):
         rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
@@ -622,8 +624,8 @@ class RunsResultsPage(QWidget):
                 run_ids.append(item.text())
         if not run_ids:
             return
-        msg = f"删除 {len(run_ids)} 个运行记录?" if len(run_ids) > 1 else f"删除运行 {run_ids[0]} 及其结果?"
-        if QMessageBox.question(self, "删除", msg,
+        msg = tr("Delete {n} run records?", self._language, n=len(run_ids)) if len(run_ids) > 1 else tr("Delete run {run_id} and results?", self._language, run_id=run_ids[0])
+        if QMessageBox.question(self, tr("Delete", self._language), msg,
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         svc = RunService(self._workspace())
@@ -633,7 +635,7 @@ class RunsResultsPage(QWidget):
             except Exception:
                 pass
         self.refresh_run_list()
-        self._status_cb(f"已删除: {len(run_ids)} 条记录")
+        self._status_cb(tr("Deleted: {n} records", self._language, n=len(run_ids)))
 
     def _submit_record(self, run_id: str):
         workspace = self._workspace()
@@ -653,12 +655,12 @@ class RunsResultsPage(QWidget):
         from ..workers import BackgroundWorker
         self._worker = BackgroundWorker(_run)
         self._worker.result.connect(lambda r: self._on_submit_done(r))
-        self._worker.error.connect(lambda e: self._status_cb(f"提交失败: {e}"))
+        self._worker.error.connect(lambda e: self._status_cb(tr("Submit failed: {e}", self._language, e=e)))
         self._worker.start()
 
     def _on_submit_done(self, result):
         self.refresh_run_list()
-        self._status_cb(f"已提交: {result.batch_id}")
+        self._status_cb(tr("Submitted: {batch_id}", self._language, batch_id=result.batch_id))
         self._start_monitoring()
 
     def _show_logs(self):
@@ -667,7 +669,7 @@ class RunsResultsPage(QWidget):
             return
         remote_dir = f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}"
         self.result_text.setPlainText(
-            f"远程日志:\n  {remote_dir}/.jobdesk_submit.log\n  {remote_dir}/.jobdesk_submit.err")
+            f"{tr('Remote logs', self._language)}:\n  {remote_dir}/.jobdesk_submit.log\n  {remote_dir}/.jobdesk_submit.err")
         self.result_text.setVisible(True)
 
     def _show_paths(self):
@@ -676,9 +678,9 @@ class RunsResultsPage(QWidget):
             return
         ws = self._workspace()
         self.result_text.setPlainText(
-            f"运行目录: {record.run_dir}\n"
+            f"{tr('Run directory', self._language)}: {record.run_dir}\n"
             f"Manifest: {record.manifest_path}\n"
-            f"结果目录: {ws / 'results' / record.run_id}")
+            f"{tr('Results directory', self._language)}: {ws / 'results' / record.run_id}")
         self.result_text.setVisible(True)
 
     def shutdown(self):

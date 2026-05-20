@@ -124,7 +124,7 @@ class SettingsServersPage(QWidget):
         layout.setSpacing(12)
 
         # Page title
-        title = QLabel("设置")
+        title = QLabel(tr("Settings", self._language))
         title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         layout.addWidget(title)
         layout.addSpacing(8)
@@ -134,22 +134,22 @@ class SettingsServersPage(QWidget):
         fc_layout = QHBoxLayout(folder_ctrl)
         fc_layout.setContentsMargins(0, 0, 0, 0)
         self.local_folder_edit = QLineEdit()
-        self.browse_btn = QPushButton("浏览")
+        self.browse_btn = QPushButton(tr("Browse", self._language))
         self.browse_btn.clicked.connect(self._browse)
         fc_layout.addWidget(self.local_folder_edit, 1)
         fc_layout.addWidget(self.browse_btn)
-        layout.addWidget(SettingCard("本地目录", "下载结果文件的默认保存位置", folder_ctrl))
+        layout.addWidget(SettingCard(tr("Local Directory", self._language), tr("Default save path for downloaded results", self._language), folder_ctrl))
 
         # ─── 最大并发 ───
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
-        layout.addWidget(SettingCard("最大并发", "同时运行的远程任务数上限", self.max_parallel_spin))
+        layout.addWidget(SettingCard(tr("Max Parallel", self._language), tr("Maximum concurrent remote tasks", self._language), self.max_parallel_spin))
 
         # ─── 语言 ───
         self.language_combo = QComboBox()
-        self.language_combo.addItem("中文", "zh")
+        self.language_combo.addItem(tr("Chinese", self._language), "zh")
         self.language_combo.addItem("English", "en")
-        layout.addWidget(SettingCard("语言", "界面显示语言，切换后立即生效", self.language_combo))
+        layout.addWidget(SettingCard(tr("Language", self._language), tr("UI language, takes effect immediately", self._language), self.language_combo))
 
         # ─── 隐藏.文件 ───
         self.hide_dotfiles_cb = ToggleSwitch()
@@ -158,22 +158,22 @@ class SettingsServersPage(QWidget):
         toggle_layout = QHBoxLayout(toggle_ctrl)
         toggle_layout.setContentsMargins(0, 0, 0, 0)
         toggle_layout.setSpacing(20)
-        self._toggle_label = QLabel("开" if self.hide_dotfiles_cb.isChecked() else "关")
+        self._toggle_label = QLabel(tr("On", self._language) if self.hide_dotfiles_cb.isChecked() else tr("Off", self._language))
         toggle_layout.addStretch()
         toggle_layout.addWidget(self._toggle_label)
         toggle_layout.addWidget(self.hide_dotfiles_cb)
         self.hide_dotfiles_cb.toggled.connect(
-            lambda v: self._toggle_label.setText("开" if v else "关")
+            lambda v: self._toggle_label.setText(tr("On", self._language) if v else tr("Off", self._language))
         )
-        layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", toggle_ctrl))
+        layout.addWidget(SettingCard(tr("Hide Dotfiles", self._language), tr("Hide files starting with . in remote listing", self._language), toggle_ctrl))
 
         # ─── 软件配置 ───
         layout.addSpacing(12)
         dl_header = QHBoxLayout()
-        dl_title = QLabel("软件配置")
+        dl_title = QLabel(tr("Software Profiles", self._language))
         dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         dl_header.addWidget(dl_title)
-        dl_desc = QLabel("{name}=文件名, {basename}=无后缀名")
+        dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
         dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
         dl_header.addWidget(dl_desc)
         dl_header.addStretch()
@@ -182,7 +182,7 @@ class SettingsServersPage(QWidget):
 
         self.profile_table = QTableWidget()
         self.profile_table.setColumnCount(4)
-        self.profile_table.setHorizontalHeaderLabels(["软件名称", "输入后缀", "命令模板", "下载后缀"])
+        self.profile_table.setHorizontalHeaderLabels([tr("Name", self._language), tr("Input Ext", self._language), tr("Command", self._language), tr("Output Ext", self._language)])
         self.profile_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.profile_table.horizontalHeader().setStretchLastSection(False)
         self.profile_table.horizontalHeader().resizeSection(0, 120)
@@ -207,9 +207,9 @@ class SettingsServersPage(QWidget):
         self.profile_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_profile_column_widths())
 
         profile_btns = QHBoxLayout()
-        add_profile_btn = QPushButton("添加")
+        add_profile_btn = QPushButton(tr("Add", self._language))
         add_profile_btn.clicked.connect(self._add_profile_row)
-        del_profile_btn = QPushButton("删除")
+        del_profile_btn = QPushButton(tr("Delete", self._language))
         del_profile_btn.clicked.connect(self._del_profile_row)
         profile_btns.addWidget(add_profile_btn)
         profile_btns.addWidget(del_profile_btn)
@@ -218,7 +218,7 @@ class SettingsServersPage(QWidget):
 
         # ─── 服务器 ───
         layout.addSpacing(12)
-        srv_title = QLabel("服务器")
+        srv_title = QLabel(tr("Servers", self._language))
         srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         layout.addWidget(srv_title)
         layout.addSpacing(4)
@@ -246,7 +246,7 @@ class SettingsServersPage(QWidget):
         self.server_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.server_table.verticalHeader().setVisible(False)
         self.server_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.server_table.setHorizontalHeaderLabels(["ID", "主机", "端口", "用户", "状态"])
+        self.server_table.setHorizontalHeaderLabels(["ID", tr("Host", self._language), tr("Port", self._language), tr("User", self._language), tr("Status", self._language)])
         self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.server_table.setMaximumHeight(200)
         self.server_table.setStyleSheet(
@@ -262,13 +262,13 @@ class SettingsServersPage(QWidget):
         srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
-        self.test_btn = QPushButton("测试连接")
+        self.test_btn = QPushButton(tr("Test Connection", self._language))
         self.test_btn.clicked.connect(self._test_connection)
-        self.edit_yaml_btn = QPushButton("添加服务器")
+        self.edit_yaml_btn = QPushButton(tr("Add Server", self._language))
         self.edit_yaml_btn.clicked.connect(self._add_server)
-        self.edit_srv_btn = QPushButton("编辑")
+        self.edit_srv_btn = QPushButton(tr("Edit", self._language))
         self.edit_srv_btn.clicked.connect(self._edit_server)
-        self.delete_srv_btn = QPushButton("删除")
+        self.delete_srv_btn = QPushButton(tr("Delete", self._language))
         self.delete_srv_btn.clicked.connect(self._delete_server)
         srv_btns.addWidget(self.test_btn)
         srv_btns.addWidget(self.edit_yaml_btn)
@@ -289,14 +289,14 @@ class SettingsServersPage(QWidget):
         bar_layout = QHBoxLayout(bottom_bar)
         bar_layout.setContentsMargins(24, 10, 24, 10)
         bar_layout.addStretch()
-        self.save_btn = QPushButton("保存设置")
+        self.save_btn = QPushButton(tr("Save Settings", self._language))
         self.save_btn.setStyleSheet(
             "QPushButton { background: #3b82f6; color: white; padding: 0 16px; border-radius: 4px;"
             " min-height: 44px; max-height: 44px; }"
             " QPushButton:pressed { background: #1d4ed8; }"
         )
         self.save_btn.clicked.connect(self._save_settings)
-        self.discard_btn = QPushButton("放弃更改")
+        self.discard_btn = QPushButton(tr("Discard", self._language))
         self.discard_btn.setStyleSheet(
             "QPushButton { background: #cbd5e1; border: 1px solid #94a3b8; padding: 0 16px; border-radius: 4px;"
             " min-height: 44px; max-height: 44px; }"
@@ -342,7 +342,7 @@ class SettingsServersPage(QWidget):
         if not cfg.servers:
             return
         for row in range(self.server_table.rowCount()):
-            self.server_table.setItem(row, 4, QTableWidgetItem("测试中..."))
+            self.server_table.setItem(row, 4, QTableWidgetItem(tr("Testing...", self._language)))
 
         servers_list = sorted(cfg.servers.items())
 
@@ -357,7 +357,7 @@ class SettingsServersPage(QWidget):
                     ssh.close()
                     return sid, "connected" if ok else "no-response"
                 except Exception as e:
-                    return sid, f"错误: {e}"
+                    return sid, f"{tr('Error:', self._language)} {e}"
 
             with ThreadPoolExecutor(max_workers=len(servers_list)) as pool:
                 futures = {pool.submit(_test_one, sid, srv): sid for sid, srv in servers_list}
@@ -376,7 +376,7 @@ class SettingsServersPage(QWidget):
                     break
 
         self._worker.log.connect(_on_log)
-        self._worker.error.connect(lambda e: self._status_cb(f"测试失败: {e}"))
+        self._worker.error.connect(lambda e: self._status_cb(f"{tr('Test failed:', self._language)} {e}"))
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
@@ -388,7 +388,7 @@ class SettingsServersPage(QWidget):
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
         self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
-        self._toggle_label.setText("开" if s.hide_dotfiles else "关")
+        self._toggle_label.setText(tr("On", self._language) if s.hide_dotfiles else tr("Off", self._language))
         # Load software profiles into table
         profiles = s.software_profiles or {}
         self.profile_table.setRowCount(len(profiles))
@@ -421,7 +421,7 @@ class SettingsServersPage(QWidget):
             software_profiles=profiles,
         )
         self._store.save(new_settings)
-        self._status_cb("设置已保存")
+        self._status_cb(tr("Settings saved", self._language))
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
 
@@ -448,7 +448,7 @@ class SettingsServersPage(QWidget):
             self.profile_table.removeRow(row)
 
     def _browse(self):
-        path = QFileDialog.getExistingDirectory(self, "选择本地目录", self.local_folder_edit.text())
+        path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language), self.local_folder_edit.text())
         if path:
             self.local_folder_edit.setText(path)
 
@@ -456,11 +456,11 @@ class SettingsServersPage(QWidget):
         import yaml
         row = self.server_table.currentRow()
         if row < 0:
-            self._status_cb("请先选择服务器")
+            self._status_cb(tr("Select a server first", self._language))
             return
         sid = self.server_table.item(row, 0).text()
         from PySide6.QtWidgets import QMessageBox
-        if QMessageBox.question(self, "删除服务器", f"确定删除 {sid}？") != QMessageBox.Yes:
+        if QMessageBox.question(self, tr("Delete Server", self._language), tr("Delete {sid}?", self._language, sid=sid)) != QMessageBox.Yes:
             return
         path = get_default_servers_path()
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -475,7 +475,7 @@ class SettingsServersPage(QWidget):
 
         row = self.server_table.currentRow()
         if row < 0:
-            self._status_cb("请先选择服务器")
+            self._status_cb(tr("Select a server first", self._language))
             return
         sid = self.server_table.item(row, 0).text()
         path = get_default_servers_path()
@@ -483,7 +483,7 @@ class SettingsServersPage(QWidget):
         srv = data.get("servers", {}).get(sid, {})
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"编辑服务器: {sid}")
+        dlg.setWindowTitle(f"{tr('Edit Server:', self._language)} {sid}")
         dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
 
@@ -501,11 +501,11 @@ class SettingsServersPage(QWidget):
         key_edit = QLineEdit(srv.get("key_path", ""))
 
         form.addRow("ID:", id_edit)
-        form.addRow("主机:", host_edit)
-        form.addRow("端口:", port_edit)
-        form.addRow("用户:", user_edit)
-        form.addRow("认证方式:", auth_combo)
-        form.addRow("密钥路径:", key_edit)
+        form.addRow(tr("Host:", self._language), host_edit)
+        form.addRow(tr("Port:", self._language), port_edit)
+        form.addRow(tr("Username:", self._language), user_edit)
+        form.addRow(tr("Auth:", self._language), auth_combo)
+        form.addRow(tr("Key Path:", self._language), key_edit)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -535,7 +535,7 @@ class SettingsServersPage(QWidget):
         import yaml
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("添加服务器")
+        dlg.setWindowTitle(tr("Add Server", self._language))
         dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
 
@@ -554,11 +554,11 @@ class SettingsServersPage(QWidget):
         key_edit.setPlaceholderText("~/.ssh/id_ed25519")
 
         form.addRow("ID:", id_edit)
-        form.addRow("主机:", host_edit)
-        form.addRow("端口:", port_edit)
-        form.addRow("用户:", user_edit)
-        form.addRow("认证方式:", auth_combo)
-        form.addRow("密钥路径:", key_edit)
+        form.addRow(tr("Host:", self._language), host_edit)
+        form.addRow(tr("Port:", self._language), port_edit)
+        form.addRow(tr("Username:", self._language), user_edit)
+        form.addRow(tr("Auth:", self._language), auth_combo)
+        form.addRow(tr("Key Path:", self._language), key_edit)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
