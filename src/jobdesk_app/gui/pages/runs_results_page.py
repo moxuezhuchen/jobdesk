@@ -256,7 +256,9 @@ class RunsResultsPage(QWidget):
         self.retry_btn.setText(tr("Retry Failed", language))
         self.cancel_btn.setText(tr("Cancel", language))
         self.delete_btn.setText(tr("Delete", language))
+        self.result_label.setText(tr("Result Preview", language))
         self._set_headers()
+        self.refresh_run_list()
 
     def _set_headers(self):
         self.table.setHorizontalHeaderLabels([

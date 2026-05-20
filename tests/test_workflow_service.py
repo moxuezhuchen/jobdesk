@@ -1,6 +1,7 @@
 """Tests for workflow chain (WorkflowSpec, WorkflowRun, WorkflowRunner)."""
 import tempfile
 from pathlib import Path
+import pytest
 
 from jobdesk_app.services.workflow_service import (
     WorkflowStep,
@@ -9,6 +10,21 @@ from jobdesk_app.services.workflow_service import (
     WorkflowRunner,
     BUILTIN_WORKFLOWS,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runs_dir(tmp_path, monkeypatch):
+    """Prevent tests from writing to global AppData runs_dir."""
+    from jobdesk_app.services.run_service import RunService
+    runs_dir = tmp_path / "_runs"
+    runs_dir.mkdir()
+    original_init = RunService.__init__
+
+    def _patched(self, workspace_dir=None, **kwargs):
+        original_init(self, workspace_dir, **kwargs)
+        self.runs_dir = runs_dir
+
+    monkeypatch.setattr(RunService, "__init__", _patched)
 
 
 class TestWorkflowSpec:
@@ -125,20 +141,11 @@ class TestWorkflowRunner:
         started = runner.advance(spec, wf_run, None, None)
         assert "freq" in started
 
-    def test_sync_status_marks_completed(self, tmp_path, monkeypatch):
+    def test_sync_status_marks_completed(self, tmp_path):
         from jobdesk_app.services.run_service import RunService
         from jobdesk_app.core.run import RunSpec, RunMode, RunSource
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
-
-        runs_dir = tmp_path / "runs"
-        original_init = RunService.__init__
-
-        def _patched(self, workspace_dir=None, **kwargs):
-            original_init(self, workspace_dir, **kwargs)
-            self.runs_dir = runs_dir
-
-        monkeypatch.setattr(RunService, "__init__", _patched)
 
         spec = WorkflowSpec(
             name="test",
