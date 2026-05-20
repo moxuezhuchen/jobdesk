@@ -187,12 +187,22 @@ class SettingsServersPage(QWidget):
         self.profile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
         self.profile_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.profile_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
-        self.profile_table.horizontalHeader().resizeSection(0, 100)
-        self.profile_table.horizontalHeader().resizeSection(1, 120)
-        self.profile_table.horizontalHeader().resizeSection(3, 120)
+        self.profile_table.horizontalHeader().resizeSection(0, 120)
+        self.profile_table.horizontalHeader().resizeSection(1, 140)
+        self.profile_table.horizontalHeader().resizeSection(3, 100)
         self.profile_table.verticalHeader().setVisible(False)
         self.profile_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.profile_table.setMaximumHeight(160)
+        self.profile_table.setStyleSheet(
+            "QTableWidget { background: transparent; border: none;"
+            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
+            " QTableWidget::item { background: transparent; }"
+        )
+        self.profile_table.horizontalHeader().setStyleSheet(
+            "QHeaderView { background: transparent; }"
+            " QHeaderView::section { background: transparent; border: none;"
+            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
+        )
         layout.addWidget(self.profile_table)
 
         profile_btns = QHBoxLayout()
