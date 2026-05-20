@@ -108,9 +108,11 @@ def parse_gaussian_log(path: Path | str) -> GaussianResult:
     if result.scf_energies:
         result.final_energy_au = result.scf_energies[-1]
 
-    # Fallback: extract from archive HF= field
+    # Fallback: extract from archive HF= field (archive wraps lines)
     if result.final_energy_au is None:
-        hf_match = re.search(r"HF=([-\d.]+)", text)
+        # Remove newlines within archive section for robust parsing
+        archive_text = re.sub(r"\n ", "", text)
+        hf_match = re.search(r"HF=([-\d.]+)", archive_text)
         if hf_match:
             result.final_energy_au = float(hf_match.group(1))
 
