@@ -519,15 +519,16 @@ class RunsResultsPage(QWidget):
     def _get_download_patterns(self, record: RunRecord) -> list[str]:
         """Get download patterns based on command template (auto-detect software)."""
         settings = GuiSettingsStore().load()
-        patterns_map = settings.software_download_patterns or {}
+        profiles = settings.software_profiles or {}
         cmd = record.command_template.lower()
-        if "g16" in cmd or "g09" in cmd or "gaussian" in cmd:
-            raw = patterns_map.get("Gaussian", "*.log,*.chk")
-        elif "orca" in cmd:
-            raw = patterns_map.get("ORCA", "*.out,*.gbw")
-        else:
-            raw = "*.log,*.out"
-        return [p.strip() for p in raw.split(",") if p.strip()]
+        for profile in profiles.values():
+            tmpl = profile.get("command_template", "").lower()
+            # Match if the profile's command base appears in the record's command
+            base = tmpl.split()[0] if tmpl else ""
+            if base and base in cmd:
+                raw = profile.get("download_patterns", "")
+                return [p.strip() for p in raw.split(",") if p.strip()]
+        return ["*.log", "*.out"]
 
     def _retry_failed(self):
         record = self._selected_record()

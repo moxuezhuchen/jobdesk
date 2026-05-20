@@ -167,20 +167,38 @@ class SettingsServersPage(QWidget):
         )
         layout.addWidget(SettingCard("隐藏点文件", "远程文件列表中不显示以 . 开头的文件", toggle_ctrl))
 
-        # ─── 下载文件模式 ───
+        # ─── 软件配置 ───
         layout.addSpacing(12)
-        dl_title = QLabel("下载文件模式")
+        dl_title = QLabel("软件配置")
         dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         layout.addWidget(dl_title)
         layout.addSpacing(4)
 
+        self.gaussian_extensions = QLineEdit()
+        self.gaussian_extensions.setPlaceholderText(".gjf,.com")
+        layout.addWidget(SettingCard("Gaussian", "输入文件后缀", self.gaussian_extensions))
+
+        self.gaussian_command = QLineEdit()
+        self.gaussian_command.setPlaceholderText("g16 {name}")
+        layout.addWidget(SettingCard("Gaussian", "命令模板", self.gaussian_command))
+
         self.gaussian_patterns = QLineEdit()
         self.gaussian_patterns.setPlaceholderText("*.log,*.chk")
-        layout.addWidget(SettingCard("Gaussian", "任务完成后自动下载的文件", self.gaussian_patterns))
+        layout.addWidget(SettingCard("Gaussian", "下载模式", self.gaussian_patterns))
+
+        layout.addSpacing(8)
+
+        self.orca_extensions = QLineEdit()
+        self.orca_extensions.setPlaceholderText(".inp")
+        layout.addWidget(SettingCard("ORCA", "输入文件后缀", self.orca_extensions))
+
+        self.orca_command = QLineEdit()
+        self.orca_command.setPlaceholderText("orca {name}")
+        layout.addWidget(SettingCard("ORCA", "命令模板", self.orca_command))
 
         self.orca_patterns = QLineEdit()
         self.orca_patterns.setPlaceholderText("*.out,*.gbw")
-        layout.addWidget(SettingCard("ORCA", "任务完成后自动下载的文件", self.orca_patterns))
+        layout.addWidget(SettingCard("ORCA", "下载模式", self.orca_patterns))
 
         # ─── 服务器 ───
         layout.addSpacing(12)
@@ -352,9 +370,15 @@ class SettingsServersPage(QWidget):
             self.language_combo.setCurrentIndex(idx)
         self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
         self._toggle_label.setText("开" if s.hide_dotfiles else "关")
-        patterns = s.software_download_patterns or {}
-        self.gaussian_patterns.setText(patterns.get("Gaussian", "*.log,*.chk"))
-        self.orca_patterns.setText(patterns.get("ORCA", "*.out,*.gbw"))
+        patterns = s.software_profiles or {}
+        g = patterns.get("Gaussian", {})
+        self.gaussian_extensions.setText(g.get("input_extensions", ".gjf,.com"))
+        self.gaussian_command.setText(g.get("command_template", "g16 {name}"))
+        self.gaussian_patterns.setText(g.get("download_patterns", "*.log,*.chk"))
+        o = patterns.get("ORCA", {})
+        self.orca_extensions.setText(o.get("input_extensions", ".inp"))
+        self.orca_command.setText(o.get("command_template", "orca {name}"))
+        self.orca_patterns.setText(o.get("download_patterns", "*.out,*.gbw"))
 
     def _save_settings(self):
         from dataclasses import replace
@@ -365,9 +389,17 @@ class SettingsServersPage(QWidget):
             max_parallel=self.max_parallel_spin.value(),
             language=self.language_combo.currentData() or "zh",
             hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
-            software_download_patterns={
-                "Gaussian": self.gaussian_patterns.text().strip() or "*.log,*.chk",
-                "ORCA": self.orca_patterns.text().strip() or "*.out,*.gbw",
+            software_profiles={
+                "Gaussian": {
+                    "input_extensions": self.gaussian_extensions.text().strip() or ".gjf,.com",
+                    "command_template": self.gaussian_command.text().strip() or "g16 {name}",
+                    "download_patterns": self.gaussian_patterns.text().strip() or "*.log,*.chk",
+                },
+                "ORCA": {
+                    "input_extensions": self.orca_extensions.text().strip() or ".inp",
+                    "command_template": self.orca_command.text().strip() or "orca {name}",
+                    "download_patterns": self.orca_patterns.text().strip() or "*.out,*.gbw",
+                },
             },
         )
         self._store.save(new_settings)

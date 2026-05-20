@@ -31,18 +31,18 @@ class GuiSettings:
     notify_enabled: bool = False
     download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
     hide_dotfiles: bool = True
-    # Per-software download patterns
-    software_download_patterns: dict[str, str] | None = None  # e.g. {"Gaussian": "*.log,*.chk", "ORCA": "*.out,*.gbw"}
+    # Per-software profiles: input_extensions, command_template, download_patterns
+    software_profiles: dict[str, dict[str, str]] | None = None
 
     def __post_init__(self):
         if self.column_widths is None:
             object.__setattr__(self, "column_widths", {})
         if self.last_remote_dirs is None:
             object.__setattr__(self, "last_remote_dirs", {})
-        if self.software_download_patterns is None:
-            object.__setattr__(self, "software_download_patterns", {
-                "Gaussian": "*.log,*.chk",
-                "ORCA": "*.out,*.gbw",
+        if self.software_profiles is None:
+            object.__setattr__(self, "software_profiles", {
+                "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
+                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name}", "download_patterns": "*.out,*.gbw"},
             })
 
 
@@ -75,8 +75,25 @@ class GuiSettingsStore:
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
-            software_download_patterns=dict(raw.get("software_download_patterns", {}) or {}),
+            software_profiles=self._load_profiles(raw),
         )
+
+    @staticmethod
+    def _load_profiles(raw: dict) -> dict[str, dict[str, str]]:
+        """Load software_profiles, migrating from old software_download_patterns if needed."""
+        profiles = raw.get("software_profiles")
+        if profiles:
+            return dict(profiles)
+        # Migrate from old format
+        old = raw.get("software_download_patterns", {}) or {}
+        defaults = {
+            "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
+            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name}", "download_patterns": "*.out,*.gbw"},
+        }
+        for name, patterns in old.items():
+            if name in defaults:
+                defaults[name]["download_patterns"] = patterns
+        return defaults
 
     def save(self, settings: GuiSettings) -> Path:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,7 +118,7 @@ class GuiSettingsStore:
             "notify_enabled": settings.notify_enabled,
             "download_patterns": settings.download_patterns,
             "hide_dotfiles": settings.hide_dotfiles,
-            "software_download_patterns": settings.software_download_patterns or {},
+            "software_profiles": settings.software_profiles or {},
         }
         self.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
         return self.path

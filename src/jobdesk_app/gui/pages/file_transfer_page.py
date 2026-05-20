@@ -908,7 +908,31 @@ class FileTransferPage(QWidget):
                 self._selected_row_count(self.remote_table),
                 self._language,
             ))
+        self._auto_fill_command()
 
+    def _auto_fill_command(self):
+        """Auto-fill command template based on selected file extensions."""
+        paths = self._selected_remote_paths()
+        if not paths:
+            # Also check local selection
+            rows = sorted({idx.row() for idx in self.local_table.selectedIndexes()})
+            for row in rows:
+                item = self.local_table.item(row, 0)
+                if item and item.text() != "..":
+                    paths.append(item.text())
+        if not paths:
+            return
+        # Get extension of first file
+        import posixpath
+        ext = posixpath.splitext(paths[0])[-1].lower()
+        if not ext:
+            return
+        profiles = self._gui_settings.software_profiles or {}
+        for profile in profiles.values():
+            extensions = [e.strip().lower() for e in profile.get("input_extensions", "").split(",") if e.strip()]
+            if ext in extensions:
+                self.command_edit.setCurrentText(profile["command_template"])
+                return
     def _connect_selection_signals(self):
         self.local_table.itemSelectionChanged.connect(self._update_selection_summary)
         self.remote_table.itemSelectionChanged.connect(self._update_selection_summary)
