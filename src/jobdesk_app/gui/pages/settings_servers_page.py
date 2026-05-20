@@ -183,24 +183,23 @@ class SettingsServersPage(QWidget):
         self.profile_table = QTableWidget()
         self.profile_table.setColumnCount(4)
         self.profile_table.setHorizontalHeaderLabels(["软件名称", "输入后缀", "命令模板", "下载后缀"])
-        self.profile_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
-        self.profile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.profile_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.profile_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().setStretchLastSection(False)
         self.profile_table.horizontalHeader().resizeSection(0, 120)
         self.profile_table.horizontalHeader().resizeSection(1, 140)
+        self.profile_table.horizontalHeader().resizeSection(2, 300)
         self.profile_table.horizontalHeader().resizeSection(3, 100)
         self.profile_table.verticalHeader().setVisible(False)
         self.profile_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.profile_table.setMaximumHeight(160)
         self.profile_table.setStyleSheet(
-            "QTableWidget { background: transparent; border: none;"
-            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
-            " QTableWidget::item { background: transparent; }"
+            "QTableWidget { background: #e2e8f0; border: none;"
+            " alternate-background-color: #e2e8f0; gridline-color: #94a3b8; }"
+            " QTableWidget::item { background: #e2e8f0; }"
         )
         self.profile_table.horizontalHeader().setStyleSheet(
-            "QHeaderView { background: transparent; }"
-            " QHeaderView::section { background: transparent; border: none;"
+            "QHeaderView { background: #e2e8f0; }"
+            " QHeaderView::section { background: #e2e8f0; border: none;"
             " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
         )
         layout.addWidget(self.profile_table)
