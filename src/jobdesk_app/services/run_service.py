@@ -243,12 +243,12 @@ class RunService:
         if not re.match(r'^[A-Za-z0-9_\-]+$', run_id):
             raise ValueError(f"Invalid run_id: {run_id}")
         run_dir = (self.runs_dir / run_id).resolve()
-        if not str(run_dir).startswith(str(self.runs_dir.resolve())):
+        if not run_dir.is_relative_to(self.runs_dir.resolve()):
             raise ValueError(f"run_id escapes runs_dir: {run_id}")
         if run_dir.exists():
             shutil.rmtree(run_dir)
         results_dir = (self.workspace_dir / "results" / run_id).resolve()
-        if not str(results_dir).startswith(str((self.workspace_dir / "results").resolve())):
+        if not results_dir.is_relative_to((self.workspace_dir / "results").resolve()):
             raise ValueError(f"run_id escapes results dir: {run_id}")
         if results_dir.exists():
             shutil.rmtree(results_dir)

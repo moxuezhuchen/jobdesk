@@ -121,9 +121,27 @@ class SSHClientWrapper:
             stdin, stdout, stderr = self._client.exec_command(
                 command, timeout=timeout or self._timeout
             )
-            stdout_str = stdout.read().decode("utf-8", errors="replace").rstrip("\n")
-            stderr_str = stderr.read().decode("utf-8", errors="replace").rstrip("\n")
-            exit_code = stdout.channel.recv_exit_status()
+            # Drain stdout and stderr concurrently to prevent deadlock
+            channel = stdout.channel
+            channel.settimeout(timeout or self._timeout)
+            out_chunks = []
+            err_chunks = []
+            while not channel.exit_status_ready() or channel.recv_ready() or channel.recv_stderr_ready():
+                if channel.recv_ready():
+                    out_chunks.append(channel.recv(65536))
+                if channel.recv_stderr_ready():
+                    err_chunks.append(channel.recv_stderr(65536))
+                if not channel.recv_ready() and not channel.recv_stderr_ready() and not channel.exit_status_ready():
+                    import time as _t
+                    _t.sleep(0.01)
+            # Drain remaining
+            while channel.recv_ready():
+                out_chunks.append(channel.recv(65536))
+            while channel.recv_stderr_ready():
+                err_chunks.append(channel.recv_stderr(65536))
+            exit_code = channel.recv_exit_status()
+            stdout_str = b"".join(out_chunks).decode("utf-8", errors="replace").rstrip("\n")
+            stderr_str = b"".join(err_chunks).decode("utf-8", errors="replace").rstrip("\n")
         except Exception as e:
             dt = time.monotonic() - t0
             raise SSHCommandError(
