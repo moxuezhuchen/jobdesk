@@ -174,31 +174,42 @@ class SettingsServersPage(QWidget):
         layout.addWidget(dl_title)
         layout.addSpacing(4)
 
-        self.gaussian_extensions = QLineEdit()
-        self.gaussian_extensions.setPlaceholderText(".gjf,.com")
-        layout.addWidget(SettingCard("Gaussian", "输入文件后缀", self.gaussian_extensions))
+        def _make_profile_row(label, ext_ph, cmd_ph, dl_ph):
+            row = QFrame()
+            row.setObjectName("SettingCard")
+            row.setStyleSheet(
+                "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+                " #SettingCard QLabel { background: transparent; }"
+                " #SettingCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
+                " border-radius: 4px; padding: 0 8px; min-height: 36px; max-height: 36px; }"
+            )
+            row.setFixedHeight(52)
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(16, 0, 16, 0)
+            rl.setSpacing(8)
+            lbl = QLabel(label)
+            lbl.setMinimumWidth(70)
+            rl.addWidget(lbl)
+            ext = QLineEdit()
+            ext.setPlaceholderText(ext_ph)
+            ext.setMaximumWidth(100)
+            rl.addWidget(ext)
+            cmd = QLineEdit()
+            cmd.setPlaceholderText(cmd_ph)
+            rl.addWidget(cmd, 1)
+            dl = QLineEdit()
+            dl.setPlaceholderText(dl_ph)
+            dl.setMaximumWidth(140)
+            rl.addWidget(dl)
+            return row, ext, cmd, dl
 
-        self.gaussian_command = QLineEdit()
-        self.gaussian_command.setPlaceholderText("g16 {name}")
-        layout.addWidget(SettingCard("Gaussian", "命令模板", self.gaussian_command))
+        row_g, self.gaussian_extensions, self.gaussian_command, self.gaussian_patterns = \
+            _make_profile_row("Gaussian", ".gjf,.com", "g16 {name}", "*.log,*.chk")
+        layout.addWidget(row_g)
 
-        self.gaussian_patterns = QLineEdit()
-        self.gaussian_patterns.setPlaceholderText("*.log,*.chk")
-        layout.addWidget(SettingCard("Gaussian", "下载模式", self.gaussian_patterns))
-
-        layout.addSpacing(8)
-
-        self.orca_extensions = QLineEdit()
-        self.orca_extensions.setPlaceholderText(".inp")
-        layout.addWidget(SettingCard("ORCA", "输入文件后缀", self.orca_extensions))
-
-        self.orca_command = QLineEdit()
-        self.orca_command.setPlaceholderText("orca {name}")
-        layout.addWidget(SettingCard("ORCA", "命令模板", self.orca_command))
-
-        self.orca_patterns = QLineEdit()
-        self.orca_patterns.setPlaceholderText("*.out,*.gbw")
-        layout.addWidget(SettingCard("ORCA", "下载模式", self.orca_patterns))
+        row_o, self.orca_extensions, self.orca_command, self.orca_patterns = \
+            _make_profile_row("ORCA", ".inp", "orca {name} > {basename}.out", "*.out,*.gbw")
+        layout.addWidget(row_o)
 
         # ─── 服务器 ───
         layout.addSpacing(12)

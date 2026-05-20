@@ -96,6 +96,7 @@ def _render_command(template: str, source: RunSource) -> str:
         "path": shlex.quote(source.path),
         "name": shlex.quote(source.name),
         "stem": shlex.quote(source.stem),
+        "basename": shlex.quote(source.stem),
         "dir": shlex.quote(source.parent),
     }
     result = template

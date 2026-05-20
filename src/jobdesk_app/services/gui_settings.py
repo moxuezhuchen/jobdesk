@@ -42,7 +42,7 @@ class GuiSettings:
         if self.software_profiles is None:
             object.__setattr__(self, "software_profiles", {
                 "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
-                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name}", "download_patterns": "*.out,*.gbw"},
+                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
             })
 
 
@@ -88,7 +88,7 @@ class GuiSettingsStore:
         old = raw.get("software_download_patterns", {}) or {}
         defaults = {
             "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
-            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name}", "download_patterns": "*.out,*.gbw"},
+            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
         }
         for name, patterns in old.items():
             if name in defaults:
