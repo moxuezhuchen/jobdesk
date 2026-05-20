@@ -174,7 +174,7 @@ class SettingsServersPage(QWidget):
         dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         dl_header.addWidget(dl_title)
         dl_desc = QLabel("格式：输入后缀 | 命令模板（{name}=文件名, {basename}=无后缀名） | 完成后下载")
-        dl_desc.setStyleSheet("color: #64748b; font-size: 12pt;")
+        dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
         dl_header.addWidget(dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
