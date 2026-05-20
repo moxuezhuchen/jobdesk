@@ -122,7 +122,7 @@ def test_download_completed_run_outputs(tmp_path):
 
     assert not failures
     assert len(records) == 1
-    assert (tmp_path / "results" / "run001" / "a" / "result.log").read_text(encoding="utf-8") == "ok"
+    assert (tmp_path / "results" / "run001" / "result.log").read_text(encoding="utf-8") == "ok"
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.downloaded
 
 

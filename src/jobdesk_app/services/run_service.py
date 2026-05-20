@@ -10,7 +10,7 @@ from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.models import BatchMeta
 from ..core.run import RunPlan, RunSpec, build_run_plan
-from ..core.transfer import TransferDirection, TransferRecord, TransferStatus
+from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
 
 
@@ -26,6 +26,7 @@ class RunRecord:
     run_dir: Path
     manifest_path: Path
     batch_path: Path
+    local_dir: str = ""
     status_summary: dict[str, int] = field(default_factory=dict)
 
 
@@ -50,7 +51,7 @@ class RunService:
             candidate += 1
         return f"{prefix}-{candidate:03d}"
 
-    def create_run(self, spec: RunSpec, run_id: str | None = None) -> RunRecord:
+    def create_run(self, spec: RunSpec, run_id: str | None = None, local_dir: str = "") -> RunRecord:
         if run_id is None:
             run_id = self._next_run_id()
         plan = build_run_plan(spec, run_id)
@@ -69,7 +70,7 @@ class RunService:
         tasks = _tasks_from_plan(plan, batch)
         write_batch_json(batch, batch_path)
         Manifest.write(manifest_path, tasks)
-        record = self._record_from_parts(plan, run_dir, manifest_path, batch_path, _status_summary(tasks))
+        record = self._record_from_parts(plan, run_dir, manifest_path, batch_path, _status_summary(tasks), local_dir=local_dir)
         self._write_run_json(record)
         return record
 
@@ -99,6 +100,7 @@ class RunService:
             run_dir=run_dir,
             manifest_path=run_dir / "manifest.tsv",
             batch_path=run_dir / "batch.json",
+            local_dir=data.get("local_dir", ""),
             status_summary=data.get("status_summary", {}),
         )
 
@@ -132,48 +134,20 @@ class RunService:
         tasks = Manifest.read(record.manifest_path)
         records = []
         failures = []
+        # Download destination: record.local_dir (flat) or fallback to workspace/results
+        dest_dir = Path(record.local_dir) if record.local_dir else self.workspace_dir / "results" / run_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
         for task in tasks:
             if task.status != TaskStatus.remote_completed:
                 continue
-            local_dir = self.workspace_dir / "results" / run_id / task.task_id
-            local_dir.mkdir(parents=True, exist_ok=True)
             try:
-                # Try task job dir first
                 recs = sftp.download_dir(
                     task.remote_job_dir,
-                    local_dir,
+                    dest_dir,
                     include_globs=patterns,
                     overwrite=False,
                     skip_if_same_size=True,
                 )
-                useful = [r for r in recs if r.status in (TransferStatus.transferred, TransferStatus.skipped)
-                          and not r.remote_path.split("/")[-1].startswith(".jobdesk")]
-                # Fallback: download from remote_work_dir to workspace root (no duplication)
-                if not useful and task.remote_work_dir and task.remote_task_files:
-                    stem = task.remote_task_files[0].rsplit(".", 1)[0] if "." in task.remote_task_files[0] else task.remote_task_files[0]
-                    for pat in patterns:
-                        ext = pat.lstrip("*")  # "*.log" -> ".log"
-                        remote_file = f"{task.remote_work_dir.rstrip('/')}/{stem}{ext}"
-                        local_file = self.workspace_dir / f"{stem}{ext}"
-                        if local_file.is_file():
-                            # Already exists locally, skip
-                            remote_st = sftp.stat(remote_file)
-                            if remote_st and local_file.stat().st_size == remote_st.st_size:
-                                recs.append(TransferRecord(
-                                    direction=TransferDirection.download,
-                                    local_path=str(local_file),
-                                    remote_path=remote_file,
-                                    size_bytes=local_file.stat().st_size,
-                                    status=TransferStatus.skipped,
-                                    reason="本地已存在相同文件",
-                                ))
-                                continue
-                        try:
-                            rec = sftp.download_file(remote_file, local_file, overwrite=False, skip_if_same_size=True)
-                            if rec.status in (TransferStatus.transferred, TransferStatus.skipped):
-                                recs.append(rec)
-                        except Exception:
-                            pass
                 records.extend(recs)
                 task_ok = any(
                     r.status in (TransferStatus.transferred, TransferStatus.skipped)
@@ -260,6 +234,7 @@ class RunService:
         manifest_path: Path,
         batch_path: Path,
         status_summary: dict[str, int],
+        local_dir: str = "",
     ) -> RunRecord:
         return RunRecord(
             run_id=plan.run_id,
@@ -272,6 +247,7 @@ class RunService:
             run_dir=run_dir,
             manifest_path=manifest_path,
             batch_path=batch_path,
+            local_dir=local_dir,
             status_summary=status_summary,
         )
 
@@ -284,6 +260,7 @@ class RunService:
             "max_parallel": record.max_parallel,
             "mode": record.mode,
             "created_at": record.created_at,
+            "local_dir": record.local_dir,
             "status_summary": record.status_summary,
         }
         record.run_dir.mkdir(parents=True, exist_ok=True)

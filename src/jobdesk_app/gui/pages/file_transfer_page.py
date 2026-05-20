@@ -1560,7 +1560,7 @@ class FileTransferPage(QWidget):
                             mode=run_mode,
                             sources=chunk,
                         )
-                        run_records.append(svc.create_run(spec))
+                        run_records.append(svc.create_run(spec, local_dir=str(local_base)))
                     # 3. Submit
                     results = []
                     for record in run_records:
@@ -1603,7 +1603,7 @@ class FileTransferPage(QWidget):
                 mode=run_mode,
                 sources=chunk,
             )
-            run_records.append(service.create_run(spec))
+            run_records.append(service.create_run(spec, local_dir=str(local_base)))
         run_record = run_records[0]
         self.state.current_project_root = Path(local_base)
         self.state.current_batch_id = run_record.run_id
