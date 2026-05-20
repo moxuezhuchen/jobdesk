@@ -618,6 +618,8 @@ class RunsResultsPage(QWidget):
 
     def shutdown(self):
         self._monitor.stop_all()
+        for w in list(getattr(self, "_bg_workers", [])):
+            w.stop_safely(500)
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely()

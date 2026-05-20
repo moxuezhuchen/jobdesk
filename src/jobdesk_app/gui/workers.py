@@ -27,3 +27,8 @@ class BackgroundWorker(QThread):
             import traceback
             msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
             self.error.emit(msg)
+
+    def stop_safely(self, timeout_ms: int = 3000):
+        """Request stop and wait for thread to finish."""
+        self.quit()
+        self.wait(timeout_ms)
