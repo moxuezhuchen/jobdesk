@@ -538,6 +538,7 @@ class FileTransferPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
+        self.refresh_btn.setText("\u27f3 " + tr("Refresh", language))
         self.server_label.setText(tr("Server:", language))
         self.command_label.setText(tr("Command:", language))
         self.preview_commands_btn.setText(tr("Preview Commands", language))

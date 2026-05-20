@@ -317,6 +317,21 @@ class SettingsServersPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
+        # Update all widget text
+        self.browse_btn.setText(tr("Browse", language))
+        self.test_btn.setText(tr("Test Connection", language))
+        self.edit_yaml_btn.setText(tr("Add Server", language))
+        self.edit_srv_btn.setText(tr("Edit", language))
+        self.delete_srv_btn.setText(tr("Delete", language))
+        self.save_btn.setText(tr("Save Settings", language))
+        self.discard_btn.setText(tr("Discard", language))
+        self._toggle_label.setText(tr("On", language) if self.hide_dotfiles_cb.isChecked() else tr("Off", language))
+        self.profile_table.setHorizontalHeaderLabels([
+            tr("Name", language), tr("Input Ext", language), tr("Command", language), tr("Output Ext", language)
+        ])
+        self.server_table.setHorizontalHeaderLabels([
+            "ID", tr("Host", language), tr("Port", language), tr("User", language), tr("Status", language)
+        ])
 
     def _load_servers(self):
         try:
