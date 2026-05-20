@@ -6,7 +6,6 @@ Viewer integration opens local files in configured external programs.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -82,7 +81,7 @@ def smiles_to_gjf(
     Requires rdkit. Combines smiles_to_xyz + build_gjf.
     """
     import tempfile
-    from .input_builder import build_from_preset, GAUSSIAN_PRESETS, ORCA_PRESETS
+    from .input_builder import build_from_preset
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xyz", delete=False, encoding="utf-8") as f:
         tmp_xyz = Path(f.name)

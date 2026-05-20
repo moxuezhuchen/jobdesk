@@ -5,9 +5,9 @@ import argparse
 from pathlib import Path
 
 from .config.servers import load_servers
-from .core.file_transfer import OverwritePolicy, RemoteFileInfo
+from .core.file_transfer import OverwritePolicy
 from .core.run import RunMode, RunSource, RunSpec
-from .core.transfer import TransferDirection, TransferRecord, TransferStatus
+from .core.transfer import TransferStatus
 from .remote.status_refresh import refresh_batch_status
 from .services.file_transfer_service import FileTransferService
 from .services.run_service import RunService

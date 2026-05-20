@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
     QInputDialog, QMessageBox, QTextEdit, QSpinBox, QAbstractItemView,
-    QFileDialog, QSizePolicy, QGridLayout, QAbstractSpinBox, QMenu,
+    QFileDialog, QSizePolicy, QAbstractSpinBox, QMenu,
     QProgressBar,
 )
 from PySide6.QtCore import Qt, QTimer, QMimeData, QUrl, Signal
@@ -1122,7 +1122,6 @@ class FileTransferPage(QWidget):
             self._status_cb("Connect to a server first")
             return
         import tempfile
-        suffix = Path(remote_path).suffix or ".tmp"
         name = Path(remote_path).name
         # Use a stable temp dir per session so re-opening the same file reuses the path
         tmp_dir = Path(tempfile.gettempdir()) / "jobdesk_remote_edit"
@@ -1897,7 +1896,6 @@ def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[i
 
 def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
     from PySide6.QtWidgets import QStyle
-    from PySide6.QtGui import QIcon
     style = table.style()
     folder_icon = style.standardIcon(QStyle.SP_DirIcon)
     file_icon = style.standardIcon(QStyle.SP_FileIcon)

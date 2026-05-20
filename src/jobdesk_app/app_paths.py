@@ -9,7 +9,3 @@ def get_app_data_dir() -> Path:
 
 def get_logs_dir() -> Path:
     return get_app_data_dir() / "logs"
-
-
-def get_cache_dir() -> Path:
-    return get_app_data_dir() / "cache"

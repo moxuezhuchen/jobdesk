@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
@@ -268,13 +267,6 @@ class RunsPage(QWidget):
             if self.notify_check.isChecked():
                 _send_notification(f"JobDesk: run {run_id} complete", f"Downloaded {transferred} file(s)")
 
-    def shutdown(self):
-        self._save_state()
-        self._auto_timer.stop()
-        for w in self._background_workers:
-            if hasattr(w, "stop_safely"):
-                w.stop_safely()
-
     def _refresh_all(self):
         """Refresh list, and update status of selected run if any."""
         self.refresh_run_list()
@@ -463,7 +455,6 @@ class RunsPage(QWidget):
         """Open WorkflowDialog and launch a workflow."""
         from ..dialogs.workflow_dialog import WorkflowDialog
         from ...services.workflow_service import WorkflowRunner, BUILTIN_WORKFLOWS
-        from ...core.run import RunSpec, RunMode, RunSource
 
         dlg = WorkflowDialog(self, workspace=self._workspace())
         if dlg.exec() != WorkflowDialog.Accepted:
@@ -517,6 +508,11 @@ class RunsPage(QWidget):
         store.save(replace(current, column_widths=widths))
 
     def shutdown(self):
+        self._save_state()
+        self._auto_timer.stop()
+        for w in self._background_workers:
+            if hasattr(w, "stop_safely"):
+                w.stop_safely()
         worker = getattr(self, "worker", None)
         if worker is not None and hasattr(worker, "stop_safely"):
             worker.stop_safely()

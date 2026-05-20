@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from uuid import uuid4
 
 from .transfer import TransferDirection, TransferStatus

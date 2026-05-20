@@ -1,6 +1,6 @@
 """后台 Worker 基础设施 — 长操作放在 QThread 中，不阻塞 UI。"""
 
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import QThread, Signal
 
 
 class BackgroundWorker(QThread):

@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from .models import BatchMeta
-from .manifest import TaskRecord
 
 
 def write_batch_json(batch: BatchMeta, output_path: Path) -> None:

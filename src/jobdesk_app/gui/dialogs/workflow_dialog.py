@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox,
+    QDialog, QVBoxLayout, QFormLayout,
+    QLabel, QLineEdit, QComboBox,
     QDialogButtonBox,
 )
 

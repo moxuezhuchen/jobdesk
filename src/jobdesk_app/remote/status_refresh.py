@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..core.status import TaskStatusSnapshot, StatusRefreshResult, BatchControlSnapshot
 from ..core.manifest import TaskRecord, Manifest
-from ..core.lifecycle import TaskStatus, can_transition
+from ..core.lifecycle import TaskStatus
 from ..core.models import FailureRecord
 from .status import read_remote_task_status
 

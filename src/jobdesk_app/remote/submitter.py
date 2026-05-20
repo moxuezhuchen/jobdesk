@@ -8,14 +8,12 @@ tasks.tsv、batch_control.sh），通过 SSH 上传、chmod、nohup 启动后台
 """
 
 import shlex
-import posixpath
 from datetime import datetime
 from pathlib import Path
 
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
 from ..core.manifest import TaskRecord, Manifest
 from ..core.lifecycle import TaskStatus
-from .errors import RemoteError
 
 
 class JobSubmitter:

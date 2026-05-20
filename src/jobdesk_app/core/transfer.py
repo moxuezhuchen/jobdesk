@@ -4,9 +4,8 @@ TransferRecord 是业务记录，后续 GUI 和 manifest 都会用到。
 放在 core 层，避免 remote 层承担业务模型职责。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 
 
 class TransferDirection(str, Enum):

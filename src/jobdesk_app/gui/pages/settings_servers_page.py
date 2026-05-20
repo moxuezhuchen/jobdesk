@@ -5,13 +5,13 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QSpinBox, QComboBox, QFileDialog, QFrame, QScrollArea, QCheckBox,
+    QSpinBox, QComboBox, QFileDialog, QFrame, QScrollArea,
 )
 from PySide6.QtCore import Signal, Qt, QPropertyAnimation, Property, QRectF
 from PySide6.QtGui import QPainter, QColor
 
 from ...config.servers import load_servers, get_default_servers_path
-from ...services.gui_settings import GuiSettings, GuiSettingsStore
+from ...services.gui_settings import GuiSettingsStore
 from ..i18n import tr
 from ..workers import BackgroundWorker
 from ..session import create_ssh_client

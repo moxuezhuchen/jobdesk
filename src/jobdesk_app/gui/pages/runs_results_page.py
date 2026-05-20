@@ -6,8 +6,7 @@ import csv
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QMessageBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QMessageBox,
     QMenu, QTextEdit,
 )
 from PySide6.QtCore import Qt, QTimer

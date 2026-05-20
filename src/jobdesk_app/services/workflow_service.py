@@ -13,8 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from ..core.manifest import Manifest
-from ..core.lifecycle import TaskStatus
 from ..core.run import RunMode, RunSource, RunSpec
 
 
@@ -125,7 +123,6 @@ class WorkflowRunner:
         workflow_id: str | None = None,
     ) -> WorkflowRun:
         """Create a WorkflowRun and execute the first ready steps."""
-        from ..services.run_service import RunService
         wf_id = workflow_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         wf_run = WorkflowRun(
             workflow_id=wf_id,

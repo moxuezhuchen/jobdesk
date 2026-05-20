@@ -4,10 +4,8 @@
 不依赖 SSH、远程连接，仅操作本地文件。
 """
 
-import glob
 import re
 from pathlib import Path
-from datetime import datetime
 
 from .models import ResultRecord, FailureRecord
 from ..config.schema import ExtractResult, ExtractStrategy, ExtractType

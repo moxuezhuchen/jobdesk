@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QFileDialog, QListWidget, QAbstractItemView, QSplitter,
-    QMessageBox,
 )
 from PySide6.QtCore import Qt
 
@@ -15,7 +14,6 @@ from ...services.run_service import RunService
 from ...services.analysis_profiles import AnalysisProfileStore
 from ...services.comparison import compare_runs, export_csv, export_markdown
 from ..i18n import tr
-from ..table_models import load_rows_to_table
 
 
 def _fill_table(table: QTableWidget, field_names: list[str], rows: list[dict]) -> None:
@@ -208,7 +206,6 @@ class ResultsPage(QWidget):
             self.status_label.setText(tr("Select at least 2 runs to compare", self._language))
             return
         profile_name = self.profile_combo.currentText()
-        from ...services.comparison import compare_runs
         comparison = compare_runs(self._workspace(), run_ids, profile_name=profile_name)
         if not comparison.rows:
             self.status_label.setText(tr("No results found", self._language))

@@ -5,11 +5,10 @@
 """
 
 import posixpath
-import os
 from pathlib import Path
 from typing import Any
 
-from .errors import RemoteError, RemotePathError
+from .errors import RemotePathError
 from ..core.transfer import TransferRecord, TransferDirection, TransferStatus
 
 
