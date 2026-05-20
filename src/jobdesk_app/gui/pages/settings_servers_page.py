@@ -487,6 +487,7 @@ class SettingsServersPage(QWidget):
         dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
 
+        id_edit = QLineEdit(sid)
         host_edit = QLineEdit(srv.get("host", ""))
         port_edit = QSpinBox()
         port_edit.setRange(1, 65535)
@@ -499,6 +500,7 @@ class SettingsServersPage(QWidget):
             auth_combo.setCurrentIndex(idx)
         key_edit = QLineEdit(srv.get("key_path", ""))
 
+        form.addRow("ID:", id_edit)
         form.addRow("主机:", host_edit)
         form.addRow("端口:", port_edit)
         form.addRow("用户:", user_edit)
@@ -512,14 +514,19 @@ class SettingsServersPage(QWidget):
 
         if dlg.exec() != QDialog.Accepted:
             return
-        data["servers"][sid] = {
+        new_sid = id_edit.text().strip()
+        if not new_sid:
+            return
+        if new_sid != sid:
+            data["servers"].pop(sid, None)
+        data["servers"][new_sid] = {
             "host": host_edit.text().strip(),
             "port": port_edit.value(),
             "username": user_edit.text().strip(),
             "auth_method": auth_combo.currentText(),
         }
         if key_edit.text().strip():
-            data["servers"][sid]["key_path"] = key_edit.text().strip()
+            data["servers"][new_sid]["key_path"] = key_edit.text().strip()
         path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self._load_servers()
 
