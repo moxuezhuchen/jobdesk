@@ -90,6 +90,8 @@ class SettingCard(QFrame):
         lbl_title = QLabel(title)
         lbl_desc = QLabel(description)
         lbl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
+        self.lbl_title = lbl_title
+        self.lbl_desc = lbl_desc
 
         layout.addWidget(lbl_title)
         layout.addSpacing(16)
@@ -124,9 +126,9 @@ class SettingsServersPage(QWidget):
         layout.setSpacing(12)
 
         # Page title
-        title = QLabel(tr("Settings", self._language))
-        title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
-        layout.addWidget(title)
+        self._page_title = QLabel(tr("Settings", self._language))
+        self._page_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        layout.addWidget(self._page_title)
         layout.addSpacing(8)
 
         # ─── 本地目录 ───
@@ -138,18 +140,21 @@ class SettingsServersPage(QWidget):
         self.browse_btn.clicked.connect(self._browse)
         fc_layout.addWidget(self.local_folder_edit, 1)
         fc_layout.addWidget(self.browse_btn)
-        layout.addWidget(SettingCard(tr("Local Directory", self._language), tr("Default save path for downloaded results", self._language), folder_ctrl))
+        self._card_local = SettingCard(tr("Local Directory", self._language), tr("Default save path for downloaded results", self._language), folder_ctrl)
+        layout.addWidget(self._card_local)
 
         # ─── 最大并发 ───
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
-        layout.addWidget(SettingCard(tr("Max Parallel", self._language), tr("Maximum concurrent remote tasks", self._language), self.max_parallel_spin))
+        self._card_parallel = SettingCard(tr("Max Parallel", self._language), tr("Maximum concurrent remote tasks", self._language), self.max_parallel_spin)
+        layout.addWidget(self._card_parallel)
 
         # ─── 语言 ───
         self.language_combo = QComboBox()
         self.language_combo.addItem(tr("Chinese", self._language), "zh")
         self.language_combo.addItem("English", "en")
-        layout.addWidget(SettingCard(tr("Language", self._language), tr("UI language, takes effect immediately", self._language), self.language_combo))
+        self._card_language = SettingCard(tr("Language", self._language), tr("UI language, takes effect immediately", self._language), self.language_combo)
+        layout.addWidget(self._card_language)
 
         # ─── 隐藏.文件 ───
         self.hide_dotfiles_cb = ToggleSwitch()
@@ -165,17 +170,18 @@ class SettingsServersPage(QWidget):
         self.hide_dotfiles_cb.toggled.connect(
             lambda v: self._toggle_label.setText(tr("On", self._language) if v else tr("Off", self._language))
         )
-        layout.addWidget(SettingCard(tr("Hide Dotfiles", self._language), tr("Hide files starting with . in remote listing", self._language), toggle_ctrl))
+        self._card_dotfiles = SettingCard(tr("Hide Dotfiles", self._language), tr("Hide files starting with . in remote listing", self._language), toggle_ctrl)
+        layout.addWidget(self._card_dotfiles)
 
         # ─── 软件配置 ───
         layout.addSpacing(12)
         dl_header = QHBoxLayout()
-        dl_title = QLabel(tr("Software Profiles", self._language))
-        dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
-        dl_header.addWidget(dl_title)
-        dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
-        dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
-        dl_header.addWidget(dl_desc)
+        self._dl_title = QLabel(tr("Software Profiles", self._language))
+        self._dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        dl_header.addWidget(self._dl_title)
+        self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
+        self._dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
+        dl_header.addWidget(self._dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
         layout.addSpacing(4)
@@ -207,20 +213,20 @@ class SettingsServersPage(QWidget):
         self.profile_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_profile_column_widths())
 
         profile_btns = QHBoxLayout()
-        add_profile_btn = QPushButton(tr("Add", self._language))
-        add_profile_btn.clicked.connect(self._add_profile_row)
-        del_profile_btn = QPushButton(tr("Delete", self._language))
-        del_profile_btn.clicked.connect(self._del_profile_row)
-        profile_btns.addWidget(add_profile_btn)
-        profile_btns.addWidget(del_profile_btn)
+        self._add_profile_btn = QPushButton(tr("Add", self._language))
+        self._add_profile_btn.clicked.connect(self._add_profile_row)
+        self._del_profile_btn = QPushButton(tr("Delete", self._language))
+        self._del_profile_btn.clicked.connect(self._del_profile_row)
+        profile_btns.addWidget(self._add_profile_btn)
+        profile_btns.addWidget(self._del_profile_btn)
         profile_btns.addStretch()
         layout.addLayout(profile_btns)
 
         # ─── 服务器 ───
         layout.addSpacing(12)
-        srv_title = QLabel(tr("Servers", self._language))
-        srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
-        layout.addWidget(srv_title)
+        self._srv_title = QLabel(tr("Servers", self._language))
+        self._srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        layout.addWidget(self._srv_title)
         layout.addSpacing(4)
 
         srv_card = QFrame()
@@ -317,8 +323,24 @@ class SettingsServersPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
-        # Update all widget text
+        # Page and section titles
+        self._page_title.setText(tr("Settings", language))
+        self._dl_title.setText(tr("Software Profiles", language))
+        self._dl_desc.setText(tr("{name}=filename, {basename}=name without extension", language))
+        self._srv_title.setText(tr("Servers", language))
+        # Setting cards
+        self._card_local.lbl_title.setText(tr("Local Directory", language))
+        self._card_local.lbl_desc.setText(tr("Default save path for downloaded results", language))
+        self._card_parallel.lbl_title.setText(tr("Max Parallel", language))
+        self._card_parallel.lbl_desc.setText(tr("Maximum concurrent remote tasks", language))
+        self._card_language.lbl_title.setText(tr("Language", language))
+        self._card_language.lbl_desc.setText(tr("UI language, takes effect immediately", language))
+        self._card_dotfiles.lbl_title.setText(tr("Hide Dotfiles", language))
+        self._card_dotfiles.lbl_desc.setText(tr("Hide files starting with . in remote listing", language))
+        # Buttons
         self.browse_btn.setText(tr("Browse", language))
+        self._add_profile_btn.setText(tr("Add", language))
+        self._del_profile_btn.setText(tr("Delete", language))
         self.test_btn.setText(tr("Test Connection", language))
         self.edit_yaml_btn.setText(tr("Add Server", language))
         self.edit_srv_btn.setText(tr("Edit", language))
@@ -326,6 +348,7 @@ class SettingsServersPage(QWidget):
         self.save_btn.setText(tr("Save Settings", language))
         self.discard_btn.setText(tr("Discard", language))
         self._toggle_label.setText(tr("On", language) if self.hide_dotfiles_cb.isChecked() else tr("Off", language))
+        # Table headers
         self.profile_table.setHorizontalHeaderLabels([
             tr("Name", language), tr("Input Ext", language), tr("Command", language), tr("Output Ext", language)
         ])
