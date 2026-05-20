@@ -181,14 +181,14 @@ class SettingsServersPage(QWidget):
                 "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
                 " #SettingCard QLabel { background: transparent; }"
                 " #SettingCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
-                " border-radius: 4px; padding: 0 8px; min-height: 36px; max-height: 36px; }"
+                " border-radius: 4px; padding: 0 8px; min-height: 44px; max-height: 44px; }"
             )
-            row.setFixedHeight(52)
+            row.setFixedHeight(60)
             rl = QHBoxLayout(row)
             rl.setContentsMargins(16, 0, 16, 0)
             rl.setSpacing(8)
             lbl = QLabel(label)
-            lbl.setFixedWidth(80)
+            lbl.setFixedWidth(100)
             rl.addWidget(lbl)
             ext = QLineEdit()
             ext.setPlaceholderText(ext_ph)
