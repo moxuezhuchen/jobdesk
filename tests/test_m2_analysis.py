@@ -62,7 +62,9 @@ def _write_file(file_dir: Path, filename: str, content: str) -> Path:
 
 class TestBatchIdMicroseconds:
     def test_batch_id_has_microseconds(self):
+        import time
         b1 = BatchMeta(project_name="p", max_parallel=4, remote_batch_dir="/r")
+        time.sleep(0.001)
         b2 = BatchMeta(project_name="p", max_parallel=4, remote_batch_dir="/r")
         assert b1.batch_id != b2.batch_id
         assert len(b1.batch_id) == 22
