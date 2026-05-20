@@ -31,10 +31,13 @@ class RunRecord:
 
 
 class RunService:
-    def __init__(self, workspace_dir: str | Path | None = None):
+    def __init__(self, workspace_dir: str | Path | None = None, runs_dir: str | Path | None = None):
         import os
-        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-        self.runs_dir = Path(appdata) / "JobDesk" / "runs"
+        if runs_dir:
+            self.runs_dir = Path(runs_dir)
+        else:
+            appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+            self.runs_dir = Path(appdata) / "JobDesk" / "runs"
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
 
     def _next_run_id(self) -> str:

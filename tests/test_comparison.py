@@ -60,9 +60,17 @@ class TestExportMarkdown:
 
 
 class TestCompareRuns:
-    def test_relative_energy_computed(self, tmp_path):
+    def test_relative_energy_computed(self, tmp_path, monkeypatch):
         """compare_runs should compute relative energies in kcal/mol."""
         from jobdesk_app.services.run_service import RunService
+        runs_dir = tmp_path / "runs"
+        original_init = RunService.__init__
+
+        def _patched(self, workspace_dir=None, **kwargs):
+            original_init(self, workspace_dir, **kwargs)
+            self.runs_dir = runs_dir
+
+        monkeypatch.setattr(RunService, "__init__", _patched)
         from jobdesk_app.core.run import RunSpec, RunMode, RunSource
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest

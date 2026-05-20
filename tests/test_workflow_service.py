@@ -125,11 +125,20 @@ class TestWorkflowRunner:
         started = runner.advance(spec, wf_run, None, None)
         assert "freq" in started
 
-    def test_sync_status_marks_completed(self, tmp_path):
+    def test_sync_status_marks_completed(self, tmp_path, monkeypatch):
         from jobdesk_app.services.run_service import RunService
         from jobdesk_app.core.run import RunSpec, RunMode, RunSource
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
+
+        runs_dir = tmp_path / "runs"
+        original_init = RunService.__init__
+
+        def _patched(self, workspace_dir=None, **kwargs):
+            original_init(self, workspace_dir, **kwargs)
+            self.runs_dir = runs_dir
+
+        monkeypatch.setattr(RunService, "__init__", _patched)
 
         spec = WorkflowSpec(
             name="test",
