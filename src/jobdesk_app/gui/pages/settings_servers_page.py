@@ -266,10 +266,13 @@ class SettingsServersPage(QWidget):
         self.test_btn.clicked.connect(self._test_connection)
         self.edit_yaml_btn = QPushButton("添加服务器")
         self.edit_yaml_btn.clicked.connect(self._add_server)
+        self.edit_srv_btn = QPushButton("编辑")
+        self.edit_srv_btn.clicked.connect(self._edit_server)
         self.delete_srv_btn = QPushButton("删除")
         self.delete_srv_btn.clicked.connect(self._delete_server)
         srv_btns.addWidget(self.test_btn)
         srv_btns.addWidget(self.edit_yaml_btn)
+        srv_btns.addWidget(self.edit_srv_btn)
         srv_btns.addWidget(self.delete_srv_btn)
         srv_btns.addStretch()
         srv_inner.addLayout(srv_btns)
@@ -463,6 +466,60 @@ class SettingsServersPage(QWidget):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         servers = data.get("servers", {})
         servers.pop(sid, None)
+        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        self._load_servers()
+
+    def _edit_server(self):
+        import yaml
+        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+
+        row = self.server_table.currentRow()
+        if row < 0:
+            self._status_cb("请先选择服务器")
+            return
+        sid = self.server_table.item(row, 0).text()
+        path = get_default_servers_path()
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        srv = data.get("servers", {}).get(sid, {})
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"编辑服务器: {sid}")
+        dlg.setMinimumWidth(400)
+        form = QFormLayout(dlg)
+
+        host_edit = QLineEdit(srv.get("host", ""))
+        port_edit = QSpinBox()
+        port_edit.setRange(1, 65535)
+        port_edit.setValue(srv.get("port", 22))
+        user_edit = QLineEdit(srv.get("username", ""))
+        auth_combo = QComboBox()
+        auth_combo.addItems(["key", "password"])
+        idx = auth_combo.findText(srv.get("auth_method", "key"))
+        if idx >= 0:
+            auth_combo.setCurrentIndex(idx)
+        key_edit = QLineEdit(srv.get("key_path", ""))
+
+        form.addRow("主机:", host_edit)
+        form.addRow("端口:", port_edit)
+        form.addRow("用户:", user_edit)
+        form.addRow("认证方式:", auth_combo)
+        form.addRow("密钥路径:", key_edit)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        data["servers"][sid] = {
+            "host": host_edit.text().strip(),
+            "port": port_edit.value(),
+            "username": user_edit.text().strip(),
+            "auth_method": auth_combo.currentText(),
+        }
+        if key_edit.text().strip():
+            data["servers"][sid]["key_path"] = key_edit.text().strip()
         path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self._load_servers()
 
