@@ -1431,11 +1431,45 @@ class FileTransferPage(QWidget):
     def _run_selected(self):
         self._run_selected_chunks(submit=True)
 
+    def _selected_local_entries(self) -> tuple[list[str], list[str]]:
+        """Return (files, dirs) of selected local paths."""
+        files: list[str] = []
+        dirs: list[str] = []
+        rows = sorted({idx.row() for idx in self.local_table.selectedIndexes()})
+        if not rows and self.local_table.currentRow() >= 0:
+            rows = [self.local_table.currentRow()]
+        for row in rows:
+            kind_item = self.local_table.item(row, 3)
+            name_item = self.local_table.item(row, 0)
+            path_item = self.local_table.item(row, 4)
+            if not kind_item or not path_item or (name_item and name_item.text() == ".."):
+                continue
+            if kind_item.text() == "dir":
+                dirs.append(path_item.text())
+            else:
+                files.append(path_item.text())
+        return files, dirs
+
     def _run_selected_chunks(self, submit: bool = True):
-        files, dirs = self._selected_remote_entries()
+        # Detect whether selection is local or remote
+        remote_files, remote_dirs = self._selected_remote_entries()
+        local_files, local_dirs = self._selected_local_entries()
+        use_local = (not remote_files and not remote_dirs) and (local_files or local_dirs)
+
+        if use_local:
+            if self._service is None or self._connected_server is None:
+                self._status_cb(tr("Connect to a server first", self._language))
+                return
+            files = []  # will be populated after upload in bg worker
+            dirs = []
+        else:
+            files = remote_files
+            dirs = remote_dirs
+
         reason = run_button_reason(
             self._service is not None and self._connected_server is not None,
-            len(files) + len(dirs) if self.run_mode_combo.currentData() != RunMode.current_directory.value else 1,
+            len(local_files) + len(local_dirs) if use_local else
+            (len(files) + len(dirs) if self.run_mode_combo.currentData() != RunMode.current_directory.value else 1),
             self.command_edit.currentText(),
         )
         if reason:
@@ -1447,23 +1481,94 @@ class FileTransferPage(QWidget):
         ) != QMessageBox.Yes:
             return
         local_base = self.state.current_project_root or Path.cwd()
+        remote_dir = self.remote_path.text().strip() or "/"
+        command_template = self.command_edit.currentText().strip()
+        max_parallel = self.max_parallel_spin.value()
+        run_mode = RunMode(self.run_mode_combo.currentData())
+        server_id = self._connected_server_id or ""
+        connected_server = self._connected_server
+        file_service = self._service
+
+        if use_local:
+            # Upload + create_run + submit all in background
+            local_paths_files = list(local_files)
+            local_paths_dirs = list(local_dirs)
+
+            def _run():
+                from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
+                ssh = create_ssh_client(connected_server)
+                ssh.connect()
+                sftp = create_sftp_client(ssh)
+                try:
+                    # 1. Upload
+                    self._status_cb("上传文件中...")
+                    uploaded_files = []
+                    uploaded_dirs = []
+                    for lp in local_paths_files:
+                        target = remote_child_path(remote_dir, Path(lp).name)
+                        file_service.upload_path(Path(lp), target, OverwritePolicy.skip_same_size)
+                        uploaded_files.append(target)
+                    for ld in local_paths_dirs:
+                        target = remote_child_path(remote_dir, Path(ld).name)
+                        file_service.upload_path(Path(ld), target, OverwritePolicy.skip_same_size)
+                        uploaded_dirs.append(target)
+                    # 2. Create run
+                    all_sources = [RunSource(path=p, is_dir=False) for p in uploaded_files] + [
+                        RunSource(path=p, is_dir=True) for p in uploaded_dirs
+                    ]
+                    chunks = chunk_sources(all_sources, 0)
+                    svc = RunService(local_base)
+                    run_records = []
+                    for chunk in chunks:
+                        spec = RunSpec(
+                            server_id=server_id,
+                            remote_dir=remote_dir,
+                            command_template=command_template,
+                            max_parallel=max_parallel,
+                            mode=run_mode,
+                            sources=chunk,
+                        )
+                        run_records.append(svc.create_run(spec))
+                    # 3. Submit
+                    results = []
+                    for record in run_records:
+                        results.append(svc.submit_run(
+                            record.run_id, ssh, sftp,
+                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                            scheduler=scheduler_from_server(connected_server),
+                            resources=resources_from_server(connected_server),
+                        ))
+                    return results
+                finally:
+                    sftp.close()
+                    ssh.close()
+
+            self._status_cb("提交中...")
+            self.worker = _BackgroundRunWorker(_run)
+            self.worker.result.connect(lambda results: self._on_runs_done(results))
+            self.worker.error.connect(lambda error: self._error_cb("Run Error", error))
+            self.worker.start()
+            self._save_remembered_profile()
+            self._save_command_history()
+            return
+
         all_sources = [RunSource(path=p, is_dir=False) for p in files] + [
             RunSource(path=p, is_dir=True) for p in dirs
         ]
-        if self.run_mode_combo.currentData() == RunMode.current_directory.value:
+        if run_mode == RunMode.current_directory:
             all_sources = []
         chunks = chunk_sources(all_sources, 0)
-        if self.run_mode_combo.currentData() == RunMode.current_directory.value:
+        if run_mode == RunMode.current_directory:
             chunks = [[]]
         service = RunService(local_base)
         run_records = []
         for chunk in chunks:
             spec = RunSpec(
-                server_id=self._connected_server_id or "",
-                remote_dir=self.remote_path.text().strip() or "/",
-                command_template=self.command_edit.currentText().strip(),
-                max_parallel=self.max_parallel_spin.value(),
-                mode=RunMode(self.run_mode_combo.currentData()),
+                server_id=server_id,
+                remote_dir=remote_dir,
+                command_template=command_template,
+                max_parallel=max_parallel,
+                mode=run_mode,
                 sources=chunk,
             )
             run_records.append(service.create_run(spec))
