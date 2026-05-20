@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from ...services.run_service import RunService
 from ...services.analysis_profiles import AnalysisProfileStore
 from ...services.comparison import compare_runs, export_csv, export_markdown
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 
 
@@ -20,12 +21,14 @@ def _fill_table(table: QTableWidget, field_names: list[str], rows: list[dict]) -
     table.clear()
     table.setColumnCount(len(field_names))
     table.setHorizontalHeaderLabels(field_names)
+    if isinstance(table, StyledTableWidget):
+        table.restore_column_widths("results.table")
     table.setRowCount(len(rows))
     for r, row in enumerate(rows):
         for c, key in enumerate(field_names):
             table.setItem(r, c, QTableWidgetItem(str(row.get(key, ""))))
-    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-    table.horizontalHeader().setStretchLastSection(True)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+    table.horizontalHeader().setStretchLastSection(False)
 
 
 class ResultsPage(QWidget):
@@ -78,10 +81,10 @@ class ResultsPage(QWidget):
         self.run_list.setMinimumWidth(140)
         splitter.addWidget(self.run_list)
 
-        self.result_table = QTableWidget()
+        self.result_table = StyledTableWidget()
         self.result_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.result_table.setAlternatingRowColors(True)
         self.result_table.verticalHeader().setVisible(False)
+        self.result_table.bind_column_widths("results.table")
         splitter.addWidget(self.result_table)
 
         splitter.setStretchFactor(0, 0)

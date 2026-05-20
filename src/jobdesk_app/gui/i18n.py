@@ -76,6 +76,7 @@ ZH: dict[str, str] = {
     "Server:": "\u670d\u52a1\u5668:",
     "Server": "\u670d\u52a1\u5668",
     "Server ID:": "\u670d\u52a1\u5668ID:",
+    "Server Profiles": "\u670d\u52a1\u5668\u914d\u7f6e",
     "Servers": "\u670d\u52a1\u5668",
     "Settings": "\u8bbe\u7f6e",
     "Show Logs": "\u663e\u793a\u65e5\u5fd7",

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QColor, QPainter
+from dataclasses import replace
+
+from PySide6.QtCore import QEvent, Qt, Signal, QSize
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QLabel, QPushButton,
-    QVBoxLayout, QWidget,
+    QFrame, QGraphicsDropShadowEffect, QHeaderView, QLabel, QPushButton,
+    QTableWidget, QVBoxLayout, QWidget,
 )
 
 from .icons import get_icon
 from .tokens import Colors, Metrics, Radius, Shadow, Spacing
+from ...services.gui_settings import GuiSettingsStore
 
 
 class Card(QFrame):
@@ -64,6 +67,183 @@ class PrimaryButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
 
 
+class _GridHeaderView(QHeaderView):
+    """Header that draws table grid lines from section geometry."""
+
+    def __init__(self, orientation: Qt.Orientation, parent: QWidget | None = None):
+        super().__init__(orientation, parent)
+        self._grid_color = QColor("#94a3b8")
+
+    def set_grid_color(self, color: str | QColor) -> None:
+        self._grid_color = QColor(color)
+        self.viewport().update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if self.orientation() != Qt.Horizontal:
+            return
+
+        first_x, last_x, left_edges = self._visible_section_edges()
+        if first_x is None or last_x is None:
+            return
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.setPen(QPen(self._grid_color, 1))
+        y_top = 0
+        y_bottom = self.height() - 1
+        for x in left_edges:
+            painter.drawLine(x, y_top, x, y_bottom)
+        painter.drawLine(last_x, y_top, last_x, y_bottom)
+        painter.drawLine(first_x, y_top, last_x, y_top)
+        painter.drawLine(first_x, y_bottom, last_x, y_bottom)
+        painter.end()
+
+    def _visible_section_edges(self) -> tuple[int | None, int | None, list[int]]:
+        left_edges: list[int] = []
+        first_x: int | None = None
+        last_x: int | None = None
+        for logical in range(self.count()):
+            if self.isSectionHidden(logical):
+                continue
+            section_left = self.sectionViewportPosition(logical)
+            w = self.sectionSize(logical)
+            if section_left + w <= 0 or section_left >= self.viewport().width():
+                continue
+            x = max(0, section_left)
+            right = min(self.viewport().width() - 1, section_left + w - 1)
+            left_edges.append(x)
+            first_x = x if first_x is None else min(first_x, x)
+            last_x = right if last_x is None else max(last_x, right)
+        return first_x, last_x, left_edges
+
+
+class StyledTableWidget(QTableWidget):
+    """Transparent table with crisp, aligned grid lines."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._grid_color = QColor("#94a3b8")
+        self._column_width_key: str | None = None
+        self._restoring_column_widths = False
+        self.setHorizontalHeader(_GridHeaderView(Qt.Horizontal, self))
+        self.setShowGrid(False)
+        self.setStyleSheet(
+            "QTableWidget { background: transparent; border: none; border-radius: 0; }"
+            " QTableWidget::item { background: transparent; }"
+            " QTableCornerButton::section { background: transparent; border: none; }"
+            " QHeaderView { background: transparent; border: none; }"
+            " QHeaderView::section { background: transparent; border: none; font-weight: normal; }"
+        )
+
+    def bind_column_widths(self, key: str, default_widths: list[int] | None = None) -> None:
+        self._column_width_key = key
+        self.restore_column_widths(key, default_widths)
+        self.horizontalHeader().sectionResized.connect(self._save_bound_column_widths)
+
+    def restore_column_widths(self, key: str, default_widths: list[int] | None = None) -> None:
+        settings = GuiSettingsStore().load()
+        widths = (settings.column_widths or {}).get(key) or default_widths or []
+        if not widths:
+            return
+
+        self._restoring_column_widths = True
+        try:
+            for column, width in enumerate(widths):
+                if column < self.columnCount() and width > 0:
+                    self.horizontalHeader().resizeSection(column, width)
+        finally:
+            self._restoring_column_widths = False
+
+    def save_column_widths(self, key: str) -> None:
+        if self._restoring_column_widths:
+            return
+        settings_store = GuiSettingsStore()
+        settings = settings_store.load()
+        widths = dict(settings.column_widths or {})
+        widths[key] = [
+            self.horizontalHeader().sectionSize(column)
+            for column in range(self.columnCount())
+        ]
+        settings_store.save(replace(settings, column_widths=widths))
+
+    def _save_bound_column_widths(self) -> None:
+        if self._column_width_key:
+            self.save_column_widths(self._column_width_key)
+
+    def set_grid_color(self, color: str | QColor) -> None:
+        self._grid_color = QColor(color)
+        header = self.horizontalHeader()
+        if isinstance(header, _GridHeaderView):
+            header.set_grid_color(self._grid_color)
+        self.viewport().update()
+
+    def viewportEvent(self, event) -> bool:  # noqa: N802
+        handled = super().viewportEvent(event)
+        if event.type() == QEvent.Paint:
+            self._paint_viewport_grid()
+        return handled
+
+    def _paint_viewport_grid(self) -> None:
+        first_x, last_x, left_edges = self._visible_column_edges()
+        if first_x is None or last_x is None:
+            return
+
+        last_y = self._last_visible_row_bottom()
+        if last_y is None:
+            return
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.setPen(QPen(self._grid_color, 1))
+        for x in left_edges:
+            painter.drawLine(x, 0, x, last_y)
+        painter.drawLine(last_x, 0, last_x, last_y)
+
+        for row in range(self.rowCount()):
+            if self.isRowHidden(row):
+                continue
+            y = self.rowViewportPosition(row)
+            h = self.rowHeight(row)
+            if y >= self.viewport().height() or y + h <= 0:
+                continue
+            bottom = min(self.viewport().height() - 1, y + h - 1)
+            painter.drawLine(first_x, bottom, last_x, bottom)
+        painter.end()
+
+    def _visible_column_edges(self) -> tuple[int | None, int | None, list[int]]:
+        header = self.horizontalHeader()
+        left_edges: list[int] = []
+        first_x: int | None = None
+        last_x: int | None = None
+        for logical in range(self.columnCount()):
+            if self.isColumnHidden(logical):
+                continue
+            section_left = header.sectionViewportPosition(logical)
+            w = header.sectionSize(logical)
+            if section_left + w <= 0 or section_left >= self.viewport().width():
+                continue
+            x = max(0, section_left)
+            right = min(self.viewport().width() - 1, section_left + w - 1)
+            left_edges.append(x)
+            first_x = x if first_x is None else min(first_x, x)
+            last_x = right if last_x is None else max(last_x, right)
+        return first_x, last_x, left_edges
+
+    def _last_visible_row_bottom(self) -> int | None:
+        last_y: int | None = None
+        for row in range(self.rowCount()):
+            if self.isRowHidden(row):
+                continue
+            y = self.rowViewportPosition(row)
+            h = self.rowHeight(row)
+            if y >= self.viewport().height() or y + h <= 0:
+                continue
+            bottom = min(self.viewport().height() - 1, y + h - 1)
+            last_y = bottom if last_y is None else max(last_y, bottom)
+        return last_y
+
+
 # ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 
@@ -102,7 +282,7 @@ class _SidebarItem(QWidget):
 
         if self._active:
             p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_HOVER))
-            p.fillRect(0, 8, 3, h - 16, QColor(Colors.SIDEBAR_INDICATOR))
+            p.fillRect(0, 0, 3, h, QColor(Colors.SIDEBAR_INDICATOR))
 
         color = Colors.SIDEBAR_TEXT_ACTIVE if self._active else Colors.SIDEBAR_TEXT
         icon = get_icon(self._icon_name, color, Metrics.SIDEBAR_ICON_SIZE)

@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from ..workers import BackgroundWorker
 from ..session import create_ssh_client
 from ...config.servers import load_servers, get_default_servers_path
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 
 
@@ -37,12 +38,13 @@ class ServersPage(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table = QTableWidget()
+        self.table = StyledTableWidget()
         self.table.setColumnCount(7)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.bind_column_widths("servers", [120, 220, 80, 140, 140, 140, 120])
         self.table.currentItemChanged.connect(lambda cur, _: self._on_row_changed(self.table.row(cur) if cur else -1))
         left_layout.addWidget(self.table)
 
@@ -143,7 +145,6 @@ class ServersPage(QWidget):
             self.table.setItem(r, 4, QTableWidgetItem(srv.auth_method.value))
             self.table.setItem(r, 5, QTableWidgetItem(sched))
             self.table.setItem(r, 6, QTableWidgetItem(""))
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
 
     def _on_row_changed(self, row: int):
         """Populate scheduler panel from selected server's config."""

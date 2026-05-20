@@ -26,6 +26,7 @@ from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 
@@ -335,10 +336,8 @@ class FileTransferPage(QWidget):
         self.remote_table.drop_files.connect(self._download_dropped_remote_paths)
         _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
         _setup_table(self.remote_table, self._translated_table_headers("remote"), hidden_columns=[4, 5])
-        self._restore_column_widths(self.local_table, "files.local")
-        self._restore_column_widths(self.remote_table, "files.remote")
-        self.local_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_column_widths(self.local_table, "files.local"))
-        self.remote_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_column_widths(self.remote_table, "files.remote"))
+        self.local_table.bind_column_widths("files.local", _clamp_column_widths("files.local", _default_column_widths("files.local")))
+        self.remote_table.bind_column_widths("files.remote", _clamp_column_widths("files.remote", _default_column_widths("files.remote")))
         self.local_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.remote_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.local_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1800,7 +1799,7 @@ class _ConnectedSFTP:
         self._ssh.close()
 
 
-class _FileTable(QTableWidget):
+class _FileTable(StyledTableWidget):
     drop_files = Signal(list)
     key_delete = Signal()
     key_enter = Signal()

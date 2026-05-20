@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QTimer
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..workers import BackgroundWorker as _BackgroundRunWorker
@@ -76,7 +77,7 @@ class RunsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
 
-        self.table = QTableWidget()
+        self.table = StyledTableWidget()
         self.table.setColumnCount(8)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
@@ -88,8 +89,7 @@ class RunsPage(QWidget):
         self.table.setColumnHidden(4, True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
-        self._restore_column_widths()
-        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_column_widths())
+        self.table.bind_column_widths("runs.table", [120, 80, 200, 0, 0, 200, 200, 160])
         layout.addWidget(self.table)
 
         # Workflow toolbar
@@ -516,5 +516,3 @@ class RunsPage(QWidget):
         worker = getattr(self, "worker", None)
         if worker is not None and hasattr(worker, "stop_safely"):
             worker.stop_safely()
-
-

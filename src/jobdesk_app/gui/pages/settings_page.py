@@ -12,6 +12,7 @@ from PySide6.QtCore import Signal
 from ...config.servers import get_default_servers_path
 from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ...services.run_profiles import RunProfileStore
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 
 
@@ -86,12 +87,13 @@ class SettingsPage(QWidget):
         # ── Paths ─────────────────────────────────────────────────────────
         self.paths_box = QGroupBox()
         paths_layout = QVBoxLayout(self.paths_box)
-        self.table = QTableWidget()
+        self.table = StyledTableWidget()
         self.table.setColumnCount(2)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.bind_column_widths("settings.paths", [180, 520])
         paths_layout.addWidget(self.table)
         layout.addWidget(self.paths_box, 1)
 

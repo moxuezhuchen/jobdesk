@@ -16,6 +16,7 @@ from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..design.components import StyledTableWidget
 
 
 def _format_status(summary: dict[str, int], language: str = "zh") -> str:
@@ -71,34 +72,23 @@ class RunsResultsPage(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(6)
 
-        self.table = QTableWidget()
+        self.table = StyledTableWidget()
         self.table.setColumnCount(6)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.currentCellChanged.connect(self._on_run_selected)
-        self.table.setStyleSheet(
-            "QTableWidget { background: transparent; border: none;"
-            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
-            " QTableWidget::item { background: transparent; }"
-        )
-        self.table.horizontalHeader().setStyleSheet(
-            "QHeaderView { background: transparent; }"
-            " QHeaderView::section { background: transparent; border: none;"
-            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
-        )
-        self._restore_runs_column_widths()
-        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._save_runs_column_widths())
+        self.table.bind_column_widths("runs_v2", [140, 100, 260, 180, 220, 160])
 
         table_card = QWidget()
         table_card.setObjectName("RunsTableCard")
         table_card.setStyleSheet(
-            "#RunsTableCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#RunsTableCard { background: #e2e8f0; border: none; border-radius: 12px; }"
         )
         table_card_layout = QVBoxLayout(table_card)
         table_card_layout.setContentsMargins(16, 12, 16, 12)
@@ -109,7 +99,7 @@ class RunsResultsPage(QWidget):
         btn_card = QWidget()
         btn_card.setObjectName("BtnCard")
         btn_card.setStyleSheet(
-            "#BtnCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#BtnCard { background: #e2e8f0; border: none; border-radius: 12px; }"
             " #BtnCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
             " #BtnCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
@@ -136,14 +126,8 @@ class RunsResultsPage(QWidget):
         bottom = QWidget()
         bottom.setObjectName("ResultsCard")
         bottom.setStyleSheet(
-            "#ResultsCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#ResultsCard { background: #e2e8f0; border: none; border-radius: 12px; }"
             " #ResultsCard QLabel { background: transparent; }"
-            " #ResultsCard QTableWidget { background: transparent; border: none;"
-            "   alternate-background-color: transparent; gridline-color: #94a3b8; }"
-            " #ResultsCard QTableWidget::item { background: transparent; }"
-            " #ResultsCard QHeaderView { background: transparent; }"
-            " #ResultsCard QHeaderView::section { background: transparent; border: none;"
-            "   border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
             " #ResultsCard QTextEdit { background: transparent; border: none; }"
         )
         bottom_layout = QVBoxLayout(bottom)
@@ -154,9 +138,10 @@ class RunsResultsPage(QWidget):
         self.result_label.setStyleSheet("color: #0f172a; font-weight: 600;")
         bottom_layout.addWidget(self.result_label)
 
-        self.result_table = QTableWidget()
+        self.result_table = StyledTableWidget()
         self.result_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.result_table.verticalHeader().setVisible(False)
+        self.result_table.bind_column_widths("runs_results.preview")
         bottom_layout.addWidget(self.result_table)
 
         self.result_text = QTextEdit()
@@ -460,11 +445,12 @@ class RunsResultsPage(QWidget):
         headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", tr("Normal Term", self._language)]
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
+        self.result_table.restore_column_widths("runs_results.preview")
         self.result_table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, val in enumerate(row):
                 self.result_table.setItem(r, c, QTableWidgetItem(val))
-        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
     def _load_tsv(self, path: Path):
         with open(path, "r", newline="", encoding="utf-8") as f:
@@ -476,11 +462,12 @@ class RunsResultsPage(QWidget):
         data = rows[1:]
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
+        self.result_table.restore_column_widths("runs_results.preview")
         self.result_table.setRowCount(len(data))
         for r, row in enumerate(data):
             for c, val in enumerate(row):
                 self.result_table.setItem(r, c, QTableWidgetItem(val))
-        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
     def _auto_refresh_active(self):
         """Periodically refresh status for submitted/running runs."""

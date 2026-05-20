@@ -12,6 +12,7 @@ from PySide6.QtGui import QPainter, QColor
 
 from ...config.servers import load_servers, get_default_servers_path
 from ...services.gui_settings import GuiSettingsStore
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..workers import BackgroundWorker
 from ..session import create_ssh_client
@@ -73,7 +74,7 @@ class SettingCard(QFrame):
         super().__init__()
         self.setObjectName("SettingCard")
         self.setStyleSheet(
-            "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
+            "#SettingCard { background: #e2e8f0; border: none; border-radius: 12px; }"
             " #SettingCard QLabel { background: transparent; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
@@ -173,58 +174,9 @@ class SettingsServersPage(QWidget):
         self._card_dotfiles = SettingCard(tr("Hide Dotfiles", self._language), tr("Hide files starting with . in remote listing", self._language), toggle_ctrl)
         layout.addWidget(self._card_dotfiles)
 
-        # ─── 软件配置 ───
+        # ─── 服务器配置 ───
         layout.addSpacing(12)
-        dl_header = QHBoxLayout()
-        self._dl_title = QLabel(tr("Software Profiles", self._language))
-        self._dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
-        dl_header.addWidget(self._dl_title)
-        self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
-        self._dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
-        dl_header.addWidget(self._dl_desc)
-        dl_header.addStretch()
-        layout.addLayout(dl_header)
-        layout.addSpacing(4)
-
-        self.profile_table = QTableWidget()
-        self.profile_table.setColumnCount(4)
-        self.profile_table.setHorizontalHeaderLabels([tr("Name", self._language), tr("Input Ext", self._language), tr("Command", self._language), tr("Output Ext", self._language)])
-        self.profile_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.profile_table.horizontalHeader().setStretchLastSection(False)
-        self.profile_table.horizontalHeader().resizeSection(0, 120)
-        self.profile_table.horizontalHeader().resizeSection(1, 140)
-        self.profile_table.horizontalHeader().resizeSection(2, 300)
-        self.profile_table.horizontalHeader().resizeSection(3, 100)
-        self.profile_table.verticalHeader().setVisible(False)
-        self.profile_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.profile_table.setMaximumHeight(160)
-        self.profile_table.setStyleSheet(
-            "QTableWidget { background: #e2e8f0; border: none;"
-            " alternate-background-color: #e2e8f0; gridline-color: #94a3b8; }"
-            " QTableWidget::item { background: #e2e8f0; }"
-        )
-        self.profile_table.horizontalHeader().setStyleSheet(
-            "QHeaderView { background: #e2e8f0; }"
-            " QHeaderView::section { background: #e2e8f0; border: none;"
-            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
-        )
-        layout.addWidget(self.profile_table)
-        self._restore_profile_column_widths()
-        self.profile_table.horizontalHeader().sectionResized.connect(lambda *_: self._save_profile_column_widths())
-
-        profile_btns = QHBoxLayout()
-        self._add_profile_btn = QPushButton(tr("Add", self._language))
-        self._add_profile_btn.clicked.connect(self._add_profile_row)
-        self._del_profile_btn = QPushButton(tr("Delete", self._language))
-        self._del_profile_btn.clicked.connect(self._del_profile_row)
-        profile_btns.addWidget(self._add_profile_btn)
-        profile_btns.addWidget(self._del_profile_btn)
-        profile_btns.addStretch()
-        layout.addLayout(profile_btns)
-
-        # ─── 服务器 ───
-        layout.addSpacing(12)
-        self._srv_title = QLabel(tr("Servers", self._language))
+        self._srv_title = QLabel(tr("Server Profiles", self._language))
         self._srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
         layout.addWidget(self._srv_title)
         layout.addSpacing(4)
@@ -232,13 +184,7 @@ class SettingsServersPage(QWidget):
         srv_card = QFrame()
         srv_card.setObjectName("SettingCard")
         srv_card.setStyleSheet(
-            "#SettingCard { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
-            " #SettingCard QLabel { background: transparent; }"
-            " #SettingCard QTableWidget { background: transparent; border: none;"
-            "   alternate-background-color: transparent; }"
-            " #SettingCard QTableWidget::item { background: transparent; }"
-            " #SettingCard QHeaderView::section { background: transparent; }"
-            " #SettingCard QTableCornerButton::section { background: transparent; }"
+            "#SettingCard { background: #e2e8f0; border: none; border-radius: 12px; }"
             " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
             " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
             " #SettingCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
@@ -247,24 +193,15 @@ class SettingsServersPage(QWidget):
         srv_inner.setContentsMargins(16, 12, 16, 12)
         srv_inner.setSpacing(8)
 
-        self.server_table = QTableWidget()
+        self.server_table = StyledTableWidget()
         self.server_table.setColumnCount(5)
         self.server_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.server_table.verticalHeader().setVisible(False)
         self.server_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.server_table.setHorizontalHeaderLabels(["ID", tr("Host", self._language), tr("Port", self._language), tr("User", self._language), tr("Status", self._language)])
-        self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.server_table.setMaximumHeight(200)
-        self.server_table.setStyleSheet(
-            "QTableWidget { background: transparent; border: none;"
-            " alternate-background-color: transparent; gridline-color: #94a3b8; }"
-            " QTableWidget::item { background: transparent; }"
-        )
-        self.server_table.horizontalHeader().setStyleSheet(
-            "QHeaderView { background: transparent; }"
-            " QHeaderView::section { background: transparent; border: none;"
-            " border-bottom: 1px solid #94a3b8; border-right: 1px solid #94a3b8; }"
-        )
+        self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.server_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.server_table.bind_column_widths("settings.servers", [120, 260, 80, 180, 120])
         srv_inner.addWidget(self.server_table)
 
         srv_btns = QHBoxLayout()
@@ -284,7 +221,57 @@ class SettingsServersPage(QWidget):
         srv_inner.addLayout(srv_btns)
 
         layout.addWidget(srv_card)
-        layout.addStretch()
+
+        # ─── 软件配置 ───
+        layout.addSpacing(12)
+        dl_header = QHBoxLayout()
+        self._dl_title = QLabel(tr("Software Profiles", self._language))
+        self._dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        dl_header.addWidget(self._dl_title)
+        self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
+        self._dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
+        dl_header.addWidget(self._dl_desc)
+        dl_header.addStretch()
+        layout.addLayout(dl_header)
+        layout.addSpacing(4)
+
+        self.profile_table = StyledTableWidget()
+        self.profile_table.setColumnCount(4)
+        self.profile_table.setHorizontalHeaderLabels([tr("Name", self._language), tr("Input Ext", self._language), tr("Command", self._language), tr("Output Ext", self._language)])
+        self.profile_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.profile_table.horizontalHeader().setStretchLastSection(False)
+        self.profile_table.horizontalHeader().resizeSection(0, 120)
+        self.profile_table.horizontalHeader().resizeSection(1, 140)
+        self.profile_table.horizontalHeader().resizeSection(2, 300)
+        self.profile_table.horizontalHeader().resizeSection(3, 100)
+        self.profile_table.verticalHeader().setVisible(False)
+        self.profile_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.profile_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.profile_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.profile_table.bind_column_widths("software_profiles", [120, 140, 300, 100])
+        profile_btns = QHBoxLayout()
+        self._add_profile_btn = QPushButton(tr("Add", self._language))
+        self._add_profile_btn.clicked.connect(self._add_profile_row)
+        self._del_profile_btn = QPushButton(tr("Delete", self._language))
+        self._del_profile_btn.clicked.connect(self._del_profile_row)
+        profile_btns.addWidget(self._add_profile_btn)
+        profile_btns.addWidget(self._del_profile_btn)
+        profile_btns.addStretch()
+
+        profile_card = QFrame()
+        profile_card.setObjectName("ProfileCard")
+        profile_card.setStyleSheet(
+            "#ProfileCard { background: #e2e8f0; border: none; border-radius: 12px; }"
+            " #ProfileCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
+            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
+            " #ProfileCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
+        )
+        profile_card_inner = QVBoxLayout(profile_card)
+        profile_card_inner.setContentsMargins(16, 12, 16, 12)
+        profile_card_inner.setSpacing(8)
+        profile_card_inner.addWidget(self.profile_table)
+        profile_card_inner.addLayout(profile_btns)
+        layout.addWidget(profile_card)
 
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
@@ -327,7 +314,7 @@ class SettingsServersPage(QWidget):
         self._page_title.setText(tr("Settings", language))
         self._dl_title.setText(tr("Software Profiles", language))
         self._dl_desc.setText(tr("{name}=filename, {basename}=name without extension", language))
-        self._srv_title.setText(tr("Servers", language))
+        self._srv_title.setText(tr("Server Profiles", language))
         # Setting cards
         self._card_local.lbl_title.setText(tr("Local Directory", language))
         self._card_local.lbl_desc.setText(tr("Default save path for downloaded results", language))
@@ -371,6 +358,7 @@ class SettingsServersPage(QWidget):
             self.server_table.setItem(r, 2, QTableWidgetItem(str(srv.port)))
             self.server_table.setItem(r, 3, QTableWidgetItem(srv.username))
             self.server_table.setItem(r, 4, QTableWidgetItem(""))
+        self._fit_table_height(self.server_table)
 
     def _test_connection(self):
         try:
@@ -418,6 +406,14 @@ class SettingsServersPage(QWidget):
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
+    @staticmethod
+    def _fit_table_height(table):
+        """Set table fixed height to show all rows without internal scrolling."""
+        h = table.horizontalHeader().height() + 2
+        for i in range(table.rowCount()):
+            h += table.rowHeight(i)
+        table.setFixedHeight(h)
+
     def _load_settings(self):
         s = self._store.load()
         self.local_folder_edit.setText(s.default_local_folder)
@@ -435,6 +431,7 @@ class SettingsServersPage(QWidget):
             self.profile_table.setItem(row, 1, QTableWidgetItem(p.get("input_extensions", "")))
             self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
             self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
+        self._fit_table_height(self.profile_table)
 
     def _save_settings(self):
         from dataclasses import replace
@@ -479,11 +476,13 @@ class SettingsServersPage(QWidget):
     def _add_profile_row(self):
         row = self.profile_table.rowCount()
         self.profile_table.insertRow(row)
+        self._fit_table_height(self.profile_table)
 
     def _del_profile_row(self):
         row = self.profile_table.currentRow()
         if row >= 0:
             self.profile_table.removeRow(row)
+            self._fit_table_height(self.profile_table)
 
     def _browse(self):
         path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language), self.local_folder_edit.text())
