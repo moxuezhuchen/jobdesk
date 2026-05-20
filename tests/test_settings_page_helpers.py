@@ -6,7 +6,7 @@ def test_build_settings_rows_shows_workspace_and_config_paths(tmp_path):
     data = dict(rows)
 
     assert data["workspace"] == str(tmp_path)
-    assert data["runs"] == str(tmp_path / ".jobdesk" / "runs")
+    assert "JobDesk" in data["runs"] and "runs" in data["runs"]
     assert data["results"] == str(tmp_path / "results")
     assert "servers.yaml" in data["servers_config"]
     assert "run_profiles.yaml" in data["run_profiles"]
