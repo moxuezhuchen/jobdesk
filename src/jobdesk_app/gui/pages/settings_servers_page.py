@@ -188,7 +188,7 @@ class SettingsServersPage(QWidget):
             rl.setContentsMargins(16, 0, 16, 0)
             rl.setSpacing(8)
             lbl = QLabel(label)
-            lbl.setMinimumWidth(70)
+            lbl.setFixedWidth(80)
             rl.addWidget(lbl)
             ext = QLineEdit()
             ext.setPlaceholderText(ext_ph)
