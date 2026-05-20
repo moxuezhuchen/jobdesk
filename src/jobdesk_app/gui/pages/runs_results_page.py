@@ -483,11 +483,15 @@ class RunsResultsPage(QWidget):
 
     def _auto_refresh_active(self):
         """Periodically refresh status for submitted/running runs."""
+        if getattr(self, '_auto_refresh_running', False):
+            return
         workspace = self._workspace()
         runs = RunService(workspace).list_runs()
         active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
         if not active:
             return
+
+        self._auto_refresh_running = True
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
@@ -521,7 +525,14 @@ class RunsResultsPage(QWidget):
 
         from ..workers import BackgroundWorker
         worker = BackgroundWorker(_run)
-        worker.finished.connect(lambda _: self.refresh_run_list())
+
+        def _on_done():
+            self._auto_refresh_running = False
+            if worker in self._bg_workers:
+                self._bg_workers.remove(worker)
+            self.refresh_run_list()
+
+        worker.finished.connect(_on_done)
         worker.finished.connect(worker.deleteLater)
         self._bg_workers.append(worker)
         worker.start()
@@ -686,6 +697,7 @@ class RunsResultsPage(QWidget):
         self.result_text.setVisible(True)
 
     def shutdown(self):
+        self._refresh_timer.stop()
         self._monitor.stop_all()
         for w in list(getattr(self, "_bg_workers", [])):
             w.stop_safely(500)

@@ -929,6 +929,11 @@ class FileTransferPage(QWidget):
         if not ext:
             return
         profiles = self._gui_settings.software_profiles or {}
+        # Only auto-fill if command box is empty or already contains a profile template
+        current_cmd = self.command_edit.currentText().strip()
+        known_templates = {p.get("command_template", "") for p in profiles.values()}
+        if current_cmd and current_cmd not in known_templates:
+            return
         for profile in profiles.values():
             extensions = [e.strip().lower() for e in profile.get("input_extensions", "").split(",") if e.strip()]
             if ext in extensions:

@@ -136,7 +136,7 @@ class SSHClientWrapper:
                 if channel.recv_stderr_ready():
                     err_chunks.append(channel.recv_stderr(65536))
                 if not channel.recv_ready() and not channel.recv_stderr_ready() and not channel.exit_status_ready():
-                    time.sleep(0.01)
+                    time.sleep(0.05)
             # Drain remaining
             while channel.recv_ready():
                 out_chunks.append(channel.recv(65536))

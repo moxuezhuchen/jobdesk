@@ -557,14 +557,19 @@ class SettingsServersPage(QWidget):
             return
         if new_sid != sid:
             data["servers"].pop(sid, None)
-        data["servers"][new_sid] = {
+        # Preserve existing keys not shown in dialog (e.g. env_init_scripts)
+        existing = srv.copy() if new_sid == sid else {}
+        existing.update({
             "host": host_edit.text().strip(),
             "port": port_edit.value(),
             "username": user_edit.text().strip(),
             "auth_method": auth_combo.currentText(),
-        }
+        })
         if key_edit.text().strip():
-            data["servers"][new_sid]["key_path"] = key_edit.text().strip()
+            existing["key_path"] = key_edit.text().strip()
+        elif "key_path" in existing and not key_edit.text().strip():
+            existing.pop("key_path", None)
+        data["servers"][new_sid] = existing
         path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self._load_servers()
 
