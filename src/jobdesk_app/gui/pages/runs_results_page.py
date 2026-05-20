@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QMessageBox,
     QMenu, QTextEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
@@ -177,6 +177,11 @@ class RunsResultsPage(QWidget):
         self._monitor.task_done.connect(self._on_task_done)
         self._bg_workers: list = []
 
+        # Auto-refresh timer for active runs
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._auto_refresh_active)
+        self._refresh_timer.setInterval(15000)
+
     def _start_monitoring(self):
         """Watch all running runs."""
         try:
@@ -243,6 +248,7 @@ class RunsResultsPage(QWidget):
         self._language = GuiSettingsStore().load().language
         self.refresh_run_list()
         self._start_monitoring()
+        self._refresh_timer.start()
 
     def apply_language(self, language: str):
         self._language = language
@@ -470,6 +476,51 @@ class RunsResultsPage(QWidget):
             for c, val in enumerate(row):
                 self.result_table.setItem(r, c, QTableWidgetItem(val))
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+
+    def _auto_refresh_active(self):
+        """Periodically refresh status for submitted/running runs."""
+        workspace = self._workspace()
+        runs = RunService(workspace).list_runs()
+        active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
+        if not active:
+            return
+
+        def _run():
+            from ...remote.status_refresh import refresh_batch_status
+            cfg = load_servers()
+            for record in active:
+                srv = cfg.servers.get(record.server_id)
+                if not srv:
+                    continue
+                try:
+                    ssh = create_ssh_client(srv)
+                    ssh.connect()
+                    sftp = create_sftp_client(ssh)
+                    try:
+                        refresh_batch_status(
+                            ssh=ssh,
+                            manifest_path=record.manifest_path,
+                            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                            batch_id=record.run_id,
+                            write=True,
+                        )
+                        RunService(workspace).update_run_from_manifest(record.run_id)
+                        updated = RunService(workspace).load_run(record.run_id)
+                        if updated.status_summary.get("remote_completed", 0) > 0:
+                            patterns = self._get_download_patterns(record)
+                            RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                    finally:
+                        sftp.close()
+                        ssh.close()
+                except Exception:
+                    pass
+
+        from ..workers import BackgroundWorker
+        worker = BackgroundWorker(_run)
+        worker.finished.connect(lambda _: self.refresh_run_list())
+        worker.finished.connect(worker.deleteLater)
+        self._bg_workers.append(worker)
+        worker.start()
 
     def _refresh_status(self):
         record = self._selected_record()
