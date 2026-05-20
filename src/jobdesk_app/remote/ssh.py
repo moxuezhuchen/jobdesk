@@ -117,23 +117,26 @@ class SSHClientWrapper:
             raise SSHConnectionError("未连接，请先调用 connect()")
 
         t0 = time.monotonic()
+        _timeout = timeout or self._timeout
         try:
             stdin, stdout, stderr = self._client.exec_command(
-                command, timeout=timeout or self._timeout
+                command, timeout=_timeout
             )
             # Drain stdout and stderr concurrently to prevent deadlock
             channel = stdout.channel
-            channel.settimeout(timeout or self._timeout)
+            channel.settimeout(_timeout)
             out_chunks = []
             err_chunks = []
+            deadline = t0 + _timeout
             while not channel.exit_status_ready() or channel.recv_ready() or channel.recv_stderr_ready():
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"Command timed out after {_timeout}s")
                 if channel.recv_ready():
                     out_chunks.append(channel.recv(65536))
-                if channel.recv_stderr_ready():
+                elif channel.recv_stderr_ready():
                     err_chunks.append(channel.recv_stderr(65536))
-                if not channel.recv_ready() and not channel.recv_stderr_ready() and not channel.exit_status_ready():
-                    import time as _t
-                    _t.sleep(0.01)
+                else:
+                    time.sleep(0.01)
             # Drain remaining
             while channel.recv_ready():
                 out_chunks.append(channel.recv(65536))

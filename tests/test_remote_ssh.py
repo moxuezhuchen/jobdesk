@@ -137,7 +137,7 @@ class TestSSHClientWrapper:
         with patch("paramiko.SSHClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
-            stdout = _mock_stdout("fail")
+            stdout = _mock_stdout("fail", stderr_content="reason")
             stderr = _mock_stderr("reason")
             stdout.channel.recv_exit_status.return_value = 2
             mock_client.exec_command.return_value = (MagicMock(), stdout, stderr)
@@ -148,12 +148,33 @@ class TestSSHClientWrapper:
                 ssh.run("bad_cmd", check=True)
             assert exc_info.value.exit_code == 2
             assert "bad_cmd" in str(exc_info.value)
+            assert exc_info.value.stderr == "reason"
 
     def test_run_not_connected(self):
         server = _make_server()
         ssh = MockSSHWrapper(server)
         with pytest.raises(SSHConnectionError, match="未连接"):
             ssh.run("echo test")
+
+    def test_run_timeout_when_command_hangs(self):
+        server = _make_server()
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            # Channel that never produces output and never exits
+            channel = MagicMock()
+            channel.recv_ready = lambda: False
+            channel.recv_stderr_ready = lambda: False
+            channel.exit_status_ready = lambda: False
+            channel.settimeout = MagicMock()
+            stdout = MagicMock()
+            stdout.channel = channel
+            mock_client.exec_command.return_value = (MagicMock(), stdout, MagicMock())
+
+            ssh = MockSSHWrapper(server, timeout=0.05)
+            ssh.connect()
+            with pytest.raises(SSHCommandError):
+                ssh.run("hang", timeout=0.05)
 
     def test_connect_failure(self):
         server = _make_server()
