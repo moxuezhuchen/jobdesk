@@ -44,10 +44,6 @@ def _build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--dirs", nargs="+", default=[])
     cr.add_argument("--mode", default="selected_files", choices=[m.value for m in RunMode])
     cr.add_argument("--max-parallel", type=int, default=4)
-    cr.add_argument("--cpus", type=int, default=None, help="Override CPU cores per task")
-    cr.add_argument("--mem-mb", type=int, default=None, help="Override memory (MB) per task")
-    cr.add_argument("--walltime", type=int, default=None, help="Override walltime (minutes)")
-    cr.add_argument("--partition", default=None, help="Override scheduler partition/queue")
     cr.set_defaults(func=_cmd_run_create)
 
     for name, func in [

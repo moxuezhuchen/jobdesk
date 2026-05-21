@@ -169,6 +169,9 @@ class WorkflowRunner:
                 sources = self._extract_geometry_sources(
                     wf_run, step.input_from, step.command_template
                 )
+                if sources is None:
+                    # Cannot extract geometry — block this step
+                    continue
             else:
                 sources = [RunSource(path=s) for s in wf_run.sources]
 
@@ -200,15 +203,15 @@ class WorkflowRunner:
             summary = record.status_summary
             total = sum(summary.values())
             failed = summary.get("failed", 0)
-            completed = summary.get("downloaded", 0) + summary.get("analyzed", 0)
-            remote_done = summary.get("remote_completed", 0)
+            downloaded = summary.get("downloaded", 0) + summary.get("analyzed", 0)
             if failed > 0 and wf_run.step_status.get(step_name) == "running":
                 step = spec.step(step_name)
                 if step and step.on_failure == "stop":
                     wf_run.step_status[step_name] = "failed"
                 else:
-                    wf_run.step_status[step_name] = "completed"  # continue despite failure
-            elif completed + remote_done == total and total > 0:
+                    wf_run.step_status[step_name] = "completed"
+            elif downloaded == total and total > 0:
+                # Only mark completed when all results are downloaded locally
                 wf_run.step_status[step_name] = "completed"
         wf_run.save()
 
@@ -217,18 +220,25 @@ class WorkflowRunner:
         wf_run: WorkflowRun,
         from_step: str,
         command_template: str,
-    ) -> list[RunSource]:
-        """Extract final XYZ from upstream step results and return as RunSources."""
+    ) -> list[RunSource] | None:
+        """Extract final XYZ from upstream step results.
+
+        Returns None if geometry cannot be extracted (results not downloaded
+        or parsing failed). Caller must not proceed with original inputs.
+        """
         from ..core.parsers import parse_gaussian_log, parse_orca_out
         run_id = wf_run.step_run_ids.get(from_step)
         if not run_id:
-            return [RunSource(path=s) for s in wf_run.sources]
+            return None
 
         results_dir = self.workspace_dir / "results" / run_id
+        if not results_dir.exists():
+            return None
+
         sources: list[RunSource] = []
         cmd = command_template.lower().split()[0] if command_template.strip() else ""
 
-        for task_dir in sorted(results_dir.iterdir()) if results_dir.exists() else []:
+        for task_dir in sorted(results_dir.iterdir()):
             if not task_dir.is_dir():
                 continue
             # Find the output file
@@ -251,7 +261,7 @@ class WorkflowRunner:
                 )
                 sources.append(RunSource(path=str(xyz_path)))
 
-        return sources if sources else [RunSource(path=s) for s in wf_run.sources]
+        return sources if sources else None
 
 
 # ---- Built-in workflow templates -------------------------------------------
