@@ -15,6 +15,9 @@ jobdesk = "jobdesk_app.cli:main"
 jobdesk-gui = "jobdesk_app.gui.app:main"
 
 [project.optional-dependencies]
+chem = [
+    "rdkit-pypi>=2023.9",
+]
 dev = [
     "pytest>=8.0",
     "pytest-qt>=4.4",

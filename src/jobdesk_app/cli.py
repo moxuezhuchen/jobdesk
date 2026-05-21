@@ -44,6 +44,10 @@ def _build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--dirs", nargs="+", default=[])
     cr.add_argument("--mode", default="selected_files", choices=[m.value for m in RunMode])
     cr.add_argument("--max-parallel", type=int, default=4)
+    cr.add_argument("--cpus", type=int, default=None, help="Override CPU cores per task")
+    cr.add_argument("--mem-mb", type=int, default=None, help="Override memory (MB) per task")
+    cr.add_argument("--walltime", type=int, default=None, help="Override walltime (minutes)")
+    cr.add_argument("--partition", default=None, help="Override scheduler partition/queue")
     cr.set_defaults(func=_cmd_run_create)
 
     for name, func in [
@@ -59,6 +63,11 @@ def _build_parser() -> argparse.ArgumentParser:
         p.add_argument("workspace", type=Path)
         if name != "list":
             p.add_argument("run_id")
+        if name == "submit":
+            p.add_argument("--cpus", type=int, default=None)
+            p.add_argument("--mem-mb", type=int, default=None)
+            p.add_argument("--walltime", type=int, default=None)
+            p.add_argument("--partition", default=None)
         p.set_defaults(func=func)
 
     dl = run_sub.add_parser("download")
@@ -86,6 +95,12 @@ def _build_parser() -> argparse.ArgumentParser:
     wf_status.add_argument("workspace", type=Path)
     wf_status.add_argument("workflow_id")
     wf_status.set_defaults(func=_cmd_workflow_status)
+
+    wf_advance = wf_sub.add_parser("advance", help="Advance workflow: sync status, create & submit next steps")
+    wf_advance.add_argument("workspace", type=Path)
+    wf_advance.add_argument("workflow_id")
+    wf_advance.add_argument("--server", default=None, help="Override server (default: from workflow)")
+    wf_advance.set_defaults(func=_cmd_workflow_advance)
 
     # -- compare subcommand --
     cmp = sub.add_parser("compare", help="Compare results across runs")
@@ -216,12 +231,21 @@ def _cmd_run_submit(args) -> int:
     ssh.connect()
     sftp = create_sftp_client(ssh)
     from .services.scheduler_helpers import resources_from_server, scheduler_from_server
+    overrides = {}
+    if getattr(args, "cpus", None) is not None:
+        overrides["cpus"] = args.cpus
+    if getattr(args, "mem_mb", None) is not None:
+        overrides["memory_mb"] = args.mem_mb
+    if getattr(args, "walltime", None) is not None:
+        overrides["walltime_minutes"] = args.walltime
+    if getattr(args, "partition", None) is not None:
+        overrides["partition"] = args.partition
     try:
         result = RunService(args.workspace).submit_run(
             args.run_id, ssh, sftp,
             env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
             scheduler=scheduler_from_server(server),
-            resources=resources_from_server(server),
+            resources=resources_from_server(server, overrides or None),
         )
     finally:
         sftp.close()
@@ -317,6 +341,34 @@ def _cmd_workflow_list(args) -> int:
     return 0
 
 
+def _submit_workflow_steps(workspace, wf_run, started, server) -> list[str]:
+    """Submit runs created by workflow advance. Returns list of error strings."""
+    from .services.scheduler_helpers import resources_from_server, scheduler_from_server
+    errors = []
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    sftp = create_sftp_client(ssh)
+    try:
+        svc = RunService(workspace)
+        for step_name in started:
+            run_id = wf_run.step_run_ids.get(step_name)
+            if not run_id:
+                continue
+            try:
+                svc.submit_run(
+                    run_id, ssh, sftp,
+                    env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+                    scheduler=scheduler_from_server(server),
+                    resources=resources_from_server(server),
+                )
+            except Exception as exc:
+                errors.append(f"{step_name}: {exc}")
+    finally:
+        sftp.close()
+        ssh.close()
+    return errors
+
+
 def _cmd_workflow_run(args) -> int:
     from .services.workflow_service import BUILTIN_WORKFLOWS, WorkflowRunner
     spec = BUILTIN_WORKFLOWS.get(args.workflow_name)
@@ -325,10 +377,17 @@ def _cmd_workflow_run(args) -> int:
         return 2
     runner = WorkflowRunner(args.workspace)
     wf_run = runner.start(spec, args.server, args.remote_dir, args.files)
+    started = runner.advance(spec, wf_run)
+    if not started:
+        print(f"Workflow {wf_run.workflow_id} created but no steps ready to start")
+        return 0
+    # Submit each created run
+    server = _get_server_by_id(args, args.server)
+    errors = _submit_workflow_steps(args.workspace, wf_run, started, server)
     print(f"Started workflow {wf_run.workflow_id} ({spec.name})")
-    print(f"Steps: {', '.join(s.name for s in spec.steps)}")
-    print(f"Use 'jobdesk workflow status {args.workspace} {wf_run.workflow_id}' to check progress")
-    return 0
+    print(f"Submitted steps: {', '.join(started)}")
+    print(f"Use 'jobdesk workflow advance {args.workspace} {wf_run.workflow_id}' to advance after completion")
+    return 2 if errors else 0
 
 
 def _cmd_workflow_status(args) -> int:
@@ -343,6 +402,36 @@ def _cmd_workflow_status(args) -> int:
         run_id = wf_run.step_run_ids.get(step_name, "")
         print(f"  {step_name}: {status} (run={run_id})")
     return 0
+
+
+def _cmd_workflow_advance(args) -> int:
+    from .services.workflow_service import BUILTIN_WORKFLOWS, WorkflowRun, WorkflowRunner
+    try:
+        wf_run = WorkflowRun.load(args.workspace, args.workflow_id)
+    except FileNotFoundError:
+        print(f"Workflow not found: {args.workflow_id}")
+        return 2
+    spec = BUILTIN_WORKFLOWS.get(wf_run.workflow_name)
+    if spec is None:
+        print(f"Unknown workflow spec: {wf_run.workflow_name}")
+        return 2
+    runner = WorkflowRunner(args.workspace)
+    runner.sync_status(spec, wf_run)
+    started = runner.advance(spec, wf_run)
+    if not started:
+        done = all(s in ("completed", "failed") for s in wf_run.step_status.values())
+        if done and wf_run.step_status:
+            print("Workflow complete.")
+        else:
+            print("No steps ready to advance (dependencies not yet completed).")
+        return 0
+    server_id = args.server or wf_run.server_id
+    server = _get_server_by_id(args, server_id)
+    errors = _submit_workflow_steps(args.workspace, wf_run, started, server)
+    print(f"Advanced: {', '.join(started)}")
+    for e in errors:
+        print(f"  ERROR: {e}")
+    return 2 if errors else 0
 
 
 def _cmd_compare(args) -> int:

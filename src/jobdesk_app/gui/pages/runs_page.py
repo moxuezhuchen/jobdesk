@@ -2,12 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QCheckBox,
-    QSpinBox,
-)
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
@@ -21,8 +30,8 @@ from ..workers import BackgroundWorker as _BackgroundRunWorker
 def _send_notification(title: str, message: str) -> None:
     """Send a Windows system tray notification if possible."""
     try:
-        from PySide6.QtWidgets import QSystemTrayIcon, QApplication
         from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QApplication, QSystemTrayIcon
         app = QApplication.instance()
         if app is None:
             return
@@ -359,7 +368,7 @@ class RunsPage(QWidget):
             ssh = create_ssh_client(server)
             ssh.connect()
             sftp = create_sftp_client(ssh)
-            from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
+            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             try:
                 return RunService(workspace).submit_run(
                     record.run_id, ssh, sftp,
@@ -453,8 +462,8 @@ class RunsPage(QWidget):
 
     def _start_workflow(self):
         """Open WorkflowDialog and launch a workflow."""
+        from ...services.workflow_service import BUILTIN_WORKFLOWS, WorkflowRunner
         from ..dialogs.workflow_dialog import WorkflowDialog
-        from ...services.workflow_service import WorkflowRunner, BUILTIN_WORKFLOWS
 
         dlg = WorkflowDialog(self, workspace=self._workspace())
         if dlg.exec() != WorkflowDialog.Accepted:
@@ -468,7 +477,7 @@ class RunsPage(QWidget):
 
         workspace = self._workspace()
         runner = WorkflowRunner(workspace)
-        wf_run = runner.create(spec, dlg.server_id(), dlg.remote_dir(), dlg.input_file())
+        wf_run = runner.start(spec, dlg.server_id(), dlg.remote_dir(), [dlg.input_file()])
 
         # Advance: create first-step runs
         started = runner.advance(spec, wf_run)
