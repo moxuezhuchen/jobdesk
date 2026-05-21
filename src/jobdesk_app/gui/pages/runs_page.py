@@ -480,7 +480,7 @@ class RunsPage(QWidget):
         wf_run = runner.start(spec, dlg.server_id(), dlg.remote_dir(), [dlg.input_file()])
 
         # Advance: create first-step runs
-        started = runner.advance(spec, wf_run)
+        started, pending_uploads = runner.advance(spec, wf_run)
         if not started:
             self._status_cb("Workflow: no steps ready to start")
             return

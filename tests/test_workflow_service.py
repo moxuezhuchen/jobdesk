@@ -1,14 +1,12 @@
 """Tests for workflow chain (WorkflowSpec, WorkflowRun, WorkflowRunner)."""
-import tempfile
-from pathlib import Path
 import pytest
 
 from jobdesk_app.services.workflow_service import (
-    WorkflowStep,
-    WorkflowSpec,
+    BUILTIN_WORKFLOWS,
     WorkflowRun,
     WorkflowRunner,
-    BUILTIN_WORKFLOWS,
+    WorkflowSpec,
+    WorkflowStep,
 )
 
 
@@ -120,7 +118,7 @@ class TestWorkflowRunner:
         )
         runner = WorkflowRunner(tmp_path)
         wf_run = runner.start(spec, "srv", "/tmp/test", ["/remote/a.gjf"])
-        started = runner.advance(spec, wf_run, None, None)
+        started, _ = runner.advance(spec, wf_run, None, None)
         assert "opt" in started
         assert "freq" not in started  # freq depends on opt
 
@@ -138,14 +136,13 @@ class TestWorkflowRunner:
         # Simulate opt completing
         wf_run.step_status["opt"] = "completed"
         wf_run.save()
-        started = runner.advance(spec, wf_run, None, None)
+        started, _ = runner.advance(spec, wf_run, None, None)
         assert "freq" in started
 
     def test_sync_status_marks_completed(self, tmp_path):
-        from jobdesk_app.services.run_service import RunService
-        from jobdesk_app.core.run import RunSpec, RunMode, RunSource
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.services.run_service import RunService
 
         spec = WorkflowSpec(
             name="test",

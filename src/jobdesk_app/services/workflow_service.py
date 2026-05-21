@@ -141,17 +141,17 @@ class WorkflowRunner:
         wf_run: WorkflowRun,
         ssh_factory=None,
         sftp_factory=None,
-    ) -> list[str]:
+    ) -> tuple[list[str], dict[str, str]]:
         """Check which steps are ready to run and create their RunService runs.
 
-        This method only creates runs (no SSH needed). The caller is responsible
-        for submitting each created run via RunService.submit_run().
-
-        Returns list of step names that were started.
+        Returns (started_step_names, pending_uploads) where pending_uploads
+        maps local file paths to remote destination paths that must be
+        uploaded before submission.
         """
         from ..services.run_service import RunService
         svc = RunService(self.workspace_dir)
         started: list[str] = []
+        pending_uploads: dict[str, str] = {}
 
         for step in spec.topological_order():
             if step.name in wf_run.step_status:
@@ -166,12 +166,14 @@ class WorkflowRunner:
 
             # Determine sources for this step
             if step.input_from and step.input_from in wf_run.step_run_ids:
-                sources = self._extract_geometry_sources(
-                    wf_run, step.input_from, step.command_template
+                result = self._prepare_downstream_inputs(
+                    wf_run, step, spec,
                 )
-                if sources is None:
+                if result is None:
                     # Cannot extract geometry — block this step
                     continue
+                sources, uploads = result
+                pending_uploads.update(uploads)
             else:
                 sources = [RunSource(path=s) for s in wf_run.sources]
 
@@ -189,7 +191,7 @@ class WorkflowRunner:
             wf_run.save()
             started.append(step.name)
 
-        return started
+        return started, pending_uploads
 
     def sync_status(self, spec: WorkflowSpec, wf_run: WorkflowRun) -> None:
         """Update step_status from the underlying run manifests."""
@@ -215,18 +217,21 @@ class WorkflowRunner:
                 wf_run.step_status[step_name] = "completed"
         wf_run.save()
 
-    def _extract_geometry_sources(
+    def _prepare_downstream_inputs(
         self,
         wf_run: WorkflowRun,
-        from_step: str,
-        command_template: str,
-    ) -> list[RunSource] | None:
-        """Extract final XYZ from upstream step results.
+        step: "WorkflowStep",
+        spec: "WorkflowSpec",
+    ) -> tuple[list[RunSource], dict[str, str]] | None:
+        """Generate proper input files from upstream geometry for a downstream step.
 
-        Returns None if geometry cannot be extracted (results not downloaded
-        or parsing failed). Caller must not proceed with original inputs.
+        Returns (sources_with_remote_paths, {local_path: remote_path}) or None
+        if geometry cannot be extracted.
         """
+        from ..core.input_builder import GaussianInputSpec, OrcaInputSpec, build_gjf, build_inp
         from ..core.parsers import parse_gaussian_log, parse_orca_out
+
+        from_step = step.input_from
         run_id = wf_run.step_run_ids.get(from_step)
         if not run_id:
             return None
@@ -235,33 +240,77 @@ class WorkflowRunner:
         if not results_dir.exists():
             return None
 
+        # Determine upstream parser from the upstream step's command
+        upstream_step = spec.step(from_step)
+        upstream_cmd = (upstream_step.command_template if upstream_step else "").lower()
+
+        # Determine downstream input format from this step's command
+        cmd_base = step.command_template.lower().split()[0] if step.command_template.strip() else ""
+        is_orca_downstream = "orca" in cmd_base
+
+        # Infer job type from step name
+        step_keywords = _infer_job_keywords(step.name)
+
         sources: list[RunSource] = []
-        cmd = command_template.lower().split()[0] if command_template.strip() else ""
+        uploads: dict[str, str] = {}
+        staging_dir = self.workspace_dir / ".jobdesk" / "workflow_inputs" / wf_run.workflow_id / step.name
+        staging_dir.mkdir(parents=True, exist_ok=True)
 
         for task_dir in sorted(results_dir.iterdir()):
             if not task_dir.is_dir():
                 continue
-            # Find the output file
             log_files = list(task_dir.glob("*.log")) + list(task_dir.glob("*.out"))
             if not log_files:
                 continue
             log_file = log_files[0]
-            # Parse geometry
-            if "orca" in cmd:
+
+            # Parse geometry from upstream output
+            if "orca" in upstream_cmd:
                 result = parse_orca_out(log_file)
             else:
                 result = parse_gaussian_log(log_file)
-            if result.final_xyz and result.atom_symbols:
-                # Write XYZ to a local file for upload
-                xyz_path = task_dir / f"{task_dir.name}_opt.xyz"
-                n = len(result.atom_symbols)
-                xyz_path.write_text(
-                    f"{n}\n{task_dir.name} from {from_step}\n{result.final_xyz}\n",
-                    encoding="utf-8",
-                )
-                sources.append(RunSource(path=str(xyz_path)))
 
-        return sources if sources else None
+            if not result.final_xyz or not result.atom_symbols:
+                continue
+
+            # Write intermediate XYZ
+            xyz_path = staging_dir / f"{task_dir.name}.xyz"
+            n = len(result.atom_symbols)
+            xyz_path.write_text(
+                f"{n}\n{task_dir.name} from {from_step}\n{result.final_xyz}\n",
+                encoding="utf-8",
+            )
+
+            # Generate proper input file
+            if is_orca_downstream:
+                inp_name = f"{task_dir.name}_{step.name}.inp"
+                inp_path = staging_dir / inp_name
+                build_inp(xyz_path, OrcaInputSpec(keywords=f"! {step_keywords}"), output_path=inp_path)
+            else:
+                inp_name = f"{task_dir.name}_{step.name}.gjf"
+                inp_path = staging_dir / inp_name
+                build_gjf(xyz_path, GaussianInputSpec(job_keywords=step_keywords.split()), output_path=inp_path)
+
+            # Remote target path
+            remote_path = f"{wf_run.remote_dir.rstrip('/')}/{inp_name}"
+            sources.append(RunSource(path=remote_path))
+            uploads[str(inp_path)] = remote_path
+
+        return (sources, uploads) if sources else None
+
+
+def _infer_job_keywords(step_name: str) -> str:
+    """Infer Gaussian/ORCA job keywords from step name."""
+    name = step_name.lower()
+    if "opt" in name and "freq" in name:
+        return "opt freq"
+    if "freq" in name:
+        return "freq"
+    if "opt" in name:
+        return "opt"
+    if "sp" in name or "single" in name:
+        return "SP"
+    return "SP"
 
 
 # ---- Built-in workflow templates -------------------------------------------

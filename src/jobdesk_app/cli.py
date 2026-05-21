@@ -337,14 +337,23 @@ def _cmd_workflow_list(args) -> int:
     return 0
 
 
-def _submit_workflow_steps(workspace, wf_run, started, server) -> list[str]:
-    """Submit runs created by workflow advance. Returns list of error strings."""
+def _submit_workflow_steps(workspace, wf_run, started, server, pending_uploads=None) -> list[str]:
+    """Upload pending files and submit runs created by workflow advance."""
     from .services.scheduler_helpers import resources_from_server, scheduler_from_server
     errors = []
     ssh = create_ssh_client(server)
     ssh.connect()
     sftp = create_sftp_client(ssh)
     try:
+        # Upload generated input files to remote
+        if pending_uploads:
+            for local_path, remote_path in pending_uploads.items():
+                try:
+                    sftp.upload_file(Path(local_path), remote_path, overwrite=True)
+                except Exception as exc:
+                    errors.append(f"upload {Path(local_path).name}: {exc}")
+            if errors:
+                return errors
         svc = RunService(workspace)
         for step_name in started:
             run_id = wf_run.step_run_ids.get(step_name)
@@ -373,13 +382,13 @@ def _cmd_workflow_run(args) -> int:
         return 2
     runner = WorkflowRunner(args.workspace)
     wf_run = runner.start(spec, args.server, args.remote_dir, args.files)
-    started = runner.advance(spec, wf_run)
+    started, pending_uploads = runner.advance(spec, wf_run)
     if not started:
         print(f"Workflow {wf_run.workflow_id} created but no steps ready to start")
         return 0
     # Submit each created run
     server = _get_server_by_id(args, args.server)
-    errors = _submit_workflow_steps(args.workspace, wf_run, started, server)
+    errors = _submit_workflow_steps(args.workspace, wf_run, started, server, pending_uploads)
     print(f"Started workflow {wf_run.workflow_id} ({spec.name})")
     print(f"Submitted steps: {', '.join(started)}")
     print(f"Use 'jobdesk workflow advance {args.workspace} {wf_run.workflow_id}' to advance after completion")
@@ -413,7 +422,7 @@ def _cmd_workflow_advance(args) -> int:
         return 2
     runner = WorkflowRunner(args.workspace)
     runner.sync_status(spec, wf_run)
-    started = runner.advance(spec, wf_run)
+    started, pending_uploads = runner.advance(spec, wf_run)
     if not started:
         done = all(s in ("completed", "failed") for s in wf_run.step_status.values())
         if done and wf_run.step_status:
@@ -423,7 +432,7 @@ def _cmd_workflow_advance(args) -> int:
         return 0
     server_id = args.server or wf_run.server_id
     server = _get_server_by_id(args, server_id)
-    errors = _submit_workflow_steps(args.workspace, wf_run, started, server)
+    errors = _submit_workflow_steps(args.workspace, wf_run, started, server, pending_uploads)
     print(f"Advanced: {', '.join(started)}")
     for e in errors:
         print(f"  ERROR: {e}")
