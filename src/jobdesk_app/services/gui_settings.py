@@ -41,8 +41,8 @@ class GuiSettings:
             object.__setattr__(self, "last_remote_dirs", {})
         if self.software_profiles is None:
             object.__setattr__(self, "software_profiles", {
-                "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": ".log,.chk"},
-                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": ".out,.gbw"},
+                "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
+                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
             })
 
 
@@ -87,8 +87,8 @@ class GuiSettingsStore:
         # Migrate from old format
         old = raw.get("software_download_patterns", {}) or {}
         defaults = {
-            "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": ".log,.chk"},
-            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": ".out,.gbw"},
+            "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
+            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
         }
         for name, patterns in old.items():
             if name in defaults:

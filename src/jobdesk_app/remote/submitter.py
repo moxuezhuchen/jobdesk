@@ -11,9 +11,9 @@ import shlex
 from datetime import datetime
 from pathlib import Path
 
-from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
-from ..core.manifest import TaskRecord, Manifest
 from ..core.lifecycle import TaskStatus
+from ..core.manifest import Manifest, TaskRecord
+from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
 
 
 class JobSubmitter:
@@ -180,7 +180,7 @@ class JobSubmitter:
             f"echo 'batch_id: {shlex.quote(control_dir.rsplit('/', 2)[0].rsplit('/', 1)[-1])}'",
             f"echo 'task_count: {task_count}'",
             f"echo 'max_parallel: {max_parallel}'",
-            f"echo 'started_at: '\"$(date -Iseconds)\"",
+            "echo 'started_at: '\"$(date -Iseconds)\"",
             "",
             "# 从 tasks.tsv 提取 launch 脚本路径（第3列），跳过 header",
             "tail -n +2 tasks.tsv | cut -f3 > launch_list.txt",
@@ -200,7 +200,7 @@ class JobSubmitter:
             "# BATCH_FINISHED: 仅表示 batch_control.sh 运行结束",
             "# 每个 task 的实际成功/失败以 .jobdesk_status 和 .jobdesk_exit_code 为准",
             "echo 'BATCH_FINISHED'",
-            f"echo 'finished_at: '\"$(date -Iseconds)\"",
+            "echo 'finished_at: '\"$(date -Iseconds)\"",
             "exit \"$batch_rc\"",
             "",
         ]
@@ -216,7 +216,7 @@ class JobSubmitter:
         For nohup: returns empty string (batch_control.sh handles submission).
         For Slurm/PBS: returns a script with resource directives.
         """
-        from .scheduler import SlurmAdapter, PBSAdapter, NohupAdapter
+        from .scheduler import NohupAdapter, PBSAdapter, SlurmAdapter
         if isinstance(self._scheduler, NohupAdapter):
             return ""
         job_name = f"jd_{task.task_id[:16]}"
@@ -253,7 +253,7 @@ class JobSubmitter:
 
         cd_cmd = shlex.quote(control_dir)
         control_command = (
-            f"cd '{cd_cmd}' && nohup bash './batch_control.sh'"
+            f"cd {cd_cmd} && nohup bash './batch_control.sh'"
             f" > './batch_control.nohup.log' 2>&1 &"
         )
 

@@ -1,21 +1,37 @@
 from __future__ import annotations
 
-import posixpath
 import os
+import posixpath
 import shutil
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
-    QInputDialog, QMessageBox, QTextEdit, QSpinBox, QAbstractItemView,
-    QFileDialog, QSizePolicy, QAbstractSpinBox, QMenu,
-    QProgressBar,
-)
-from PySide6.QtCore import Qt, QTimer, QMimeData, QUrl, Signal
+from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDrag
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSpinBox,
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
@@ -29,7 +45,6 @@ from ...services.run_service import RunService
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
-
 
 CONTROL_HEIGHT = 44
 
@@ -603,7 +618,8 @@ class FileTransferPage(QWidget):
                 if idx >= 0:
                     self.server_combo.setCurrentIndex(idx)
         except Exception as exc:
-            self._error_cb("Servers Error", str(exc))
+            self._servers = {}
+            self._status_cb(f"No servers configured: {exc}")
 
     def _auto_connect_selected_server(self):
         if not self._gui_settings.auto_connect:
@@ -1004,7 +1020,9 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a .xyz file first")
             return
         import tempfile
-        tmp = Path(tempfile.mktemp(suffix=".xyz"))
+        f = tempfile.NamedTemporaryFile(suffix=".xyz", delete=False)
+        f.close()
+        tmp = Path(f.name)
         try:
             self._service.download_path(remote_path, str(tmp))
         except Exception as exc:
@@ -1046,7 +1064,9 @@ class FileTransferPage(QWidget):
         remote_path = path_item.text()
         import tempfile
         suffix = Path(remote_path).suffix or ".tmp"
-        tmp = Path(tempfile.mktemp(suffix=suffix))
+        f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        f.close()
+        tmp = Path(f.name)
         try:
             self._service.download_path(remote_path, str(tmp))
         except Exception as exc:
@@ -1366,7 +1386,9 @@ class FileTransferPage(QWidget):
         base = self.remote_path.text().strip().rstrip("/") or "/"
         remote_file = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
         import tempfile
-        tmp = Path(tempfile.mktemp(suffix=Path(name).suffix or ".tmp"))
+        f = tempfile.NamedTemporaryFile(suffix=Path(name).suffix or ".tmp", delete=False)
+        f.close()
+        tmp = Path(f.name)
         try:
             tmp.write_bytes(b"")
             self._service.upload_path(tmp, remote_file)
@@ -1531,7 +1553,7 @@ class FileTransferPage(QWidget):
             local_paths_dirs = list(local_dirs)
 
             def _run():
-                from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
+                from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
                 ssh = create_ssh_client(connected_server)
                 ssh.connect()
                 sftp = create_sftp_client(ssh)
@@ -1621,7 +1643,7 @@ class FileTransferPage(QWidget):
 
         def _run():
             results = []
-            from ...services.scheduler_helpers import scheduler_from_server, resources_from_server
+            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             for record in run_records:
                 ssh = create_ssh_client(self._connected_server)
                 ssh.connect()

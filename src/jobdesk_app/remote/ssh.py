@@ -4,16 +4,16 @@
 不包含业务逻辑，仅提供基础 SSH 通道。
 """
 
-import time
 import os
+import time
 from dataclasses import dataclass
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import paramiko
 
-from .errors import SSHConnectionError, SSHCommandError
 from ..config.schema import ServerConfig
+from .errors import SSHCommandError, SSHConnectionError
 
 
 @dataclass
@@ -25,6 +25,23 @@ class SSHResult:
     stdout: str
     stderr: str
     duration_seconds: float
+
+
+class _AutoAddAndSavePolicy(paramiko.MissingHostKeyPolicy):
+    """Trust-on-first-use: accept unknown keys and append to known_hosts."""
+
+    def __init__(self, known_hosts_path: Path):
+        self._path = known_hosts_path
+
+    def missing_host_key(self, client, hostname, key):
+        # Accept the key and persist it
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            host_keys = client.get_host_keys()
+            host_keys.add(hostname, key.get_name(), key)
+            host_keys.save(str(self._path))
+        except OSError:
+            pass  # Non-fatal: connection still proceeds
 
 
 class SSHClientWrapper:
@@ -45,7 +62,15 @@ class SSHClientWrapper:
     def connect(self) -> None:
         """建立 SSH 连接。失败时抛出 SSHConnectionError。"""
         self._client = paramiko.SSHClient()
-        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Load known_hosts; accept on first use and persist
+        known_hosts = Path(os.path.expanduser("~/.ssh/known_hosts"))
+        try:
+            if known_hosts.is_file():
+                self._client.load_host_keys(str(known_hosts))
+        except OSError:
+            pass
+        self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(known_hosts))
 
         connect_kwargs: dict[str, Any] = {
             "hostname": self._server.host,
@@ -165,7 +190,7 @@ class SSHClientWrapper:
 
         if check and exit_code != 0:
             raise SSHCommandError(
-                f"命令返回非零退出码",
+                "命令返回非零退出码",
                 command=command,
                 exit_code=exit_code,
                 stdout=stdout_str,

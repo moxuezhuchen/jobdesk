@@ -4,8 +4,7 @@ import pytest
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-from PySide6.QtCore import Qt
+from unittest.mock import MagicMock, patch
 
 
 @pytest.fixture
@@ -49,11 +48,10 @@ class TestRunsPage:
 
     def test_context_menu_has_refresh(self, runs_page, qtbot):
         """Right-click context menu should contain refresh action."""
-        from PySide6.QtWidgets import QMenu
-        with patch.object(QMenu, "exec"):
-            # Simulate right-click at (0,0) of viewport
-            from PySide6.QtCore import QPoint
-            runs_page._context_menu(QPoint(0, 0))
+        actions = runs_page._build_context_actions()
+        assert len(actions) == 4
+        # First action is refresh
+        assert actions[0][1] == runs_page._refresh_all
 
     def test_refresh_run_list_empty(self, runs_page):
         """refresh_run_list should not crash with no runs."""
@@ -66,15 +64,21 @@ class TestRunsPage:
         """Should return Gaussian patterns for g16 command."""
         record = MagicMock()
         record.command_template = "g16 {name}"
-        patterns = runs_page._get_download_patterns(record)
-        assert "*.log" in patterns[0] or "*.chk" in ",".join(patterns)
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
+            from jobdesk_app.services.gui_settings import GuiSettings
+            mock_store.return_value.load.return_value = GuiSettings()
+            patterns = runs_page._get_download_patterns(record)
+        assert "*.log" in patterns or "*.chk" in patterns
 
     def test_get_download_patterns_orca(self, runs_page):
         """Should return ORCA patterns for orca command."""
         record = MagicMock()
         record.command_template = "orca {name}"
-        patterns = runs_page._get_download_patterns(record)
-        assert "*.out" in patterns[0] or "*.gbw" in ",".join(patterns)
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
+            from jobdesk_app.services.gui_settings import GuiSettings
+            mock_store.return_value.load.return_value = GuiSettings()
+            patterns = runs_page._get_download_patterns(record)
+        assert "*.out" in patterns or "*.gbw" in patterns
 
 
 class TestFileTransferPage:

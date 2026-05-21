@@ -215,7 +215,7 @@ def _cmd_run_submit(args) -> int:
     ssh = create_ssh_client(server)
     ssh.connect()
     sftp = create_sftp_client(ssh)
-    from .services.scheduler_helpers import scheduler_from_server, resources_from_server
+    from .services.scheduler_helpers import resources_from_server, scheduler_from_server
     try:
         result = RunService(args.workspace).submit_run(
             args.run_id, ssh, sftp,
@@ -288,12 +288,8 @@ def _cmd_run_cancel(args) -> int:
 
 
 def _cmd_run_delete(args) -> int:
-    import shutil
     svc = RunService(args.workspace)
-    record = svc.load_run(args.run_id)
-    shutil.rmtree(record.run_dir)
-    results_dir = Path(args.workspace) / "results" / args.run_id
-    shutil.rmtree(results_dir, ignore_errors=True)
+    svc.delete_run(args.run_id)
     print(f"deleted run {args.run_id}")
     return 0
 
@@ -375,8 +371,11 @@ def _cmd_input_list_presets(args) -> int:
 
 def _cmd_input_build(args) -> int:
     from .core.input_builder import (
-        build_gjf, build_inp, build_from_preset,
-        GaussianInputSpec, OrcaInputSpec,
+        GaussianInputSpec,
+        OrcaInputSpec,
+        build_from_preset,
+        build_gjf,
+        build_inp,
     )
     if args.preset:
         content = build_from_preset(args.xyz_path, args.preset, args.output)
@@ -426,7 +425,7 @@ def _cmd_viewer_open(args) -> int:
 
 
 def _cmd_smiles_to_xyz(args) -> int:
-    from .core.viewer import smiles_to_xyz, is_rdkit_available
+    from .core.viewer import is_rdkit_available, smiles_to_xyz
     if not is_rdkit_available():
         print("rdkit is required. Install with: pip install rdkit-pypi")
         return 2
@@ -443,7 +442,7 @@ def _cmd_smiles_to_xyz(args) -> int:
 
 
 def _cmd_smiles_to_gjf(args) -> int:
-    from .core.viewer import smiles_to_gjf, is_rdkit_available
+    from .core.viewer import is_rdkit_available, smiles_to_gjf
     if not is_rdkit_available():
         print("rdkit is required. Install with: pip install rdkit-pypi")
         return 2

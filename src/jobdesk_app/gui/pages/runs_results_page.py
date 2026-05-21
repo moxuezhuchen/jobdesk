@@ -5,18 +5,28 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QMessageBox,
-    QMenu, QTextEdit,
-)
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...config.servers import load_servers
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
+from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
-from ..design.components import StyledTableWidget
 
 
 def _format_status(summary: dict[str, int], language: str = "zh") -> str:
@@ -262,6 +272,7 @@ class RunsResultsPage(QWidget):
 
     def _save_runs_column_widths(self):
         from dataclasses import replace
+
         from ...services.gui_settings import GuiSettingsStore
         store = GuiSettingsStore()
         current = store.load()
@@ -272,12 +283,19 @@ class RunsResultsPage(QWidget):
         ]
         store.save(replace(current, column_widths=widths))
 
+    def _build_context_actions(self) -> list[tuple[str, object]]:
+        """Return (label, callback) pairs for the context menu."""
+        return [
+            (tr("Refresh Status", self._language), self._refresh_all),
+            (tr("Rerun", self._language), self._rerun_all),
+            (tr("Show Logs", self._language), self._show_logs),
+            (tr("Show Paths", self._language), self._show_paths),
+        ]
+
     def _context_menu(self, pos):
         menu = QMenu(self)
-        menu.addAction(tr("Refresh Status", self._language), self._refresh_all)
-        menu.addAction(tr("Rerun", self._language), self._rerun_all)
-        menu.addAction(tr("Show Logs", self._language), self._show_logs)
-        menu.addAction(tr("Show Paths", self._language), self._show_paths)
+        for label, callback in self._build_context_actions():
+            menu.addAction(label, callback)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def _refresh_all(self):
@@ -358,8 +376,8 @@ class RunsResultsPage(QWidget):
 
     def _analyze_workspace_files(self, record: RunRecord, workspace: Path) -> list[list[str]]:
         """Analyze output files directly from workspace if they exist locally."""
-        from ...core.manifest import Manifest
         from ...core.lifecycle import TaskStatus
+        from ...core.manifest import Manifest
         from ...core.parsers.gaussian import parse_gaussian_log
         from ...core.parsers.orca import parse_orca_out
         manifest_path = record.manifest_path
