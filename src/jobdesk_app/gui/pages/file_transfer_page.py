@@ -68,7 +68,7 @@ def format_remote_size(size: int | None, is_dir: bool) -> str:
 def format_modified_time(timestamp: float | None) -> str:
     if timestamp is None:
         return ""
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def table_resize_mode_name() -> str:
@@ -500,10 +500,20 @@ class FileTransferPage(QWidget):
         layout.addWidget(main_splitter, 1)
 
         self._load_servers()
+
+        # Local directory auto-refresh via polling (QFileSystemWatcher doesn't
+        # detect writes from WSL /mnt/c/, so we poll instead)
+        self._local_poll_timer = QTimer(self)
+        self._local_poll_timer.setInterval(2000)
+        self._local_poll_timer.timeout.connect(self._check_local_changes)
+        self._local_poll_snapshot: dict[str, float] = {}
+        self._local_poll_timer.start()
+
         self._refresh_local()
         self._connect_selection_signals()
         self._allow_width_shrink()
         self._normalize_all_control_heights()
+
         if self._gui_settings.auto_connect:
             QTimer.singleShot(0, self._auto_connect_selected_server)
 
@@ -694,6 +704,23 @@ class FileTransferPage(QWidget):
         """Apply settings that don't touch the local folder or remote path."""
         self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
+
+    def _check_local_changes(self):
+        """Poll local directory for changes (handles WSL /mnt/c writes)."""
+        base = self.state.current_project_root or Path.cwd()
+        try:
+            snapshot = {}
+            for p in base.iterdir():
+                try:
+                    st = p.stat()
+                    snapshot[str(p)] = st.st_mtime_ns if hasattr(st, 'st_mtime_ns') else st.st_mtime
+                except (PermissionError, OSError):
+                    pass
+        except (PermissionError, OSError):
+            return
+        if snapshot != self._local_poll_snapshot:
+            self._local_poll_snapshot = snapshot
+            self._refresh_local()
 
     def _refresh_local(self):
         self._gui_settings = GuiSettingsStore().load()
