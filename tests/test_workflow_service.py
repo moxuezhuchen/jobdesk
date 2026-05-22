@@ -9,6 +9,7 @@ from jobdesk_app.services.workflow_service import (
     WorkflowRunner,
     WorkflowSpec,
     WorkflowStep,
+    read_events,
 )
 
 
@@ -437,3 +438,79 @@ class TestOrcaWorkflowSmoke:
         assert coord_lines[0].strip().startswith("O")
         assert coord_lines[1].strip().startswith("H")
         assert coord_lines[2].strip().startswith("H")
+
+
+
+# ---- Event recording tests ----
+
+
+class TestWorkflowEvents:
+    """Tests for workflow diagnostic event recording."""
+
+    def test_start_records_workflow_started(self, tmp_path):
+        spec = BUILTIN_WORKFLOWS["opt_freq"]
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/remote/test", ["/remote/a.gjf"])
+        events = read_events(tmp_path, wf_run.workflow_id)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "workflow_started"
+        assert events[0]["workflow_id"] == wf_run.workflow_id
+
+    def test_advance_records_step_started(self, tmp_path):
+        spec = WorkflowSpec(
+            name="test",
+            steps=[WorkflowStep(name="opt", command_template="g16 {name}")],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/tmp/t", ["/remote/a.gjf"])
+        runner.advance(spec, wf_run, None, None)
+        events = read_events(tmp_path, wf_run.workflow_id)
+        types = [e["event_type"] for e in events]
+        assert "step_started" in types
+        step_ev = next(e for e in events if e["event_type"] == "step_started")
+        assert step_ev["step_name"] == "opt"
+
+    def test_geometry_extraction_failure_records_event(self, tmp_path):
+        spec = WorkflowSpec(
+            name="test",
+            steps=[
+                WorkflowStep(name="opt", command_template="g16 {name}"),
+                WorkflowStep(name="freq", command_template="g16 {name}", depends_on=["opt"], input_from="opt"),
+            ],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/scratch/p", ["/remote/mol.gjf"])
+        runner.advance(spec, wf_run, None, None)
+        run_id = wf_run.step_run_ids["opt"]
+        # Invalid log has no geometry.
+        results_dir = tmp_path / "results" / run_id / "mol"
+        results_dir.mkdir(parents=True)
+        (results_dir / "mol.log").write_text("Convergence failure\n", encoding="utf-8")
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+        runner.advance(spec, wf_run, None, None)
+        events = read_events(tmp_path, wf_run.workflow_id)
+        types = [e["event_type"] for e in events]
+        assert "geometry_extraction_failed" in types
+
+    def test_downstream_input_generated_records_event(self, tmp_path):
+        spec = WorkflowSpec(
+            name="test",
+            steps=[
+                WorkflowStep(name="opt", command_template="g16 {name}"),
+                WorkflowStep(name="freq", command_template="g16 {name}", depends_on=["opt"], input_from="opt"),
+            ],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/scratch/p", ["/remote/mol.gjf"])
+        runner.advance(spec, wf_run, None, None)
+        run_id = wf_run.step_run_ids["opt"]
+        results_dir = tmp_path / "results" / run_id / "mol"
+        results_dir.mkdir(parents=True)
+        (results_dir / "mol.log").write_text(_VALID_GAUSSIAN_LOG, encoding="utf-8")
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+        runner.advance(spec, wf_run, None, None)
+        events = read_events(tmp_path, wf_run.workflow_id)
+        types = [e["event_type"] for e in events]
+        assert "downstream_input_generated" in types

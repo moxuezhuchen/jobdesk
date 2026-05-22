@@ -235,3 +235,83 @@ class TestWorkflowCLI:
             assert rc == 2
             out = capsys.readouterr().out
             assert "ERROR" in out
+
+
+
+    def test_workflow_status_shows_events(self, capsys):
+        server = _mock_server()
+        with tempfile.TemporaryDirectory() as workspace:
+            patches, _, _ = _workflow_patches(workspace, server)
+            with ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                main([
+                    "workflow", "run", workspace, "opt_freq",
+                    "--server", "srv", "--remote-dir", "/scratch/t",
+                    "--files", "/remote/a.gjf",
+                ])
+                out = capsys.readouterr().out
+
+                wf_id = re.search(r"Started workflow (\S+)", out).group(1)
+
+                rc = main(["workflow", "status", workspace, wf_id])
+            assert rc == 0
+            out = capsys.readouterr().out
+            assert "Recent events:" in out
+            assert "[workflow_started]" in out
+            assert "[step_started]" in out
+
+    def test_workflow_advance_upload_failure_records_event(self, capsys):
+        from jobdesk_app.services.workflow_service import WorkflowRun, read_events
+
+        server = _mock_server()
+        with tempfile.TemporaryDirectory() as workspace:
+            patches, _, mock_sftp = _workflow_patches(workspace, server)
+            with ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                main([
+                    "workflow", "run", workspace, "opt_freq",
+                    "--server", "srv", "--remote-dir", "/scratch/t",
+                    "--files", "/remote/mol.gjf",
+                ])
+                out = capsys.readouterr().out
+
+                wf_id = re.search(r"Started workflow (\S+)", out).group(1)
+
+                wf_run = WorkflowRun.load(Path(workspace), wf_id)
+                run_id = wf_run.step_run_ids["opt"]
+                results_dir = Path(workspace) / "results" / run_id / "mol"
+                results_dir.mkdir(parents=True)
+                (results_dir / "mol.log").write_text(
+                    " Standard orientation:\n"
+                    " ---------------------------------------------------------------------\n"
+                    " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+                    " Number     Number       Type             X           Y           Z\n"
+                    " ---------------------------------------------------------------------\n"
+                    "      1          6           0        0.000000    0.000000    0.000000\n"
+                    "      2          8           0        0.000000    0.000000    1.200000\n"
+                    " ---------------------------------------------------------------------\n"
+                    " Normal termination of Gaussian 16.\n",
+                    encoding="utf-8",
+                )
+                wf_run.step_status["opt"] = "completed"
+                wf_run.save()
+                from jobdesk_app.services.run_service import RunService
+                from jobdesk_app.core.manifest import Manifest
+                from jobdesk_app.core.lifecycle import TaskStatus
+                svc = RunService(workspace)
+                record = svc.load_run(run_id)
+                tasks = Manifest.read(record.manifest_path)
+                for t in tasks:
+                    t.status = TaskStatus.downloaded
+                Manifest.write(record.manifest_path, tasks)
+
+                mock_sftp.upload_file.side_effect = OSError("disk full")
+                main(["workflow", "advance", workspace, wf_id])
+                capsys.readouterr()
+
+            # Verify upload_failed event was recorded
+            events = read_events(Path(workspace), wf_id)
+            upload_event = next(e for e in events if e["event_type"] == "upload_failed")
+            assert upload_event["step_name"] == "freq"

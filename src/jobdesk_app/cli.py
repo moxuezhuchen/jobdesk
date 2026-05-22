@@ -340,6 +340,7 @@ def _cmd_workflow_list(args) -> int:
 def _submit_workflow_steps(workspace, wf_run, started, server, pending_uploads=None) -> list[str]:
     """Upload pending files and submit runs created by workflow advance."""
     from .services.scheduler_helpers import resources_from_server, scheduler_from_server
+    from .services.workflow_service import append_event
     errors = []
     ssh = create_ssh_client(server)
     ssh.connect()
@@ -352,6 +353,14 @@ def _submit_workflow_steps(workspace, wf_run, started, server, pending_uploads=N
                     sftp.upload_file(Path(local_path), remote_path, overwrite=True)
                 except Exception as exc:
                     errors.append(f"upload {Path(local_path).name}: {exc}")
+                    append_event(
+                        workspace,
+                        wf_run.workflow_id,
+                        "upload_failed",
+                        step_name=",".join(started),
+                        message=f"Upload failed: {Path(local_path).name}: {exc}",
+                        details={"local_path": local_path, "remote_path": remote_path},
+                    )
             if errors:
                 return errors
         svc = RunService(workspace)
@@ -396,7 +405,7 @@ def _cmd_workflow_run(args) -> int:
 
 
 def _cmd_workflow_status(args) -> int:
-    from .services.workflow_service import WorkflowRun
+    from .services.workflow_service import WorkflowRun, read_events
     try:
         wf_run = WorkflowRun.load(args.workspace, args.workflow_id)
     except FileNotFoundError:
@@ -406,6 +415,11 @@ def _cmd_workflow_status(args) -> int:
     for step_name, status in wf_run.step_status.items():
         run_id = wf_run.step_run_ids.get(step_name, "")
         print(f"  {step_name}: {status} (run={run_id})")
+    events = read_events(args.workspace, args.workflow_id)
+    if events:
+        print("Recent events:")
+        for ev in events[-5:]:
+            print(f"  [{ev.get('event_type', 'unknown')}] {ev.get('message', '')}")
     return 0
 
 

@@ -103,6 +103,41 @@ class WorkflowRun:
         )
 
 
+def append_event(
+    workspace_dir: Path,
+    workflow_id: str,
+    event_type: str,
+    step_name: str = "",
+    message: str = "",
+    details: dict | None = None,
+) -> None:
+    """Append a diagnostic event to the workflow's .events.jsonl file."""
+    path = Path(workspace_dir) / ".jobdesk" / "workflows" / f"{workflow_id}.events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "workflow_id": workflow_id,
+        "step_name": step_name,
+        "event_type": event_type,
+        "message": message,
+        "created_at": datetime.now().isoformat(),
+        "details": details or {},
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def read_events(workspace_dir: Path, workflow_id: str) -> list[dict]:
+    """Read all events for a workflow."""
+    path = Path(workspace_dir) / ".jobdesk" / "workflows" / f"{workflow_id}.events.jsonl"
+    if not path.exists():
+        return []
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            events.append(json.loads(line))
+    return events
+
+
 class WorkflowRunner:
     """Executes a WorkflowSpec against a set of source files.
 
@@ -133,6 +168,13 @@ class WorkflowRunner:
             sources=sources,
         )
         wf_run.save()
+        append_event(
+            self.workspace_dir,
+            wf_id,
+            "workflow_started",
+            message=f"Workflow {spec.name} started",
+            details={"sources": sources},
+        )
         return wf_run
 
     def advance(
@@ -171,9 +213,24 @@ class WorkflowRunner:
                 )
                 if result is None:
                     # Cannot extract geometry — block this step
+                    append_event(
+                        self.workspace_dir,
+                        wf_run.workflow_id,
+                        "geometry_extraction_failed",
+                        step_name=step.name,
+                        message=f"Cannot extract geometry from {step.input_from} for {step.name}",
+                    )
                     continue
                 sources, uploads = result
                 pending_uploads.update(uploads)
+                append_event(
+                    self.workspace_dir,
+                    wf_run.workflow_id,
+                    "downstream_input_generated",
+                    step_name=step.name,
+                    message=f"Generated {len(uploads)} input(s) for {step.name}",
+                    details={"files": list(uploads.values())},
+                )
             else:
                 sources = [RunSource(path=s) for s in wf_run.sources]
 
@@ -190,6 +247,14 @@ class WorkflowRunner:
             wf_run.step_status[step.name] = "running"
             wf_run.save()
             started.append(step.name)
+            append_event(
+                self.workspace_dir,
+                wf_run.workflow_id,
+                "step_started",
+                step_name=step.name,
+                message=f"Step {step.name} started",
+                details={"run_id": record.run_id},
+            )
 
         return started, pending_uploads
 
