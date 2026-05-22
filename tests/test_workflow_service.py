@@ -367,3 +367,73 @@ class TestWaterWorkflowSmoke:
         assert coord_lines[0].strip().startswith("O")
         assert coord_lines[1].strip().startswith("H")
         assert coord_lines[2].strip().startswith("H")
+
+# ---- ORCA branch smoke test ----
+
+_WATER_ORCA_OUT = """\
+                                 *****************
+                                 * O   R   C   A *
+                                 *****************
+
+CARTESIAN COORDINATES (ANGSTROEM)
+---------------------------------
+  O      0.000000    0.000000    0.117370
+  H      0.000000    0.757160   -0.469480
+  H      0.000000   -0.757160   -0.469480
+
+****ORCA TERMINATED NORMALLY****
+"""
+
+
+class TestOrcaWorkflowSmoke:
+    """Smoke: ORCA opt_freq workflow generates .inp for downstream freq step."""
+
+    def test_orca_opt_freq_generates_inp(self, tmp_path):
+        spec = WorkflowSpec(
+            name="orca_opt_freq",
+            steps=[
+                WorkflowStep(name="opt", command_template="orca {name}"),
+                WorkflowStep(name="freq", command_template="orca {name}", depends_on=["opt"], input_from="opt"),
+            ],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/remote/water", ["/remote/water/water_opt.inp"])
+
+        # Advance starts opt.
+        started, _ = runner.advance(spec, wf_run, None, None)
+        assert started == ["opt"]
+        run_id = wf_run.step_run_ids["opt"]
+
+        # Simulate opt completed with ORCA output
+        results_dir = tmp_path / "results" / run_id / "water_opt"
+        results_dir.mkdir(parents=True)
+        (results_dir / "water_opt.out").write_text(_WATER_ORCA_OUT, encoding="utf-8")
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+
+        # Advance starts freq.
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+        assert started == ["freq"]
+        assert len(pending_uploads) == 1
+
+        # Verify generated .inp path
+        inp_local = next(iter(pending_uploads.keys()))
+        inp_remote = next(iter(pending_uploads.values()))
+        expected_path = (
+            tmp_path / ".jobdesk" / "workflow_inputs"
+            / wf_run.workflow_id / "freq" / "water_opt_freq.inp"
+        )
+        assert Path(inp_local) == expected_path
+        assert expected_path.exists()
+
+        # Verify remote target
+        assert inp_remote == "/remote/water/water_opt_freq.inp"
+
+        # Verify .inp content
+        content = expected_path.read_text(encoding="utf-8")
+        assert "! freq" in content
+        coord_lines = [l for l in content.splitlines() if l.strip().startswith(("O ", "H "))]
+        assert len(coord_lines) == 3
+        assert coord_lines[0].strip().startswith("O")
+        assert coord_lines[1].strip().startswith("H")
+        assert coord_lines[2].strip().startswith("H")
