@@ -297,3 +297,73 @@ class TestPrepareDownstreamInputs:
 
         assert "freq" not in started
         assert pending_uploads == {}
+
+
+# ---- Water opt_freq workflow smoke test ----
+
+_WATER_OPT_LOG = """\
+ Entering Gaussian System
+ #p opt B3LYP/6-31G(d)
+
+ water optimization
+
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.000000    0.000000    0.117370
+      2          1           0        0.000000    0.757160   -0.469480
+      3          1           0        0.000000   -0.757160   -0.469480
+ ---------------------------------------------------------------------
+ Normal termination of Gaussian 16.
+"""
+
+
+class TestWaterWorkflowSmoke:
+    """End-to-end smoke: opt_freq workflow with water molecule."""
+
+    def test_water_opt_freq_advance_generates_freq_gjf(self, tmp_path):
+        spec = BUILTIN_WORKFLOWS["opt_freq"]
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/remote/water", ["/remote/water/water_opt.gjf"])
+
+        # Advance starts opt.
+        started, _ = runner.advance(spec, wf_run, None, None)
+        assert started == ["opt"]
+        run_id = wf_run.step_run_ids["opt"]
+
+        # Simulate opt completed with water geometry
+        results_dir = tmp_path / "results" / run_id / "water_opt"
+        results_dir.mkdir(parents=True)
+        (results_dir / "water_opt.log").write_text(_WATER_OPT_LOG, encoding="utf-8")
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+
+        # Advance starts freq from extracted geometry.
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+        assert started == ["freq"]
+        assert len(pending_uploads) == 1
+
+        # Verify generated .gjf path
+        gjf_local = next(iter(pending_uploads.keys()))
+        gjf_remote = next(iter(pending_uploads.values()))
+        expected_staging = (
+            tmp_path / ".jobdesk" / "workflow_inputs"
+            / wf_run.workflow_id / "freq" / "water_opt_freq.gjf"
+        )
+        assert Path(gjf_local) == expected_staging
+        assert expected_staging.exists()
+
+        # Verify remote target path
+        assert gjf_remote == "/remote/water/water_opt_freq.gjf"
+
+        # Verify .gjf content
+        content = expected_staging.read_text(encoding="utf-8")
+        assert "# B3LYP/6-31G(d) freq" in content
+        # Must contain O and two H atoms
+        coord_lines = [l for l in content.splitlines() if l.strip().startswith(("O ", "H "))]
+        assert len(coord_lines) == 3
+        assert coord_lines[0].strip().startswith("O")
+        assert coord_lines[1].strip().startswith("H")
+        assert coord_lines[2].strip().startswith("H")
