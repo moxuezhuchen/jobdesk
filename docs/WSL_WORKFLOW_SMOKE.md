@@ -1,8 +1,9 @@
-# WSL Gaussian Workflow Smoke
+# WSL Gaussian/ORCA Workflow Smoke
 
-This smoke test uses WSL as a local SSH/SFTP/nohup server and runs a real
-Gaussian 16 `water` `opt -> freq` workflow. It intentionally does not validate
-Slurm, PBS, HPC modules, or cluster-specific behavior.
+This smoke guide uses WSL as a local SSH/SFTP/nohup server. The Gaussian 16
+water opt -> freq path has been manually verified; the ORCA path is optional
+and follows the same workflow shape. It intentionally does not validate Slurm,
+PBS, HPC modules, or cluster-specific behavior.
 
 ## Preconditions
 
@@ -13,6 +14,12 @@ Slurm, PBS, HPC modules, or cluster-specific behavior.
 - `g16` is initialized for non-interactive jobs. In the verified setup,
   `/root/.bashrc` exports `g16root=/opt` and sources
   `/opt/g16/bsd/g16.profile`.
+- (Optional, for ORCA smoke) ORCA is installed at `/opt/orca611/orca` and
+  `/root/.bashrc` adds `/opt/orca611` to PATH.
+- **ORCA visibility note**: A bare `ssh root@127.0.0.1 "which orca"` will fail
+  because `.bashrc` exits early for non-interactive shells (`[ -z "$PS1" ] && return`).
+  However, JobDesk's task runner sets `PS1` before sourcing `.bashrc`, so
+  `orca {name}` works in actual job execution. No `env_init_scripts` change needed.
 - Run these commands from the JobDesk repository root:
   `C:\dft\tool\jobdesk`.
 
@@ -110,8 +117,8 @@ jobdesk workflow status . $wf_id
 
 - Use the existing server id `wsl`, not `wsl-local`, unless you add a separate
   `wsl-local` entry to `servers.yaml`.
-- `jobdesk run download --patterns` takes one comma-separated string, for
-  example `"*.log,*.out"`. It does not take multiple pattern arguments.
+- `jobdesk run download --patterns` accepts either one comma-separated string
+  such as `"*.log,*.out"` or multiple arguments such as `"*.log" "*.out"`.
 - `workflow status` reads the saved workflow state; it does not sync run state.
   Use `workflow advance` after downloading results to sync completed steps.
 - `workflow advance` marks a step complete only after the underlying run is
@@ -119,11 +126,27 @@ jobdesk workflow status . $wf_id
 - If WSL restarts and SSH is unavailable, start it in WSL with:
   `service ssh start`.
 
-## Optional Integration Test Design
+## Optional: ORCA opt -> freq Smoke
 
-Do not run a real WSL/Gaussian workflow test by default. A future optional
-integration test can live at `tests/integration/test_real_workflow_wsl.py` and
-should skip unless all of these environment variables are set:
+Built-in workflow `orca_opt_freq` uses `orca {name}` for both steps.
+
+```powershell
+ssh root@127.0.0.1 "rm -rf /tmp/jobdesk_test; mkdir -p /tmp/jobdesk_test"
+
+jobdesk files upload wsl examples\orca\water_opt.inp /tmp/jobdesk_test/water_opt.inp
+
+jobdesk workflow run . orca_opt_freq --server wsl --remote-dir /tmp/jobdesk_test --files /tmp/jobdesk_test/water_opt.inp
+
+# Same refresh/download/advance cycle as Gaussian above.
+# Success: workflow status shows opt: completed, freq: completed.
+# Generated file: .jobdesk/workflow_inputs/<wf_id>/freq/water_opt_freq.inp contains "! freq" and O/H/H coords.
+```
+
+## Optional Integration Test
+
+The real WSL/Gaussian workflow test lives at
+`tests/integration/test_real_workflow_wsl.py`. It is skipped by default and only
+runs when all of these environment variables are set:
 
 ```powershell
 $env:JOBDESK_TEST_SSH_SERVER_ID = "wsl"
@@ -131,7 +154,7 @@ $env:JOBDESK_TEST_REMOTE_TMP_DIR = "/tmp/jobdesk_test"
 $env:JOBDESK_TEST_REAL_G16 = "1"
 ```
 
-The test should cover:
+The test covers:
 
 - prepare remote `/tmp/jobdesk_test`
 - upload `examples/gaussian/water_opt.gjf`
@@ -143,4 +166,3 @@ The test should cover:
 - download freq logs
 - final `workflow advance`
 - assert both workflow steps are completed
-

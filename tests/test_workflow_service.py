@@ -190,6 +190,60 @@ class TestBuiltinWorkflows:
             order = spec.topological_order()
             assert len(order) == len(spec.steps), f"{name} topology failed"
 
+    def test_orca_opt_freq_has_two_steps(self):
+        spec = BUILTIN_WORKFLOWS["orca_opt_freq"]
+        assert len(spec.steps) == 2
+        assert spec.steps[0].name == "opt"
+        assert spec.steps[0].command_template == "orca {name}"
+        assert spec.steps[1].name == "freq"
+        assert spec.steps[1].depends_on == ["opt"]
+        assert spec.steps[1].input_from == "opt"
+        assert spec.steps[1].command_template == "orca {name}"
+
+    def test_orca_opt_freq_generates_inp_from_builtin(self, tmp_path):
+        """Use BUILTIN_WORKFLOWS['orca_opt_freq'] end-to-end: .out -> .inp."""
+        spec = BUILTIN_WORKFLOWS["orca_opt_freq"]
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/remote/water", ["/remote/water/water_opt.inp"])
+
+        # Start opt
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+        assert started == ["opt"]
+        assert pending_uploads == {}
+        run_id = wf_run.step_run_ids["opt"]
+
+        # Simulate opt completed with ORCA output
+        results_dir = tmp_path / "results" / run_id / "water_opt"
+        results_dir.mkdir(parents=True)
+        (results_dir / "water_opt.out").write_text(
+            "CARTESIAN COORDINATES (ANGSTROEM)\n"
+            "---------------------------------\n"
+            "  O      0.000000    0.000000    0.117370\n"
+            "  H      0.000000    0.757160   -0.469480\n"
+            "  H      0.000000   -0.757160   -0.469480\n"
+            "\n"
+            "****ORCA TERMINATED NORMALLY****\n",
+            encoding="utf-8",
+        )
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+
+        # Advance starts freq
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+        assert started == ["freq"]
+        assert len(pending_uploads) == 1
+
+        # Verify .inp generated
+        inp_local = next(iter(pending_uploads.keys()))
+        inp_remote = next(iter(pending_uploads.values()))
+        assert inp_remote == "/remote/water/water_opt_freq.inp"
+        assert Path(inp_local).exists()
+
+        content = Path(inp_local).read_text(encoding="utf-8")
+        assert "! freq" in content
+        coord_lines = [l for l in content.splitlines() if l.strip().startswith(("O ", "H "))]
+        assert len(coord_lines) == 3
+
 
 # ---- Valid Gaussian .log fragment for geometry extraction tests ----
 

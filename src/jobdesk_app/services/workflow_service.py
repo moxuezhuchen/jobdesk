@@ -408,4 +408,12 @@ BUILTIN_WORKFLOWS: dict[str, WorkflowSpec] = {
             WorkflowStep(name="sp", command_template="orca {name}", depends_on=["freq"], input_from="freq", extract_profile="orca_dlpno_ccsd_t"),
         ],
     ),
+    "orca_opt_freq": WorkflowSpec(
+        name="orca_opt_freq",
+        description="ORCA geometry optimization followed by frequency analysis",
+        steps=[
+            WorkflowStep(name="opt", command_template="orca {name}"),
+            WorkflowStep(name="freq", command_template="orca {name}", depends_on=["opt"], input_from="opt"),
+        ],
+    ),
 }

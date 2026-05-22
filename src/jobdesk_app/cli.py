@@ -69,7 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dl = run_sub.add_parser("download")
     dl.add_argument("workspace", type=Path)
     dl.add_argument("run_id")
-    dl.add_argument("--patterns", default="*.log")
+    dl.add_argument("--patterns", nargs="+", default=["*.log"])
     dl.set_defaults(func=_cmd_run_download)
 
     # -- workflow subcommand group --
@@ -279,7 +279,7 @@ def _cmd_run_download(args) -> int:
     ssh.connect()
     sftp = create_sftp_client(ssh)
     try:
-        patterns = [p.strip() for p in args.patterns.split(",") if p.strip()]
+        patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
         records, failures = RunService(args.workspace).download_completed(args.run_id, sftp, patterns)
     finally:
         sftp.close()
@@ -415,6 +415,23 @@ def _cmd_workflow_status(args) -> int:
     for step_name, status in wf_run.step_status.items():
         run_id = wf_run.step_run_ids.get(step_name, "")
         print(f"  {step_name}: {status} (run={run_id})")
+    # Hint: if a step is "running" but its run is fully downloaded, suggest advance
+    needs_advance = False
+    for step_name, status in wf_run.step_status.items():
+        if status == "running":
+            run_id = wf_run.step_run_ids.get(step_name)
+            if run_id:
+                try:
+                    record = RunService(args.workspace).load_run(run_id)
+                    summary = record.status_summary
+                    downloaded = summary.get("downloaded", 0) + summary.get("analyzed", 0)
+                    total = sum(summary.values())
+                    if total > 0 and downloaded == total:
+                        needs_advance = True
+                except Exception:
+                    pass
+    if needs_advance:
+        print(f"Hint: run 'jobdesk workflow advance {args.workspace} {wf_run.workflow_id}' to sync and advance.")
     events = read_events(args.workspace, args.workflow_id)
     if events:
         print("Recent events:")

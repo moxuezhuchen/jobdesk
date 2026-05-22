@@ -178,6 +178,42 @@ class TestWorkflowCLI:
             assert "opt" in out
             assert "running" in out
 
+    def test_workflow_status_hints_when_run_downloaded(self, capsys):
+        server = _mock_server()
+        with tempfile.TemporaryDirectory() as workspace:
+            patches, _, _ = _workflow_patches(workspace, server)
+            with ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                main([
+                    "workflow", "run", workspace, "opt_freq",
+                    "--server", "srv", "--remote-dir", "/scratch/t",
+                    "--files", "/remote/a.gjf",
+                ])
+                out = capsys.readouterr().out
+                wf_id = re.search(r"Started workflow (\S+)", out).group(1)
+
+                from jobdesk_app.core.lifecycle import TaskStatus
+                from jobdesk_app.core.manifest import Manifest
+                from jobdesk_app.services.run_service import RunService
+                from jobdesk_app.services.workflow_service import WorkflowRun
+
+                wf_run = WorkflowRun.load(Path(workspace), wf_id)
+                run_id = wf_run.step_run_ids["opt"]
+                svc = RunService(workspace)
+                record = svc.load_run(run_id)
+                tasks = Manifest.read(record.manifest_path)
+                for task in tasks:
+                    task.status = TaskStatus.downloaded
+                Manifest.write(record.manifest_path, tasks)
+                svc.update_run_from_manifest(run_id)
+
+                rc = main(["workflow", "status", workspace, wf_id])
+
+            assert rc == 0
+            out = capsys.readouterr().out
+            assert "Hint: run 'jobdesk workflow advance" in out
+
     def test_workflow_advance_upload_failure_returns_2(self, capsys):
         server = _mock_server()
         with tempfile.TemporaryDirectory() as workspace:
@@ -315,3 +351,68 @@ class TestWorkflowCLI:
             events = read_events(Path(workspace), wf_id)
             upload_event = next(e for e in events if e["event_type"] == "upload_failed")
             assert upload_event["step_name"] == "freq"
+
+
+class TestDownloadPatterns:
+    """Test --patterns supports both comma-separated and multi-arg."""
+
+    def _setup_downloadable_run(self, workspace):
+        """Create a run with remote_completed task."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        main([
+            "run", "create", workspace,
+            "--server", "srv", "--remote-dir", "/tmp/x",
+            "--command", "echo {name}", "--files", "/remote/a.gjf",
+        ])
+        from jobdesk_app.services.run_service import RunService
+        svc = RunService(workspace)
+        run_id = svc.list_runs()[0].run_id
+        record = svc.load_run(run_id)
+        tasks = Manifest.read(record.manifest_path)
+        for t in tasks:
+            t.status = TaskStatus.remote_completed
+        Manifest.write(record.manifest_path, tasks)
+        return run_id
+
+    def test_patterns_comma_separated(self):
+        with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+            run_id = self._setup_downloadable_run(workspace)
+            mock_ssh = MagicMock()
+            mock_ssh.connect = MagicMock()
+            mock_ssh.close = MagicMock()
+            captured = {}
+
+            def fake_download(self, passed_run_id, sftp, patterns):
+                captured["run_id"] = passed_run_id
+                captured["patterns"] = patterns
+                return [], []
+
+            with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
+                 patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh), \
+                 patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()), \
+                 patch("jobdesk_app.cli.RunService.download_completed", fake_download):
+                rc = main(["run", "download", workspace, run_id, "--patterns", "*.log,*.out"])
+            assert rc == 0
+            assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
+
+    def test_patterns_multi_arg(self):
+        with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+            run_id = self._setup_downloadable_run(workspace)
+            mock_ssh = MagicMock()
+            mock_ssh.connect = MagicMock()
+            mock_ssh.close = MagicMock()
+            captured = {}
+
+            def fake_download(self, passed_run_id, sftp, patterns):
+                captured["run_id"] = passed_run_id
+                captured["patterns"] = patterns
+                return [], []
+
+            with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
+                 patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh), \
+                 patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()), \
+                 patch("jobdesk_app.cli.RunService.download_completed", fake_download):
+                rc = main(["run", "download", workspace, run_id, "--patterns", "*.log", "*.out"])
+            assert rc == 0
+            assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
