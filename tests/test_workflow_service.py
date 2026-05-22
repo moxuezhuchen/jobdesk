@@ -1,4 +1,6 @@
 """Tests for workflow chain (WorkflowSpec, WorkflowRun, WorkflowRunner)."""
+from pathlib import Path
+
 import pytest
 
 from jobdesk_app.services.workflow_service import (
@@ -186,3 +188,112 @@ class TestBuiltinWorkflows:
         for name, spec in BUILTIN_WORKFLOWS.items():
             order = spec.topological_order()
             assert len(order) == len(spec.steps), f"{name} topology failed"
+
+
+# ---- Valid Gaussian .log fragment for geometry extraction tests ----
+
+_VALID_GAUSSIAN_LOG = """\
+ Entering Gaussian System
+ #p opt B3LYP/6-31G(d)
+
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          6           0        0.000000    0.000000    0.000000
+      2          8           0        0.000000    0.000000    1.200000
+      3          1           0        0.000000    0.930000   -0.560000
+      4          1           0        0.000000   -0.930000   -0.560000
+ ---------------------------------------------------------------------
+ Normal termination of Gaussian 16.
+"""
+
+_INVALID_GAUSSIAN_LOG = """\
+ Entering Gaussian System
+ #p opt B3LYP/6-31G(d)
+
+ Convergence failure -- run terminated.
+"""
+
+
+class TestPrepareDownstreamInputs:
+    """Tests for _prepare_downstream_inputs geometry extraction."""
+
+    def test_normal_path_generates_gjf_with_remote_source(self, tmp_path):
+        """Valid .log makes advance start downstream, pending_uploads non-empty,
+        generates .gjf, RunSource uses /remote/... path."""
+        spec = WorkflowSpec(
+            name="test",
+            steps=[
+                WorkflowStep(name="opt", command_template="g16 {name}"),
+                WorkflowStep(name="freq", command_template="g16 {name}", depends_on=["opt"], input_from="opt"),
+            ],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/scratch/proj", ["/remote/mol.gjf"])
+        # Start opt
+        runner.advance(spec, wf_run, None, None)
+        run_id = wf_run.step_run_ids["opt"]
+
+        # Simulate opt completed with valid geometry in results
+        results_dir = tmp_path / "results" / run_id / "mol"
+        results_dir.mkdir(parents=True)
+        (results_dir / "mol.log").write_text(_VALID_GAUSSIAN_LOG, encoding="utf-8")
+
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+
+        # Advance should start freq with generated input.
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+
+        assert "freq" in started
+        assert len(pending_uploads) > 0
+
+        # Verify generated .gjf exists locally
+        local_paths = list(pending_uploads.keys())
+        assert any(p.endswith(".gjf") for p in local_paths)
+        gjf_path = next(p for p in local_paths if p.endswith(".gjf"))
+        assert Path(gjf_path).exists()
+
+        # Verify RunSource uses remote posix path, not Windows local path
+        from jobdesk_app.services.run_service import RunService
+        svc = RunService(tmp_path)
+        freq_run_id = wf_run.step_run_ids["freq"]
+        from jobdesk_app.core.manifest import Manifest
+        tasks = Manifest.read(svc.load_run(freq_run_id).manifest_path)
+        for t in tasks:
+            assert t.remote_job_dir.startswith("/")
+            assert "\\" not in t.remote_job_dir
+
+        # Verify remote paths in pending_uploads are posix
+        for remote in pending_uploads.values():
+            assert remote.startswith("/scratch/proj/")
+            assert "\\" not in remote
+
+    def test_geometry_extraction_failure_blocks_advance(self, tmp_path):
+        """Invalid .log leaves downstream unstarted and pending_uploads empty."""
+        spec = WorkflowSpec(
+            name="test",
+            steps=[
+                WorkflowStep(name="opt", command_template="g16 {name}"),
+                WorkflowStep(name="freq", command_template="g16 {name}", depends_on=["opt"], input_from="opt"),
+            ],
+        )
+        runner = WorkflowRunner(tmp_path)
+        wf_run = runner.start(spec, "srv", "/scratch/proj", ["/remote/mol.gjf"])
+        runner.advance(spec, wf_run, None, None)
+        run_id = wf_run.step_run_ids["opt"]
+
+        # Simulate opt completed but .log has no valid geometry
+        results_dir = tmp_path / "results" / run_id / "mol"
+        results_dir.mkdir(parents=True)
+        (results_dir / "mol.log").write_text(_INVALID_GAUSSIAN_LOG, encoding="utf-8")
+
+        wf_run.step_status["opt"] = "completed"
+        wf_run.save()
+
+        started, pending_uploads = runner.advance(spec, wf_run, None, None)
+
+        assert "freq" not in started
+        assert pending_uploads == {}
