@@ -210,6 +210,7 @@ class TestSSHClientWrapper:
         )
         with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
              patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
+             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
              patch("paramiko.SSHClient") as mock_client_class:
             mock_client_class.return_value = MagicMock()
 
@@ -223,6 +224,50 @@ class TestSSHClientWrapper:
             timeout=7,
         )
         mock_client_class.return_value.connect.assert_called_once()
+
+    def test_wsl_bootstrap_skipped_when_local_port_already_open(self):
+        """If local SSH port is already listening, skip WSL wakeup."""
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
+             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=True), \
+             patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.return_value = MagicMock()
+
+            ssh = MockSSHWrapper(server, timeout=5)
+            ssh.connect()
+
+        run_wsl.assert_not_called()
+        mock_client_class.return_value.connect.assert_called_once()
+
+    def test_wsl_bootstrap_skipped_for_non_local_host(self):
+        """Non-local host with wsl_distro should not trigger local WSL wakeup."""
+        server = ServerConfig(
+            server_id="remote",
+            host="192.168.1.100",
+            port=22,
+            username="user",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
+             patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.return_value = MagicMock()
+
+            ssh = MockSSHWrapper(server, timeout=5)
+            ssh.connect()
+
+        run_wsl.assert_not_called()
 
     def test_connect_rejects_unknown_host_keys_by_default(self):
         server = _make_server()

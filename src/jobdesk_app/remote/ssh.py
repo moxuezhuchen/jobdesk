@@ -5,6 +5,7 @@
 """
 
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -16,6 +17,17 @@ import paramiko
 
 from ..config.schema import ServerConfig
 from .errors import SSHCommandError, SSHConnectionError
+
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
+    """Check if a local TCP port is accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, TimeoutError):
+        return False
 
 
 @dataclass
@@ -124,6 +136,10 @@ class SSHClientWrapper:
     def _start_wsl_if_configured(self) -> None:
         distro = self._server.wsl_distro
         if not distro or sys.platform != "win32":
+            return
+        if self._server.host not in _LOCAL_HOSTS:
+            return
+        if _is_local_port_open(self._server.host, self._server.port):
             return
         try:
             subprocess.run(
