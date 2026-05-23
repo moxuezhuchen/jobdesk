@@ -14,6 +14,8 @@ Run with:
 Skipped automatically if env vars are not set.
 """
 import os
+import re
+import shlex
 import time
 from pathlib import Path
 
@@ -45,6 +47,13 @@ POLL_INTERVAL = 5
 TIMEOUT = 120
 
 
+def _remote_tmp_for_cleanup(remote_tmp: str) -> str:
+    """Return a restricted remote temp path used by destructive cleanup."""
+    if re.fullmatch(r"/tmp/jobdesk_[A-Za-z0-9._-]+", remote_tmp) is None:
+        raise ValueError("JOBDESK_TEST_REMOTE_TMP_DIR must be under /tmp/jobdesk_*")
+    return shlex.quote(remote_tmp)
+
+
 @pytest.fixture(scope="module")
 def server():
     servers = load_servers().servers
@@ -69,12 +78,14 @@ def workspace(tmp_path_factory):
 @pytest.fixture(scope="module", autouse=True)
 def prepare_remote(ssh_sftp):
     ssh, sftp = ssh_sftp
-    if not _REMOTE_TMP.startswith("/tmp/jobdesk_"):
-        pytest.fail("JOBDESK_TEST_REMOTE_TMP_DIR must be under /tmp/jobdesk_*")
-    ssh.run(f"rm -rf {_REMOTE_TMP}; mkdir -p {_REMOTE_TMP}", check=True)
+    try:
+        remote_tmp = _remote_tmp_for_cleanup(_REMOTE_TMP)
+    except ValueError as exc:
+        pytest.fail(str(exc))
+    ssh.run(f"rm -rf {remote_tmp}; mkdir -p {remote_tmp}", check=True)
     sftp.upload_file(EXAMPLES_DIR / "water_opt.gjf", f"{_REMOTE_TMP}/water_opt.gjf", overwrite=True)
     yield
-    ssh.run(f"rm -rf {_REMOTE_TMP}")
+    ssh.run(f"rm -rf {remote_tmp}")
 
 
 def _wait_run_complete(ssh, run_record, svc, timeout=TIMEOUT):

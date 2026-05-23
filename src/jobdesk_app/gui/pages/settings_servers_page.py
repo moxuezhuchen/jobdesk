@@ -536,13 +536,22 @@ class SettingsServersPage(QWidget):
         if idx >= 0:
             auth_combo.setCurrentIndex(idx)
         key_edit = QLineEdit(srv.get("key_path", ""))
+        key_row = QWidget()
+        key_layout = QHBoxLayout(key_row)
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.addWidget(key_edit, 1)
+        key_browse = QPushButton(" ... ")
+        key_browse.clicked.connect(lambda: key_edit.setText(
+            QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
+                                        key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
+        key_layout.addWidget(key_browse)
 
         form.addRow("ID:", id_edit)
         form.addRow(tr("Host:", self._language), host_edit)
         form.addRow(tr("Port:", self._language), port_edit)
         form.addRow(tr("Username:", self._language), user_edit)
         form.addRow(tr("Auth:", self._language), auth_combo)
-        form.addRow(tr("Key Path:", self._language), key_edit)
+        form.addRow(tr("Key Path:", self._language), key_row)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -594,13 +603,22 @@ class SettingsServersPage(QWidget):
         auth_combo.addItems(["key", "password"])
         key_edit = QLineEdit()
         key_edit.setPlaceholderText("~/.ssh/id_ed25519")
+        key_row = QWidget()
+        key_layout = QHBoxLayout(key_row)
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.addWidget(key_edit, 1)
+        key_browse = QPushButton(" ... ")
+        key_browse.clicked.connect(lambda: key_edit.setText(
+            QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
+                                        key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
+        key_layout.addWidget(key_browse)
 
         form.addRow("ID:", id_edit)
         form.addRow(tr("Host:", self._language), host_edit)
         form.addRow(tr("Port:", self._language), port_edit)
         form.addRow(tr("Username:", self._language), user_edit)
         form.addRow(tr("Auth:", self._language), auth_combo)
-        form.addRow(tr("Key Path:", self._language), key_edit)
+        form.addRow(tr("Key Path:", self._language), key_row)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
@@ -45,7 +47,8 @@ def test_format_remote_size_hides_directory_size():
 
 def test_format_modified_time():
     assert format_modified_time(None) == ""
-    assert format_modified_time(0) == "1970-01-01 00:00:00"
+    local_time = datetime(2020, 1, 2, 3, 4, 5).timestamp()
+    assert format_modified_time(local_time) == "2020-01-02 03:04:05"
 
 
 def test_build_file_button_reasons():

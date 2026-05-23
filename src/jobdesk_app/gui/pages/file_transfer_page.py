@@ -4,7 +4,7 @@ import os
 import posixpath
 import shutil
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl, Signal
