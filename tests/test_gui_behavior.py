@@ -285,6 +285,8 @@ class TestRunsPage:
         assert runs_page.result_table.rowCount() == 1
         assert runs_page.result_table.item(0, 0).text() == "mol1"
         assert "Done" in runs_page.result_table.item(0, 1).text()
+
+    def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
         worker = MagicMock()
         runs_page._bg_workers = [worker]
 
