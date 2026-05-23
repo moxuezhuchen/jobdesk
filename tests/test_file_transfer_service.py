@@ -91,13 +91,11 @@ def test_delete_remote_guards_protected_root_descendants():
         service.delete_remote("/remote/work/batch_001")
 
 
-def test_delete_remote_allows_user_home_descendants():
-    sftp = FakeSFTP()
-    service = FileTransferService(lambda: sftp)
+def test_delete_remote_requires_an_explicit_allowed_root():
+    service = FileTransferService(lambda: FakeSFTP())
 
-    service.delete_remote("/home/xianj/delete_me")
-
-    assert sftp.deleted == [("file", "/home/xianj/delete_me")]
+    with pytest.raises(RemotePathError, match="no allowed delete roots"):
+        service.delete_remote("/home/xianj/delete_me")
 
 
 def test_delete_remote_requires_allowed_root_when_configured():

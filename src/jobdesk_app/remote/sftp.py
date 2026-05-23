@@ -5,14 +5,13 @@
 """
 
 import posixpath
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.transfer import TransferDirection, TransferRecord, TransferStatus
 from .errors import RemotePathError
-from ..core.transfer import TransferRecord, TransferDirection, TransferStatus
-
-
-from dataclasses import dataclass
 
 
 @dataclass
@@ -324,7 +323,21 @@ class SFTPClientWrapper:
                 return rec
 
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        self._sftp.get(remote_path, str(local_path), callback=progress_callback)
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=local_path.parent,
+                prefix=f".{local_path.name}.",
+                suffix=".download",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+            self._sftp.get(remote_path, str(temp_path), callback=progress_callback)
+            temp_path.replace(local_path)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         rec.status = TransferStatus.transferred
         rec.reason = "下载成功"
         return rec

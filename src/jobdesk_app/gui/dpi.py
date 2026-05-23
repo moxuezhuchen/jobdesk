@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-
 QT_WINDOWS_DPI_ENVIRONMENT = {
     "QT_ENABLE_HIGHDPI_SCALING": "1",
     "QT_SCALE_FACTOR_ROUNDING_POLICY": "PassThrough",

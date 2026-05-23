@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import re
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from ..core.atomic_write import atomic_write_text
 from ..core.batch import create_batch, write_batch_json
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
@@ -28,6 +30,9 @@ class RunRecord:
     batch_path: Path
     local_dir: str = ""
     status_summary: dict[str, int] = field(default_factory=dict)
+    env_init_scripts: list[str] = field(default_factory=list)
+    scheduler_type: str = "nohup"
+    resources: dict[str, object] = field(default_factory=dict)
 
 
 class RunService:
@@ -56,10 +61,18 @@ class RunService:
 
     def create_run(self, spec: RunSpec, run_id: str | None = None, local_dir: str = "") -> RunRecord:
         if run_id is None:
-            run_id = self._next_run_id()
+            while True:
+                run_id = self._next_run_id()
+                run_dir = self.runs_dir / run_id
+                try:
+                    run_dir.mkdir(parents=True, exist_ok=False)
+                    break
+                except FileExistsError:
+                    continue
+        else:
+            run_dir = self._run_dir(run_id)
+            run_dir.mkdir(parents=True, exist_ok=False)
         plan = build_run_plan(spec, run_id)
-        run_dir = self.runs_dir / plan.run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = run_dir / "manifest.tsv"
         batch_path = run_dir / "batch.json"
         batch = create_batch(
@@ -90,7 +103,7 @@ class RunService:
         return records
 
     def load_run(self, run_id: str) -> RunRecord:
-        run_dir = self.runs_dir / run_id
+        run_dir = self._run_dir(run_id)
         data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
         return RunRecord(
             run_id=data["run_id"],
@@ -105,6 +118,9 @@ class RunService:
             batch_path=run_dir / "batch.json",
             local_dir=data.get("local_dir", ""),
             status_summary=data.get("status_summary", {}),
+            env_init_scripts=list(data.get("env_init_scripts", [])),
+            scheduler_type=data.get("scheduler_type", "nohup") or "nohup",
+            resources=dict(data.get("resources", {})),
         )
 
     def update_run_from_manifest(self, run_id: str) -> RunRecord:
@@ -117,6 +133,21 @@ class RunService:
     def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None,
                    scheduler=None, resources=None):
         record = self.load_run(run_id)
+        from ..remote.scheduler import ResourceSpec, make_adapter
+
+        if env_init_scripts is None:
+            env_init_scripts = list(record.env_init_scripts)
+        else:
+            record.env_init_scripts = list(env_init_scripts)
+        if scheduler is None:
+            scheduler = make_adapter(record.scheduler_type)
+        else:
+            record.scheduler_type = _scheduler_type(scheduler)
+        if resources is None:
+            resources = ResourceSpec.from_dict(record.resources)
+        else:
+            record.resources = asdict(resources)
+        self._write_run_json(record)
         submitter = JobSubmitter(
             manifest_path=record.manifest_path,
             ssh=ssh,
@@ -124,7 +155,7 @@ class RunService:
             max_parallel=record.max_parallel,
             remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
             batch_id=record.run_id,
-            env_init_scripts=list(env_init_scripts or []),
+            env_init_scripts=list(env_init_scripts),
             scheduler=scheduler,
             resources=resources,
         )
@@ -146,6 +177,7 @@ class RunService:
                 task_dir = results_base / task.task_id
                 task_dir.mkdir(parents=True, exist_ok=True)
                 recs = []
+                download_errors: list[str] = []
                 work_dir = task.remote_work_dir or task.remote_job_dir
                 requested_outputs = _declared_outputs(task, patterns)
                 for relative_output in requested_outputs:
@@ -155,8 +187,8 @@ class RunService:
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        download_errors.append(f"{relative_output}: {exc}")
                 records.extend(recs)
                 successful = sum(
                     1
@@ -164,7 +196,9 @@ class RunService:
                     if r.status in (TransferStatus.transferred, TransferStatus.skipped)
                 )
                 task_ok = successful == len(requested_outputs) and bool(requested_outputs)
-                if not task_ok:
+                if download_errors:
+                    failures.append((task.task_id, "; ".join(download_errors)))
+                elif not task_ok:
                     failures.append((task.task_id, "无匹配输出文件"))
             except ValueError as exc:
                 task_ok = False
@@ -192,23 +226,48 @@ class RunService:
         self.update_run_from_manifest(run_id)
         return changed
 
-    def mark_run_cancelled(self, run_id: str) -> int:
-        """Mark all unfinished tasks as failed/cancelled."""
+    def cancel_run(self, run_id: str, ssh) -> tuple[int, list[str]]:
+        """Cancel remote jobs, recording cancellation only after the remote action succeeds."""
         record = self.load_run(run_id)
-        from ..core.manifest import Manifest
-        from ..core.lifecycle import TaskStatus
+        from ..remote.scheduler import make_adapter
+
         tasks = list(Manifest.read(record.manifest_path))
         changed = 0
-        terminal = {TaskStatus.remote_completed, TaskStatus.downloaded, TaskStatus.failed}
+        errors: list[str] = []
+        terminal = {
+            TaskStatus.remote_completed,
+            TaskStatus.downloaded,
+            TaskStatus.analyzed,
+            TaskStatus.failed,
+            TaskStatus.cancelled,
+        }
+        cancelled_jobs: set[tuple[str, str]] = set()
         for task in tasks:
-            if task.status not in terminal:
-                task.status = TaskStatus.failed
-                task.error_message = "cancelled"
+            if task.status in terminal:
+                continue
+            if task.status in {TaskStatus.local_ready, TaskStatus.uploaded}:
+                task.status = TaskStatus.cancelled
+                task.error_message = "cancelled before remote execution"
                 changed += 1
+                continue
+            if not task.remote_job_id:
+                errors.append(f"{task.task_id}: no remote job id available for cancellation")
+                continue
+            job_key = (task.scheduler_type or record.scheduler_type, task.remote_job_id)
+            if job_key not in cancelled_jobs:
+                try:
+                    make_adapter(job_key[0]).cancel(ssh, job_key[1])
+                    cancelled_jobs.add(job_key)
+                except Exception as exc:
+                    errors.append(f"{task.task_id}: remote cancellation failed: {exc}")
+                    continue
+            task.status = TaskStatus.cancelled
+            task.error_message = "cancelled after remote termination request"
+            changed += 1
         if changed:
             Manifest.write(record.manifest_path, tasks)
             self.update_run_from_manifest(run_id)
-        return changed
+        return changed, errors
 
     def analyze_run(self, run_id: str, profile_name: str = "gaussian_opt_freq") -> tuple[list, list]:
         """Run result extraction on downloaded files for a run."""
@@ -224,12 +283,9 @@ class RunService:
 
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
-        import re, shutil
-        if not re.fullmatch(r'[A-Za-z0-9_\-]+', run_id):
-            raise ValueError(f"Invalid run_id: {run_id}")
-        run_dir = (self.runs_dir / run_id).resolve()
-        if not run_dir.is_relative_to(self.runs_dir.resolve()):
-            raise ValueError(f"run_id escapes runs_dir: {run_id}")
+        import shutil
+
+        run_dir = self._run_dir(run_id)
         if run_dir.exists():
             shutil.rmtree(run_dir)
         results_dir = (self.workspace_dir / "results" / run_id).resolve()
@@ -237,6 +293,14 @@ class RunService:
             raise ValueError(f"run_id escapes results dir: {run_id}")
         if results_dir.exists():
             shutil.rmtree(results_dir)
+
+    def _run_dir(self, run_id: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
+            raise ValueError(f"Invalid run_id: {run_id}")
+        run_dir = (self.runs_dir / run_id).resolve()
+        if not run_dir.is_relative_to(self.runs_dir.resolve()):
+            raise ValueError(f"run_id escapes runs_dir: {run_id}")
+        return run_dir
 
     def _record_from_parts(
         self,
@@ -260,6 +324,9 @@ class RunService:
             batch_path=batch_path,
             local_dir=local_dir,
             status_summary=status_summary,
+            env_init_scripts=[],
+            scheduler_type="nohup",
+            resources={},
         )
 
     def _write_run_json(self, record: RunRecord) -> None:
@@ -273,11 +340,13 @@ class RunService:
             "created_at": record.created_at,
             "local_dir": record.local_dir,
             "status_summary": record.status_summary,
+            "env_init_scripts": record.env_init_scripts,
+            "scheduler_type": record.scheduler_type,
+            "resources": record.resources,
         }
-        record.run_dir.mkdir(parents=True, exist_ok=True)
-        (record.run_dir / "run.json").write_text(
+        atomic_write_text(
+            record.run_dir / "run.json",
             json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
 
 
@@ -325,3 +394,13 @@ def _status_summary(tasks: list[TaskRecord]) -> dict[str, int]:
     for task in tasks:
         summary[task.status.value] = summary.get(task.status.value, 0) + 1
     return summary
+
+
+def _scheduler_type(scheduler) -> str:
+    from ..remote.scheduler import PBSAdapter, SlurmAdapter
+
+    if isinstance(scheduler, SlurmAdapter):
+        return "slurm"
+    if isinstance(scheduler, PBSAdapter):
+        return "pbs"
+    return "nohup"

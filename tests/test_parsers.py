@@ -2,10 +2,11 @@
 import tempfile
 from pathlib import Path
 
-from jobdesk_app.core.parsers.gaussian import parse_gaussian_log, diagnose_gaussian
-from jobdesk_app.core.parsers.orca import parse_orca_out, diagnose_orca
-from jobdesk_app.services.analysis_profiles import AnalysisProfileStore, BUILTIN_PROFILES
+import pytest
 
+from jobdesk_app.core.parsers.gaussian import diagnose_gaussian, parse_gaussian_log
+from jobdesk_app.core.parsers.orca import diagnose_orca, parse_orca_out
+from jobdesk_app.services.analysis_profiles import BUILTIN_PROFILES, AnalysisProfileStore
 
 # ---- Gaussian test fixtures ------------------------------------------------
 
@@ -352,5 +353,36 @@ class TestAnalysisProfileStore:
         store.delete("temp")
         assert store.get("temp") is None
 
+    def test_profile_name_cannot_escape_store_directory(self, tmp_path):
+        from jobdesk_app.services.analysis_profiles import AnalysisProfile
 
-import pytest
+        store = AnalysisProfileStore(tmp_path)
+        with pytest.raises(ValueError, match="invalid profile name"):
+            store.save(AnalysisProfile(name="../outside", description="", extract_rules=[]))
+        with pytest.raises(ValueError, match="invalid profile name"):
+            store.delete("../outside")
+
+    def test_profile_rewrite_is_atomic(self, tmp_path, monkeypatch):
+        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+
+        store = AnalysisProfileStore(tmp_path)
+        profile = AnalysisProfile(name="stable", description="original", extract_rules=[])
+        store.save(profile)
+        original = (tmp_path / "stable.json").read_text(encoding="utf-8")
+
+        def fail_replace(self, target):
+            raise RuntimeError("replace failed")
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+        with pytest.raises(RuntimeError, match="replace failed"):
+            store.save(AnalysisProfile(name="stable", description="new", extract_rules=[]))
+
+        assert (tmp_path / "stable.json").read_text(encoding="utf-8") == original
+
+    def test_invalid_user_profile_is_reported_in_logs(self, tmp_path, caplog):
+        (tmp_path / "invalid.json").write_text("{not json", encoding="utf-8")
+
+        with caplog.at_level("WARNING"):
+            AnalysisProfileStore(tmp_path).list_profiles()
+
+        assert "invalid.json" in caplog.text

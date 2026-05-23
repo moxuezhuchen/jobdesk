@@ -266,19 +266,17 @@ def _cmd_run_download(args) -> int:
 def _cmd_run_cancel(args) -> int:
     svc = RunService(args.workspace)
     record = svc.load_run(args.run_id)
-    tasks = __import__("jobdesk_app.core.manifest", fromlist=["Manifest"]).Manifest.read(record.manifest_path)
-    changed = 0
-    for task in tasks:
-        if task.status in ("uploaded", "submitted", "running"):
-            from .core.lifecycle import TaskStatus
-            task.status = TaskStatus.failed
-            task.error_message = "cancelled"
-            changed += 1
-    from .core.manifest import Manifest
-    Manifest.write(record.manifest_path, tasks)
-    svc.update_run_from_manifest(args.run_id)
+    server = _get_server_by_id(args, record.server_id)
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    try:
+        changed, errors = svc.cancel_run(args.run_id, ssh)
+    finally:
+        ssh.close()
     print(f"cancelled {changed} task(s)")
-    return 0
+    for error in errors:
+        print(f"  ERROR: {error}")
+    return 0 if not errors else 2
 
 
 def _cmd_run_delete(args) -> int:

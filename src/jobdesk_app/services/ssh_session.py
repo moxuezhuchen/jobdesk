@@ -3,8 +3,8 @@
 Used by both CLI and GUI. Does not depend on PySide6.
 """
 
-from ..remote.ssh import SSHClientWrapper
 from ..remote.sftp import SFTPClientWrapper
+from ..remote.ssh import SSHClientWrapper
 
 
 def create_ssh_client(server_config) -> SSHClientWrapper:

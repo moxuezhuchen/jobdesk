@@ -40,9 +40,9 @@ def compare_runs(
     Returns:
         RunComparison with rows sorted by energy.
     """
-    from .run_service import RunService
-    from .analysis_profiles import AnalysisProfileStore
     from ..core.analyzer import analyze_tasks
+    from .analysis_profiles import AnalysisProfileStore
+    from .run_service import RunService
 
     workspace = Path(workspace_dir)
     svc = RunService(workspace)
@@ -134,10 +134,10 @@ def plot_energy_profile(
     Returns True if plot was created, False if QtCharts is unavailable.
     """
     try:
-        from PySide6.QtCharts import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCharts import QBarCategoryAxis, QBarSeries, QBarSet, QChart, QChartView, QValueAxis
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QPainter
+        from PySide6.QtWidgets import QApplication
     except ImportError:
         return False
 

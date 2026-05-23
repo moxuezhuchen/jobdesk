@@ -68,12 +68,14 @@ class RunPlan:
 def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
     rid = run_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     tasks: list[RunTaskPlan] = []
+    used_task_ids: set[str] = set()
     sources = _sources_for_mode(spec)
     for index, source in enumerate(sources, start=1):
         raw_task_id = "current_directory" if spec.mode == RunMode.current_directory else (
             source.stem or source.name or f"task_{index}"
         )
-        task_id = _safe_task_id(raw_task_id, index)
+        task_id = _unique_task_id(_safe_task_id(raw_task_id, index), used_task_ids)
+        used_task_ids.add(task_id)
         work_dir = source.path if source.is_dir else source.parent
         command = _render_command(spec.command_template, source)
         tasks.append(RunTaskPlan(
@@ -128,6 +130,15 @@ def _render_text_template(template: str, source: RunSource) -> str:
 def _safe_task_id(value: str, index: int) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._-")
     return cleaned or f"task_{index}"
+
+
+def _unique_task_id(candidate: str, used_task_ids: set[str]) -> str:
+    if candidate not in used_task_ids:
+        return candidate
+    suffix = 2
+    while f"{candidate}_{suffix}" in used_task_ids:
+        suffix += 1
+    return f"{candidate}_{suffix}"
 
 
 def chunk_sources(sources: list[RunSource], batch_size: int | None) -> list[list[RunSource]]:

@@ -28,6 +28,10 @@ class TestTaskStatus:
     def test_failed_is_terminal_cannot_upload(self):
         assert not can_transition(TaskStatus.failed, TaskStatus.uploaded)
 
+    def test_cancelled_is_terminal(self):
+        assert can_transition(TaskStatus.running, TaskStatus.cancelled)
+        assert not can_transition(TaskStatus.cancelled, TaskStatus.uploaded)
+
     def test_failed_can_be_reached_from_any(self):
         assert can_transition(TaskStatus.running, TaskStatus.failed)
         assert can_transition(TaskStatus.submitted, TaskStatus.failed)

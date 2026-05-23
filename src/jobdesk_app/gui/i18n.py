@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 ZH: dict[str, str] = {
     "Projects": "\u9879\u76ee",
     "(first server)": "\u7b2c\u4e00\u4e2a\u670d\u52a1\u5668)",
@@ -197,15 +196,16 @@ ZH: dict[str, str] = {
     "Result Preview": "\u7ed3\u679c\u9884\u89c8",
     "Run ID": "\u8fd0\u884cID",
     "Remote Dir": "\u8fdc\u7a0b\u76ee\u5f55",
-    "Command": "\u547d\u4ee4",
     "Created At": "\u521b\u5efa\u65f6\u95f4",
     "Run records: {n}": "\u8fd0\u884c\u8bb0\u5f55: {n}",
     "Result Preview \u2014 Auto Analysis": "\u7ed3\u679c\u9884\u89c8 \u2014 \u81ea\u52a8\u5206\u6790",
     "Result Preview \u2014 Local Files": "\u7ed3\u679c\u9884\u89c8 \u2014 \u672c\u5730\u6587\u4ef6",
+    "Execution output parsed; scientific review required": "\u5df2\u89e3\u6790\u6267\u884c\u8f93\u51fa\uff1b\u79d1\u5b66\u7ed3\u8bba\u9700\u8981\u4eba\u5de5\u590d\u6838",
     "No results downloaded yet": "\u26a0 \u5c1a\u672a\u4e0b\u8f7d\u7ed3\u679c",
     "Yes": "\u662f",
     "No": "\u5426",
     "Parse Error": "\u89e3\u6790\u9519\u8bef",
+    "File too large for preview": "\u6587\u4ef6\u8fc7\u5927\uff0c\u4e0d\u5728\u9884\u89c8\u4e2d\u89e3\u6790",
     "Task": "\u4efb\u52a1",
     "File": "\u6587\u4ef6",
     "Program": "\u7a0b\u5e8f",

@@ -8,10 +8,10 @@ import shlex
 from datetime import datetime
 from pathlib import Path
 
-from ..core.status import TaskStatusSnapshot, StatusRefreshResult, BatchControlSnapshot
-from ..core.manifest import TaskRecord, Manifest
 from ..core.lifecycle import TaskStatus
+from ..core.manifest import Manifest, TaskRecord
 from ..core.models import FailureRecord
+from ..core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from .status import read_remote_task_status
 
 
@@ -176,7 +176,7 @@ def _recover_status(
             snap.warnings.append("运行中但远程无状态文件")
 
     elif current in (TaskStatus.remote_completed, TaskStatus.downloaded,
-                     TaskStatus.analyzed, TaskStatus.failed):
+                     TaskStatus.analyzed, TaskStatus.failed, TaskStatus.cancelled):
         pass  # 不自动回退
 
     snap.recovered_status = new_status.value

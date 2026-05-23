@@ -109,6 +109,85 @@ class TestRunsPage:
         assert runs_page.result_table.rowCount() == 1
         assert runs_page.result_table.item(0, 0).text() == "water"
         assert "Done" in runs_page.result_table.item(0, 1).text()
+        from jobdesk_app.gui.i18n import tr
+
+        assert tr("Execution output parsed; scientific review required", runs_page._language) in runs_page.result_label.text()
+
+    def test_workspace_preview_uses_basename_from_remote_source(self, runs_page, tmp_path):
+        runs_page.state.current_project_root = tmp_path
+        (tmp_path / "water.log").write_text("output", encoding="utf-8")
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+
+        manifest_path = tmp_path / "runs" / "preview" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(
+                task_id="water",
+                batch_id="preview",
+                remote_job_dir="/tmp/jobs/water",
+                remote_task_files=["/remote/source/water.gjf"],
+                server_id="wsl",
+                status=TaskStatus.downloaded,
+            ),
+        ])
+        record = MagicMock(run_id="preview", manifest_path=str(manifest_path))
+        parsed = MagicMock(final_energy_au=-76.1, gibbs_au=None, normal_termination=True)
+
+        with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed):
+            rows = runs_page._analyze_workspace_files(record, tmp_path)
+
+        assert rows[0][1] == "water.log"
+
+    def test_large_output_is_not_parsed_in_preview_thread(self, runs_page, tmp_path):
+        result_dir = tmp_path / "results" / "large" / "water"
+        result_dir.mkdir(parents=True)
+        log_file = result_dir / "water.log"
+        with log_file.open("wb") as handle:
+            handle.truncate(26 * 1024 * 1024)
+
+        with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log") as parser:
+            rows = runs_page._auto_analyze(result_dir.parent)
+
+        from jobdesk_app.gui.i18n import tr
+
+        parser.assert_not_called()
+        assert rows[0][3] == tr("File too large for preview", runs_page._language)
+
+    def test_on_activated_respects_disabled_automatic_refresh(self, runs_page):
+        from dataclasses import replace
+
+        from jobdesk_app.services.gui_settings import GuiSettings
+
+        settings = replace(GuiSettings(), auto_refresh_enabled=False)
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store:
+            store.return_value.load.return_value = settings
+            with patch.object(runs_page, "_start_monitoring") as monitor:
+                runs_page.on_activated()
+
+        monitor.assert_not_called()
+        assert not runs_page._refresh_timer.isActive()
+
+    def test_delete_run_reports_failures_instead_of_claiming_success(self, runs_page):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        messages = []
+        runs_page._status_cb = messages.append
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run_locked"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service:
+                service.return_value.delete_run.side_effect = RuntimeError("locked")
+                service.return_value.list_runs.return_value = []
+                runs_page._delete_run()
+
+        assert any("locked" in message for message in messages)
+        assert not any("Deleted: 1" in message for message in messages)
 
     def test_load_result_preview_renders_multi_molecule_batch(self, runs_page, tmp_path):
         """A batch with multiple molecules shows per-molecule status table."""

@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+
+from .atomic_write import atomic_write_text
 from .models import BatchMeta
 
 
@@ -12,14 +14,7 @@ def write_batch_json(batch: BatchMeta, output_path: Path) -> None:
     """
     data = batch.model_dump()
     data["created_at"] = batch.created_at.isoformat()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_name(f"{output_path.name}.tmp")
-    try:
-        tmp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp_path.replace(output_path)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    atomic_write_text(output_path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def read_batch_json(file_path: Path) -> BatchMeta:

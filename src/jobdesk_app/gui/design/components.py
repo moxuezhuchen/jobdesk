@@ -4,16 +4,22 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QEvent, Qt, Signal, QSize
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHeaderView, QLabel, QPushButton,
-    QTableWidget, QVBoxLayout, QWidget,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
+from ...services.gui_settings import GuiSettingsStore
 from .icons import get_icon
 from .tokens import Colors, Metrics, Radius, Shadow, Spacing
-from ...services.gui_settings import GuiSettingsStore
 
 
 class Card(QFrame):

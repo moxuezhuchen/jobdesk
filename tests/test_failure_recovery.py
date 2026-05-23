@@ -1,11 +1,11 @@
 """Failure recovery tests for run and manifest operations."""
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 
-from jobdesk_app.services.run_service import RunService
+import pytest
+
 from jobdesk_app.core.manifest import Manifest, TaskRecord, TaskStatus
+from jobdesk_app.services.run_service import RunService
 
 
 def _task(task_id="t1", batch_id="b1", status=TaskStatus.local_ready, **kw):
@@ -100,3 +100,4 @@ class TestRunServiceRecovery:
         records, failures = run_service.download_completed("260101-002", sftp, ["*.log"])
         assert isinstance(records, list)
         assert isinstance(failures, list)
+        assert "Connection lost" in failures[0][1]

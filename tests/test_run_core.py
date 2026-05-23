@@ -87,3 +87,23 @@ def test_build_run_plan_preserves_supporting_inputs_and_declared_outputs():
         "water.txt",
         "water_confflow_work/run_summary.json",
     ]
+
+
+def test_build_run_plan_disambiguates_sanitized_task_id_collisions():
+    spec = RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/jobs",
+        command_template="confflow {name}",
+        max_parallel=2,
+        mode=RunMode.selected_files,
+        sources=[
+            RunSource("/remote/jobs/mol a.xyz"),
+            RunSource("/remote/jobs/mol_a.xyz"),
+        ],
+        result_templates=["{basename}.txt"],
+    )
+
+    plan = build_run_plan(spec, run_id="collision01")
+
+    assert [task.task_id for task in plan.tasks] == ["mol_a", "mol_a_2"]
+    assert len({task.remote_job_dir for task in plan.tasks}) == 2

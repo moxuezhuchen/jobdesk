@@ -107,7 +107,7 @@ def collect_remote_delete_roots(manifest_path: Path | None) -> list[str]:
     roots: set[str] = set()
     for task in Manifest.read(Path(manifest_path)):
         if task.remote_work_dir and task.batch_id:
-            roots.add(f"{task.remote_work_dir.rstrip('/')}/{task.batch_id}")
+            roots.add(f"{task.remote_work_dir.rstrip('/')}/.jobdesk_runs/{task.batch_id}")
     return sorted(roots)
 
 

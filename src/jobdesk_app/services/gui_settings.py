@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from ..app_paths import get_app_data_dir
+from ..core.atomic_write import atomic_write_text
 
 _BUILTIN_PROFILES: dict[str, dict[str, str]] = {
     "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
@@ -31,9 +32,9 @@ class GuiSettings:
     column_widths: dict[str, list[int]] | None = None
     window_size: list[int] | None = None
     # Runs page state
-    auto_refresh_enabled: bool = False
+    auto_refresh_enabled: bool = True
     auto_refresh_interval: int = 30
-    auto_download_enabled: bool = False
+    auto_download_enabled: bool = True
     notify_enabled: bool = False
     download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
     hide_dotfiles: bool = True
@@ -72,9 +73,9 @@ class GuiSettingsStore:
             language=str(raw.get("language", "en") or "en"),
             column_widths=dict(raw.get("column_widths", {}) or {}),
             window_size=raw.get("window_size"),
-            auto_refresh_enabled=bool(raw.get("auto_refresh_enabled", False)),
+            auto_refresh_enabled=bool(raw.get("auto_refresh_enabled", True)),
             auto_refresh_interval=max(10, int(raw.get("auto_refresh_interval", 30) or 30)),
-            auto_download_enabled=bool(raw.get("auto_download_enabled", False)),
+            auto_download_enabled=bool(raw.get("auto_download_enabled", True)),
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
@@ -124,5 +125,5 @@ class GuiSettingsStore:
             "hide_dotfiles": settings.hide_dotfiles,
             "software_profiles": settings.software_profiles or {},
         }
-        self.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
         return self.path

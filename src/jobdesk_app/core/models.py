@@ -1,6 +1,7 @@
 """Core data models for JobDesk."""
 
 from datetime import datetime
+
 from pydantic import BaseModel, Field, model_serializer
 
 

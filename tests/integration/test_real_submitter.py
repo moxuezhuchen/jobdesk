@@ -10,18 +10,20 @@
 """
 
 import os
-import uuid
 import tempfile
-import pytest
+import uuid
 from pathlib import Path
 
+import pytest
+
 from jobdesk_app.config.servers import load_servers
-from jobdesk_app.remote.ssh import SSHClientWrapper
-from jobdesk_app.remote.sftp import SFTPClientWrapper
-from jobdesk_app.remote.submitter import JobSubmitter
-from jobdesk_app.core.manifest import TaskRecord, Manifest
 from jobdesk_app.core.lifecycle import TaskStatus
+from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.core.submit import SubmitMode
+from jobdesk_app.remote.sftp import SFTPClientWrapper
+from jobdesk_app.remote.ssh import SSHClientWrapper
+from jobdesk_app.remote.submitter import JobSubmitter
+from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(
     not all((
@@ -81,16 +83,12 @@ class TestRealSubmitter:
                 )
                 result = submitter.submit_batch(SubmitMode.all)
 
-                if result.errors:
-                    # 可能服务器不支持，记录但不失败
-                    print(f"submitter errors: {result.errors}")
-                    pytest.skip(f"submitter had errors: {result.errors}")
-                else:
-                    assert result.submitted_task_count == 1
-                    assert len(result.updated_task_ids) == 1
+                assert not result.errors, f"submitter errors: {result.errors}"
+                assert result.submitted_task_count == 1
+                assert len(result.updated_task_ids) == 1
             finally:
                 Path(manifest_path).unlink(missing_ok=True)
         finally:
-            ssh.run(f"rm -rf {remote_base}")
+            cleanup_remote_test_dir(ssh, remote_base, remote_tmp)
             sftp.close()
             ssh.close()

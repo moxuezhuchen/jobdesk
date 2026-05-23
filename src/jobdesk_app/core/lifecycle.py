@@ -16,6 +16,7 @@ class TaskStatus(str, Enum):
     downloaded = "downloaded"
     analyzed = "analyzed"
     failed = "failed"
+    cancelled = "cancelled"
 
 
 # 合法的状态迁移对
@@ -37,6 +38,7 @@ _ALLOWED_TRANSITIONS: set[tuple[TaskStatus, TaskStatus]] = {
 _TERMINAL_STATUSES: set[TaskStatus] = {
     TaskStatus.analyzed,
     TaskStatus.failed,
+    TaskStatus.cancelled,
 }
 
 
@@ -50,7 +52,7 @@ def can_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:
     """
     if from_status in _TERMINAL_STATUSES:
         return False
-    if to_status == TaskStatus.failed:
+    if to_status in (TaskStatus.failed, TaskStatus.cancelled):
         return True
     return (from_status, to_status) in _ALLOWED_TRANSITIONS
 
@@ -59,7 +61,7 @@ def allowed_transitions_from(status: TaskStatus) -> set[TaskStatus]:
     """返回从给定状态可以迁移到的所有目标状态集合。"""
     if status in _TERMINAL_STATUSES:
         return set()
-    targets = {TaskStatus.failed}
+    targets = {TaskStatus.failed, TaskStatus.cancelled}
     for src, dst in _ALLOWED_TRANSITIONS:
         if src == status:
             targets.add(dst)

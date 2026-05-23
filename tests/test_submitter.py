@@ -5,18 +5,17 @@
 
 import tempfile
 from pathlib import Path
-from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import pytest
 
-from jobdesk_app.core.manifest import TaskRecord, Manifest
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.submit import SubmitMode, SubmitPlan, SubmitResult
-from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.core.manifest import Manifest, TaskRecord
+from jobdesk_app.core.submit import SubmitMode
+from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
 from jobdesk_app.remote.ssh import SSHResult
-from jobdesk_app.core.transfer import TransferRecord, TransferDirection, TransferStatus as TransferStatusEnum
-
+from jobdesk_app.remote.submitter import JobSubmitter
 
 # ---- fake SFTP client (reusing from test_sftp but minimal) ------------
 
@@ -263,6 +262,8 @@ class TestDryRun:
             assert plan.task_count == 2
             assert plan.max_parallel == 4
             assert len(plan.generated_files) > 0
+            assert "setsid" in plan.control_command
+            assert "echo $!" in plan.control_command
             # 验证没有副作用
             fake_sftp.upload_file.assert_not_called()
             fake_ssh.run.assert_not_called()
@@ -305,7 +306,7 @@ class TestSubmit:
         with tempfile.TemporaryDirectory() as tmpdir:
             mp = Path(tmpdir) / "manifest.tsv"
             _write_manifest(mp, tasks)
-            ssh = self._make_mock_ssh(exit_code=0)  # chmod succeeds, nohup succeeds
+            ssh = self._make_mock_ssh(exit_code=0, stdout="4321")  # chmod succeeds, nohup returns PID
             sftp = FakeSFTPWrapper()
             submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
             result = submitter.submit_batch(SubmitMode.all)
@@ -316,13 +317,15 @@ class TestSubmit:
             t1 = next(t for t in updated if t.task_id == "t1")
             assert t1.status == TaskStatus.submitted
             assert t1.submitted_at is not None
+            assert t1.scheduler_type == "nohup"
+            assert t1.remote_job_id == "4321"
 
     def test_submit_uses_control_subdir_for_all_remote_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
         with tempfile.TemporaryDirectory() as tmpdir:
             mp = Path(tmpdir) / "manifest.tsv"
             _write_manifest(mp, tasks)
-            ssh = self._make_mock_ssh(exit_code=0)
+            ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
             sftp = FakeSFTPWrapper()
             submitter = JobSubmitter(
                 mp, ssh, sftp, 4, "/remote/b1", "b1",
@@ -419,7 +422,7 @@ class TestSubmitResult:
             mp = Path(tmpdir) / "manifest.tsv"
             _write_manifest(mp, [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")])
             ssh = _MockSSHForSubmit(
-                SSHResult("", 0, "", "", 0.01)
+                SSHResult("", 0, "4321", "", 0.01)
             )
             sftp = FakeSFTPWrapper()
             submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")

@@ -5,13 +5,14 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH).parents[1]
 MANIFEST = ROOT / "packaging" / "windows" / "jobdesk.exe.manifest"
+GUI_RESOURCES = ROOT / "src" / "jobdesk_app" / "gui" / "resources"
 
 
 a = Analysis(
     [str(ROOT / "packaging" / "pyinstaller" / "jobdesk_gui_entry.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
-    datas=[],
+    datas=[(str(GUI_RESOURCES), "jobdesk_app/gui/resources")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

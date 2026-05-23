@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...config.servers import get_default_servers_path, load_servers
+from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
 from ..design.components import StyledTableWidget
 from ..i18n import tr
@@ -521,7 +522,7 @@ class SettingsServersPage(QWidget):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         servers = data.get("servers", {})
         servers.pop(sid, None)
-        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _edit_server(self):
@@ -549,7 +550,7 @@ class SettingsServersPage(QWidget):
         port_edit.setValue(srv.get("port", 22))
         user_edit = QLineEdit(srv.get("username", ""))
         auth_combo = QComboBox()
-        auth_combo.addItems(["key", "password"])
+        auth_combo.addItems(["key"])
         idx = auth_combo.findText(srv.get("auth_method", "key"))
         if idx >= 0:
             auth_combo.setCurrentIndex(idx)
@@ -563,6 +564,7 @@ class SettingsServersPage(QWidget):
             QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
                                         key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
         key_layout.addWidget(key_browse)
+        tofu_toggle = ToggleSwitch(bool(srv.get("trust_on_first_use", False)))
 
         form.addRow("ID:", id_edit)
         form.addRow(tr("Host:", self._language), host_edit)
@@ -570,6 +572,7 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Username:", self._language), user_edit)
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
+        form.addRow("Trust unknown host key on first connection:", tofu_toggle)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -590,13 +593,14 @@ class SettingsServersPage(QWidget):
             "port": port_edit.value(),
             "username": user_edit.text().strip(),
             "auth_method": auth_combo.currentText(),
+            "trust_on_first_use": tofu_toggle.isChecked(),
         })
         if key_edit.text().strip():
             existing["key_path"] = key_edit.text().strip()
         elif "key_path" in existing and not key_edit.text().strip():
             existing.pop("key_path", None)
         data["servers"][new_sid] = existing
-        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _add_server(self):
@@ -618,7 +622,7 @@ class SettingsServersPage(QWidget):
         user_edit = QLineEdit()
         user_edit.setPlaceholderText("如: root")
         auth_combo = QComboBox()
-        auth_combo.addItems(["key", "password"])
+        auth_combo.addItems(["key"])
         key_edit = QLineEdit()
         key_edit.setPlaceholderText("~/.ssh/id_ed25519")
         key_row = QWidget()
@@ -630,6 +634,7 @@ class SettingsServersPage(QWidget):
             QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
                                         key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
         key_layout.addWidget(key_browse)
+        tofu_toggle = ToggleSwitch(False)
 
         form.addRow("ID:", id_edit)
         form.addRow(tr("Host:", self._language), host_edit)
@@ -637,6 +642,7 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Username:", self._language), user_edit)
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
+        form.addRow("Trust unknown host key on first connection:", tofu_toggle)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -662,10 +668,11 @@ class SettingsServersPage(QWidget):
             "port": port_edit.value(),
             "username": user,
             "auth_method": auth_combo.currentText(),
+            "trust_on_first_use": tofu_toggle.isChecked(),
         }
         if key_edit.text().strip():
             servers[sid]["key_path"] = key_edit.text().strip()
-        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def shutdown(self):

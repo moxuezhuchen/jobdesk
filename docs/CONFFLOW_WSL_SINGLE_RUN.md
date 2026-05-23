@@ -22,6 +22,10 @@ summaries.
 6. The Runs page refreshes active jobs, downloads ConfFlow outputs on
    completion, and displays a per-molecule summary table.
 
+The displayed summary confirms task execution and structured-output parsing
+only. It is not a scientific validation of structures, energies, conformer
+ranking, or downstream decisions.
+
 Downloaded outputs per molecule include:
 
 - `<name>.txt`
@@ -43,6 +47,19 @@ table with columns: Molecule, Status, Conformers (in→out), Duration, Steps.
 - **✓ Done**: summary parsed successfully.
 - **✗ Missing**: task directory exists but no `run_summary.json` found.
 - **⚠ Parse Error**: summary file exists but could not be parsed.
+
+## Safety and Recovery
+
+- Unknown SSH host keys are rejected by default. For a trusted new WSL SSH
+  endpoint, explicitly enable `trust_on_first_use` once in server settings,
+  connect to store the key, and then disable the option again.
+- **Cancel** sends a remote termination request before a task is marked
+  cancelled. A cancellation error leaves the task active and reports the
+  failure.
+- Recursive remote deletion is restricted to JobDesk-owned task directories;
+  arbitrary user directories are not accepted as delete roots.
+- Automatic refresh and download are enabled by default and can be disabled in
+  settings.
 
 ## WSL Prerequisites
 
@@ -66,3 +83,6 @@ pytest tests\integration\test_real_confflow_wsl.py -v --basetemp .pytest_tmp_rea
 
 The test executes two small molecules through ConfFlow with `max_parallel=2`,
 so it is skipped unless `JOBDESK_TEST_REAL_CONFFLOW=1` is explicitly set.
+Its cleanup guard only removes a generated child directory beneath the
+configured `JOBDESK_TEST_REMOTE_TMP_DIR`; set that variable to a dedicated
+test directory such as `/tmp/jobdesk_test`, not `/tmp`.

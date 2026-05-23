@@ -6,11 +6,16 @@ Users can also define custom profiles stored in %APPDATA%/JobDesk/analysis_profi
 from __future__ import annotations
 
 import json
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..app_paths import get_app_data_dir
 from ..config.schema import ExtractResult, ExtractStrategy, ExtractType
+from ..core.atomic_write import atomic_write_text
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -173,23 +178,31 @@ class AnalysisProfileStore:
                         description=data.get("description", ""),
                         extract_rules=rules,
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Skipping invalid analysis profile %s: %s", f, exc)
         return profiles
 
     def get(self, name: str) -> AnalysisProfile | None:
         return self.list_profiles().get(name)
 
     def save(self, profile: AnalysisProfile) -> None:
+        self._validate_name(profile.name)
         self._base.mkdir(parents=True, exist_ok=True)
         data = {
             "description": profile.description,
             "extract_rules": [r.model_dump() for r in profile.extract_rules],
         }
-        (self._base / f"{profile.name}.json").write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            self._base / f"{profile.name}.json",
+            json.dumps(data, indent=2, ensure_ascii=False),
         )
 
     def delete(self, name: str) -> None:
+        self._validate_name(name)
         path = self._base / f"{name}.json"
         path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _validate_name(name: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+            raise ValueError(f"invalid profile name: {name}")

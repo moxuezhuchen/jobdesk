@@ -1,13 +1,14 @@
 import csv
+import io
 import json
-from json import JSONDecodeError
 from datetime import datetime
+from json import JSONDecodeError
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .atomic_write import atomic_write_text
 from .lifecycle import TaskStatus
-
 
 _MANIFEST_COLUMNS: list[str] = [
     "task_id",
@@ -27,6 +28,8 @@ _MANIFEST_COLUMNS: list[str] = [
     "parsed_fields",
     "rendered_command",
     "status",
+    "scheduler_type",
+    "remote_job_id",
     "uploaded_at",
     "submitted_at",
     "started_at",
@@ -55,6 +58,8 @@ class TaskRecord(BaseModel):
     max_parallel: int | None = None
     rendered_command: str = ""
     status: TaskStatus = TaskStatus.local_ready
+    scheduler_type: str = "nohup"
+    remote_job_id: str | None = None
     uploaded_at: datetime | None = None
     submitted_at: datetime | None = None
     started_at: datetime | None = None
@@ -82,18 +87,12 @@ class Manifest:
 
     @staticmethod
     def write(manifest_path: Path, tasks: list[TaskRecord]) -> None:
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = manifest_path.with_name(f"{manifest_path.name}.tmp")
-        try:
-            with open(tmp_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f, delimiter="\t", lineterminator="\n")
-                writer.writerow(_MANIFEST_COLUMNS)
-                for task in tasks:
-                    writer.writerow(_task_to_row(task))
-            tmp_path.replace(manifest_path)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        output = io.StringIO(newline="")
+        writer = csv.writer(output, delimiter="\t", lineterminator="\n")
+        writer.writerow(_MANIFEST_COLUMNS)
+        for task in tasks:
+            writer.writerow(_task_to_row(task))
+        atomic_write_text(manifest_path, output.getvalue(), newline="")
 
     @staticmethod
     def read(manifest_path: Path) -> list[TaskRecord]:
@@ -143,6 +142,8 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         json.dumps(task.parsed_fields, ensure_ascii=False) if task.parsed_fields else "",
         task.rendered_command,
         task.status.value,
+        task.scheduler_type,
+        task.remote_job_id or "",
         _fmt_dt(task.uploaded_at),
         _fmt_dt(task.submitted_at),
         _fmt_dt(task.started_at),
@@ -230,6 +231,8 @@ def _row_to_task(
         parsed_fields=_parse_json_dict(values.get("parsed_fields", ""), "parsed_fields", manifest_path, row_number),
         rendered_command=values.get("rendered_command", ""),
         status=TaskStatus(values["status"]) if values.get("status") else TaskStatus.local_ready,
+        scheduler_type=values.get("scheduler_type", "nohup") or "nohup",
+        remote_job_id=values.get("remote_job_id") or None,
         uploaded_at=_parse_dt(values.get("uploaded_at", "")),
         submitted_at=_parse_dt(values.get("submitted_at", "")),
         started_at=_parse_dt(values.get("started_at", "")),

@@ -12,6 +12,7 @@
 """
 
 import os
+
 import pytest
 
 from jobdesk_app.config.servers import load_servers

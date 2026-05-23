@@ -3,18 +3,33 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QSpinBox,
-    QRadioButton, QButtonGroup, QTextEdit, QFileDialog,
-    QGroupBox,
-)
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 from ...core.input_builder import (
-    build_gjf, build_inp, build_from_preset,
-    list_presets, GAUSSIAN_PRESETS, ORCA_PRESETS,
-    GaussianInputSpec, OrcaInputSpec,
+    GAUSSIAN_PRESETS,
+    ORCA_PRESETS,
+    GaussianInputSpec,
+    OrcaInputSpec,
+    build_from_preset,
+    build_gjf,
+    build_inp,
+    list_presets,
 )
 
 

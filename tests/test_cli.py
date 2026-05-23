@@ -62,7 +62,7 @@ def test_cli_run_retry_no_failed(capsys):
 
         rc = main(["run", "retry", workspace, run_id])
         assert rc == 0
-        out = capsys.readouterr().out
+        capsys.readouterr()
 
 
 def test_cli_run_delete(capsys):
@@ -80,6 +80,30 @@ def test_cli_run_delete(capsys):
         rc = main(["run", "delete", workspace, run_id])
         assert rc == 0
         assert RunService(workspace).list_runs() == []
+
+
+def test_cli_run_cancel_invokes_remote_cancellation(capsys):
+    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+        main([
+            "run", "create", workspace,
+            "--server", "s", "--remote-dir", "/tmp/x",
+            "--command", "echo {name}", "--files", "/remote/f.txt",
+        ])
+        capsys.readouterr()
+        from jobdesk_app.services.run_service import RunService
+
+        run_id = RunService(workspace).list_runs()[0].run_id
+        ssh = MagicMock()
+        with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
+             patch("jobdesk_app.cli.create_ssh_client", return_value=ssh), \
+             patch.object(RunService, "cancel_run", return_value=(1, [])) as cancel:
+            rc = main(["run", "cancel", workspace, run_id])
+
+        assert rc == 0
+        cancel.assert_called_once_with(run_id, ssh)
+        ssh.connect.assert_called_once_with()
+        ssh.close.assert_called_once_with()
+        assert "cancelled 1 task(s)" in capsys.readouterr().out
 
 
 def test_cli_no_longer_registers_jobdesk_owned_workflow_commands():

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -28,6 +28,8 @@ from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 
+MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
+
 
 def _format_status(summary: dict[str, int], language: str = "zh") -> str:
     if not summary:
@@ -42,6 +44,7 @@ def _format_status(summary: dict[str, int], language: str = "zh") -> str:
         "downloaded": tr("Downloaded", language),
         "analyzed": tr("Analyzed", language),
         "failed": tr("Failed", language),
+        "cancelled": tr("Cancelled", language),
     }
     parts = []
     total = sum(summary.values())
@@ -194,6 +197,7 @@ class RunsResultsPage(QWidget):
     def _on_task_done(self, event):
         """Called when a remote task changes state — refresh in background."""
         workspace = self._workspace()
+        settings = GuiSettingsStore().load()
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
@@ -213,7 +217,7 @@ class RunsResultsPage(QWidget):
                     )
                     RunService(workspace).update_run_from_manifest(record.run_id)
                     # Only download on DONE (exit_code is not None)
-                    if event.exit_code is not None:
+                    if event.exit_code is not None and settings.auto_download_enabled:
                         updated = RunService(workspace).load_run(record.run_id)
                         if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
@@ -247,10 +251,16 @@ class RunsResultsPage(QWidget):
             pass
 
     def on_activated(self):
-        self._language = GuiSettingsStore().load().language
+        settings = GuiSettingsStore().load()
+        self._language = settings.language
         self.refresh_run_list()
-        self._start_monitoring()
-        self._refresh_timer.start()
+        self._refresh_timer.setInterval(settings.auto_refresh_interval * 1000)
+        if settings.auto_refresh_enabled:
+            self._start_monitoring()
+            self._refresh_timer.start()
+        else:
+            self._monitor.stop_all()
+            self._refresh_timer.stop()
 
     def apply_language(self, language: str):
         self._language = language
@@ -379,7 +389,7 @@ class RunsResultsPage(QWidget):
                 if rows:
                     self.result_text.setVisible(False)
                     self._show_analysis_rows(rows)
-                    self.result_label.setText(tr("Result Preview — Auto Analysis", self._language))
+                    self._set_parsed_results_label(tr("Result Preview — Auto Analysis", self._language))
                     return
 
         # Fallback: analyze output files in workspace root
@@ -387,7 +397,7 @@ class RunsResultsPage(QWidget):
             rows = self._analyze_workspace_files(record, base)
             if rows:
                 self._show_analysis_rows(rows)
-                self.result_label.setText(tr("Result Preview — Local Files", self._language))
+                self._set_parsed_results_label(tr("Result Preview — Local Files", self._language))
                 return
 
         # Last resort: read existing TSV
@@ -421,32 +431,38 @@ class RunsResultsPage(QWidget):
             if not task.remote_task_files:
                 continue
             source = task.remote_task_files[0]
-            stem = source.rsplit(".", 1)[0] if "." in source else source
+            stem = PurePosixPath(source).stem
             found = False
             # Check .log (Gaussian)
             log_file = workspace / f"{stem}.log"
             if log_file.is_file():
                 found = True
-                try:
-                    r = parse_gaussian_log(log_file)
-                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([task.task_id, log_file.name, "Gaussian", energy, gibbs,
-                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
-                except Exception:
-                    rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
+                if _too_large_for_preview(log_file):
+                    rows.append([task.task_id, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", ""])
+                else:
+                    try:
+                        r = parse_gaussian_log(log_file)
+                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                        rows.append([task.task_id, log_file.name, "Gaussian", energy, gibbs,
+                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                    except Exception:
+                        rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
             # Check .out (ORCA)
             out_file = workspace / f"{stem}.out"
             if out_file.is_file():
                 found = True
-                try:
-                    r = parse_orca_out(out_file)
-                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
-                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
-                except Exception:
-                    rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
+                if _too_large_for_preview(out_file):
+                    rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
+                else:
+                    try:
+                        r = parse_orca_out(out_file)
+                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                        rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
+                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                    except Exception:
+                        rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
             if found and task.status == TaskStatus.remote_completed:
                 task.status = TaskStatus.downloaded
                 changed = True
@@ -469,25 +485,31 @@ class RunsResultsPage(QWidget):
             # Gaussian .log
             log_file = task_dir / f"{stem}.log"
             if log_file.is_file():
-                try:
-                    r = parse_gaussian_log(log_file)
-                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([stem, log_file.name, "Gaussian", energy, gibbs,
-                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
-                except Exception:
-                    rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
+                if _too_large_for_preview(log_file):
+                    rows.append([stem, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", ""])
+                else:
+                    try:
+                        r = parse_gaussian_log(log_file)
+                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                        rows.append([stem, log_file.name, "Gaussian", energy, gibbs,
+                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                    except Exception:
+                        rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
             # ORCA .out
             out_file = task_dir / f"{stem}.out"
             if out_file.is_file():
-                try:
-                    r = parse_orca_out(out_file)
-                    energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                    gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                    rows.append([stem, out_file.name, "ORCA", energy, gibbs,
-                                 tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
-                except Exception:
-                    rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
+                if _too_large_for_preview(out_file):
+                    rows.append([stem, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
+                else:
+                    try:
+                        r = parse_orca_out(out_file)
+                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
+                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
+                        rows.append([stem, out_file.name, "ORCA", energy, gibbs,
+                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                    except Exception:
+                        rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
         return rows
 
     def _show_confflow_batch_results(self, record, result_dir: Path):
@@ -541,7 +563,7 @@ class RunsResultsPage(QWidget):
                         rows.append([mol_name, "✗ Missing", "", "", ""])
 
         if not rows:
-            self.result_label.setText("ConfFlow Batch Results (no tasks)")
+            self._set_parsed_results_label("ConfFlow Batch Results (no tasks)")
             self.result_text.setVisible(False)
             self.result_table.setRowCount(0)
             return
@@ -554,7 +576,11 @@ class RunsResultsPage(QWidget):
             for c, val in enumerate(row):
                 self.result_table.setItem(r, c, QTableWidgetItem(val))
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.result_label.setText(f"ConfFlow Batch Results ({len(rows)} molecules)")
+        self._set_parsed_results_label(f"ConfFlow Batch Results ({len(rows)} molecules)")
+
+    def _set_parsed_results_label(self, prefix: str) -> None:
+        notice = tr("Execution output parsed; scientific review required", self._language)
+        self.result_label.setText(f"{prefix} - {notice}")
 
     def _show_analysis_rows(self, rows: list[list[str]]):
         headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", tr("Normal Term", self._language)]
@@ -588,6 +614,9 @@ class RunsResultsPage(QWidget):
         """Periodically refresh status for submitted/running runs."""
         if getattr(self, '_auto_refresh_running', False):
             return
+        settings = GuiSettingsStore().load()
+        if not settings.auto_refresh_enabled:
+            return
         workspace = self._workspace()
         runs = RunService(workspace).list_runs()
         active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
@@ -620,7 +649,7 @@ class RunsResultsPage(QWidget):
                             )
                             RunService(workspace).update_run_from_manifest(record.run_id)
                             updated = RunService(workspace).load_run(record.run_id)
-                            if updated.status_summary.get("remote_completed", 0) > 0:
+                            if settings.auto_download_enabled and updated.status_summary.get("remote_completed", 0) > 0:
                                 patterns = self._get_download_patterns(record)
                                 _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
                                 if failures:
@@ -742,9 +771,30 @@ class RunsResultsPage(QWidget):
         if QMessageBox.question(self, tr("Cancel", self._language), tr("Cancel run {run_id}?", self._language, run_id=record.run_id),
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
-        RunService(self._workspace()).mark_run_cancelled(record.run_id)
+        workspace = self._workspace()
+
+        def _run():
+            server = load_servers().servers[record.server_id]
+            ssh = create_ssh_client(server)
+            ssh.connect()
+            try:
+                return RunService(workspace).cancel_run(record.run_id, ssh)
+            finally:
+                ssh.close()
+
+        from ..workers import BackgroundWorker
+        self._worker = BackgroundWorker(_run)
+        self._worker.result.connect(lambda result: self._on_cancel_done(record.run_id, result))
+        self._worker.error.connect(lambda e: self._status_cb(tr("Cancel failed: {e}", self._language, e=e)))
+        self._worker.start()
+
+    def _on_cancel_done(self, run_id: str, result: tuple[int, list[str]]):
+        changed, errors = result
         self.refresh_run_list()
-        self._status_cb(tr("Cancelled: {run_id}", self._language, run_id=record.run_id))
+        if errors:
+            self._status_cb(tr("Cancel failed: {e}", self._language, e="; ".join(errors)))
+        else:
+            self._status_cb(tr("Cancelled: {run_id}", self._language, run_id=run_id))
 
     def _delete_run(self):
         rows = sorted({idx.row() for idx in self.table.selectedIndexes()})
@@ -762,13 +812,19 @@ class RunsResultsPage(QWidget):
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         svc = RunService(self._workspace())
+        deleted = 0
+        errors: list[str] = []
         for rid in run_ids:
             try:
                 svc.delete_run(rid)
-            except Exception:
-                pass
+                deleted += 1
+            except Exception as exc:
+                errors.append(f"{rid}: {exc}")
         self.refresh_run_list()
-        self._status_cb(tr("Deleted: {n} records", self._language, n=len(run_ids)))
+        if errors:
+            self._status_cb(tr("Delete failed", self._language) + f": {'; '.join(errors)}")
+        else:
+            self._status_cb(tr("Deleted: {n} records", self._language, n=deleted))
 
     def _submit_record(self, run_id: str):
         workspace = self._workspace()
@@ -824,3 +880,7 @@ class RunsResultsPage(QWidget):
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely()
+
+
+def _too_large_for_preview(path: Path) -> bool:
+    return path.stat().st_size > MAX_PREVIEW_FILE_BYTES
