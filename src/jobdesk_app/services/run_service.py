@@ -173,11 +173,13 @@ class RunService:
         for task in tasks:
             if task.status != TaskStatus.remote_completed:
                 continue
+            recs = []
+            download_errors: list[str] = []
+            requested_outputs: list[str] = []
+            task_ok = False
             try:
                 task_dir = results_base / task.task_id
                 task_dir.mkdir(parents=True, exist_ok=True)
-                recs = []
-                download_errors: list[str] = []
                 work_dir = task.remote_work_dir or task.remote_job_dir
                 requested_outputs = _declared_outputs(task, patterns)
                 for relative_output in requested_outputs:
@@ -189,7 +191,6 @@ class RunService:
                         recs.append(rec)
                     except Exception as exc:
                         download_errors.append(f"{relative_output}: {exc}")
-                records.extend(recs)
                 successful = sum(
                     1
                     for r in recs
@@ -201,13 +202,24 @@ class RunService:
                 elif not task_ok:
                     failures.append((task.task_id, "无匹配输出文件"))
             except ValueError as exc:
-                task_ok = False
+                download_errors.append(str(exc))
                 failures.append((task.task_id, str(exc)))
             except Exception as exc:
-                task_ok = False
+                download_errors.append(str(exc))
                 failures.append((task.task_id, str(exc)))
+            records.extend(recs)
             if task_ok:
                 task.status = TaskStatus.downloaded
+                if task.error_message and task.error_message.startswith("download:"):
+                    task.error_message = None
+            else:
+                error_parts = []
+                if download_errors:
+                    error_parts = download_errors
+                elif not requested_outputs:
+                    error_parts = ["无匹配输出文件"]
+                if error_parts:
+                    task.error_message = "download: " + "; ".join(error_parts)
         Manifest.write(record.manifest_path, tasks)
         self.update_run_from_manifest(run_id)
         return records, failures

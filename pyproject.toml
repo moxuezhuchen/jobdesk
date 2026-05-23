@@ -3,7 +3,8 @@ name = "jobdesk"
 version = "0.3.0-dev"
 description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
 requires-python = ">=3.11"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "pydantic>=2.0,<3.0",
     "pyyaml>=6.0",

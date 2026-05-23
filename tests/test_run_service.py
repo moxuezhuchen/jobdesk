@@ -234,7 +234,9 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path):
     assert records == []
     assert failures == [("water", "unsafe declared result path: ../outside.json")]
     assert not (tmp_path / "results" / "outside.json").exists()
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert task.error_message == "download: unsafe declared result path: ../outside.json"
 
 
 def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
@@ -347,3 +349,95 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, mon
     assert changed == 0
     assert "qdel rejected" in errors[0]
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.running
+
+
+def test_download_failure_persists_error_message_to_manifest(tmp_path):
+    """When SFTP download fails, error_message should be written to manifest."""
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_err")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    class FailSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            raise TimeoutError("sftp timeout")
+
+    _records, failures = service.download_completed("run_err", FailSFTP(), [".log"])
+
+    assert failures
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert "download:" in task.error_message
+    assert "sftp timeout" in task.error_message
+
+
+def test_successful_download_clears_previous_download_error(tmp_path):
+    """After retry succeeds, the download error_message must be cleared."""
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/b.sh")],
+    ), run_id="run_retry")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    tasks[0].error_message = "download: b.log: old error"
+    Manifest.write(record.manifest_path, tasks)
+
+    class OkSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            local_path = Path(local_path) if not isinstance(local_path, Path) else local_path
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_text("ok", encoding="utf-8")
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+            return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+    _records, failures = service.download_completed("run_retry", OkSFTP(), [".log"])
+
+    assert not failures
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.downloaded
+    assert task.error_message is None or "download:" not in task.error_message
+
+
+def test_download_directory_creation_failure_persists_error_message(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/c.sh")],
+    ), run_id="run_mkdir_fail")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    failing_dir = tmp_path / "results" / "run_mkdir_fail" / "c"
+    original_mkdir = Path.mkdir
+
+    def fail_result_dir(self, *args, **kwargs):
+        if self == failing_dir:
+            raise PermissionError("results directory denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_result_dir)
+
+    _records, failures = service.download_completed("run_mkdir_fail", object(), [".log"])
+
+    assert failures == [("c", "results directory denied")]
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert task.error_message == "download: results directory denied"
