@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer
@@ -128,6 +129,9 @@ class RunsResultsPage(QWidget):
         self.cancel_btn = QPushButton(tr("Cancel", self._language))
         self.cancel_btn.clicked.connect(self._cancel_run)
         btn_row.addWidget(self.cancel_btn)
+        self.retry_dl_btn = QPushButton(tr("Retry Download", self._language))
+        self.retry_dl_btn.clicked.connect(self._retry_download)
+        btn_row.addWidget(self.retry_dl_btn)
         self.delete_btn = QPushButton(tr("Delete", self._language))
         self.delete_btn.clicked.connect(self._delete_run)
         btn_row.addWidget(self.delete_btn)
@@ -298,6 +302,7 @@ class RunsResultsPage(QWidget):
         return [
             (tr("Refresh Status", self._language), self._refresh_all),
             (tr("Rerun", self._language), self._rerun_all),
+            (tr("Open Results", self._language), self._open_results_folder),
             (tr("Show Logs", self._language), self._show_logs),
             (tr("Show Paths", self._language), self._show_paths),
         ]
@@ -535,7 +540,11 @@ class RunsResultsPage(QWidget):
                     except Exception:
                         rows.append([mol_name, "⚠ Parse Error", "", "", ""])
                 elif task.status == TaskStatus.failed:
-                    rows.append([mol_name, "✗ Failed", "", "", ""])
+                    reason = f" ({task.error_message})" if task.error_message else ""
+                    rows.append([mol_name, f"✗ Failed{reason}", "", "", ""])
+                elif task.status == TaskStatus.remote_completed:
+                    reason = f" ({task.error_message})" if task.error_message else ""
+                    rows.append([mol_name, f"⚠ Download Failed{reason}", "", "", ""])
                 elif task.status in (TaskStatus.submitted, TaskStatus.running):
                     label = "Running" if task.status == TaskStatus.running else "Pending"
                     rows.append([mol_name, f"⏳ {label}", "", "", ""])
@@ -747,6 +756,69 @@ class RunsResultsPage(QWidget):
             self._status_cb(tr("No failed tasks", self._language))
             return
         self._submit_record(record.run_id)
+
+    def _retry_download(self):
+        """Re-attempt download for tasks still at remote_completed."""
+        record = self._selected_record()
+        if record is None:
+            return
+        if not record.status_summary.get("remote_completed", 0):
+            self._status_cb(tr("No tasks awaiting download", self._language))
+            return
+        workspace = self._workspace()
+        self._retry_dl_running = True
+
+        def _run():
+            server = load_servers().servers[record.server_id]
+            ssh = create_ssh_client(server)
+            ssh.connect()
+            try:
+                sftp = create_sftp_client(ssh)
+                try:
+                    patterns = self._get_download_patterns(record)
+                    return RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                finally:
+                    sftp.close()
+            finally:
+                ssh.close()
+
+        from ..workers import BackgroundWorker
+        worker = BackgroundWorker(_run)
+
+        def _done(result):
+            self._retry_dl_running = False
+            _recs, failures = result
+            self.refresh_run_list()
+            if failures:
+                self._status_cb(tr("Download partial: {n} failed", self._language, n=len(failures)))
+            else:
+                self._status_cb(tr("Download complete", self._language))
+
+        def _err(exc):
+            self._retry_dl_running = False
+            self._status_cb(tr("Download error: {e}", self._language, e=exc))
+
+        worker.result.connect(_done)
+        worker.error.connect(_err)
+        worker.start()
+        if not hasattr(self, "_bg_workers"):
+            self._bg_workers = []
+        self._bg_workers.append(worker)
+
+    def _open_results_folder(self):
+        """Open the local results directory in file explorer."""
+        record = self._selected_record()
+        if record is None:
+            return
+        results_dir = self._workspace() / "results" / record.run_id
+        if not results_dir.exists():
+            self._status_cb(tr("Results directory not found", self._language))
+            return
+        if hasattr(os, "startfile"):
+            os.startfile(results_dir)
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", str(results_dir)])
 
     def _rerun_all(self):
         record = self._selected_record()
