@@ -3,13 +3,14 @@
 不依赖真实服务器，完全通过 mock paramiko.SSHClient 测试。
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock, call
-import paramiko
+from unittest.mock import MagicMock, patch
 
-from jobdesk_app.config.schema import ServerConfig, AuthMethod
-from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult
-from jobdesk_app.remote.errors import SSHConnectionError, SSHCommandError
+import paramiko
+import pytest
+
+from jobdesk_app.config.schema import AuthMethod, ServerConfig
+from jobdesk_app.remote.errors import SSHCommandError, SSHConnectionError
+from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult, _AutoAddAndSavePolicy
 
 
 def _make_server(host="test.example.com", port=22, username="testuser",
@@ -222,6 +223,34 @@ class TestSSHClientWrapper:
             timeout=7,
         )
         mock_client_class.return_value.connect.assert_called_once()
+
+    def test_connect_rejects_unknown_host_keys_by_default(self):
+        server = _make_server()
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.return_value = MagicMock()
+
+            MockSSHWrapper(server).connect()
+
+        policy = mock_client_class.return_value.set_missing_host_key_policy.call_args.args[0]
+        assert isinstance(policy, paramiko.RejectPolicy)
+
+    def test_connect_can_explicitly_enable_trust_on_first_use(self):
+        server = _make_server().model_copy(update={"trust_on_first_use": True})
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.return_value = MagicMock()
+
+            MockSSHWrapper(server).connect()
+
+        policy = mock_client_class.return_value.set_missing_host_key_policy.call_args.args[0]
+        assert policy.__class__.__name__ == "_AutoAddAndSavePolicy"
+
+    def test_trust_on_first_use_does_not_ignore_key_persistence_failure(self, tmp_path):
+        client = MagicMock()
+        client.get_host_keys.return_value.save.side_effect = OSError("permission denied")
+        policy = _AutoAddAndSavePolicy(tmp_path / "known_hosts")
+
+        with pytest.raises(OSError, match="permission denied"):
+            policy.missing_host_key(client, "wsl", MagicMock())
 
     def test_key_not_found(self):
         server = _make_server(key_path="/nonexistent/key")

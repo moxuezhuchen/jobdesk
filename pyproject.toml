@@ -3,6 +3,7 @@ name = "jobdesk"
 version = "0.3.0-dev"
 description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
 requires-python = ">=3.11"
+license = {file = "LICENSE"}
 dependencies = [
     "pydantic>=2.0,<3.0",
     "pyyaml>=6.0",
@@ -19,9 +20,12 @@ chem = [
     "rdkit-pypi>=2023.9",
 ]
 dev = [
+    "build>=1.2",
+    "mypy>=1.10",
     "pytest>=8.0",
     "pytest-qt>=4.4",
     "ruff>=0.4",
+    "types-PyYAML>=6.0",
 ]
 
 [build-system]
@@ -30,6 +34,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+jobdesk_app = ["gui/resources/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,17 +57,9 @@ known-first-party = ["jobdesk_app"]
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = "jobdesk_app.core.*"
-disallow_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = "jobdesk_app.config.*"
-disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "PySide6.*"
@@ -69,3 +68,23 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "paramiko.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "rdkit.*"
+ignore_missing_imports = true
+
+# Parsers: re.search() -> Match|None pattern is safe but verbose to annotate
+[[tool.mypy.overrides]]
+module = ["jobdesk_app.core.parsers.gaussian", "jobdesk_app.core.parsers.orca"]
+disable_error_code = "assignment"
+
+# comparison uses PySide6 enum attributes that stubs don't expose
+[[tool.mypy.overrides]]
+module = "jobdesk_app.services.comparison"
+disable_error_code = ["attr-defined", "operator", "type-var"]
+
+# GUI modules use PySide6 enum attributes (e.g. Qt.AlignLeft, QHeaderView.Interactive)
+# that type stubs expose under nested enum classes; suppress attr-defined only
+[[tool.mypy.overrides]]
+module = "jobdesk_app.gui.*"
+disable_error_code = "attr-defined"

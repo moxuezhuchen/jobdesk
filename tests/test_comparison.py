@@ -1,13 +1,11 @@
 """Tests for cross-run comparison and export."""
-import tempfile
-from pathlib import Path
 
 from jobdesk_app.services.comparison import (
+    HARTREE_TO_KCAL,
     RunComparison,
     compare_runs,
     export_csv,
     export_markdown,
-    HARTREE_TO_KCAL,
 )
 
 
@@ -71,10 +69,9 @@ class TestCompareRuns:
             self.runs_dir = runs_dir
 
         monkeypatch.setattr(RunService, "__init__", _patched)
-        from jobdesk_app.core.run import RunSpec, RunMode, RunSource
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
-        from jobdesk_app.core.models import ResultRecord
+        from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 
         # Create two runs
         svc = RunService(tmp_path)

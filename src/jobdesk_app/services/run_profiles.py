@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from ..app_paths import get_app_data_dir
+from ..core.atomic_write import atomic_write_text
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class RunProfileStore:
             "download_patterns": download_patterns or [],
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(yaml.safe_dump({"profiles": data}, sort_keys=True), encoding="utf-8")
+        atomic_write_text(self.path, yaml.safe_dump({"profiles": data}, sort_keys=True))
 
     def load_last(self, server_id: str, remote_dir: str) -> RunProfile | None:
         data = self._read().get(_key(server_id, remote_dir))
@@ -60,12 +61,12 @@ class RunProfileStore:
         return raw.get("profiles", {}) or {}
 
     def save_command_history(self, commands: list[str]) -> None:
-        raw = {}
+        raw: dict = {}
         if self.path.exists():
             raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
         raw["command_history"] = commands[:20]
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(yaml.safe_dump(raw, sort_keys=True), encoding="utf-8")
+        atomic_write_text(self.path, yaml.safe_dump(raw, sort_keys=True))
 
     def load_command_history(self) -> list[str]:
         if not self.path.exists():

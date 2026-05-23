@@ -192,10 +192,10 @@ def build_from_preset(
 def list_presets() -> dict[str, str]:
     """Return all preset names with their keyword strings."""
     result = {}
-    for name, spec in GAUSSIAN_PRESETS.items():
-        result[name] = f"Gaussian: {spec.method_basis} {' '.join(spec.job_keywords)}"
-    for name, spec in ORCA_PRESETS.items():
-        result[name] = f"ORCA: {spec.keywords}"
+    for name, gspec in GAUSSIAN_PRESETS.items():
+        result[name] = f"Gaussian: {gspec.method_basis} {' '.join(gspec.job_keywords)}"
+    for name, ospec in ORCA_PRESETS.items():
+        result[name] = f"ORCA: {ospec.keywords}"
     return result
 
 
@@ -210,10 +210,25 @@ def _read_xyz(path: Path) -> list[tuple[str, float, float, float]]:
         n_atoms = int(lines[0].strip())
     except ValueError:
         raise ValueError(f"First line of XYZ must be atom count: {path}")
+    if n_atoms <= 0:
+        raise ValueError(f"XYZ atom count must be positive: {path}")
+
+    coordinate_lines = lines[2:]
+    while coordinate_lines and not coordinate_lines[-1].strip():
+        coordinate_lines.pop()
+    if len(coordinate_lines) != n_atoms:
+        raise ValueError(
+            f"XYZ file {path} declares {n_atoms} atoms but contains "
+            f"{len(coordinate_lines)} coordinate rows"
+        )
+
     atoms: list[tuple[str, float, float, float]] = []
-    for line in lines[2:2 + n_atoms]:
+    for row_number, line in enumerate(coordinate_lines, start=1):
         parts = line.split()
-        if len(parts) < 4:
-            continue
-        atoms.append((parts[0], float(parts[1]), float(parts[2]), float(parts[3])))
+        if len(parts) != 4:
+            raise ValueError(f"XYZ file {path} has invalid coordinate row {row_number}: {line!r}")
+        try:
+            atoms.append((parts[0], float(parts[1]), float(parts[2]), float(parts[3])))
+        except ValueError as exc:
+            raise ValueError(f"XYZ file {path} has invalid coordinate row {row_number}: {line!r}") from exc
     return atoms

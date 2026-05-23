@@ -1,14 +1,13 @@
 """测试 config/schema.py - 配置数据模型校验。"""
 
-import pytest
 import tempfile
 from pathlib import Path
-import yaml
+
+import pytest
 
 from jobdesk_app.config.schema import (
-    ServerConfig,
-    ServersConfig,
     AuthMethod,
+    ServerConfig,
 )
 from jobdesk_app.config.servers import load_servers
 
@@ -108,3 +107,14 @@ servers:
             Path(tmp_path).unlink(missing_ok=True)
 
 
+
+
+def test_password_auth_config_loads_but_surfaces_unsupported_message():
+    """Old configs with auth_method=password load but report unsupported."""
+    server = ServerConfig(host="10.0.0.1", username="user", auth_method=AuthMethod.password)
+    assert server.auth_unsupported_message != ""
+    assert "password" in server.auth_unsupported_message
+
+    # key auth has no warning
+    server_key = ServerConfig(host="10.0.0.1", username="user", auth_method=AuthMethod.key)
+    assert server_key.auth_unsupported_message == ""

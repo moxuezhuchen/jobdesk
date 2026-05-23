@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -26,8 +28,13 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check src/ tests/ --select F821
-        continue-on-error: true
+        run: python -m ruff check .
+
+      - name: Type check
+        run: python -m mypy src
+
+      - name: Build package
+        run: python -m build
 
       - name: Test
-        run: pytest tests/ -v --ignore=tests/integration --ignore=tests/test_gui_behavior.py
+        run: python -m pytest tests/ -v --basetemp .pytest_tmp_ci

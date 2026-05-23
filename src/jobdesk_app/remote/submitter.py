@@ -253,8 +253,8 @@ class JobSubmitter:
 
         cd_cmd = shlex.quote(control_dir)
         control_command = (
-            f"cd {cd_cmd} && nohup bash './batch_control.sh'"
-            f" > './batch_control.nohup.log' 2>&1 &"
+            f"cd {cd_cmd} && nohup setsid bash './batch_control.sh'"
+            " > './batch_control.nohup.log' 2>&1 & echo $!"
         )
 
         return SubmitPlan(
@@ -351,13 +351,20 @@ class JobSubmitter:
                 result.errors.append(f"chmod 失败: {chmod_result.stderr}")
                 return result
             cd_q = shlex.quote(control_dir)
-            nohup_cmd = f"cd {cd_q} && nohup bash './batch_control.sh' > './batch_control.nohup.log' 2>&1 &"
+            nohup_cmd = (
+                f"cd {cd_q} && nohup setsid bash './batch_control.sh'"
+                " > './batch_control.nohup.log' 2>&1 & echo $!"
+            )
             result.nohup_command = nohup_cmd
             ssh_result = self._ssh.run(nohup_cmd, timeout=30)
             if ssh_result.exit_code != 0:
                 result.errors.append(f"nohup 启动失败: {ssh_result.stderr}")
                 return result
-            return self._mark_submitted(tasks, result)
+            job_id = ssh_result.stdout.strip().splitlines()[-1] if ssh_result.stdout.strip() else ""
+            if not job_id:
+                result.errors.append("nohup start did not return a remote process id")
+                return result
+            return self._mark_submitted(tasks, result, scheduler_type="nohup", remote_job_id=job_id)
         except Exception as e:
             result.errors.append(f"提交异常: {e}")
             return result
@@ -393,7 +400,9 @@ class JobSubmitter:
                     if mt.task_id == t.task_id:
                         mt.status = TaskStatus.submitted
                         mt.submitted_at = now
-                        mt.error_message = f"scheduler_job_id={job_id}"
+                        mt.scheduler_type = _scheduler_type(self._scheduler)
+                        mt.remote_job_id = job_id
+                        mt.error_message = None
                 updated_ids.append(t.task_id)
             Manifest.write(self._manifest_path, all_tasks)
             result.updated_task_ids = updated_ids
@@ -402,7 +411,7 @@ class JobSubmitter:
             result.errors.append(f"提交异常: {e}")
         return result
 
-    def _mark_submitted(self, tasks, result):
+    def _mark_submitted(self, tasks, result, scheduler_type: str = "nohup", remote_job_id: str | None = None):
         now = datetime.now()
         updated_ids: list[str] = []
         all_tasks = Manifest.read(self._manifest_path)
@@ -411,7 +420,20 @@ class JobSubmitter:
             if t.task_id in tid_map:
                 tid_map[t.task_id].status = TaskStatus.submitted
                 tid_map[t.task_id].submitted_at = now
+                tid_map[t.task_id].scheduler_type = scheduler_type
+                tid_map[t.task_id].remote_job_id = remote_job_id
+                tid_map[t.task_id].error_message = None
                 updated_ids.append(t.task_id)
         Manifest.write(self._manifest_path, all_tasks)
         result.updated_task_ids = updated_ids
         return result
+
+
+def _scheduler_type(scheduler) -> str:
+    from .scheduler import PBSAdapter, SlurmAdapter
+
+    if isinstance(scheduler, SlurmAdapter):
+        return "slurm"
+    if isinstance(scheduler, PBSAdapter):
+        return "pbs"
+    return "nohup"

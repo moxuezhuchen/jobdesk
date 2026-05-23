@@ -5,8 +5,10 @@ import pytest
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferStatus
+from jobdesk_app.remote.scheduler import ResourceSpec, SlurmAdapter
+from jobdesk_app.services.run_service import RunService
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +46,66 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
     assert [task.task_id for task in tasks] == ["a", "b"]
     assert all(task.status == TaskStatus.uploaded for task in tasks)
     assert all(task.server_id == "s1" for task in tasks)
+
+
+def test_create_run_rejects_duplicate_explicit_run_id(tmp_path):
+    service = RunService(tmp_path)
+    spec = RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    )
+    service.create_run(spec, run_id="duplicate")
+
+    with pytest.raises(FileExistsError):
+        service.create_run(spec, run_id="duplicate")
+
+
+def test_create_run_rejects_unsafe_explicit_run_id(tmp_path):
+    service = RunService(tmp_path)
+    spec = RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    )
+
+    with pytest.raises(ValueError, match="Invalid run_id"):
+        service.create_run(spec, run_id="../outside")
+
+
+def test_load_run_rejects_path_traversal(tmp_path):
+    service = RunService(tmp_path)
+
+    with pytest.raises(ValueError, match="Invalid run_id"):
+        service.load_run("../outside")
+
+
+def test_run_json_replace_failure_keeps_existing_record(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_atomic")
+    original = (record.run_dir / "run.json").read_text(encoding="utf-8")
+
+    def fail_replace(self, target):
+        raise RuntimeError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(RuntimeError, match="replace failed"):
+        service.update_run_from_manifest("run_atomic")
+
+    assert (record.run_dir / "run.json").read_text(encoding="utf-8") == original
 
 
 def test_list_runs_returns_latest_first(tmp_path):
@@ -193,3 +255,95 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
 
     assert changed == 1
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.uploaded
+
+
+def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_strategy")
+    captured = []
+
+    class FakeSubmitter:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        def submit_batch(self):
+            return SubmitResult("run_strategy", 1, "/remote/jobs")
+
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", FakeSubmitter)
+    resources = ResourceSpec(cpus=8, memory_mb=4096, walltime_minutes=60)
+
+    service.submit_run(
+        "run_strategy", object(), object(),
+        env_init_scripts=["/opt/module.sh"],
+        scheduler=SlurmAdapter(),
+        resources=resources,
+    )
+    service.submit_run("run_strategy", object(), object())
+
+    loaded = service.load_run("run_strategy")
+    assert loaded.scheduler_type == "slurm"
+    assert loaded.env_init_scripts == ["/opt/module.sh"]
+    assert loaded.resources["cpus"] == 8
+    assert isinstance(captured[1]["scheduler"], SlurmAdapter)
+    assert captured[1]["env_init_scripts"] == ["/opt/module.sh"]
+    assert captured[1]["resources"].memory_mb == 4096
+
+
+def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_cancel")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.running
+    tasks[0].scheduler_type = "slurm"
+    tasks[0].remote_job_id = "12345"
+    Manifest.write(record.manifest_path, tasks)
+    adapter = pytest.importorskip("unittest.mock").MagicMock()
+    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+    ssh = object()
+
+    changed, errors = service.cancel_run("run_cancel", ssh)
+
+    adapter.cancel.assert_called_once_with(ssh, "12345")
+    assert changed == 1
+    assert errors == []
+    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.cancelled
+
+
+def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_cancel_fail")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.running
+    tasks[0].scheduler_type = "pbs"
+    tasks[0].remote_job_id = "99"
+    Manifest.write(record.manifest_path, tasks)
+    adapter = pytest.importorskip("unittest.mock").MagicMock()
+    adapter.cancel.side_effect = RuntimeError("qdel rejected")
+    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+
+    changed, errors = service.cancel_run("run_cancel_fail", object())
+
+    assert changed == 0
+    assert "qdel rejected" in errors[0]
+    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.running

@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import pytest
 import yaml
 
 from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
@@ -34,6 +37,8 @@ def test_gui_settings_defaults(tmp_path):
     assert settings.batch_size == 0
     assert settings.language == "en"
     assert settings.column_widths == {}
+    assert settings.auto_refresh_enabled is True
+    assert settings.auto_download_enabled is True
     assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
     assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name}"
 
@@ -88,3 +93,18 @@ def test_existing_profiles_with_confflow_not_overwritten(tmp_path):
 
     assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name} --custom"
     assert settings.software_profiles["ConfFlow"]["download_patterns"] == "*.txt"
+
+
+def test_save_replace_failure_keeps_existing_settings(tmp_path, monkeypatch):
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text("existing: true\n", encoding="utf-8")
+    store = GuiSettingsStore(path)
+
+    def fail_replace(self, target):
+        raise RuntimeError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(RuntimeError, match="replace failed"):
+        store.save(GuiSettings())
+
+    assert path.read_text(encoding="utf-8") == "existing: true\n"

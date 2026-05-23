@@ -1,13 +1,13 @@
 """测试 core/manifest.py - Manifest TSV 读写。"""
 
 import tempfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
-from jobdesk_app.core.manifest import TaskRecord, Manifest, _MANIFEST_COLUMNS
 from jobdesk_app.core.lifecycle import TaskStatus
+from jobdesk_app.core.manifest import _MANIFEST_COLUMNS, Manifest, TaskRecord
 
 
 class TestTaskRecord:
@@ -126,6 +126,21 @@ class TestManifestWrite:
             assert path.read_text(encoding="utf-8") == "old manifest\n"
             assert list(Path(tmpdir).glob("*.tmp")) == []
 
+    def test_rewrites_use_distinct_temp_files(self, tmp_path, monkeypatch):
+        path = tmp_path / "manifest.tsv"
+        replaced_from = []
+        original_replace = Path.replace
+
+        def capture_replace(self, target):
+            replaced_from.append(self)
+            return original_replace(self, target)
+
+        monkeypatch.setattr(Path, "replace", capture_replace)
+        Manifest.write(path, [])
+        Manifest.write(path, [])
+
+        assert replaced_from[0] != replaced_from[1]
+
 
 class TestManifestRead:
     def test_read_empty_manifest(self):
@@ -184,6 +199,23 @@ class TestManifestRead:
             loaded = Manifest.read(path)[0]
 
         assert loaded.remote_result_files == original.remote_result_files
+
+    def test_read_preserves_remote_execution_identity(self):
+        original = TaskRecord(
+            task_id="water",
+            batch_id="run006",
+            remote_job_dir="/remote/jobs/.jobdesk_runs/run006/water",
+            scheduler_type="slurm",
+            remote_job_id="12345",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(path, [original])
+
+            loaded = Manifest.read(path)[0]
+
+        assert loaded.scheduler_type == "slurm"
+        assert loaded.remote_job_id == "12345"
 
     def test_read_preserves_all_timestamps(self):
         original = TaskRecord(

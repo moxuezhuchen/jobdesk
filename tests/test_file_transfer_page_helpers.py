@@ -85,8 +85,8 @@ def test_collect_remote_delete_roots_from_manifest(tmp_path):
     ])
 
     assert collect_remote_delete_roots(manifest_path) == [
-        "/remote/other/b1",
-        "/remote/work/b1",
+        "/remote/other/.jobdesk_runs/b1",
+        "/remote/work/.jobdesk_runs/b1",
     ]
 
 

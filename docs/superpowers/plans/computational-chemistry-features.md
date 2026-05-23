@@ -1,5 +1,7 @@
 # Plan: 让 JobDesk 真正服务计算化学家
 
+> **Historical plan (2026-05):** Workflow-related sections below (multi-step orchestration, `jobdesk workflow` CLI) are superseded. JobDesk now delegates workflow orchestration to ConfFlow. The remaining analysis/input/viewer features may still be relevant.
+
 ## 目标
 
 把 JobDesk 从"通用 SSH 批量提交工具"升级为"计算化学家的工作台"，

@@ -4,20 +4,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from jobdesk_app.core.manifest import TaskRecord, Manifest
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.models import FailureRecord
+from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.remote.status import RemoteTaskStatusSnapshot
 from jobdesk_app.remote.status_refresh import (
-    refresh_batch_status,
-    _recover_status,
     _read_batch_control,
-    _check_exit_code,
+    _recover_status,
+    refresh_batch_status,
 )
-from jobdesk_app.core.status import TaskStatusSnapshot
 
 
 def _make_task(task_id: str, status: TaskStatus, remote_job_dir: str = "") -> TaskRecord:

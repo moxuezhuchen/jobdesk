@@ -1,7 +1,7 @@
 """GUI 状态模型 — 仅保存当前交互选择，不替代 core/services 数据。"""
 
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass

@@ -21,6 +21,7 @@ from jobdesk_app.services.scheduler_helpers import (
     resources_from_server,
     scheduler_from_server,
 )
+from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(
     not all((
@@ -138,6 +139,6 @@ def test_real_confflow_batch_two_molecules(tmp_path):
             summary = load_summary(summary_path)
             assert summary.final_conformers >= 1
     finally:
-        ssh.run(f"rm -rf {remote_dir}")
+        cleanup_remote_test_dir(ssh, remote_dir, remote_root)
         sftp.close()
         ssh.close()

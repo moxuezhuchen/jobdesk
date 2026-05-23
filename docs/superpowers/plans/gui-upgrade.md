@@ -1,5 +1,7 @@
 # GUI 升级重构计划
 
+> **Historical plan (2026-05):** This plan predates the GUI consolidation. The old separate pages (`runs_page.py`, `results_page.py`, `servers_page.py`, `settings_page.py`) have been merged into `runs_results_page.py` and `settings_servers_page.py`. The `jobdesk workflow` CLI and multi-step workflow GUI have been removed; ConfFlow owns workflow orchestration.
+
 将 Phase A–G 新增的后端功能全部暴露到 GUI，使用户无需 CLI 即可完成所有操作。
 
 ## 现状

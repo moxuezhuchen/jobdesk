@@ -1,12 +1,13 @@
 """M3 测试: remote/status.py — 远程状态标记读取 mock 测试。"""
 
 import shlex
-
 from unittest.mock import MagicMock, patch
+
 import paramiko
-from jobdesk_app.config.schema import ServerConfig, AuthMethod
+
+from jobdesk_app.config.schema import AuthMethod, ServerConfig
 from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult
-from jobdesk_app.remote.status import read_remote_task_status, RemoteTaskStatusSnapshot
+from jobdesk_app.remote.status import read_remote_task_status
 
 
 def _make_ssh_with_handler(run_handler):

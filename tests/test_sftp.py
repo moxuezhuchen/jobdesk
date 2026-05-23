@@ -7,14 +7,13 @@ import io
 import stat as statlib
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from jobdesk_app.core.transfer import TransferRecord, TransferDirection, TransferStatus
-from jobdesk_app.remote.sftp import SFTPClientWrapper, _validate_remote_path
+from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
 from jobdesk_app.remote.errors import RemotePathError
-
+from jobdesk_app.remote.sftp import SFTPClientWrapper, _validate_remote_path
 
 # ---- fake SFTP client --------------------------------------------------
 
@@ -310,6 +309,23 @@ class TestDownloadFile:
             rec = fake_sftp.download_file("/remote/d3.txt", local, overwrite=True)
             assert rec.status == TransferStatus.transferred
             assert local.read_bytes() == b"newnew"
+
+    def test_download_failure_does_not_replace_existing_local_file(self, fake_sftp, monkeypatch, tmp_path):
+        fake_sftp._sftp._files["/remote/d4.txt"] = b"new contents"
+        fake_sftp._sftp._attrs["/remote/d4.txt"] = FakeStat(st_size=12)
+        local = tmp_path / "d4.txt"
+        local.write_bytes(b"old")
+
+        def interrupted_get(remote_path, local_path, callback=None):
+            Path(local_path).write_bytes(b"partial")
+            raise OSError("connection lost")
+
+        monkeypatch.setattr(fake_sftp._sftp, "get", interrupted_get)
+
+        with pytest.raises(OSError, match="connection lost"):
+            fake_sftp.download_file("/remote/d4.txt", local, overwrite=True)
+
+        assert local.read_bytes() == b"old"
 
     def test_download_remote_not_found(self, fake_sftp):
         with tempfile.TemporaryDirectory() as tmpdir:

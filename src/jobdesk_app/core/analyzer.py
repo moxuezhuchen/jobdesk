@@ -7,8 +7,8 @@
 import re
 from pathlib import Path
 
-from .models import ResultRecord, FailureRecord
 from ..config.schema import ExtractResult, ExtractStrategy, ExtractType
+from .models import FailureRecord, ResultRecord
 
 
 def analyze_tasks(

@@ -1,6 +1,7 @@
 """Tests for scheduler adapters."""
 from unittest.mock import MagicMock
 
+from jobdesk_app.config.schema import SchedulerConfig, ServerConfig
 from jobdesk_app.remote.scheduler import (
     JobState,
     NohupAdapter,
@@ -9,7 +10,6 @@ from jobdesk_app.remote.scheduler import (
     SlurmAdapter,
     make_adapter,
 )
-from jobdesk_app.config.schema import SchedulerConfig, ServerConfig
 
 
 def _ssh(stdout="", exit_code=0):
@@ -172,8 +172,9 @@ class TestSchedulerConfig:
         assert cfg.scheduler.default_cpus == 8
 
     def test_scheduler_config_from_yaml(self):
-        import yaml, tempfile
+        import tempfile
         from pathlib import Path
+
         from jobdesk_app.config.servers import load_servers
         content = """
 servers:

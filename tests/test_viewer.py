@@ -1,16 +1,13 @@
 """Tests for viewer module (SMILES→3D and third-party viewer integration)."""
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from jobdesk_app.core.viewer import (
     find_viewer,
-    open_in_viewer,
-    list_available_viewers,
     is_rdkit_available,
-    _DEFAULT_VIEWERS,
+    list_available_viewers,
+    open_in_viewer,
 )
 
 

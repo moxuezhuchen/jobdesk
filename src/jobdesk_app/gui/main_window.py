@@ -5,16 +5,15 @@ import sys
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
-from .state import AppState
+from ..app_logging import configure_file_logging
+from ..services.gui_settings import GuiSettingsStore
+from .i18n import tr
+from .layouts.shell import AppShell
 from .pages.file_transfer_page import FileTransferPage
 from .pages.runs_results_page import RunsResultsPage
 from .pages.settings_servers_page import SettingsServersPage
-from .i18n import tr
-from .layouts.shell import AppShell
+from .state import AppState
 from .theme import build_app_stylesheet
-from ..app_logging import configure_file_logging
-from ..services.gui_settings import GuiSettingsStore
-
 
 _NAV_ITEMS = [
     ("folder", "Files"),

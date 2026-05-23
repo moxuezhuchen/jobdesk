@@ -94,7 +94,11 @@ class NohupAdapter:
 
     def cancel(self, ssh, job_id: str) -> None:
         if job_id and job_id != "0":
-            ssh.run(f"kill -TERM {shlex.quote(job_id)} 2>/dev/null || true")
+            pid_q = shlex.quote(job_id)
+            ssh.run(
+                f"kill -TERM -- -{pid_q} 2>/dev/null || kill -TERM {pid_q} 2>/dev/null || true",
+                timeout=15,
+            )
 
     def stdout_path(self, remote_dir: str, job_id: str) -> str:
         return f"{remote_dir}/.jobdesk_submit.log"
@@ -148,7 +152,7 @@ class SlurmAdapter:
         lines = [
             "#!/usr/bin/env bash",
             f"#SBATCH --job-name={job_name}",
-            f"#SBATCH --ntasks=1",
+            "#SBATCH --ntasks=1",
             f"#SBATCH --cpus-per-task={resources.cpus}",
             f"#SBATCH --mem={resources.memory_mb}M",
             f"#SBATCH --time={resources.walltime_hms()}",

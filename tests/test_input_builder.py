@@ -5,14 +5,14 @@ from pathlib import Path
 import pytest
 
 from jobdesk_app.core.input_builder import (
-    GaussianInputSpec,
-    OrcaInputSpec,
-    build_gjf,
-    build_inp,
-    build_from_preset,
-    list_presets,
     GAUSSIAN_PRESETS,
     ORCA_PRESETS,
+    GaussianInputSpec,
+    OrcaInputSpec,
+    build_from_preset,
+    build_gjf,
+    build_inp,
+    list_presets,
 )
 
 ETHANE_XYZ = """\
@@ -84,7 +84,11 @@ class TestBuildGjf:
         try:
             content = build_gjf(p)
             # Count atom lines (lines with element symbol + 3 floats)
-            atom_lines = [l for l in content.splitlines() if l.strip() and l.strip()[0].isalpha() and len(l.split()) == 4]
+            atom_lines = [
+                line
+                for line in content.splitlines()
+                if line.strip() and line.strip()[0].isalpha() and len(line.split()) == 4
+            ]
             assert len(atom_lines) == 8  # ethane has 8 atoms
         finally:
             p.unlink()
@@ -94,6 +98,36 @@ class TestBuildGjf:
         bad.write_text("not a number\n", encoding="utf-8")
         with pytest.raises(ValueError):
             build_gjf(bad)
+
+    def test_rejects_missing_coordinate_rows(self, tmp_path):
+        bad = tmp_path / "truncated.xyz"
+        bad.write_text(
+            "3\nwater\nO 0 0 0\nH 0 0.7 0.5\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="declares 3 atoms but contains 2 coordinate rows"):
+            build_gjf(bad)
+
+    def test_rejects_extra_coordinate_rows(self, tmp_path):
+        bad = tmp_path / "extra.xyz"
+        bad.write_text(
+            "2\nfragment\nH 0 0 0\nH 0 0 1\nO 0 0 2\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="declares 2 atoms but contains 3 coordinate rows"):
+            build_gjf(bad)
+
+    def test_rejects_malformed_coordinate_rows(self, tmp_path):
+        bad = tmp_path / "malformed.xyz"
+        bad.write_text(
+            "2\nfragment\nH 0 0 0\nO x 0 2\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="invalid coordinate row 2"):
+            build_inp(bad)
 
 
 class TestBuildInp:

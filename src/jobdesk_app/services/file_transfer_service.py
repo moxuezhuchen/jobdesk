@@ -98,7 +98,9 @@ class FileTransferService:
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
         if any(_is_path_at_or_under(remote_path, root) for root in self._protected_roots):
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
-        if self._allowed_delete_roots and not any(
+        if not self._allowed_delete_roots:
+            raise RemotePathError("refusing to delete remote path: no allowed delete roots configured")
+        if not any(
             _is_path_at_or_under(remote_path, root) for root in self._allowed_delete_roots
         ):
             raise RemotePathError(f"refusing to delete path outside allowed roots: {remote_path}")

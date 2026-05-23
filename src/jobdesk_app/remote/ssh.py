@@ -36,14 +36,11 @@ class _AutoAddAndSavePolicy(paramiko.MissingHostKeyPolicy):
         self._path = known_hosts_path
 
     def missing_host_key(self, client, hostname, key):
-        # Accept the key and persist it
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            host_keys = client.get_host_keys()
-            host_keys.add(hostname, key.get_name(), key)
-            host_keys.save(str(self._path))
-        except OSError:
-            pass  # Non-fatal: connection still proceeds
+        # Trust only when the accepted key can be persisted for later verification.
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        host_keys = client.get_host_keys()
+        host_keys.add(hostname, key.get_name(), key)
+        host_keys.save(str(self._path))
 
 
 class SSHClientWrapper:
@@ -66,14 +63,17 @@ class SSHClientWrapper:
         self._start_wsl_if_configured()
         self._client = paramiko.SSHClient()
 
-        # Load known_hosts; accept on first use and persist
+        # Load known_hosts; unknown keys require explicit opt-in to trust-on-first-use.
         known_hosts = Path(os.path.expanduser("~/.ssh/known_hosts"))
         try:
             if known_hosts.is_file():
                 self._client.load_host_keys(str(known_hosts))
         except OSError:
             pass
-        self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(known_hosts))
+        if getattr(self._server, "trust_on_first_use", False):
+            self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(known_hosts))
+        else:
+            self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         connect_kwargs: dict[str, Any] = {
             "hostname": self._server.host,

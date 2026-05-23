@@ -1,7 +1,7 @@
 import logging
 
-from jobdesk_app.app_paths import get_app_data_dir, get_logs_dir
 from jobdesk_app.app_logging import configure_file_logging
+from jobdesk_app.app_paths import get_app_data_dir, get_logs_dir
 
 
 def test_app_paths_use_appdata_jobdesk(tmp_path, monkeypatch):

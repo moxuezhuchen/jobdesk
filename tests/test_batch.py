@@ -1,14 +1,13 @@
 """测试 core/batch.py - BatchMeta 与 batch.json 读写。"""
 
-import json
 import tempfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
+from jobdesk_app.core.batch import create_batch, read_batch_json, write_batch_json
 from jobdesk_app.core.models import BatchMeta
-from jobdesk_app.core.batch import write_batch_json, read_batch_json, create_batch
 
 
 class TestBatchMeta:
@@ -133,3 +132,23 @@ class TestBatchJsonAtomicWrite:
 
             assert json_path.read_text(encoding="utf-8") == '{"old": true}\n'
             assert list(Path(tmpdir).glob("*.tmp")) == []
+
+    def test_rewrites_use_distinct_temp_files(self, tmp_path, monkeypatch):
+        batch = create_batch(
+            project_name="test",
+            max_parallel=4,
+            remote_batch_dir="/remote/batch_dir",
+        )
+        path = tmp_path / "batch.json"
+        replaced_from = []
+        original_replace = Path.replace
+
+        def capture_replace(self, target):
+            replaced_from.append(self)
+            return original_replace(self, target)
+
+        monkeypatch.setattr(Path, "replace", capture_replace)
+        write_batch_json(batch, path)
+        write_batch_json(batch, path)
+
+        assert replaced_from[0] != replaced_from[1]
