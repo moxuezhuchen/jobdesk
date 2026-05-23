@@ -702,7 +702,7 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        workspace = self._workspace()
+        workspace = self._result_workspace(record)
         run_id = record.run_id
 
         def _run():
@@ -730,12 +730,14 @@ class RunsResultsPage(QWidget):
                 ssh.close()
 
         from ..workers import BackgroundWorker
-        self._worker = BackgroundWorker(_run)
-        self._worker.result.connect(lambda msg: self._status_cb(msg) if msg else None)
-        self._worker.error.connect(lambda e: self._status_cb(tr("Refresh failed: {e}", self._language, e=e)))
-        self._worker.finished.connect(lambda: self._on_refresh_done())
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._worker.start()
+        worker = BackgroundWorker(_run)
+        worker.result.connect(lambda msg: self._status_cb(msg) if msg else None)
+        worker.error.connect(lambda e: self._status_cb(tr("Refresh failed: {e}", self._language, e=e)))
+        worker.finished.connect(lambda: self._on_refresh_done())
+        worker.finished.connect(lambda: self._bg_workers.remove(worker) if worker in self._bg_workers else None)
+        worker.finished.connect(worker.deleteLater)
+        self._bg_workers.append(worker)
+        worker.start()
 
     def _on_refresh_done(self):
         self.refresh_run_list()
@@ -940,7 +942,7 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        ws = self._workspace()
+        ws = self._result_workspace(record)
         self.result_text.setPlainText(
             f"{tr('Run directory', self._language)}: {record.run_dir}\n"
             f"Manifest: {record.manifest_path}\n"

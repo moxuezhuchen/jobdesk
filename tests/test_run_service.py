@@ -234,7 +234,9 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path):
     assert records == []
     assert failures == [("water", "unsafe declared result path: ../outside.json")]
     assert not (tmp_path / "results" / "outside.json").exists()
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert task.error_message == "download: unsafe declared result path: ../outside.json"
 
 
 def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
@@ -349,7 +351,6 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, mon
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.running
 
 
-
 def test_download_failure_persists_error_message_to_manifest(tmp_path):
     """When SFTP download fails, error_message should be written to manifest."""
     service = RunService(tmp_path)
@@ -408,3 +409,35 @@ def test_successful_download_clears_previous_download_error(tmp_path):
     task = Manifest.read(record.manifest_path)[0]
     assert task.status == TaskStatus.downloaded
     assert task.error_message is None or "download:" not in task.error_message
+
+
+def test_download_directory_creation_failure_persists_error_message(tmp_path, monkeypatch):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/c.sh")],
+    ), run_id="run_mkdir_fail")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    failing_dir = tmp_path / "results" / "run_mkdir_fail" / "c"
+    original_mkdir = Path.mkdir
+
+    def fail_result_dir(self, *args, **kwargs):
+        if self == failing_dir:
+            raise PermissionError("results directory denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_result_dir)
+
+    _records, failures = service.download_completed("run_mkdir_fail", object(), [".log"])
+
+    assert failures == [("c", "results directory denied")]
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert task.error_message == "download: results directory denied"

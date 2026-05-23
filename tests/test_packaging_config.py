@@ -15,7 +15,6 @@ def test_pyinstaller_bundle_includes_gui_resources():
     assert "jobdesk_app/gui/resources" in spec
 
 
-
 def test_jobdesk_gui_is_gui_script_not_console_script():
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
@@ -27,13 +26,11 @@ def test_jobdesk_gui_is_gui_script_not_console_script():
     assert "jobdesk" in console_scripts, "jobdesk CLI must remain a console script"
 
 
-
 def test_jobdesk_gui_ps1_does_not_use_python_m():
     ps1 = Path("scripts/jobdesk_gui.ps1").read_text(encoding="utf-8")
     active_lines = [ln for ln in ps1.splitlines() if ln.strip() and not ln.strip().startswith("#")]
     assert not any("python -m jobdesk_app.gui.app" in ln for ln in active_lines)
     assert "jobdesk-gui" in ps1
-
 
 
 def test_license_uses_spdx_expression_not_table():
