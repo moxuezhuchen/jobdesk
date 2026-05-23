@@ -1589,7 +1589,7 @@ class FileTransferPage(QWidget):
                 return
             local_yaml_path = config_path
 
-        max_parallel = self._gui_settings.max_parallel
+        max_parallel = self.max_parallel_spin.value()
         mol_count = len(xyz_paths)
         yaml_desc = (
             f"remote: {posixpath.basename(yaml_path)}" if yaml_path
