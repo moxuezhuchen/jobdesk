@@ -353,13 +353,18 @@ class RunsResultsPage(QWidget):
         # Detect ConfFlow batch by command_template
         is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
         if is_confflow:
+            best_dir = None
+            fallback_dir = None
             for base in candidates:
                 result_dir = base / "results" / record.run_id
                 if result_dir.exists():
-                    self._show_confflow_batch_results(record, result_dir)
-                    return
-            # No result dir in any candidate — show manifest-only view
-            self._show_confflow_batch_results(record, workspace / "results" / record.run_id)
+                    if any(result_dir.rglob("run_summary.json")):
+                        best_dir = result_dir
+                        break
+                    if fallback_dir is None:
+                        fallback_dir = result_dir
+            chosen = best_dir or fallback_dir or (workspace / "results" / record.run_id)
+            self._show_confflow_batch_results(record, chosen)
             return
 
         # Prefer auto-analysis on downloaded files
