@@ -197,7 +197,6 @@ class RunsResultsPage(QWidget):
     def _on_task_done(self, event):
         """Called when a remote task changes state — refresh in background."""
         workspace = self._workspace()
-        settings = GuiSettingsStore().load()
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
@@ -217,7 +216,7 @@ class RunsResultsPage(QWidget):
                     )
                     RunService(workspace).update_run_from_manifest(record.run_id)
                     # Only download on DONE (exit_code is not None)
-                    if event.exit_code is not None and settings.auto_download_enabled:
+                    if event.exit_code is not None:
                         updated = RunService(workspace).load_run(record.run_id)
                         if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
@@ -255,12 +254,8 @@ class RunsResultsPage(QWidget):
         self._language = settings.language
         self.refresh_run_list()
         self._refresh_timer.setInterval(settings.auto_refresh_interval * 1000)
-        if settings.auto_refresh_enabled:
-            self._start_monitoring()
-            self._refresh_timer.start()
-        else:
-            self._monitor.stop_all()
-            self._refresh_timer.stop()
+        self._start_monitoring()
+        self._refresh_timer.start()
 
     def apply_language(self, language: str):
         self._language = language
@@ -614,9 +609,6 @@ class RunsResultsPage(QWidget):
         """Periodically refresh status for submitted/running runs."""
         if getattr(self, '_auto_refresh_running', False):
             return
-        settings = GuiSettingsStore().load()
-        if not settings.auto_refresh_enabled:
-            return
         workspace = self._workspace()
         runs = RunService(workspace).list_runs()
         active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
@@ -649,7 +641,7 @@ class RunsResultsPage(QWidget):
                             )
                             RunService(workspace).update_run_from_manifest(record.run_id)
                             updated = RunService(workspace).load_run(record.run_id)
-                            if settings.auto_download_enabled and updated.status_summary.get("remote_completed", 0) > 0:
+                            if updated.status_summary.get("remote_completed", 0) > 0:
                                 patterns = self._get_download_patterns(record)
                                 _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
                                 if failures:
