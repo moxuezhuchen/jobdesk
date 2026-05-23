@@ -108,3 +108,29 @@ def test_save_replace_failure_keeps_existing_settings(tmp_path, monkeypatch):
         store.save(GuiSettings())
 
     assert path.read_text(encoding="utf-8") == "existing: true\n"
+
+
+
+def test_old_config_with_auto_refresh_disabled_is_ignored(tmp_path):
+    """Old YAML with auto_refresh_enabled: false must not suppress auto-progress."""
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text(yaml.safe_dump({
+        "auto_refresh_enabled": False,
+        "auto_download_enabled": False,
+    }), encoding="utf-8")
+
+    settings = GuiSettingsStore(path).load()
+
+    assert settings.auto_refresh_enabled is True
+    assert settings.auto_download_enabled is True
+
+
+def test_save_does_not_write_auto_refresh_keys(tmp_path):
+    """Saved config must not contain the deprecated toggle keys."""
+    path = tmp_path / "gui_settings.yaml"
+    store = GuiSettingsStore(path)
+    store.save(GuiSettings())
+
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert "auto_refresh_enabled" not in saved
+    assert "auto_download_enabled" not in saved

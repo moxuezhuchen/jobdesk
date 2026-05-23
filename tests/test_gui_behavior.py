@@ -155,7 +155,7 @@ class TestRunsPage:
         parser.assert_not_called()
         assert rows[0][3] == tr("File too large for preview", runs_page._language)
 
-    def test_on_activated_respects_disabled_automatic_refresh(self, runs_page):
+    def test_on_activated_ignores_legacy_disabled_automatic_refresh(self, runs_page):
         from dataclasses import replace
 
         from jobdesk_app.services.gui_settings import GuiSettings
@@ -166,8 +166,90 @@ class TestRunsPage:
             with patch.object(runs_page, "_start_monitoring") as monitor:
                 runs_page.on_activated()
 
-        monitor.assert_not_called()
-        assert not runs_page._refresh_timer.isActive()
+        monitor.assert_called_once_with()
+        assert runs_page._refresh_timer.isActive()
+
+    def test_auto_refresh_ignores_legacy_disabled_automatic_download(self, runs_page, qtbot):
+        from dataclasses import replace
+
+        from jobdesk_app.services.gui_settings import GuiSettings
+
+        settings = replace(GuiSettings(), auto_download_enabled=False)
+        record = MagicMock(
+            run_id="run_done",
+            server_id="wsl",
+            remote_dir="/remote/work",
+            manifest_path=Path("manifest.tsv"),
+            status_summary={"running": 1},
+        )
+        updated = MagicMock(status_summary={"remote_completed": 1})
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
+             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status"), \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.txt"]):
+            store.return_value.load.return_value = settings
+            service.return_value.list_runs.return_value = [record]
+            service.return_value.load_run.return_value = updated
+            service.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        service.return_value.download_completed.assert_called_once()
+
+    def test_confflow_auto_progress_chain(self, runs_page, qtbot, tmp_path):
+        """Full chain: running → refresh → remote_completed → download → results readable."""
+        summary_dir = tmp_path / "260523-011" / "mol_1"
+        summary_dir.mkdir(parents=True)
+        (summary_dir / "run_summary.json").write_text(
+            json.dumps({"molecule": "mol_1", "status": "completed", "energy": -123.456}),
+            encoding="utf-8",
+        )
+
+        record = MagicMock(
+            run_id="260523-011",
+            server_id="wsl",
+            remote_dir="/remote/work",
+            manifest_path=tmp_path / "260523-011" / "manifest.tsv",
+            status_summary={"running": 1},
+        )
+        updated_after_refresh = MagicMock(status_summary={"remote_completed": 1})
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh, \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*/run_summary.json"]):
+            service.return_value.list_runs.return_value = [record]
+            service.return_value.load_run.return_value = updated_after_refresh
+            service.return_value.download_completed.return_value = (["260523-011/mol_1/run_summary.json"], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        refresh.assert_called_once()
+        service.return_value.download_completed.assert_called_once()
+        # Verify run_summary.json is readable post-download
+        summary = json.loads((summary_dir / "run_summary.json").read_text(encoding="utf-8"))
+        assert summary["status"] == "completed"
+        assert summary["energy"] == -123.456
 
     def test_delete_run_reports_failures_instead_of_claiming_success(self, runs_page):
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem

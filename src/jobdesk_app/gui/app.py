@@ -1,6 +1,7 @@
 """JobDesk GUI entry point.
 
-Launch: jobdesk-gui  (or python -m jobdesk_app.gui.app)
+Launch: jobdesk-gui
+Debug (with console): python -m jobdesk_app.gui.app
 """
 
 import sys
