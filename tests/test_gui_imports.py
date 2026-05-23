@@ -1,5 +1,7 @@
 """M7.0 测试: GUI import 级别验证 — 不启动真实 event loop。"""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 # 这些 import 可能因为没有显示器而失败，用 skipif 保护
@@ -20,9 +22,9 @@ def test_import_main_window():
 
 def test_import_pages():
     from jobdesk_app.gui.pages.file_transfer_page import FileTransferPage
-    from jobdesk_app.gui.pages.servers_page import ServersPage
-    from jobdesk_app.gui.pages.runs_page import RunsPage
     from jobdesk_app.gui.pages.results_page import ResultsPage
+    from jobdesk_app.gui.pages.runs_page import RunsPage
+    from jobdesk_app.gui.pages.servers_page import ServersPage
     from jobdesk_app.gui.pages.settings_page import SettingsPage
     assert ServersPage is not None
     assert FileTransferPage is not None
@@ -44,6 +46,19 @@ def test_worker_create():
     from jobdesk_app.gui.workers import BackgroundWorker
     w = BackgroundWorker(lambda: 42)
     assert w is not None
+
+
+def test_worker_stop_safely_waits_until_thread_finishes_by_default():
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    worker = BackgroundWorker(lambda: 42)
+    worker.quit = MagicMock()
+    worker.wait = MagicMock(return_value=True)
+
+    worker.stop_safely()
+
+    worker.quit.assert_called_once_with()
+    worker.wait.assert_called_once_with()
 
 
 def test_legacy_runs_page_has_no_workflow_launch_action(qtbot):

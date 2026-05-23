@@ -1897,25 +1897,29 @@ class FileTransferPage(QWidget):
         )
 
     def shutdown(self):
-        self._remember_current_remote_dir()
-        store = GuiSettingsStore()
-        current = store.load()
-        new_server_id = self._connected_server_id or self.server_combo.currentData() or ""
-        new_remote_dirs = {**dict(current.last_remote_dirs or {}), **self._server_remote_dirs}
-        store.save(replace(current,
-            last_server_id=new_server_id,
-            last_remote_dirs=new_remote_dirs,
-        ))
-        workers = list(self._background_workers)
-        worker = getattr(self, "worker", None)
-        if worker is not None and worker not in workers:
-            workers.append(worker)
-        for worker in workers:
-            if hasattr(worker, "stop_safely"):
-                worker.stop_safely()
-            elif hasattr(worker, "isRunning") and worker.isRunning():
-                worker.quit()
-                worker.wait(3000)
+        try:
+            self._remember_current_remote_dir()
+            store = GuiSettingsStore()
+            current = store.load()
+            new_server_id = self._connected_server_id or self.server_combo.currentData() or ""
+            new_remote_dirs = {**dict(current.last_remote_dirs or {}), **self._server_remote_dirs}
+            store.save(replace(current,
+                last_server_id=new_server_id,
+                last_remote_dirs=new_remote_dirs,
+            ))
+        except OSError:
+            pass
+        finally:
+            workers = list(self._background_workers)
+            worker = getattr(self, "worker", None)
+            if worker is not None and worker not in workers:
+                workers.append(worker)
+            for worker in workers:
+                if hasattr(worker, "stop_safely"):
+                    worker.stop_safely()
+                elif hasattr(worker, "isRunning") and worker.isRunning():
+                    worker.quit()
+                    worker.wait()
 
     def _keep_worker(self, worker):
         self._background_workers.append(worker)

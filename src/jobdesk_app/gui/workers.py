@@ -28,7 +28,11 @@ class BackgroundWorker(QThread):
             msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
             self.error.emit(msg)
 
-    def stop_safely(self, timeout_ms: int = 3000):
-        """Request stop and wait for thread to finish."""
+    def stop_safely(self, timeout_ms: int | None = None):
+        """Request stop and wait for thread completion before destruction."""
+        self.requestInterruption()
         self.quit()
-        self.wait(timeout_ms)
+        if timeout_ms is None:
+            self.wait()
+        else:
+            self.wait(timeout_ms)

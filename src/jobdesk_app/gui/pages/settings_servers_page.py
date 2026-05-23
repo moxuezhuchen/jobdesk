@@ -2,20 +2,31 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Property, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QSpinBox, QComboBox, QFileDialog, QFrame, QScrollArea,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Signal, Qt, QPropertyAnimation, Property, QRectF
-from PySide6.QtGui import QPainter, QColor
 
-from ...config.servers import load_servers, get_default_servers_path
+from ...config.servers import get_default_servers_path, load_servers
 from ...services.gui_settings import GuiSettingsStore
 from ..design.components import StyledTableWidget
 from ..i18n import tr
-from ..workers import BackgroundWorker
 from ..session import create_ssh_client
+from ..workers import BackgroundWorker
 
 
 class ToggleSwitch(QWidget):
@@ -508,7 +519,7 @@ class SettingsServersPage(QWidget):
 
     def _edit_server(self):
         import yaml
-        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
 
         row = self.server_table.currentRow()
         if row < 0:
@@ -582,8 +593,8 @@ class SettingsServersPage(QWidget):
         self._load_servers()
 
     def _add_server(self):
-        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
         import yaml
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
 
         dlg = QDialog(self)
         dlg.setWindowTitle(tr("Add Server", self._language))
@@ -652,5 +663,8 @@ class SettingsServersPage(QWidget):
 
     def shutdown(self):
         w = getattr(self, "_worker", None)
-        if w and w.isRunning():
-            w.wait(3000)
+        if w and hasattr(w, "stop_safely"):
+            w.stop_safely()
+        elif w and w.isRunning():
+            w.quit()
+            w.wait()

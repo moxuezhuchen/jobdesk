@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -65,3 +64,17 @@ def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
     saved = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]["wsl"]
     assert saved["key_path"] == selected_key
     assert saved["env_init_scripts"] == ["/opt/g16/bsd/g16.profile"]
+
+
+def test_shutdown_waits_for_worker_without_timeout(qtbot):
+    with patch("jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore") as settings_store:
+        settings_store.return_value.load.return_value = GuiSettings()
+        page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
+        qtbot.addWidget(page)
+
+    worker = MagicMock()
+    page._worker = worker
+
+    page.shutdown()
+
+    worker.stop_safely.assert_called_once_with()

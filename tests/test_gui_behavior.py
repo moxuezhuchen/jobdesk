@@ -1,5 +1,6 @@
 """GUI behavior tests using pytest-qt."""
 import json
+
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
@@ -98,6 +99,14 @@ class TestRunsPage:
         assert not runs_page.result_text.isHidden()
         assert "Final conformers: 2" in runs_page.result_text.toPlainText()
 
+    def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
+        worker = MagicMock()
+        runs_page._bg_workers = [worker]
+
+        runs_page.shutdown()
+
+        worker.stop_safely.assert_called_once_with()
+
 
 class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):
@@ -136,3 +145,14 @@ class TestFileTransferPage:
         file_page._service = None
         file_page._upload_dropped_local_paths(["C:/fake/file.gjf"])
         assert any("Connect" in m for m in messages)
+
+    def test_shutdown_stops_worker_when_settings_save_fails(self, file_page):
+        worker = MagicMock()
+        file_page._background_workers = [worker]
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as store:
+            store.return_value.load.return_value = file_page._gui_settings
+            store.return_value.save.side_effect = PermissionError("read-only settings")
+            file_page.shutdown()
+
+        worker.stop_safely.assert_called_once_with()
