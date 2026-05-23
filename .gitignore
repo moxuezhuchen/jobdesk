@@ -25,5 +25,6 @@ m8_max_parallel.py
 # Editor and OS noise
 .idea/
 .vscode/
+.antigravitycli/
 Thumbs.db
 Desktop.ini
