@@ -192,10 +192,10 @@ def build_from_preset(
 def list_presets() -> dict[str, str]:
     """Return all preset names with their keyword strings."""
     result = {}
-    for name, spec in GAUSSIAN_PRESETS.items():
-        result[name] = f"Gaussian: {spec.method_basis} {' '.join(spec.job_keywords)}"
-    for name, spec in ORCA_PRESETS.items():
-        result[name] = f"ORCA: {spec.keywords}"
+    for name, gspec in GAUSSIAN_PRESETS.items():
+        result[name] = f"Gaussian: {gspec.method_basis} {' '.join(gspec.job_keywords)}"
+    for name, ospec in ORCA_PRESETS.items():
+        result[name] = f"ORCA: {ospec.keywords}"
     return result
 
 

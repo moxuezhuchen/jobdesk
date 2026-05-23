@@ -32,7 +32,6 @@ jobs:
 
       - name: Type check
         run: python -m mypy src
-        continue-on-error: true
 
       - name: Build package
         run: python -m build

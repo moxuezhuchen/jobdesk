@@ -88,13 +88,13 @@ class GuiSettingsStore:
         profiles = raw.get("software_profiles")
         if profiles:
             merged = dict(profiles)
-            for name, defaults in _BUILTIN_PROFILES.items():
+            for name, builtin in _BUILTIN_PROFILES.items():
                 if name not in merged:
-                    merged[name] = dict(defaults)
+                    merged[name] = dict(builtin)
             return merged
         # Migrate from old format
         old = raw.get("software_download_patterns", {}) or {}
-        defaults = {k: dict(v) for k, v in _BUILTIN_PROFILES.items()}
+        defaults: dict[str, dict[str, str]] = {k: dict(v) for k, v in _BUILTIN_PROFILES.items()}
         for name, patterns in old.items():
             if name in defaults:
                 defaults[name]["download_patterns"] = patterns

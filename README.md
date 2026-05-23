@@ -82,3 +82,8 @@ python -m build
 ```
 
 需要真实 WSL、Gaussian 或 ConfFlow 的集成测试默认跳过，仅在文档所列环境变量显式启用后执行。详见 [docs/CONFFLOW_WSL_SINGLE_RUN.md](docs/CONFFLOW_WSL_SINGLE_RUN.md)。
+
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).

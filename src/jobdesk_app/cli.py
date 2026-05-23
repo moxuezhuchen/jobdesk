@@ -336,15 +336,15 @@ def _cmd_input_build(args) -> int:
     if args.preset:
         content = build_from_preset(args.xyz_path, args.preset, args.output)
     elif args.orca:
-        spec = OrcaInputSpec(
+        orca_spec = OrcaInputSpec(
             keywords=f"! {args.method} {' '.join(args.keywords)}",
             charge=args.charge,
             multiplicity=args.mult,
             nproc=args.nproc,
         )
-        content = build_inp(args.xyz_path, spec, args.output)
+        content = build_inp(args.xyz_path, orca_spec, args.output)
     else:
-        spec = GaussianInputSpec(
+        gauss_spec = GaussianInputSpec(
             method_basis=args.method,
             job_keywords=args.keywords,
             charge=args.charge,
@@ -352,7 +352,7 @@ def _cmd_input_build(args) -> int:
             nproc=args.nproc,
             mem=args.mem,
         )
-        content = build_gjf(args.xyz_path, spec, args.output)
+        content = build_gjf(args.xyz_path, gauss_spec, args.output)
     if args.output:
         print(f"Written to {args.output}")
     else:

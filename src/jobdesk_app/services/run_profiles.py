@@ -61,7 +61,7 @@ class RunProfileStore:
         return raw.get("profiles", {}) or {}
 
     def save_command_history(self, commands: list[str]) -> None:
-        raw = {}
+        raw: dict = {}
         if self.path.exists():
             raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
         raw["command_history"] = commands[:20]

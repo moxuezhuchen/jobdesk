@@ -3,6 +3,7 @@ name = "jobdesk"
 version = "0.3.0-dev"
 description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
 requires-python = ">=3.11"
+license = {file = "LICENSE"}
 dependencies = [
     "pydantic>=2.0,<3.0",
     "pyyaml>=6.0",
@@ -65,9 +66,24 @@ module = "PySide6.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "jobdesk_app.gui.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
 module = "paramiko.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "rdkit.*"
+ignore_missing_imports = true
+
+# Parsers: re.search() -> Match|None pattern is safe but verbose to annotate
+[[tool.mypy.overrides]]
+module = ["jobdesk_app.core.parsers.gaussian", "jobdesk_app.core.parsers.orca"]
+disable_error_code = "assignment"
+
+# comparison uses PySide6 enum attributes that stubs don't expose
+[[tool.mypy.overrides]]
+module = "jobdesk_app.services.comparison"
+disable_error_code = ["attr-defined", "operator", "type-var"]
+
+# GUI module uses PySide6 extensively; stubs incomplete
+[[tool.mypy.overrides]]
+module = "jobdesk_app.gui.*"
+ignore_errors = true
