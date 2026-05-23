@@ -1,5 +1,7 @@
 # Workflow Auto Progress Implementation Plan
 
+> **Superseded on 2026-05-23:** Do not implement this plan. JobDesk will focus on executing and analyzing single tasks, while ConfFlow owns multi-step workflow orchestration. The replacement plan is `docs/superpowers/plans/2026-05-23-gui-single-run-confflow-integration.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a CLI command that refreshes, downloads, and advances a workflow until it completes or reaches a reportable failure.
