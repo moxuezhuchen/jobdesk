@@ -310,8 +310,7 @@ class WorkflowRunner:
         upstream_cmd = (upstream_step.command_template if upstream_step else "").lower()
 
         # Determine downstream input format from this step's command
-        cmd_base = step.command_template.lower().split()[0] if step.command_template.strip() else ""
-        is_orca_downstream = "orca" in cmd_base
+        is_orca_downstream = "orca" in step.command_template.lower()
 
         # Infer job type from step name
         step_keywords = _infer_job_keywords(step.name)
@@ -405,15 +404,15 @@ BUILTIN_WORKFLOWS: dict[str, WorkflowSpec] = {
         steps=[
             WorkflowStep(name="opt", command_template="g16 {name}", extract_profile="gaussian_opt_freq"),
             WorkflowStep(name="freq", command_template="g16 {name}", depends_on=["opt"], input_from="opt", extract_profile="gaussian_opt_freq"),
-            WorkflowStep(name="sp", command_template="orca {name}", depends_on=["freq"], input_from="freq", extract_profile="orca_dlpno_ccsd_t"),
+            WorkflowStep(name="sp", command_template="$(type -P orca) {name} > {basename}.out", depends_on=["freq"], input_from="freq", extract_profile="orca_dlpno_ccsd_t"),
         ],
     ),
     "orca_opt_freq": WorkflowSpec(
         name="orca_opt_freq",
         description="ORCA geometry optimization followed by frequency analysis",
         steps=[
-            WorkflowStep(name="opt", command_template="orca {name}"),
-            WorkflowStep(name="freq", command_template="orca {name}", depends_on=["opt"], input_from="opt"),
+            WorkflowStep(name="opt", command_template="$(type -P orca) {name} > {basename}.out"),
+            WorkflowStep(name="freq", command_template="$(type -P orca) {name} > {basename}.out", depends_on=["opt"], input_from="opt"),
         ],
     ),
 }

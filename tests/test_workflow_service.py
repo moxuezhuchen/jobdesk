@@ -184,6 +184,7 @@ class TestBuiltinWorkflows:
         order = spec.topological_order()
         names = [s.name for s in order]
         assert names == ["opt", "freq", "sp"]
+        assert spec.steps[2].command_template == "$(type -P orca) {name} > {basename}.out"
 
     def test_all_builtin_workflows_have_valid_topology(self):
         for name, spec in BUILTIN_WORKFLOWS.items():
@@ -194,11 +195,11 @@ class TestBuiltinWorkflows:
         spec = BUILTIN_WORKFLOWS["orca_opt_freq"]
         assert len(spec.steps) == 2
         assert spec.steps[0].name == "opt"
-        assert spec.steps[0].command_template == "orca {name}"
+        assert spec.steps[0].command_template == "$(type -P orca) {name} > {basename}.out"
         assert spec.steps[1].name == "freq"
         assert spec.steps[1].depends_on == ["opt"]
         assert spec.steps[1].input_from == "opt"
-        assert spec.steps[1].command_template == "orca {name}"
+        assert spec.steps[1].command_template == "$(type -P orca) {name} > {basename}.out"
 
     def test_orca_opt_freq_generates_inp_from_builtin(self, tmp_path):
         """Use BUILTIN_WORKFLOWS['orca_opt_freq'] end-to-end: .out -> .inp."""
