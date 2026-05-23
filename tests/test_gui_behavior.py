@@ -51,7 +51,7 @@ class TestRunsPage:
     def test_context_menu_has_refresh(self, runs_page, qtbot):
         """Right-click context menu should contain refresh action."""
         actions = runs_page._build_context_actions()
-        assert len(actions) == 4
+        assert len(actions) == 5
         # First action is refresh
         assert actions[0][1] == runs_page._refresh_all
 
@@ -446,6 +446,127 @@ class TestRunsPage:
         assert runs_page.result_table.rowCount() == 1
         assert runs_page.result_table.item(0, 0).text() == "mol1"
         assert "Done" in runs_page.result_table.item(0, 1).text()
+
+    def test_confflow_shows_download_failed_per_molecule(self, runs_page, tmp_path):
+        """ConfFlow table must show Download Failed for tasks still at remote_completed with error."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest, TaskRecord
+
+        manifest = tmp_path / "manifest.tsv"
+        tasks = [
+            TaskRecord(task_id="mol_ok", batch_id="b", remote_job_dir="/r",
+                       status=TaskStatus.downloaded),
+            TaskRecord(task_id="mol_fail", batch_id="b", remote_job_dir="/r",
+                       status=TaskStatus.remote_completed,
+                       error_message="sftp timeout"),
+            TaskRecord(task_id="mol_exec_fail", batch_id="b", remote_job_dir="/r",
+                       status=TaskStatus.failed,
+                       error_message="ORCA crashed"),
+        ]
+        Manifest.write(manifest, tasks)
+
+        record = MagicMock(
+            run_id="cf_batch", manifest_path=manifest,
+            command_template="confflow {name}", status_summary={},
+        )
+
+        mol_ok_dir = tmp_path / "results" / "cf_batch" / "mol_ok" / "mol_ok_confflow_work"
+        mol_ok_dir.mkdir(parents=True)
+        import json as _json
+        (mol_ok_dir / "run_summary.json").write_text(_json.dumps({
+            "initial_conformers": 10, "final_conformers": 3,
+            "total_duration_seconds": 120.5, "step_status_counts": {"opt": 3},
+        }), encoding="utf-8")
+
+        runs_page._show_confflow_batch_results(record, tmp_path / "results" / "cf_batch")
+
+        rows = []
+        for r in range(runs_page.result_table.rowCount()):
+            row = [runs_page.result_table.item(r, c).text() for c in range(runs_page.result_table.columnCount())]
+            rows.append(row)
+
+        assert len(rows) == 3
+        assert "Done" in rows[0][1]
+        assert "Download Failed" in rows[1][1]
+        assert "Failed" in rows[2][1]
+        assert "ORCA crashed" in rows[2][1]
+
+    def test_retry_download_triggers_for_remote_completed_tasks(self, runs_page, qtbot):
+        """Retry Download button re-downloads remote_completed tasks."""
+        record = MagicMock(
+            run_id="run_dl_retry", server_id="wsl",
+            remote_dir="/r", manifest_path=Path("m.tsv"),
+            status_summary={"remote_completed": 2},
+        )
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+            svc.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._retry_download()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_retry_dl_running", False),
+                timeout=2000,
+            )
+
+        svc.return_value.download_completed.assert_called_once()
+
+    def test_open_results_folder_calls_startfile(self, runs_page, tmp_path):
+        """Open Results action uses os.startfile on the results directory."""
+        record = MagicMock(run_id="run_open")
+        results_dir = tmp_path / "results" / "run_open"
+        results_dir.mkdir(parents=True)
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_workspace", return_value=tmp_path), \
+             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+            mock_os.startfile = MagicMock()
+            runs_page._open_results_folder()
+
+        mock_os.startfile.assert_called_once_with(results_dir)
+
+    def test_open_results_folder_missing_dir_shows_error(self, runs_page, tmp_path):
+        """If results dir doesn't exist, show status message instead of crashing."""
+        record = MagicMock(run_id="run_missing")
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_workspace", return_value=tmp_path):
+            runs_page._open_results_folder()
+
+    def test_old_record_missing_new_fields_displays_normally(self, runs_page):
+        """Old run records without newer fields should still display."""
+        from jobdesk_app.gui.pages.runs_results_page import _format_status
+        assert _format_status({"running": 1}) != ""
+        assert _format_status({}) == ""
+
+    def test_gaussian_auto_analysis_on_downloaded(self, runs_page, tmp_path):
+        """Downloaded Gaussian .log triggers auto-analysis in result preview."""
+        result_dir = tmp_path / "results" / "gauss_run" / "task1"
+        result_dir.mkdir(parents=True)
+        (result_dir / "task1.log").write_text(
+            " SCF Done:  E(RHF) =   -76.123456     A.U.\n"
+            " Normal termination of Gaussian 16\n",
+            encoding="utf-8",
+        )
+        record = MagicMock(
+            run_id="gauss_run", manifest_path=tmp_path / "no_manifest.tsv",
+            command_template="g16 {name}", status_summary={"downloaded": 1},
+        )
+
+        with patch.object(runs_page, "_workspace", return_value=tmp_path):
+            runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() >= 1
+        energy_cell = runs_page.result_table.item(0, 3)
+        assert energy_cell is not None
+        assert "-76.123456" in energy_cell.text()
 
     def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
         worker = MagicMock()
