@@ -18,7 +18,9 @@ Downloaded outputs include `<name>.txt`, `<name>min.xyz`,
 
 ## WSL Prerequisites
 
-- `wsl` exists in `%APPDATA%\JobDesk\servers.yaml` and connects over SSH.
+- `wsl` exists in `%APPDATA%\JobDesk\servers.yaml`, includes
+  `wsl_distro: Ubuntu`, and connects over SSH. This lets JobDesk wake WSL
+  automatically before connecting when the distro has stopped.
 - The JobDesk task shell can find `confflow` and the calculation program used by the YAML.
 - For the provided integration test, Gaussian is available at `/opt/g16/g16`.
 

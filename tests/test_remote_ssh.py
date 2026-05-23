@@ -198,6 +198,31 @@ class TestSSHClientWrapper:
             with pytest.raises(SSHConnectionError, match="网络错误"):
                 ssh.connect()
 
+    def test_connect_starts_configured_wsl_distro_before_ssh(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
+             patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.return_value = MagicMock()
+
+            ssh = MockSSHWrapper(server, timeout=7)
+            ssh.connect()
+
+        run_wsl.assert_called_once_with(
+            ["wsl.exe", "-d", "Ubuntu", "--", "true"],
+            check=True,
+            capture_output=True,
+            timeout=7,
+        )
+        mock_client_class.return_value.connect.assert_called_once()
+
     def test_key_not_found(self):
         server = _make_server(key_path="/nonexistent/key")
         with patch("pathlib.Path.exists", return_value=False), \

@@ -38,6 +38,7 @@ class ServerConfig(BaseModel):
     auth_method: AuthMethod = Field(default=AuthMethod.key, description="认证方式")
     key_path: str | None = Field(default=None, description="SSH 私钥路径")
     default_shell: str = Field(default="bash", description="默认 shell")
+    wsl_distro: str | None = Field(default=None, description="连接前自动唤醒的 WSL 发行版名称")
     env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")
     scheduler: "SchedulerConfig" = Field(default_factory=lambda: SchedulerConfig(), description="作业调度器配置")
 

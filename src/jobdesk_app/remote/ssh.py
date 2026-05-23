@@ -5,6 +5,8 @@
 """
 
 import os
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +63,7 @@ class SSHClientWrapper:
 
     def connect(self) -> None:
         """建立 SSH 连接。失败时抛出 SSHConnectionError。"""
+        self._start_wsl_if_configured()
         self._client = paramiko.SSHClient()
 
         # Load known_hosts; accept on first use and persist
@@ -117,6 +120,24 @@ class SSHClientWrapper:
                 host=self._server.host,
                 port=self._server.port,
             ) from e
+
+    def _start_wsl_if_configured(self) -> None:
+        distro = self._server.wsl_distro
+        if not distro or sys.platform != "win32":
+            return
+        try:
+            subprocess.run(
+                ["wsl.exe", "-d", distro, "--", "true"],
+                check=True,
+                capture_output=True,
+                timeout=self._timeout,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SSHConnectionError(
+                f"无法启动 WSL 发行版 {distro!r}: {exc}",
+                host=self._server.host,
+                port=self._server.port,
+            ) from exc
 
     def close(self) -> None:
         """关闭 SSH 连接。"""

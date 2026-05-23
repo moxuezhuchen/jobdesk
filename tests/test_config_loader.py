@@ -35,6 +35,17 @@ class TestServerConfig:
         assert cfg.port == 22
         assert cfg.auth_method == AuthMethod.key
         assert cfg.default_shell == "bash"
+        assert cfg.wsl_distro is None
+
+    def test_server_config_supports_wsl_bootstrap_distro(self):
+        cfg = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            username="root",
+            wsl_distro="Ubuntu",
+        )
+
+        assert cfg.wsl_distro == "Ubuntu"
 
     def test_server_config_password_auth(self):
         cfg = ServerConfig(
