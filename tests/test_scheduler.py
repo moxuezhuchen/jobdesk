@@ -1,6 +1,8 @@
 """Tests for scheduler adapters."""
 from unittest.mock import MagicMock
 
+import pytest
+
 from jobdesk_app.config.schema import SchedulerConfig, ServerConfig
 from jobdesk_app.remote.scheduler import (
     JobState,
@@ -46,10 +48,14 @@ class TestNohupAdapter:
         assert NohupAdapter().poll(ssh, "123") == JobState.completed
 
     def test_cancel_sends_kill(self):
-        ssh = _ssh()
+        ssh = MagicMock()
+        ssh.run.side_effect = [
+            MagicMock(stdout="", exit_code=0, stderr=""),
+            MagicMock(stdout="dead", exit_code=0, stderr=""),
+        ]
         NohupAdapter().cancel(ssh, "123")
-        ssh.run.assert_called_once()
-        assert "kill" in ssh.run.call_args[0][0]
+        assert ssh.run.call_count == 2
+        assert "kill" in ssh.run.call_args_list[0][0][0]
 
 
 class TestSlurmAdapter:
@@ -200,3 +206,42 @@ servers:
             assert s.scheduler.default_cpus == 16
         finally:
             Path(path).unlink()
+
+
+
+class TestCancellationTruthfulness:
+    """Cancellation must fail when the remote command reports failure."""
+
+    def test_slurm_cancel_raises_on_nonzero_exit(self):
+        ssh = _ssh(stdout="", exit_code=1)
+        ssh.run.return_value.stderr = "scancel: error: Invalid job id"
+        with pytest.raises(RuntimeError, match="scancel failed"):
+            SlurmAdapter().cancel(ssh, "99999")
+
+    def test_pbs_cancel_raises_on_nonzero_exit(self):
+        ssh = _ssh(stdout="", exit_code=1)
+        ssh.run.return_value.stderr = "qdel: Unknown Job Id"
+        with pytest.raises(RuntimeError, match="qdel failed"):
+            PBSAdapter().cancel(ssh, "99999")
+
+    def test_nohup_cancel_raises_when_process_still_alive(self):
+        ssh = MagicMock()
+        # First call: kill command, second call: check alive
+        ssh.run.side_effect = [
+            MagicMock(stdout="", exit_code=1, stderr=""),
+            MagicMock(stdout="alive", exit_code=0, stderr=""),
+        ]
+        with pytest.raises(RuntimeError, match="still alive"):
+            NohupAdapter().cancel(ssh, "12345")
+
+    def test_slurm_cancel_succeeds_on_zero_exit(self):
+        ssh = _ssh(stdout="", exit_code=0)
+        SlurmAdapter().cancel(ssh, "123")  # should not raise
+
+    def test_nohup_cancel_succeeds_when_process_dead(self):
+        ssh = MagicMock()
+        ssh.run.side_effect = [
+            MagicMock(stdout="", exit_code=0, stderr=""),
+            MagicMock(stdout="dead", exit_code=0, stderr=""),
+        ]
+        NohupAdapter().cancel(ssh, "123")  # should not raise

@@ -441,3 +441,77 @@ def test_download_directory_creation_failure_persists_error_message(tmp_path, mo
     task = Manifest.read(record.manifest_path)[0]
     assert task.status == TaskStatus.remote_completed
     assert task.error_message == "download: results directory denied"
+
+
+
+def test_download_completed_persists_transfer_record_failed_reason(tmp_path):
+    """When sftp.download_file returns TransferStatus.failed, the reason must be persisted."""
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_failed_rec")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    class FailedRecordSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+            return TransferRecord(
+                TransferDirection.download, str(local_path), remote_path,
+                status=TransferStatus.failed,
+                reason="remote file not found",
+            )
+
+    _records, failures = service.download_completed("run_failed_rec", FailedRecordSFTP(), [".log"])
+
+    assert failures
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.remote_completed
+    assert "remote file not found" in task.error_message
+    assert task.error_message.startswith("download:")
+
+
+
+def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, monkeypatch):
+    """If results_dir deletion fails, run_dir (metadata) must not be lost."""
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_locked")
+
+    # Create a results directory
+    results_dir = tmp_path / "results" / "run_locked"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "output.log").write_text("data", encoding="utf-8")
+
+    # Confirm metadata exists
+    assert (record.run_dir / "run.json").exists()
+    assert record.manifest_path.exists()
+
+    import shutil
+    original_rmtree = shutil.rmtree
+
+    def failing_rmtree(path, *args, **kwargs):
+        if Path(path).resolve() == results_dir.resolve():
+            raise PermissionError("locked")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", failing_rmtree)
+
+    with pytest.raises(PermissionError, match="locked"):
+        service.delete_run("run_locked")
+
+    # Metadata must survive
+    assert (record.run_dir / "run.json").exists()
+    assert record.manifest_path.exists()

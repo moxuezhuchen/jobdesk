@@ -189,6 +189,8 @@ class RunService:
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
+                        if rec.status == TransferStatus.failed:
+                            download_errors.append(f"{relative_output}: {rec.reason}")
                     except Exception as exc:
                         download_errors.append(f"{relative_output}: {exc}")
                 successful = sum(
@@ -298,13 +300,14 @@ class RunService:
         import shutil
 
         run_dir = self._run_dir(run_id)
-        if run_dir.exists():
-            shutil.rmtree(run_dir)
         results_dir = (self.workspace_dir / "results" / run_id).resolve()
         if not results_dir.is_relative_to((self.workspace_dir / "results").resolve()):
             raise ValueError(f"run_id escapes results dir: {run_id}")
+        # Delete results first; if this fails, metadata is preserved for recovery.
         if results_dir.exists():
             shutil.rmtree(results_dir)
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
 
     def _run_dir(self, run_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):

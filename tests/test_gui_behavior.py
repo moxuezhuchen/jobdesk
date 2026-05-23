@@ -700,6 +700,58 @@ class TestRunsPage:
 
         worker.stop_safely.assert_called_once_with()
 
+    def test_delete_run_uses_record_local_dir_not_current_workspace(self, runs_page, tmp_path):
+        """Deleting a run must target record.local_dir, not the active workspace."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        project_a = tmp_path / "project_a"
+        project_a.mkdir()
+
+        record = MagicMock(
+            run_id="run_cross", local_dir=str(project_a),
+        )
+
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run_cross"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"):
+            svc.return_value.load_run.return_value = record
+            svc.return_value.delete_run.return_value = None
+            svc.return_value.list_runs.return_value = []
+            runs_page._delete_run()
+
+        # RunService for delete must be constructed with project_a, not project_b
+        svc.assert_any_call(project_a)
+
+    def test_auto_refresh_includes_remote_completed_for_download(self, runs_page, tmp_path):
+        """remote_completed runs should be picked up for automatic download."""
+        record = MagicMock(
+            run_id="run_rc",
+            server_id="wsl",
+            remote_dir="/r",
+            manifest_path=tmp_path / "m.tsv",
+            local_dir=str(tmp_path),
+            status_summary={"remote_completed": 1},
+        )
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch.object(runs_page, "_workspace", return_value=tmp_path):
+            svc.return_value.list_runs.return_value = [record]
+            # Should NOT return early (no active but has needs_download)
+            # The method should set _auto_refresh_running = True
+            with patch("jobdesk_app.gui.pages.runs_results_page.load_servers"), \
+                 patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client"), \
+                 patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client"), \
+                 patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+                runs_page._auto_refresh_active()
+
+        assert getattr(runs_page, '_auto_refresh_running', False)
+
 
 class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):

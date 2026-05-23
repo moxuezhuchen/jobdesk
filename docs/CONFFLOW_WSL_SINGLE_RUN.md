@@ -58,8 +58,8 @@ table with columns: Molecule, Status, Conformers (in→out), Duration, Steps.
   failure.
 - Recursive remote deletion is restricted to JobDesk-owned task directories;
   arbitrary user directories are not accepted as delete roots.
-- Automatic refresh and download are enabled by default and can be disabled in
-  settings.
+- Automatic refresh and download are always enabled. Completed tasks are
+  automatically downloaded without requiring manual intervention.
 
 ## WSL Prerequisites
 
