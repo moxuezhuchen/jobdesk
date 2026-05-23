@@ -154,9 +154,9 @@ def choose_chunks_to_submit(chunks: list, submit_mode: str) -> list:
 def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tuple[str, str]:
     local_xyz = [path for path in local_files if Path(path).suffix.lower() == ".xyz"]
     remote_xyz = [path for path in remote_files if posixpath.splitext(path)[1].lower() == ".xyz"]
-    if len(local_xyz) == 1 and not remote_files:
+    if len(local_xyz) == 1 and not remote_xyz:
         return "local", local_xyz[0]
-    if len(remote_xyz) == 1 and not local_files:
+    if len(remote_xyz) == 1 and not local_xyz:
         return "remote", remote_xyz[0]
     return "", ""
 
@@ -1541,7 +1541,9 @@ class FileTransferPage(QWidget):
         local_files, _local_dirs = self._selected_local_entries()
         origin, xyz_path = choose_confflow_xyz(local_files, remote_files)
         if not xyz_path:
-            self._status_cb("Select exactly one XYZ file in either local or remote pane")
+            message = "Select exactly one .xyz input file"
+            self._status_cb(message)
+            self._error_cb("ConfFlow Input", message)
             return
         config_path, _ = QFileDialog.getOpenFileName(
             self,

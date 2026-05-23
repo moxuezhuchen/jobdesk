@@ -120,6 +120,16 @@ class TestFileTransferPage:
         from jobdesk_app.gui.i18n import tr
         assert file_page.confflow_btn.text() == tr("Run ConfFlow", file_page._language)
 
+    def test_confflow_invalid_input_reports_visible_error(self, file_page):
+        errors = []
+        file_page._service = MagicMock()
+        file_page._connected_server = MagicMock()
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._run_confflow()
+
+        assert errors == [("ConfFlow Input", "Select exactly one .xyz input file")]
+
     def test_submission_emits_run_id_for_navigation(self, file_page, qtbot):
         received = []
         file_page.runs_submitted.connect(lambda run_ids: received.extend(run_ids))

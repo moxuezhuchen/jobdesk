@@ -6,31 +6,31 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from jobdesk_app.core.transfer import TransferStatus
 from jobdesk_app.gui.pages.file_transfer_page import (
-    build_file_button_reasons,
     breadcrumb_parts,
-    collect_remote_delete_roots,
-    choose_confflow_xyz,
+    build_file_button_reasons,
     choose_chunks_to_submit,
+    choose_confflow_xyz,
     choose_delete_scope,
+    collect_remote_delete_roots,
     connection_status_text,
     default_remote_dir_for_server,
     file_action_labels,
     file_table_headers,
     files_layout_row_counts,
-    format_modified_time,
     format_command_preview_rows,
     format_file_size,
-    format_remote_size,
+    format_modified_time,
     format_queue_summary,
+    format_remote_size,
     format_selection_summary,
     local_parent_row,
     local_table_row,
     remote_child_path,
-    remote_parent_row,
     remote_parent_path,
+    remote_parent_row,
     remote_table_row,
-    table_resize_mode_name,
     run_button_reason,
+    table_resize_mode_name,
 )
 
 
@@ -124,6 +124,7 @@ def test_choose_chunks_to_submit_modes():
 def test_choose_confflow_xyz_requires_exactly_one_xyz_from_one_pane():
     assert choose_confflow_xyz(["C:/job/water.xyz"], []) == ("local", "C:/job/water.xyz")
     assert choose_confflow_xyz([], ["/tmp/water.xyz"]) == ("remote", "/tmp/water.xyz")
+    assert choose_confflow_xyz(["C:/job/readme.txt"], ["/tmp/water.xyz"]) == ("remote", "/tmp/water.xyz")
     assert choose_confflow_xyz(["C:/job/water.xyz", "C:/job/other.xyz"], []) == ("", "")
     assert choose_confflow_xyz(["C:/job/readme.txt"], []) == ("", "")
 
