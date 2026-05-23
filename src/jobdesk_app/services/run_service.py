@@ -208,6 +208,16 @@ class RunService:
                 failures.append((task.task_id, str(exc)))
             if task_ok:
                 task.status = TaskStatus.downloaded
+                if task.error_message and task.error_message.startswith("download:"):
+                    task.error_message = None
+            else:
+                error_parts = []
+                if download_errors:
+                    error_parts = download_errors
+                elif not requested_outputs:
+                    error_parts = ["无匹配输出文件"]
+                if error_parts:
+                    task.error_message = "download: " + "; ".join(error_parts)
         Manifest.write(record.manifest_path, tasks)
         self.update_run_from_manifest(run_id)
         return records, failures

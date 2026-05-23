@@ -33,3 +33,12 @@ def test_jobdesk_gui_ps1_does_not_use_python_m():
     active_lines = [ln for ln in ps1.splitlines() if ln.strip() and not ln.strip().startswith("#")]
     assert not any("python -m jobdesk_app.gui.app" in ln for ln in active_lines)
     assert "jobdesk-gui" in ps1
+
+
+
+def test_license_uses_spdx_expression_not_table():
+    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    license_val = config["project"]["license"]
+    # Must be a plain SPDX string, not a table like {file = "LICENSE"}
+    assert isinstance(license_val, str), f"license should be SPDX string, got {type(license_val)}"
+    assert license_val == "Apache-2.0"

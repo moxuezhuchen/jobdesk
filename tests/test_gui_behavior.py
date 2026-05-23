@@ -520,7 +520,7 @@ class TestRunsPage:
 
     def test_open_results_folder_calls_startfile(self, runs_page, tmp_path):
         """Open Results action uses os.startfile on the results directory."""
-        record = MagicMock(run_id="run_open")
+        record = MagicMock(run_id="run_open", local_dir="")
         results_dir = tmp_path / "results" / "run_open"
         results_dir.mkdir(parents=True)
 
@@ -534,7 +534,7 @@ class TestRunsPage:
 
     def test_open_results_folder_missing_dir_shows_error(self, runs_page, tmp_path):
         """If results dir doesn't exist, show status message instead of crashing."""
-        record = MagicMock(run_id="run_missing")
+        record = MagicMock(run_id="run_missing", local_dir="")
 
         with patch.object(runs_page, "_selected_record", return_value=record), \
              patch.object(runs_page, "_workspace", return_value=tmp_path):
@@ -567,6 +567,68 @@ class TestRunsPage:
         energy_cell = runs_page.result_table.item(0, 3)
         assert energy_cell is not None
         assert "-76.123456" in energy_cell.text()
+
+    def test_retry_download_uses_record_local_dir_not_current_workspace(self, runs_page, qtbot, tmp_path):
+        """Retry Download must use record.local_dir when set, not GUI workspace."""
+        local_a = tmp_path / "project_a"
+        local_a.mkdir()
+        record = MagicMock(
+            run_id="run_ld", server_id="wsl",
+            remote_dir="/r", manifest_path=Path("m.tsv"),
+            local_dir=str(local_a),
+            status_summary={"remote_completed": 1},
+        )
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+            svc.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._retry_download()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_retry_dl_running", False),
+                timeout=2000,
+            )
+
+        # RunService must be constructed with local_a, not current workspace
+        svc.assert_any_call(local_a)
+
+    def test_open_results_uses_record_local_dir(self, runs_page, tmp_path):
+        """Open Results must use record.local_dir path."""
+        local_a = tmp_path / "project_a"
+        results_dir = local_a / "results" / "run_ld2"
+        results_dir.mkdir(parents=True)
+        record = MagicMock(run_id="run_ld2", local_dir=str(local_a))
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_workspace", return_value=tmp_path / "other"), \
+             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+            mock_os.startfile = MagicMock()
+            mock_os.path = MagicMock()
+            runs_page._open_results_folder()
+
+        mock_os.startfile.assert_called_once_with(results_dir)
+
+    def test_empty_local_dir_falls_back_to_workspace(self, runs_page, tmp_path):
+        """Old records with empty local_dir should use current workspace."""
+        results_dir = tmp_path / "results" / "run_old"
+        results_dir.mkdir(parents=True)
+        record = MagicMock(run_id="run_old", local_dir="")
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_workspace", return_value=tmp_path), \
+             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+            mock_os.startfile = MagicMock()
+            mock_os.path = MagicMock()
+            runs_page._open_results_folder()
+
+        mock_os.startfile.assert_called_once_with(results_dir)
 
     def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
         worker = MagicMock()

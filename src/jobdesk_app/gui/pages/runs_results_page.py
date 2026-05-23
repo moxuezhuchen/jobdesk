@@ -200,11 +200,12 @@ class RunsResultsPage(QWidget):
 
     def _on_task_done(self, event):
         """Called when a remote task changes state — refresh in background."""
-        workspace = self._workspace()
+        fallback_ws = self._workspace()
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
-            record = RunService(workspace).load_run(event.run_id)
+            record = RunService(fallback_ws).load_run(event.run_id)
+            rec_ws = Path(record.local_dir) if record.local_dir else fallback_ws
             server = load_servers().servers[record.server_id]
             ssh = create_ssh_client(server)
             ssh.connect()
@@ -218,17 +219,17 @@ class RunsResultsPage(QWidget):
                         batch_id=record.run_id,
                         write=True,
                     )
-                    RunService(workspace).update_run_from_manifest(record.run_id)
+                    RunService(rec_ws).update_run_from_manifest(record.run_id)
                     # Only download on DONE (exit_code is not None)
                     if event.exit_code is not None:
-                        updated = RunService(workspace).load_run(record.run_id)
+                        updated = RunService(rec_ws).load_run(record.run_id)
                         if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
-                            _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                            _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
                             if failures:
                                 return "Result download failed: " + str(failures)
                             return f"Run complete; results downloaded: {record.run_id}"
-                        RunService(workspace).update_run_from_manifest(record.run_id)
+                        RunService(rec_ws).update_run_from_manifest(record.run_id)
                 finally:
                     sftp.close()
             finally:
@@ -334,6 +335,12 @@ class RunsResultsPage(QWidget):
     def _workspace(self) -> Path:
         return Path(self.state.current_project_root or Path.cwd())
 
+    def _result_workspace(self, record: RunRecord) -> Path:
+        """Resolve the workspace for a run record's results."""
+        if record.local_dir:
+            return Path(record.local_dir)
+        return self._workspace()
+
     def _selected_record(self) -> RunRecord | None:
         row = self.table.currentRow()
         if row < 0:
@@ -354,11 +361,14 @@ class RunsResultsPage(QWidget):
     def _load_result_preview(self, record: RunRecord):
         """Load TSV results or run analysis for the selected run."""
         from ...services.gui_settings import GuiSettingsStore
-        workspace = self._workspace()
+        workspace = self._result_workspace(record)
         candidates = [workspace]
         default_folder = GuiSettingsStore().load().default_local_folder
         if default_folder and Path(default_folder) != workspace:
             candidates.append(Path(default_folder))
+        gui_ws = self._workspace()
+        if gui_ws != workspace and gui_ws not in candidates:
+            candidates.append(gui_ws)
 
         # Detect ConfFlow batch by command_template
         is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
@@ -632,6 +642,7 @@ class RunsResultsPage(QWidget):
             errors = []
             downloaded = []
             for record in active:
+                rec_ws = Path(record.local_dir) if record.local_dir else workspace
                 srv = cfg.servers.get(record.server_id)
                 if not srv:
                     continue
@@ -648,11 +659,11 @@ class RunsResultsPage(QWidget):
                                 batch_id=record.run_id,
                                 write=True,
                             )
-                            RunService(workspace).update_run_from_manifest(record.run_id)
-                            updated = RunService(workspace).load_run(record.run_id)
+                            RunService(rec_ws).update_run_from_manifest(record.run_id)
+                            updated = RunService(rec_ws).load_run(record.run_id)
                             if updated.status_summary.get("remote_completed", 0) > 0:
                                 patterns = self._get_download_patterns(record)
-                                _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                                _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
                                 if failures:
                                     errors.append(f"{record.run_id}: {failures}")
                                 else:
@@ -765,7 +776,7 @@ class RunsResultsPage(QWidget):
         if not record.status_summary.get("remote_completed", 0):
             self._status_cb(tr("No tasks awaiting download", self._language))
             return
-        workspace = self._workspace()
+        workspace = self._result_workspace(record)
         self._retry_dl_running = True
 
         def _run():
@@ -810,7 +821,7 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        results_dir = self._workspace() / "results" / record.run_id
+        results_dir = self._result_workspace(record) / "results" / record.run_id
         if not results_dir.exists():
             self._status_cb(tr("Results directory not found", self._language))
             return
