@@ -142,11 +142,13 @@ class SSHClientWrapper:
         if _is_local_port_open(self._server.host, self._server.port):
             return
         try:
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             subprocess.run(
                 ["wsl.exe", "-d", distro, "--", "true"],
                 check=True,
                 capture_output=True,
                 timeout=self._timeout,
+                creationflags=creationflags,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise SSHConnectionError(

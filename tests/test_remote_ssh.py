@@ -217,11 +217,13 @@ class TestSSHClientWrapper:
             ssh = MockSSHWrapper(server, timeout=7)
             ssh.connect()
 
+        import subprocess as _sp
         run_wsl.assert_called_once_with(
             ["wsl.exe", "-d", "Ubuntu", "--", "true"],
             check=True,
             capture_output=True,
             timeout=7,
+            creationflags=_sp.CREATE_NO_WINDOW,
         )
         mock_client_class.return_value.connect.assert_called_once()
 
