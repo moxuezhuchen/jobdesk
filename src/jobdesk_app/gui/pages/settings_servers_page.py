@@ -282,6 +282,13 @@ class SettingsServersPage(QWidget):
         profile_card_inner.setSpacing(8)
         profile_card_inner.addWidget(self.profile_table)
         profile_card_inner.addLayout(profile_btns)
+        self._confflow_note = QLabel(
+            tr("ConfFlow downloads are managed from declared task outputs; "
+               "shown patterns describe the default artifacts.", self._language)
+        )
+        self._confflow_note.setStyleSheet("color: #64748b; font-size: 13pt; padding: 4px 0;")
+        self._confflow_note.setWordWrap(True)
+        profile_card_inner.addWidget(self._confflow_note)
         layout.addWidget(profile_card)
 
         scroll.setWidget(content)

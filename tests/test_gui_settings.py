@@ -1,3 +1,5 @@
+import yaml
+
 from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
 
 
@@ -34,3 +36,55 @@ def test_gui_settings_defaults(tmp_path):
     assert settings.column_widths == {}
     assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
     assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name}"
+
+
+def test_existing_profiles_get_confflow_merged_without_overwriting_custom(tmp_path):
+    """Old config with only Gaussian/ORCA should gain ConfFlow on load."""
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text(yaml.safe_dump({
+        "software_profiles": {
+            "Gaussian": {
+                "input_extensions": ".gjf",
+                "command_template": "my_g16 {name}",
+                "download_patterns": "*.log",
+            },
+            "ORCA": {
+                "input_extensions": ".inp",
+                "command_template": "orca {name} > {basename}.out",
+                "download_patterns": "*.out,*.gbw",
+            },
+        },
+    }), encoding="utf-8")
+
+    settings = GuiSettingsStore(path).load()
+
+    # ConfFlow was added
+    assert "ConfFlow" in settings.software_profiles
+    assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
+    # Gaussian custom values preserved
+    assert settings.software_profiles["Gaussian"]["command_template"] == "my_g16 {name}"
+    assert settings.software_profiles["Gaussian"]["download_patterns"] == "*.log"
+
+
+def test_existing_profiles_with_confflow_not_overwritten(tmp_path):
+    """If user already has ConfFlow with custom settings, they stay."""
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text(yaml.safe_dump({
+        "software_profiles": {
+            "Gaussian": {
+                "input_extensions": ".gjf,.com",
+                "command_template": "g16 {name}",
+                "download_patterns": "*.log,*.chk",
+            },
+            "ConfFlow": {
+                "input_extensions": ".xyz",
+                "command_template": "confflow {name} --custom",
+                "download_patterns": "*.txt",
+            },
+        },
+    }), encoding="utf-8")
+
+    settings = GuiSettingsStore(path).load()
+
+    assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name} --custom"
+    assert settings.software_profiles["ConfFlow"]["download_patterns"] == "*.txt"

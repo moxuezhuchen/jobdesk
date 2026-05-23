@@ -151,14 +151,35 @@ def choose_chunks_to_submit(chunks: list, submit_mode: str) -> list:
     return chunks
 
 
-def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tuple[str, str]:
-    local_xyz = [path for path in local_files if Path(path).suffix.lower() == ".xyz"]
-    remote_xyz = [path for path in remote_files if posixpath.splitext(path)[1].lower() == ".xyz"]
-    if len(local_xyz) == 1 and not remote_xyz:
-        return "local", local_xyz[0]
-    if len(remote_xyz) == 1 and not local_xyz:
-        return "remote", remote_xyz[0]
-    return "", ""
+def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tuple[str, list[str], str]:
+    """Select XYZ files for ConfFlow batch from exactly one pane.
+
+    Returns (origin, xyz_paths, error). error is non-empty when selection is invalid.
+    """
+    local_xyz = [p for p in local_files if Path(p).suffix.lower() == ".xyz"]
+    remote_xyz = [p for p in remote_files if posixpath.splitext(p)[1].lower() == ".xyz"]
+    if local_xyz and remote_xyz:
+        return "", [], "Ambiguous: .xyz selected in both local and remote panes"
+    if local_xyz:
+        return "local", local_xyz, ""
+    if remote_xyz:
+        return "remote", remote_xyz, ""
+    return "", [], "No .xyz files selected"
+
+
+def choose_confflow_yaml(remote_files: list[str], xyz_origin: str) -> tuple[str, str]:
+    """Find a single remote YAML for ConfFlow. Returns (yaml_path, error)."""
+    remote_yamls = [
+        p for p in remote_files
+        if posixpath.splitext(p)[1].lower() in {".yaml", ".yml"}
+    ]
+    if not remote_yamls:
+        return "", ""
+    if xyz_origin == "local":
+        return "", "Local XYZ batch cannot use a remote YAML; choose a local YAML instead"
+    if len(remote_yamls) > 1:
+        return "", "Select only one remote YAML configuration file"
+    return remote_yamls[0], ""
 
 
 def choose_delete_scope(local_count: int, remote_count: int, focused_pane: str) -> str:
@@ -1539,37 +1560,62 @@ class FileTransferPage(QWidget):
             return
         remote_files, _remote_dirs = self._selected_remote_entries()
         local_files, _local_dirs = self._selected_local_entries()
-        origin, xyz_path = choose_confflow_xyz(local_files, remote_files)
-        if not xyz_path:
-            message = "Select exactly one .xyz input file"
-            self._status_cb(message)
-            self._error_cb("ConfFlow Input", message)
+        origin, xyz_paths, error = choose_confflow_xyz(local_files, remote_files)
+        if error:
+            self._status_cb(error)
+            self._error_cb("ConfFlow Input", error)
             return
-        config_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select ConfFlow YAML configuration",
-            str(self.state.current_project_root or Path.cwd()),
-            "YAML files (*.yaml *.yml)",
+
+        # Resolve YAML configuration
+        remote_dir = self.remote_path.text().strip() or "/"
+        yaml_path, yaml_error = choose_confflow_yaml(remote_files, origin)
+        if yaml_error:
+            self._error_cb("ConfFlow YAML", yaml_error)
+            return
+        local_yaml_path: str = ""
+
+        if not yaml_path:
+            # Ask user for a local YAML
+            config_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select ConfFlow YAML configuration",
+                str(self.state.current_project_root or Path.cwd()),
+                "YAML files (*.yaml *.yml)",
+            )
+            if not config_path:
+                return
+            if Path(config_path).suffix.lower() not in {".yaml", ".yml"}:
+                self._status_cb("Select a ConfFlow YAML configuration file")
+                return
+            local_yaml_path = config_path
+
+        max_parallel = self._gui_settings.max_parallel
+        mol_count = len(xyz_paths)
+        yaml_desc = (
+            f"remote: {posixpath.basename(yaml_path)}" if yaml_path
+            else f"local: {Path(local_yaml_path).name}"
         )
-        if not config_path:
-            return
-        if Path(config_path).suffix.lower() not in {".yaml", ".yml"}:
-            self._status_cb("Select a ConfFlow YAML configuration file")
-            return
+        confirm_msg = (
+            f"Submit ConfFlow batch?\n\n"
+            f"Molecules: {mol_count}\n"
+            f"YAML: {yaml_desc}\n"
+            f"Remote dir: {remote_dir}\n"
+            f"Max parallel: {max_parallel}"
+        )
         if QMessageBox.question(
-            self, "Confirm", tr("Submit tasks to remote server?", self._language),
+            self, "Confirm ConfFlow Batch", confirm_msg,
             QMessageBox.Yes | QMessageBox.No,
         ) != QMessageBox.Yes:
             return
 
         local_base = self.state.current_project_root or Path.cwd()
-        remote_dir = self.remote_path.text().strip() or "/"
-        config_target = remote_child_path(remote_dir, Path(config_path).name)
-        xyz_target = (
-            remote_child_path(remote_dir, Path(xyz_path).name)
-            if origin == "local"
-            else xyz_path
-        )
+        config_target = yaml_path if yaml_path else remote_child_path(remote_dir, Path(local_yaml_path).name)
+        # Compute remote XYZ targets
+        if origin == "local":
+            xyz_targets = [remote_child_path(remote_dir, Path(p).name) for p in xyz_paths]
+        else:
+            xyz_targets = list(xyz_paths)
+
         connected_server = self._connected_server
         server_id = self._connected_server_id or ""
         file_service = self._service
@@ -1577,14 +1623,16 @@ class FileTransferPage(QWidget):
         def _run():
             from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             if origin == "local":
-                file_service.upload_path(Path(xyz_path), xyz_target, OverwritePolicy.overwrite)
-            file_service.upload_path(Path(config_path), config_target, OverwritePolicy.overwrite)
+                for local_p, remote_t in zip(xyz_paths, xyz_targets):
+                    file_service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
+            if local_yaml_path:
+                file_service.upload_path(Path(local_yaml_path), config_target, OverwritePolicy.overwrite)
             spec = ConfFlowAdapter.build_spec(
                 server_id=server_id,
                 remote_dir=remote_dir,
-                xyz_path=xyz_target,
+                xyz_paths=xyz_targets,
                 config_path=config_target,
-                max_parallel=1,
+                max_parallel=max_parallel,
             )
             service = RunService(local_base)
             record = service.create_run(spec, local_dir=str(local_base))
@@ -1603,7 +1651,7 @@ class FileTransferPage(QWidget):
                 sftp.close()
                 ssh.close()
 
-        self._status_cb("Submitting ConfFlow run...")
+        self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
         self.worker = _BackgroundRunWorker(_run)
         self.worker.result.connect(self._on_confflow_done)
         self.worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))

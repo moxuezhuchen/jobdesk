@@ -356,11 +356,7 @@ class RunsResultsPage(QWidget):
             if result_dir.exists():
                 summaries = sorted(result_dir.rglob("run_summary.json"))
                 if summaries:
-                    from ...services.confflow_results import format_summary, load_summary
-                    self.result_table.setRowCount(0)
-                    self.result_text.setPlainText(format_summary(load_summary(summaries[0])))
-                    self.result_text.setVisible(True)
-                    self.result_label.setText("ConfFlow Results")
+                    self._show_confflow_batch_results(result_dir, summaries)
                     return
                 rows = self._auto_analyze(result_dir)
                 if rows:
@@ -476,6 +472,44 @@ class RunsResultsPage(QWidget):
                 except Exception:
                     rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
         return rows
+
+    def _show_confflow_batch_results(self, result_dir: Path, summaries: list[Path]):
+        """Display per-molecule ConfFlow summary table for a batch run."""
+        from ...services.confflow_results import load_summary
+        headers = ["Molecule", "Status", "Conformers (in→out)", "Duration (s)", "Steps"]
+        rows: list[list[str]] = []
+        # Also check task dirs that have no summary (failed/incomplete)
+        task_dirs = sorted(d for d in result_dir.iterdir() if d.is_dir())
+        for task_dir in task_dirs:
+            mol_name = task_dir.name
+            summary_file = task_dir / f"{mol_name}_confflow_work" / "run_summary.json"
+            if summary_file.exists():
+                try:
+                    s = load_summary(summary_file)
+                    steps = ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items()) if s.step_status_counts else ""
+                    rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps])
+                except Exception:
+                    rows.append([mol_name, "⚠ Parse Error", "", "", ""])
+            else:
+                rows.append([mol_name, "✗ Missing", "", "", ""])
+        if not rows:
+            # Fallback: single summary at non-standard location
+            from ...services.confflow_results import format_summary
+            from ...services.confflow_results import load_summary as ls
+            self.result_table.setRowCount(0)
+            self.result_text.setPlainText(format_summary(ls(summaries[0])))
+            self.result_text.setVisible(True)
+            self.result_label.setText("ConfFlow Results")
+            return
+        self.result_text.setVisible(False)
+        self.result_table.setColumnCount(len(headers))
+        self.result_table.setHorizontalHeaderLabels(headers)
+        self.result_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                self.result_table.setItem(r, c, QTableWidgetItem(val))
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.result_label.setText(f"ConfFlow Batch Results ({len(rows)} molecules)")
 
     def _show_analysis_rows(self, rows: list[list[str]]):
         headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", tr("Normal Term", self._language)]

@@ -13,11 +13,13 @@ class ConfFlowAdapter:
     def build_spec(
         server_id: str,
         remote_dir: str,
-        xyz_path: str,
+        xyz_paths: list[str] | str,
         config_path: str,
         max_parallel: int = 1,
         resume: bool = False,
     ) -> RunSpec:
+        if isinstance(xyz_paths, str):
+            xyz_paths = [xyz_paths]
         config_name = posixpath.basename(config_path)
         command = (
             f"confflow {{name}} -c {shlex.quote(config_name)} "
@@ -31,7 +33,7 @@ class ConfFlowAdapter:
             command_template=command,
             max_parallel=max_parallel,
             mode=RunMode.selected_files,
-            sources=[RunSource(xyz_path)],
+            sources=[RunSource(p) for p in xyz_paths],
             supporting_sources=[RunSource(config_path)],
             result_templates=[
                 "{basename}.txt",

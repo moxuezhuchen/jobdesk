@@ -7,6 +7,12 @@ import yaml
 
 from ..app_paths import get_app_data_dir
 
+_BUILTIN_PROFILES: dict[str, dict[str, str]] = {
+    "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
+    "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
+    "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
+}
+
 
 @dataclass(frozen=True)
 class GuiSettings:
@@ -40,11 +46,7 @@ class GuiSettings:
         if self.last_remote_dirs is None:
             object.__setattr__(self, "last_remote_dirs", {})
         if self.software_profiles is None:
-            object.__setattr__(self, "software_profiles", {
-                "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
-                "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
-                "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
-            })
+            object.__setattr__(self, "software_profiles", {k: dict(v) for k, v in _BUILTIN_PROFILES.items()})
 
 
 class GuiSettingsStore:
@@ -81,17 +83,17 @@ class GuiSettingsStore:
 
     @staticmethod
     def _load_profiles(raw: dict) -> dict[str, dict[str, str]]:
-        """Load software_profiles, migrating from old software_download_patterns if needed."""
+        """Load software_profiles, merging missing built-ins without overwriting user values."""
         profiles = raw.get("software_profiles")
         if profiles:
-            return dict(profiles)
+            merged = dict(profiles)
+            for name, defaults in _BUILTIN_PROFILES.items():
+                if name not in merged:
+                    merged[name] = dict(defaults)
+            return merged
         # Migrate from old format
         old = raw.get("software_download_patterns", {}) or {}
-        defaults = {
-            "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
-            "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
-            "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
-        }
+        defaults = {k: dict(v) for k, v in _BUILTIN_PROFILES.items()}
         for name, patterns in old.items():
             if name in defaults:
                 defaults[name]["download_patterns"] = patterns

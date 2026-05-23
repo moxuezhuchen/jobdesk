@@ -96,8 +96,35 @@ class TestRunsPage:
 
         runs_page._load_result_preview(record)
 
-        assert not runs_page.result_text.isHidden()
-        assert "Final conformers: 2" in runs_page.result_text.toPlainText()
+        assert runs_page.result_table.rowCount() == 1
+        assert runs_page.result_table.item(0, 0).text() == "water"
+        assert "Done" in runs_page.result_table.item(0, 1).text()
+
+    def test_load_result_preview_renders_multi_molecule_batch(self, runs_page, tmp_path):
+        """A batch with multiple molecules shows per-molecule status table."""
+        runs_page.state.current_project_root = tmp_path
+        result_dir = tmp_path / "results" / "batch01"
+        for mol in ("mol1", "mol2", "mol3"):
+            d = result_dir / mol / f"{mol}_confflow_work"
+            d.mkdir(parents=True)
+            (d / "run_summary.json").write_text(json.dumps({
+                "initial_conformers": 4,
+                "final_conformers": 2,
+                "total_duration_seconds": 5.5,
+                "step_status_counts": {"completed": 1},
+            }), encoding="utf-8")
+        # mol4 has no summary (failed task)
+        (result_dir / "mol4").mkdir(parents=True)
+
+        record = MagicMock(run_id="batch01")
+        runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() == 4
+        assert runs_page.result_table.item(0, 0).text() == "mol1"
+        assert "Done" in runs_page.result_table.item(0, 1).text()
+        assert "4→2" in runs_page.result_table.item(0, 2).text()
+        assert runs_page.result_table.item(3, 0).text() == "mol4"
+        assert "Missing" in runs_page.result_table.item(3, 1).text()
 
     def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
         worker = MagicMock()
@@ -128,7 +155,7 @@ class TestFileTransferPage:
 
         file_page._run_confflow()
 
-        assert errors == [("ConfFlow Input", "Select exactly one .xyz input file")]
+        assert errors == [("ConfFlow Input", "No .xyz files selected")]
 
     def test_submission_emits_run_id_for_navigation(self, file_page, qtbot):
         received = []

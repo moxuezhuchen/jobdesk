@@ -1,11 +1,10 @@
-"""Real WSL ConfFlow single-run validation; opt in because it executes Gaussian."""
+"""Real WSL ConfFlow batch validation; opt in because it executes Gaussian."""
 
 from __future__ import annotations
 
 import os
 import time
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -18,8 +17,10 @@ from jobdesk_app.remote.status_refresh import refresh_batch_status
 from jobdesk_app.services.confflow_results import load_summary
 from jobdesk_app.services.program_adapters import ConfFlowAdapter
 from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.scheduler_helpers import resources_from_server, scheduler_from_server
-
+from jobdesk_app.services.scheduler_helpers import (
+    resources_from_server,
+    scheduler_from_server,
+)
 
 pytestmark = pytest.mark.skipif(
     not all((
@@ -39,7 +40,16 @@ H  0.000000  0.757000  0.586000
 H  0.000000 -0.757000  0.586000
 """
 
-CONFLOW_YAML = """global:
+METHANE_XYZ = """5
+methane
+C   0.000000   0.000000   0.000000
+H   0.629118   0.629118   0.629118
+H  -0.629118  -0.629118   0.629118
+H  -0.629118   0.629118  -0.629118
+H   0.629118  -0.629118  -0.629118
+"""
+
+CONFFLOW_YAML = """global:
   gaussian_path: /opt/g16/g16
   cores_per_task: 1
   total_memory: 1GB
@@ -47,7 +57,7 @@ CONFLOW_YAML = """global:
   charge: 0
   multiplicity: 1
 steps:
-  - name: water_opt
+  - name: quick_opt
     type: calc
     params:
       iprog: g16
@@ -59,30 +69,38 @@ steps:
 """
 
 
-def test_real_confflow_water_run_downloads_summary(tmp_path):
+def test_real_confflow_batch_two_molecules(tmp_path):
     server_id = os.environ["JOBDESK_TEST_SSH_SERVER_ID"]
     server = load_servers(os.environ["JOBDESK_TEST_SERVERS_YAML"]).servers[server_id]
     remote_root = os.environ["JOBDESK_TEST_REMOTE_TMP_DIR"].rstrip("/")
-    remote_dir = f"{remote_root}/confflow_{uuid.uuid4().hex[:8]}"
-    xyz_local = tmp_path / "water.xyz"
-    config_local = tmp_path / "confflow.yaml"
-    xyz_local.write_text(WATER_XYZ, encoding="utf-8")
-    config_local.write_text(CONFLOW_YAML, encoding="utf-8")
+    remote_dir = f"{remote_root}/confflow_batch_{uuid.uuid4().hex[:8]}"
+
+    # Write local files
+    (tmp_path / "water.xyz").write_text(WATER_XYZ, encoding="utf-8")
+    (tmp_path / "methane.xyz").write_text(METHANE_XYZ, encoding="utf-8")
+    (tmp_path / "confflow.yaml").write_text(CONFFLOW_YAML, encoding="utf-8")
 
     ssh = SSHClientWrapper(server, timeout=20)
     ssh.connect()
     sftp = SFTPClientWrapper.from_ssh(ssh)
     try:
-        sftp.upload_file(xyz_local, f"{remote_dir}/water.xyz", overwrite=True)
-        sftp.upload_file(config_local, f"{remote_dir}/confflow.yaml", overwrite=True)
+        # Upload inputs
+        for name in ("water.xyz", "methane.xyz", "confflow.yaml"):
+            sftp.upload_file(tmp_path / name, f"{remote_dir}/{name}", overwrite=True)
+
+        # Build batch spec
         service = RunService(tmp_path, runs_dir=tmp_path / "runs")
         spec = ConfFlowAdapter.build_spec(
             server_id=server_id,
             remote_dir=remote_dir,
-            xyz_path=f"{remote_dir}/water.xyz",
+            xyz_paths=[f"{remote_dir}/water.xyz", f"{remote_dir}/methane.xyz"],
             config_path=f"{remote_dir}/confflow.yaml",
+            max_parallel=2,
         )
-        record = service.create_run(spec, run_id="confflow-water")
+        assert len(spec.sources) == 2
+        assert spec.max_parallel == 2
+
+        record = service.create_run(spec, run_id="confflow-batch")
         submitted = service.submit_run(
             record.run_id,
             ssh,
@@ -93,7 +111,8 @@ def test_real_confflow_water_run_downloads_summary(tmp_path):
         )
         assert not submitted.errors
 
-        for _ in range(90):
+        # Wait for completion
+        for _ in range(120):
             refresh_batch_status(
                 ssh=ssh,
                 manifest_path=record.manifest_path,
@@ -102,18 +121,22 @@ def test_real_confflow_water_run_downloads_summary(tmp_path):
                 write=True,
             )
             service.update_run_from_manifest(record.run_id)
-            if Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed:
+            tasks = Manifest.read(record.manifest_path)
+            if all(t.status == TaskStatus.remote_completed for t in tasks):
                 break
             time.sleep(2)
         else:
-            pytest.fail("ConfFlow water calculation did not finish within 180 seconds")
+            pytest.fail("ConfFlow batch did not finish within 240 seconds")
 
         records, failures = service.download_completed(record.run_id, sftp, [])
         assert not failures
-        assert len(records) == 4
-        summary_path = tmp_path / "results" / record.run_id / "water" / "water_confflow_work" / "run_summary.json"
-        summary = load_summary(summary_path)
-        assert summary.final_conformers >= 1
+
+        # Verify both molecule summaries
+        for mol in ("water", "methane"):
+            summary_path = tmp_path / "results" / record.run_id / mol / f"{mol}_confflow_work" / "run_summary.json"
+            assert summary_path.exists(), f"Missing summary for {mol}"
+            summary = load_summary(summary_path)
+            assert summary.final_conformers >= 1
     finally:
         ssh.run(f"rm -rf {remote_dir}")
         sftp.close()

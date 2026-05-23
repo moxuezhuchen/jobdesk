@@ -122,11 +122,38 @@ def test_choose_chunks_to_submit_modes():
 
 
 def test_choose_confflow_xyz_requires_exactly_one_xyz_from_one_pane():
-    assert choose_confflow_xyz(["C:/job/water.xyz"], []) == ("local", "C:/job/water.xyz")
-    assert choose_confflow_xyz([], ["/tmp/water.xyz"]) == ("remote", "/tmp/water.xyz")
-    assert choose_confflow_xyz(["C:/job/readme.txt"], ["/tmp/water.xyz"]) == ("remote", "/tmp/water.xyz")
-    assert choose_confflow_xyz(["C:/job/water.xyz", "C:/job/other.xyz"], []) == ("", "")
-    assert choose_confflow_xyz(["C:/job/readme.txt"], []) == ("", "")
+    assert choose_confflow_xyz(["C:/job/water.xyz"], []) == ("local", ["C:/job/water.xyz"], "")
+    assert choose_confflow_xyz([], ["/tmp/water.xyz"]) == ("remote", ["/tmp/water.xyz"], "")
+    assert choose_confflow_xyz(["C:/job/readme.txt"], ["/tmp/water.xyz"]) == ("remote", ["/tmp/water.xyz"], "")
+    assert choose_confflow_xyz(["C:/job/readme.txt"], []) == ("", [], "No .xyz files selected")
+
+
+def test_choose_confflow_xyz_multiple_from_one_pane():
+    """Multi-select from one pane is now supported."""
+    result = choose_confflow_xyz(["C:/job/a.xyz", "C:/job/b.xyz"], [])
+    assert result == ("local", ["C:/job/a.xyz", "C:/job/b.xyz"], "")
+
+    result = choose_confflow_xyz([], ["/tmp/a.xyz", "/tmp/b.xyz"])
+    assert result == ("remote", ["/tmp/a.xyz", "/tmp/b.xyz"], "")
+
+
+def test_choose_confflow_xyz_both_panes_is_error():
+    """XYZ in both panes is an ambiguous error."""
+    origin, paths, error = choose_confflow_xyz(
+        ["C:/job/water.xyz"], ["/tmp/mol.xyz"]
+    )
+    assert origin == ""
+    assert paths == []
+    assert "both" in error.lower() or "ambig" in error.lower()
+
+
+def test_choose_confflow_xyz_non_xyz_does_not_block():
+    """Non-XYZ residual in the same pane as XYZ does not block."""
+    result = choose_confflow_xyz(["C:/job/water.xyz", "C:/job/readme.txt"], [])
+    assert result == ("local", ["C:/job/water.xyz"], "")
+
+    result = choose_confflow_xyz([], ["/tmp/mol.xyz", "/tmp/notes.txt"])
+    assert result == ("remote", ["/tmp/mol.xyz"], "")
 
 
 def test_choose_delete_scope_prefers_focused_pane():
@@ -231,3 +258,45 @@ def test_format_selection_summary():
 
 def test_table_resize_mode_is_interactive():
     assert table_resize_mode_name() == "Interactive"
+
+
+
+def test_choose_confflow_yaml_remote_yaml_with_remote_xyz():
+    """Remote YAML with remote XYZ is valid."""
+    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    yaml_path, error = choose_confflow_yaml(
+        remote_files=["/tmp/confflow.yaml", "/tmp/mol.xyz"],
+        xyz_origin="remote",
+    )
+    assert yaml_path == "/tmp/confflow.yaml"
+    assert error == ""
+
+
+def test_choose_confflow_yaml_no_remote_yaml_returns_empty():
+    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    yaml_path, error = choose_confflow_yaml(
+        remote_files=["/tmp/mol.xyz"],
+        xyz_origin="remote",
+    )
+    assert yaml_path == ""
+    assert error == ""
+
+
+def test_choose_confflow_yaml_multiple_remote_yamls_is_error():
+    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    yaml_path, error = choose_confflow_yaml(
+        remote_files=["/tmp/a.yaml", "/tmp/b.yml"],
+        xyz_origin="remote",
+    )
+    assert yaml_path == ""
+    assert "multiple" in error.lower() or "one" in error.lower()
+
+
+def test_choose_confflow_yaml_remote_yaml_with_local_xyz_rejected():
+    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    yaml_path, error = choose_confflow_yaml(
+        remote_files=["/tmp/confflow.yaml"],
+        xyz_origin="local",
+    )
+    assert yaml_path == ""
+    assert error != ""
