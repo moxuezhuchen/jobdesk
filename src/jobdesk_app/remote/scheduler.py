@@ -96,9 +96,13 @@ class NohupAdapter:
         if job_id and job_id != "0":
             pid_q = shlex.quote(job_id)
             ssh.run(
-                f"kill -TERM -- -{pid_q} 2>/dev/null || kill -TERM {pid_q} 2>/dev/null || true",
+                f"kill -TERM -- -{pid_q} 2>/dev/null || kill -TERM {pid_q} 2>/dev/null",
                 timeout=15,
             )
+            # Verify the process is no longer running
+            r = ssh.run(f"kill -0 {pid_q} 2>/dev/null && echo alive || echo dead")
+            if "alive" in r.stdout:
+                raise RuntimeError(f"process {job_id} still alive after kill")
 
     def stdout_path(self, remote_dir: str, job_id: str) -> str:
         return f"{remote_dir}/.jobdesk_submit.log"
@@ -142,7 +146,9 @@ class SlurmAdapter:
         return _MAP.get(state, JobState.unknown)
 
     def cancel(self, ssh, job_id: str) -> None:
-        ssh.run(f"scancel {shlex.quote(job_id)}", timeout=15)
+        r = ssh.run(f"scancel {shlex.quote(job_id)}", timeout=15)
+        if r.exit_code != 0:
+            raise RuntimeError(f"scancel failed (exit {r.exit_code}): {r.stderr or r.stdout}")
 
     def stdout_path(self, remote_dir: str, job_id: str) -> str:
         return f"{remote_dir}/slurm-{job_id}.out"
@@ -201,7 +207,9 @@ class PBSAdapter:
         return JobState.unknown
 
     def cancel(self, ssh, job_id: str) -> None:
-        ssh.run(f"qdel {shlex.quote(job_id)}", timeout=15)
+        r = ssh.run(f"qdel {shlex.quote(job_id)}", timeout=15)
+        if r.exit_code != 0:
+            raise RuntimeError(f"qdel failed (exit {r.exit_code}): {r.stderr or r.stdout}")
 
     def stdout_path(self, remote_dir: str, job_id: str) -> str:
         return f"{remote_dir}/jobdesk.o{job_id}"

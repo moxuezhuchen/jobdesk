@@ -625,22 +625,31 @@ class RunsResultsPage(QWidget):
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
     def _auto_refresh_active(self):
-        """Periodically refresh status for submitted/running runs."""
+        """Periodically refresh status for submitted/running runs and recover remote_completed."""
         if getattr(self, '_auto_refresh_running', False):
             return
         workspace = self._workspace()
         runs = RunService(workspace).list_runs()
         active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
-        if not active:
+        # Include remote_completed runs that haven't permanently failed download
+        needs_download = [
+            r for r in runs
+            if r not in active
+            and r.status_summary.get("remote_completed", 0) > 0
+            and not getattr(self, '_download_backoff', {}).get(r.run_id, 0) > 2
+        ]
+        if not active and not needs_download:
             return
 
         self._auto_refresh_running = True
+        backoff = getattr(self, '_download_backoff', {})
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
             cfg = load_servers()
             errors = []
             downloaded = []
+            dl_failures: dict[str, int] = {}
             for record in active:
                 rec_ws = Path(record.local_dir) if record.local_dir else workspace
                 srv = cfg.servers.get(record.server_id)
@@ -674,12 +683,42 @@ class RunsResultsPage(QWidget):
                         ssh.close()
                 except Exception as exc:
                     errors.append(f"{record.run_id}: {exc}")
-            return downloaded, errors
+            # Auto-recover remote_completed runs
+            for record in needs_download:
+                rec_ws = Path(record.local_dir) if record.local_dir else workspace
+                srv = cfg.servers.get(record.server_id)
+                if not srv:
+                    continue
+                try:
+                    ssh = create_ssh_client(srv)
+                    ssh.connect()
+                    try:
+                        sftp = create_sftp_client(ssh)
+                        try:
+                            patterns = self._get_download_patterns(record)
+                            _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
+                            if failures:
+                                errors.append(f"{record.run_id}: {failures}")
+                                dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+                            else:
+                                downloaded.append(record.run_id)
+                                dl_failures[record.run_id] = 0
+                        finally:
+                            sftp.close()
+                    finally:
+                        ssh.close()
+                except Exception as exc:
+                    errors.append(f"{record.run_id}: {exc}")
+                    dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+            return downloaded, errors, dl_failures
 
         from ..workers import BackgroundWorker
         worker = BackgroundWorker(_run)
         def _report(result):
-            downloaded, errors = result
+            downloaded, errors, dl_failures = result
+            if not hasattr(self, '_download_backoff'):
+                self._download_backoff = {}
+            self._download_backoff.update(dl_failures)
             if downloaded:
                 self._status_cb("Run complete; results downloaded: " + ", ".join(downloaded))
             if errors:
@@ -888,12 +927,13 @@ class RunsResultsPage(QWidget):
         if QMessageBox.question(self, tr("Delete", self._language), msg,
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
-        svc = RunService(self._workspace())
         deleted = 0
         errors: list[str] = []
         for rid in run_ids:
             try:
-                svc.delete_run(rid)
+                record = RunService(self._workspace()).load_run(rid)
+                workspace = self._result_workspace(record)
+                RunService(workspace).delete_run(rid)
                 deleted += 1
             except Exception as exc:
                 errors.append(f"{rid}: {exc}")

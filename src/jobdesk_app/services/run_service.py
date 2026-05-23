@@ -189,6 +189,8 @@ class RunService:
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
+                        if rec.status == TransferStatus.failed:
+                            download_errors.append(f"{relative_output}: {rec.reason}")
                     except Exception as exc:
                         download_errors.append(f"{relative_output}: {exc}")
                 successful = sum(
