@@ -353,8 +353,13 @@ class RunsResultsPage(QWidget):
         # Detect ConfFlow batch by command_template
         is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
         if is_confflow:
-            result_dir = workspace / "results" / record.run_id
-            self._show_confflow_batch_results(record, result_dir)
+            for base in candidates:
+                result_dir = base / "results" / record.run_id
+                if result_dir.exists():
+                    self._show_confflow_batch_results(record, result_dir)
+                    return
+            # No result dir in any candidate — show manifest-only view
+            self._show_confflow_batch_results(record, workspace / "results" / record.run_id)
             return
 
         # Prefer auto-analysis on downloaded files

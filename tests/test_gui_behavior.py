@@ -203,6 +203,46 @@ class TestRunsPage:
         assert "Failed" in runs_page.result_table.item(1, 1).text()
         assert "Batch" in runs_page.result_label.text()
 
+    def test_confflow_results_found_in_default_local_folder(self, runs_page, tmp_path):
+        """Summary in default_local_folder (not workspace) should show Done, not Missing."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        default_folder = tmp_path / "downloads"
+        default_folder.mkdir()
+        runs_page.state.current_project_root = workspace
+
+        # Summary only exists under default_folder
+        d = default_folder / "results" / "run04" / "mol1" / "mol1_confflow_work"
+        d.mkdir(parents=True)
+        (d / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 5, "final_conformers": 3,
+            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
+        }), encoding="utf-8")
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+        manifest_path = workspace / "runs" / "run04" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(task_id="mol1", batch_id="run04", remote_job_dir="/tmp/.jobdesk_runs/run04/mol1",
+               server_id="wsl", status=TaskStatus.downloaded),
+        ])
+        record = MagicMock(run_id="run04", command_template="confflow {name}", manifest_path=str(manifest_path))
+
+        with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
+            from dataclasses import replace
+
+            from jobdesk_app.services.gui_settings import GuiSettings
+            mock_store.return_value.load.return_value = replace(
+                GuiSettings(), default_local_folder=str(default_folder)
+            )
+            runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() == 1
+        assert runs_page.result_table.item(0, 0).text() == "mol1"
+        assert "Done" in runs_page.result_table.item(0, 1).text()
+
     def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
         worker = MagicMock()
         runs_page._bg_workers = [worker]
