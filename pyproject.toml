@@ -83,7 +83,8 @@ disable_error_code = "assignment"
 module = "jobdesk_app.services.comparison"
 disable_error_code = ["attr-defined", "operator", "type-var"]
 
-# GUI module uses PySide6 extensively; stubs incomplete
+# GUI modules use PySide6 enum attributes (e.g. Qt.AlignLeft, QHeaderView.Interactive)
+# that type stubs expose under nested enum classes; suppress attr-defined only
 [[tool.mypy.overrides]]
 module = "jobdesk_app.gui.*"
-ignore_errors = true
+disable_error_code = "attr-defined"

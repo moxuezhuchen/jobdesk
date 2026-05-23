@@ -38,6 +38,14 @@ class ServerConfig(BaseModel):
     username: str = Field(..., description="登录用户名")
     auth_method: AuthMethod = Field(default=AuthMethod.key, description="认证方式")
     key_path: str | None = Field(default=None, description="SSH 私钥路径")
+
+    @property
+    def auth_unsupported_message(self) -> str:
+        """Non-empty if auth_method is configured but not supported at runtime."""
+        if self.auth_method == AuthMethod.password:
+            return "password auth is not supported; use key-based authentication"
+        return ""
+
     default_shell: str = Field(default="bash", description="默认 shell")
     wsl_distro: str | None = Field(default=None, description="连接前自动唤醒的 WSL 发行版名称")
     env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")

@@ -456,7 +456,7 @@ class RunsResultsPage(QWidget):
                     rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
                 else:
                     try:
-                        r = parse_orca_out(out_file)
+                        r = parse_orca_out(out_file)  # type: ignore[assignment]
                         energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                         gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                         rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
@@ -503,7 +503,7 @@ class RunsResultsPage(QWidget):
                     rows.append([stem, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
                 else:
                     try:
-                        r = parse_orca_out(out_file)
+                        r = parse_orca_out(out_file)  # type: ignore[assignment]
                         energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
                         gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
                         rows.append([stem, out_file.name, "ORCA", energy, gibbs,

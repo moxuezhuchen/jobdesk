@@ -1231,27 +1231,6 @@ class FileTransferPage(QWidget):
         worker.start()
         self._status_cb(f"Downloading {name}…")
 
-    def _upload_selected(self):
-        if self._service is None:
-            self._status_cb("Connect to a server first")
-            return
-        local_path = self._selected_local_path()
-        if local_path is None:
-            self._status_cb("Select a local file or folder")
-            return
-        try:
-            records = self._service.upload_path(
-                local_path,
-                self._remote_target_for_local(local_path),
-                OverwritePolicy.skip_same_size,
-            )
-            if not isinstance(records, list):
-                records = [records]
-            self._status_cb(format_queue_summary([r.status for r in records], self._language))
-            self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("Upload Error", str(exc))
-
     def _download_selected(self):
         if self._service is None:
             self._status_cb("Connect to a server first")
@@ -1816,7 +1795,7 @@ class FileTransferPage(QWidget):
             self._status_cb(f"Created {len(run_records)} run(s)")
             return
 
-        def _run():
+        def _run():  # type: ignore[no-redef]
             results = []
             from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             for record in run_records:

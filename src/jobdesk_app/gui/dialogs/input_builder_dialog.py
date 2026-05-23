@@ -205,15 +205,15 @@ class InputBuilderDialog(QDialog):
             return build_from_preset(xyz_path, preset_name, output_path)
 
         if self.orca_radio.isChecked():
-            spec = OrcaInputSpec(
+            orca_spec = OrcaInputSpec(
                 keywords=f"! {self.method_edit.text().strip()} {self.keywords_edit.text().strip()}",
                 charge=self.charge_spin.value(),
                 multiplicity=self.mult_spin.value(),
                 nproc=self.nproc_spin.value(),
             )
-            return build_inp(xyz_path, spec, output_path)
+            return build_inp(xyz_path, orca_spec, output_path)
         else:
-            spec = GaussianInputSpec(
+            gauss_spec = GaussianInputSpec(
                 method_basis=self.method_edit.text().strip(),
                 job_keywords=self.keywords_edit.text().split(),
                 charge=self.charge_spin.value(),
@@ -221,7 +221,7 @@ class InputBuilderDialog(QDialog):
                 nproc=self.nproc_spin.value(),
                 mem=self.mem_edit.text().strip(),
             )
-            return build_gjf(xyz_path, spec, output_path)
+            return build_gjf(xyz_path, gauss_spec, output_path)
 
     def _do_preview(self):
         try:

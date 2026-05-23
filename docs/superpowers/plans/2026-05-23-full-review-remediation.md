@@ -108,4 +108,3 @@
 - [ ] Run CLI help/input smoke and offscreen GUI construction/shutdown smoke.
 - [ ] Run opt-in real WSL integration tests only when the configured WSL/G16/ORCA/ConfFlow prerequisites are available; report explicitly otherwise.
 - [ ] Run `git diff --check` and review the complete diff before any commit request.
-
