@@ -21,6 +21,7 @@ _MANIFEST_COLUMNS: list[str] = [
     "max_parallel",
     "task_files",
     "remote_task_files",
+    "remote_result_files",
     "task_dir",
     "entry_file",
     "parsed_fields",
@@ -43,6 +44,7 @@ class TaskRecord(BaseModel):
     remote_job_dir: str = Field(...)
     task_files: list[str] = Field(default_factory=list)
     remote_task_files: list[str] = Field(default_factory=list)
+    remote_result_files: list[str] = Field(default_factory=list)
     task_dir: str | None = None
     entry_file: str | None = None
     parsed_fields: dict[str, str] = Field(default_factory=dict)
@@ -135,6 +137,7 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         str(task.max_parallel) if task.max_parallel is not None else "",
         json.dumps(task.task_files, ensure_ascii=False) if task.task_files else "",
         json.dumps(task.remote_task_files, ensure_ascii=False) if task.remote_task_files else "",
+        json.dumps(task.remote_result_files, ensure_ascii=False) if task.remote_result_files else "",
         task.task_dir or "",
         task.entry_file or "",
         json.dumps(task.parsed_fields, ensure_ascii=False) if task.parsed_fields else "",
@@ -221,6 +224,7 @@ def _row_to_task(
         max_parallel=_parse_int(values.get("max_parallel", "")),
         task_files=_parse_json_list(values.get("task_files", ""), "task_files", manifest_path, row_number),
         remote_task_files=_parse_json_list(values.get("remote_task_files", ""), "remote_task_files", manifest_path, row_number),
+        remote_result_files=_parse_json_list(values.get("remote_result_files", ""), "remote_result_files", manifest_path, row_number),
         task_dir=values.get("task_dir") or None,
         entry_file=values.get("entry_file") or None,
         parsed_fields=_parse_json_dict(values.get("parsed_fields", ""), "parsed_fields", manifest_path, row_number),

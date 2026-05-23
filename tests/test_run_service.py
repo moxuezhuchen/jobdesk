@@ -112,6 +112,69 @@ def test_download_completed_run_outputs(tmp_path):
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.downloaded
 
 
+def test_download_completed_uses_declared_nested_results(tmp_path):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/jobs",
+        command_template="confflow {name} -c settings.yaml -w {basename}_confflow_work",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/water.xyz")],
+        supporting_sources=[RunSource("/remote/jobs/settings.yaml")],
+        result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
+    ), run_id="run004")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+    requested = []
+
+    class FakeSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            requested.append(remote_path)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_text("ok", encoding="utf-8")
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+            return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+    records, failures = service.download_completed("run004", FakeSFTP(), ["*.log"])
+
+    assert not failures
+    assert len(records) == 2
+    assert requested == [
+        "/remote/jobs/water.txt",
+        "/remote/jobs/water_confflow_work/run_summary.json",
+    ]
+    assert (tmp_path / "results" / "run004" / "water" / "water_confflow_work" / "run_summary.json").exists()
+
+
+def test_download_completed_rejects_declared_result_path_traversal(tmp_path):
+    service = RunService(tmp_path)
+    record = service.create_run(RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/jobs",
+        command_template="echo run",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/water.xyz")],
+        result_templates=["../outside.json"],
+    ), run_id="run005")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    class FakeSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            raise AssertionError("unsafe output must not be downloaded")
+
+    records, failures = service.download_completed("run005", FakeSFTP(), ["*.log"])
+
+    assert records == []
+    assert failures == [("water", "unsafe declared result path: ../outside.json")]
+    assert not (tmp_path / "results" / "outside.json").exists()
+    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed
+
+
 def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
     service = RunService(tmp_path)
     record = service.create_run(RunSpec(

@@ -2,6 +2,7 @@
 
 import sys
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from .state import AppState
@@ -20,6 +21,16 @@ _NAV_ITEMS = [
     ("rocket", "Runs"),
     ("settings", "Settings"),
 ]
+
+
+def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
+    if run_ids:
+        window.state.current_batch_id = run_ids[-1]
+    window.shell.sidebar.blockSignals(True)
+    window.shell.sidebar.set_current(1)
+    window.shell.sidebar.blockSignals(False)
+    window.shell.pages.setCurrentIndex(1)
+    window.shell.page_changed.emit(1)
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +57,9 @@ class MainWindow(QMainWindow):
         self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
         self.settings_page.language_changed.connect(self._on_language_changed)
+        self.files_page.runs_submitted.connect(
+            lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
+        )
 
         self.shell.add_page(self.files_page)
         self.shell.add_page(self.runs_page)

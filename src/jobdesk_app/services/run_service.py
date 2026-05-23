@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from ..core.batch import create_batch, write_batch_json
 from ..core.lifecycle import TaskStatus
@@ -145,29 +145,30 @@ class RunService:
             try:
                 task_dir = results_base / task.task_id
                 task_dir.mkdir(parents=True, exist_ok=True)
-                # Derive stem from input file
-                input_name = task.remote_task_files[0] if task.remote_task_files else task.task_id
-                stem = input_name.rsplit(".", 1)[0] if "." in input_name else input_name
                 recs = []
-                for pat in patterns:
-                    # Pattern is either ".log" (extension) or "*.log" (glob)
-                    ext = pat if pat.startswith(".") else pat.lstrip("*")
-                    # Output files are in remote_work_dir (where command runs), not remote_job_dir
-                    work_dir = task.remote_work_dir or task.remote_job_dir
-                    remote_file = f"{work_dir.rstrip('/')}/{stem}{ext}"
-                    local_file = task_dir / f"{stem}{ext}"
+                work_dir = task.remote_work_dir or task.remote_job_dir
+                requested_outputs = _declared_outputs(task, patterns)
+                for relative_output in requested_outputs:
+                    safe_path = _safe_declared_result_path(relative_output)
+                    remote_file = f"{work_dir.rstrip('/')}/{safe_path.as_posix()}"
+                    local_file = task_dir.joinpath(*safe_path.parts)
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
                     except Exception:
                         pass
                 records.extend(recs)
-                task_ok = any(
-                    r.status in (TransferStatus.transferred, TransferStatus.skipped)
+                successful = sum(
+                    1
                     for r in recs
+                    if r.status in (TransferStatus.transferred, TransferStatus.skipped)
                 )
+                task_ok = successful == len(requested_outputs) and bool(requested_outputs)
                 if not task_ok:
                     failures.append((task.task_id, "无匹配输出文件"))
+            except ValueError as exc:
+                task_ok = False
+                failures.append((task.task_id, str(exc)))
             except Exception as exc:
                 task_ok = False
                 failures.append((task.task_id, str(exc)))
@@ -280,6 +281,24 @@ class RunService:
         )
 
 
+def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
+    if task.remote_result_files:
+        return list(task.remote_result_files)
+    input_name = task.remote_task_files[0] if task.remote_task_files else task.task_id
+    stem = input_name.rsplit(".", 1)[0] if "." in input_name else input_name
+    return [
+        f"{stem}{pattern if pattern.startswith('.') else pattern.lstrip('*')}"
+        for pattern in patterns
+    ]
+
+
+def _safe_declared_result_path(value: str) -> PurePosixPath:
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"unsafe declared result path: {value}")
+    return path
+
+
 def _tasks_from_plan(plan: RunPlan, batch: BatchMeta) -> list[TaskRecord]:
     return [
         TaskRecord(
@@ -287,7 +306,8 @@ def _tasks_from_plan(plan: RunPlan, batch: BatchMeta) -> list[TaskRecord]:
             batch_id=plan.run_id,
             remote_job_dir=task.remote_job_dir,
             task_files=[],
-            remote_task_files=[task.source_name],
+            remote_task_files=[task.source_name, *[Path(path).name for path in task.supporting_paths]],
+            remote_result_files=list(task.remote_result_files),
             execution_profile="quick_run",
             discovery_name="files",
             server_id=plan.spec.server_id,

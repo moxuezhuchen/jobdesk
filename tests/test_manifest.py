@@ -166,6 +166,25 @@ class TestManifestRead:
             assert loaded.submitted_at == original.submitted_at
             assert loaded.error_message is None
 
+    def test_read_preserves_declared_result_files(self):
+        original = TaskRecord(
+            task_id="water",
+            batch_id="run004",
+            remote_job_dir="/remote/jobs/.jobdesk_runs/run004/water",
+            remote_task_files=["water.xyz", "settings.yaml"],
+            remote_result_files=[
+                "water.txt",
+                "water_confflow_work/run_summary.json",
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(path, [original])
+
+            loaded = Manifest.read(path)[0]
+
+        assert loaded.remote_result_files == original.remote_result_files
+
     def test_read_preserves_all_timestamps(self):
         original = TaskRecord(
             task_id="t1",

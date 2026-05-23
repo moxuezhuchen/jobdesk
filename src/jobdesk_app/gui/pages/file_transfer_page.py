@@ -40,6 +40,7 @@ from ...core.run import RunMode, RunSource, RunSpec, build_run_plan, chunk_sourc
 from ...core.transfer import TransferStatus
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
+from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
 from ..design.components import StyledTableWidget
@@ -148,6 +149,16 @@ def choose_chunks_to_submit(chunks: list, submit_mode: str) -> list:
     if submit_mode == "first_batch":
         return chunks[:1]
     return chunks
+
+
+def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tuple[str, str]:
+    local_xyz = [path for path in local_files if Path(path).suffix.lower() == ".xyz"]
+    remote_xyz = [path for path in remote_files if posixpath.splitext(path)[1].lower() == ".xyz"]
+    if len(local_xyz) == 1 and not remote_files:
+        return "local", local_xyz[0]
+    if len(remote_xyz) == 1 and not local_files:
+        return "remote", remote_xyz[0]
+    return "", ""
 
 
 def choose_delete_scope(local_count: int, remote_count: int, focused_pane: str) -> str:
@@ -278,6 +289,8 @@ def format_selection_summary(local_count: int, remote_count: int, language: str 
 
 
 class FileTransferPage(QWidget):
+    runs_submitted = Signal(list)
+
     def __init__(self, state, log_cb, status_cb, error_cb):
         super().__init__()
         self.state = state
@@ -473,6 +486,9 @@ class FileTransferPage(QWidget):
         self.run_btn = QPushButton(tr("Run Selected", self._language))
         self.run_btn.clicked.connect(self._run_selected)
         run_options_row.addWidget(self.run_btn)
+        self.confflow_btn = QPushButton(tr("Run ConfFlow", self._language))
+        self.confflow_btn.clicked.connect(self._run_confflow)
+        run_options_row.addWidget(self.confflow_btn)
         self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
         self.create_only_btn.clicked.connect(self._create_only)
         run_options_row.addWidget(self.create_only_btn)
@@ -569,6 +585,7 @@ class FileTransferPage(QWidget):
         self.run_mode_label.setText(tr("Run mode:", language))
         self.max_parallel_label.setText(tr("Max parallel:", language))
         self.run_btn.setText(tr("Run Selected", language))
+        self.confflow_btn.setText(tr("Run ConfFlow", language))
         self.create_only_btn.setText(tr("Create tasks only", language))
         self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
         self.remote_table.setHorizontalHeaderLabels(self._translated_table_headers("remote"))
@@ -1516,6 +1533,87 @@ class FileTransferPage(QWidget):
     def _run_selected(self):
         self._run_selected_chunks(submit=True)
 
+    def _run_confflow(self):
+        if self._service is None or self._connected_server is None:
+            self._status_cb(tr("Connect to a server first", self._language))
+            return
+        remote_files, _remote_dirs = self._selected_remote_entries()
+        local_files, _local_dirs = self._selected_local_entries()
+        origin, xyz_path = choose_confflow_xyz(local_files, remote_files)
+        if not xyz_path:
+            self._status_cb("Select exactly one XYZ file in either local or remote pane")
+            return
+        config_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select ConfFlow YAML configuration",
+            str(self.state.current_project_root or Path.cwd()),
+            "YAML files (*.yaml *.yml)",
+        )
+        if not config_path:
+            return
+        if Path(config_path).suffix.lower() not in {".yaml", ".yml"}:
+            self._status_cb("Select a ConfFlow YAML configuration file")
+            return
+        if QMessageBox.question(
+            self, "Confirm", tr("Submit tasks to remote server?", self._language),
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        local_base = self.state.current_project_root or Path.cwd()
+        remote_dir = self.remote_path.text().strip() or "/"
+        config_target = remote_child_path(remote_dir, Path(config_path).name)
+        xyz_target = (
+            remote_child_path(remote_dir, Path(xyz_path).name)
+            if origin == "local"
+            else xyz_path
+        )
+        connected_server = self._connected_server
+        server_id = self._connected_server_id or ""
+        file_service = self._service
+
+        def _run():
+            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
+            if origin == "local":
+                file_service.upload_path(Path(xyz_path), xyz_target, OverwritePolicy.overwrite)
+            file_service.upload_path(Path(config_path), config_target, OverwritePolicy.overwrite)
+            spec = ConfFlowAdapter.build_spec(
+                server_id=server_id,
+                remote_dir=remote_dir,
+                xyz_path=xyz_target,
+                config_path=config_target,
+                max_parallel=1,
+            )
+            service = RunService(local_base)
+            record = service.create_run(spec, local_dir=str(local_base))
+            ssh = create_ssh_client(connected_server)
+            ssh.connect()
+            sftp = create_sftp_client(ssh)
+            try:
+                result = service.submit_run(
+                    record.run_id, ssh, sftp,
+                    env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                    scheduler=scheduler_from_server(connected_server),
+                    resources=resources_from_server(connected_server),
+                )
+                return record, result
+            finally:
+                sftp.close()
+                ssh.close()
+
+        self._status_cb("Submitting ConfFlow run...")
+        self.worker = _BackgroundRunWorker(_run)
+        self.worker.result.connect(self._on_confflow_done)
+        self.worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))
+        self.worker.start()
+
+    def _on_confflow_done(self, payload):
+        record, result = payload
+        self.state.current_project_root = Path(record.local_dir) if record.local_dir else self.state.current_project_root
+        self.state.current_batch_id = record.run_id
+        self.state.current_manifest_path = record.manifest_path
+        self._on_runs_done([result])
+
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
         """Return (files, dirs) of selected local paths."""
         files: list[str] = []
@@ -1700,6 +1798,7 @@ class FileTransferPage(QWidget):
             for error in result.errors:
                 self._log(f"  {error}")
         self._status_cb(f"Submitted {len(results)} run(s)")
+        self.runs_submitted.emit([result.batch_id for result in results if not result.errors])
 
     def _save_remembered_profile(self):
         if not self._connected_server_id:

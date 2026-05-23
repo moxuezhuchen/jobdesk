@@ -32,3 +32,5 @@ def test_gui_settings_defaults(tmp_path):
     assert settings.batch_size == 0
     assert settings.language == "en"
     assert settings.column_widths == {}
+    assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
+    assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name}"

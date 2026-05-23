@@ -1,4 +1,5 @@
 """GUI behavior tests using pytest-qt."""
+import json
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
@@ -80,6 +81,23 @@ class TestRunsPage:
             patterns = runs_page._get_download_patterns(record)
         assert "*.out" in patterns or "*.gbw" in patterns
 
+    def test_load_result_preview_renders_confflow_summary(self, runs_page, tmp_path):
+        runs_page.state.current_project_root = tmp_path
+        summary_dir = tmp_path / "results" / "run001" / "water" / "water_confflow_work"
+        summary_dir.mkdir(parents=True)
+        (summary_dir / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 6,
+            "final_conformers": 2,
+            "total_duration_seconds": 10,
+            "step_status_counts": {"completed": 2},
+        }), encoding="utf-8")
+        record = MagicMock(run_id="run001")
+
+        runs_page._load_result_preview(record)
+
+        assert not runs_page.result_text.isHidden()
+        assert "Final conformers: 2" in runs_page.result_text.toPlainText()
+
 
 class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):
@@ -88,6 +106,19 @@ class TestFileTransferPage:
     def test_local_table_exists(self, file_page):
         assert file_page.local_table is not None
         assert file_page.local_table.columnCount() >= 4
+
+    def test_confflow_launch_button_exists(self, file_page):
+        from jobdesk_app.gui.i18n import tr
+        assert file_page.confflow_btn.text() == tr("Run ConfFlow", file_page._language)
+
+    def test_submission_emits_run_id_for_navigation(self, file_page, qtbot):
+        received = []
+        file_page.runs_submitted.connect(lambda run_ids: received.extend(run_ids))
+        result = MagicMock(batch_id="260523-001", submitted_task_count=1, errors=[])
+
+        file_page._on_runs_done([result])
+
+        assert received == ["260523-001"]
 
     def test_remote_table_exists(self, file_page):
         assert file_page.remote_table is not None

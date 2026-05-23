@@ -9,6 +9,7 @@ from jobdesk_app.gui.pages.file_transfer_page import (
     build_file_button_reasons,
     breadcrumb_parts,
     collect_remote_delete_roots,
+    choose_confflow_xyz,
     choose_chunks_to_submit,
     choose_delete_scope,
     connection_status_text,
@@ -118,6 +119,13 @@ def test_choose_chunks_to_submit_modes():
     assert choose_chunks_to_submit(chunks, "create_only") == []
     assert choose_chunks_to_submit(chunks, "first_batch") == [["a"]]
     assert choose_chunks_to_submit(chunks, "all_sequential") == chunks
+
+
+def test_choose_confflow_xyz_requires_exactly_one_xyz_from_one_pane():
+    assert choose_confflow_xyz(["C:/job/water.xyz"], []) == ("local", "C:/job/water.xyz")
+    assert choose_confflow_xyz([], ["/tmp/water.xyz"]) == ("remote", "/tmp/water.xyz")
+    assert choose_confflow_xyz(["C:/job/water.xyz", "C:/job/other.xyz"], []) == ("", "")
+    assert choose_confflow_xyz(["C:/job/readme.txt"], []) == ("", "")
 
 
 def test_choose_delete_scope_prefers_focused_pane():

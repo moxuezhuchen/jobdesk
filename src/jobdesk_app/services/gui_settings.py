@@ -43,6 +43,7 @@ class GuiSettings:
             object.__setattr__(self, "software_profiles", {
                 "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
                 "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
+                "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
             })
 
 
@@ -89,6 +90,7 @@ class GuiSettingsStore:
         defaults = {
             "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
             "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
+            "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
         }
         for name, patterns in old.items():
             if name in defaults:

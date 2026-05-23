@@ -217,7 +217,10 @@ class RunsResultsPage(QWidget):
                         updated = RunService(workspace).load_run(record.run_id)
                         if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
-                            RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                            _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                            if failures:
+                                return "Result download failed: " + str(failures)
+                            return f"Run complete; results downloaded: {record.run_id}"
                         RunService(workspace).update_run_from_manifest(record.run_id)
                 finally:
                     sftp.close()
@@ -226,6 +229,8 @@ class RunsResultsPage(QWidget):
 
         from ..workers import BackgroundWorker
         w = BackgroundWorker(_run)
+        w.result.connect(lambda message: self._status_cb(message) if message else None)
+        w.error.connect(lambda error: self._status_cb(f"Automatic refresh failed: {error}"))
         w.finished.connect(lambda: self._on_monitor_refresh_done(event))
         w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
         w.finished.connect(w.deleteLater)
@@ -312,6 +317,8 @@ class RunsResultsPage(QWidget):
         for row, record in enumerate(runs):
             for col, value in enumerate(_format_row(record, self._language)):
                 self.table.setItem(row, col, QTableWidgetItem(value))
+            if record.run_id == getattr(self.state, "current_batch_id", None):
+                self.table.setCurrentCell(row, 0)
         self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
 
     def _workspace(self) -> Path:
@@ -347,8 +354,17 @@ class RunsResultsPage(QWidget):
         for base in candidates:
             result_dir = base / "results" / record.run_id
             if result_dir.exists():
+                summaries = sorted(result_dir.rglob("run_summary.json"))
+                if summaries:
+                    from ...services.confflow_results import format_summary, load_summary
+                    self.result_table.setRowCount(0)
+                    self.result_text.setPlainText(format_summary(load_summary(summaries[0])))
+                    self.result_text.setVisible(True)
+                    self.result_label.setText("ConfFlow Results")
+                    return
                 rows = self._auto_analyze(result_dir)
                 if rows:
+                    self.result_text.setVisible(False)
                     self._show_analysis_rows(rows)
                     self.result_label.setText(tr("Result Preview — Auto Analysis", self._language))
                     return
@@ -368,10 +384,12 @@ class RunsResultsPage(QWidget):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
                     self._load_tsv(tsv)
+                    self.result_text.setVisible(False)
                     self.result_label.setText(f"{tr('Result Preview', self._language)} — {name}")
                     return
 
         self.result_label.setText(tr("No results downloaded yet", self._language))
+        self.result_text.setVisible(False)
         self.result_table.setRowCount(0)
 
     def _analyze_workspace_files(self, record: RunRecord, workspace: Path) -> list[list[str]]:
@@ -502,6 +520,8 @@ class RunsResultsPage(QWidget):
         def _run():
             from ...remote.status_refresh import refresh_batch_status
             cfg = load_servers()
+            errors = []
+            downloaded = []
             for record in active:
                 srv = cfg.servers.get(record.server_id)
                 if not srv:
@@ -523,16 +543,29 @@ class RunsResultsPage(QWidget):
                             updated = RunService(workspace).load_run(record.run_id)
                             if updated.status_summary.get("remote_completed", 0) > 0:
                                 patterns = self._get_download_patterns(record)
-                                RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                                _records, failures = RunService(workspace).download_completed(record.run_id, sftp, patterns)
+                                if failures:
+                                    errors.append(f"{record.run_id}: {failures}")
+                                else:
+                                    downloaded.append(record.run_id)
                         finally:
                             sftp.close()
                     finally:
                         ssh.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    errors.append(f"{record.run_id}: {exc}")
+            return downloaded, errors
 
         from ..workers import BackgroundWorker
         worker = BackgroundWorker(_run)
+        def _report(result):
+            downloaded, errors = result
+            if downloaded:
+                self._status_cb("Run complete; results downloaded: " + ", ".join(downloaded))
+            if errors:
+                self._status_cb("Automatic refresh failed: " + "; ".join(errors))
+
+        worker.result.connect(_report)
 
         def _on_done():
             self._auto_refresh_running = False

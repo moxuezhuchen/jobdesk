@@ -101,14 +101,6 @@ class RunsPage(QWidget):
         self.table.bind_column_widths("runs.table", [120, 80, 200, 0, 0, 200, 200, 160])
         layout.addWidget(self.table)
 
-        # Workflow toolbar
-        wf_row = QHBoxLayout()
-        self.new_workflow_btn = QPushButton()
-        self.new_workflow_btn.clicked.connect(self._start_workflow)
-        wf_row.addWidget(self.new_workflow_btn)
-        wf_row.addStretch()
-        layout.addLayout(wf_row)
-
         download_row = QHBoxLayout()
         self.download_label = QLabel()
         download_row.addWidget(self.download_label)
@@ -206,7 +198,6 @@ class RunsPage(QWidget):
         self.auto_refresh_check.setText(tr("Auto-refresh", language))
         self.auto_download_check.setText(tr("Auto-download", language))
         self.notify_check.setText(tr("Notify on complete", language))
-        self.new_workflow_btn.setText(tr("New Workflow…", language))
         self.table.setHorizontalHeaderLabels([
             tr("run_id", language), tr("server", language), tr("remote_dir", language),
             tr("mode", language), tr("Max parallel", language), tr("status", language),
@@ -459,40 +450,6 @@ class RunsPage(QWidget):
             if hasattr(results_page, "on_activated"):
                 results_page.on_activated()
         self._status_cb(f"Analyzing run: {record.run_id}")
-
-    def _start_workflow(self):
-        """Open WorkflowDialog and launch a workflow."""
-        from ...services.workflow_service import BUILTIN_WORKFLOWS, WorkflowRunner
-        from ..dialogs.workflow_dialog import WorkflowDialog
-
-        dlg = WorkflowDialog(self, workspace=self._workspace())
-        if dlg.exec() != WorkflowDialog.Accepted:
-            return
-
-        wf_name = dlg.workflow_name()
-        spec = BUILTIN_WORKFLOWS.get(wf_name)
-        if spec is None:
-            self._status_cb(f"Unknown workflow: {wf_name}")
-            return
-
-        workspace = self._workspace()
-        runner = WorkflowRunner(workspace)
-        wf_run = runner.start(spec, dlg.server_id(), dlg.remote_dir(), [dlg.input_file()])
-
-        # Advance: create first-step runs
-        started, pending_uploads = runner.advance(spec, wf_run)
-        if not started:
-            self._status_cb("Workflow: no steps ready to start")
-            return
-
-        # Submit each created run
-        for step_name in started:
-            run_id = wf_run.step_run_ids.get(step_name)
-            if run_id:
-                self._submit_record(run_id, f"Workflow {wf_name} step {step_name}")
-
-        self.refresh_run_list()
-        self._status_cb(f"Workflow {wf_name} started: {len(started)} step(s)")
 
     def _restore_column_widths(self):
         widths = (GuiSettingsStore().load().column_widths or {}).get("runs", None)

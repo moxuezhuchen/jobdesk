@@ -44,3 +44,14 @@ def test_worker_create():
     from jobdesk_app.gui.workers import BackgroundWorker
     w = BackgroundWorker(lambda: 42)
     assert w is not None
+
+
+def test_legacy_runs_page_has_no_workflow_launch_action(qtbot):
+    from jobdesk_app.gui.pages.runs_page import RunsPage
+    from jobdesk_app.gui.state import AppState
+
+    page = RunsPage(AppState(), log_cb=lambda message: None, status_cb=lambda message: None)
+    qtbot.addWidget(page)
+
+    assert not hasattr(page, "new_workflow_btn")
+    assert not hasattr(page, "_start_workflow")

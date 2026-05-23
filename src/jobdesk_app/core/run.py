@@ -41,6 +41,8 @@ class RunSpec:
     max_parallel: int
     mode: RunMode
     sources: list[RunSource] = field(default_factory=list)
+    supporting_sources: list[RunSource] = field(default_factory=list)
+    result_templates: list[str] = field(default_factory=list)
     batch_size: int | None = None
 
 
@@ -51,6 +53,8 @@ class RunTaskPlan:
     source_name: str
     remote_job_dir: str
     command: str
+    supporting_paths: list[str] = field(default_factory=list)
+    remote_result_files: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,8 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
             source_name=source.name,
             remote_job_dir=posixpath.join(spec.remote_dir.rstrip("/"), ".jobdesk_runs", rid, task_id),
             command=f"cd {shlex.quote(work_dir)} && {command}",
+            supporting_paths=[item.path for item in spec.supporting_sources],
+            remote_result_files=[_render_text_template(item, source) for item in spec.result_templates],
         ))
     return RunPlan(run_id=rid, created_at=datetime.now(), spec=spec, tasks=tasks)
 
@@ -98,6 +104,20 @@ def _render_command(template: str, source: RunSource) -> str:
         "stem": shlex.quote(source.stem),
         "basename": shlex.quote(source.stem),
         "dir": shlex.quote(source.parent),
+    }
+    result = template
+    for key, value in values.items():
+        result = result.replace("{" + key + "}", value)
+    return result
+
+
+def _render_text_template(template: str, source: RunSource) -> str:
+    values = {
+        "path": source.path,
+        "name": source.name,
+        "stem": source.stem,
+        "basename": source.stem,
+        "dir": source.parent,
     }
     result = template
     for key, value in values.items():

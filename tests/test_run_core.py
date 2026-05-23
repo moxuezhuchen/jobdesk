@@ -65,3 +65,25 @@ def test_chunk_sources_splits_selected_inputs():
     ], batch_size=2)
 
     assert [[source.name for source in chunk] for chunk in chunks] == [["a.gjf", "b.gjf"], ["c.gjf"]]
+
+
+def test_build_run_plan_preserves_supporting_inputs_and_declared_outputs():
+    spec = RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/jobs",
+        command_template="confflow {name} -c settings.yaml -w {basename}_confflow_work",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/water.xyz")],
+        supporting_sources=[RunSource("/remote/jobs/settings.yaml")],
+        result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
+    )
+
+    plan = build_run_plan(spec, run_id="run004")
+
+    assert len(plan.tasks) == 1
+    assert plan.tasks[0].supporting_paths == ["/remote/jobs/settings.yaml"]
+    assert plan.tasks[0].remote_result_files == [
+        "water.txt",
+        "water_confflow_work/run_summary.json",
+    ]
