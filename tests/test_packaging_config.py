@@ -25,3 +25,11 @@ def test_jobdesk_gui_is_gui_script_not_console_script():
     assert "jobdesk-gui" not in console_scripts, "jobdesk-gui must not be a console script"
     assert "jobdesk-gui" in gui_scripts, "jobdesk-gui must be a gui-script"
     assert "jobdesk" in console_scripts, "jobdesk CLI must remain a console script"
+
+
+
+def test_jobdesk_gui_ps1_does_not_use_python_m():
+    ps1 = Path("scripts/jobdesk_gui.ps1").read_text(encoding="utf-8")
+    active_lines = [ln for ln in ps1.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    assert not any("python -m jobdesk_app.gui.app" in ln for ln in active_lines)
+    assert "jobdesk-gui" in ps1
