@@ -72,6 +72,9 @@ class FakeSSHClient:
     def run(self, *args, **kwargs):
         pass
 
+    def open_session(self):
+        return self._client.get_transport().open_session()
+
     def close(self):
         pass
 

@@ -37,4 +37,4 @@ jobs:
         run: python -m build
 
       - name: Test
-        run: python -m pytest tests/ -v --basetemp .pytest_tmp_ci
+        run: python -m pytest tests/ -v --basetemp ${{ runner.temp }}\jobdesk_pytest

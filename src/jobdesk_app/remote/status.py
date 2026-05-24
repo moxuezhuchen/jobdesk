@@ -56,14 +56,16 @@ def read_remote_task_status(
     status_path = f"{dir_q}/.jobdesk_status"
     try:
         r = ssh.run(
-            f"test -f {status_path} && cat {status_path} || echo '__NOT_FOUND__'",
+            f"test -f {status_path} && {{ echo '__JD_FOUND__'; cat {status_path}; }}"
+            f" || echo '__JD_MISSING__'",
             timeout=10,
         )
-        if "__NOT_FOUND__" in r.stdout:
-            snapshot.marker_exists = False
-        else:
+        found, content = _parse_envelope(r.stdout)
+        if found:
             snapshot.marker_exists = True
-            snapshot.status_marker = r.stdout.strip()
+            snapshot.status_marker = content.strip()
+        else:
+            snapshot.marker_exists = False
     except Exception as e:
         snapshot.warnings.append(f"读取 .jobdesk_status 失败: {e}")
 
@@ -71,19 +73,21 @@ def read_remote_task_status(
     exit_code_path = f"{dir_q}/.jobdesk_exit_code"
     try:
         r = ssh.run(
-            f"test -f {exit_code_path} && cat {exit_code_path} || echo '__NOT_FOUND__'",
+            f"test -f {exit_code_path} && {{ echo '__JD_FOUND__'; cat {exit_code_path}; }}"
+            f" || echo '__JD_MISSING__'",
             timeout=10,
         )
-        if "__NOT_FOUND__" in r.stdout:
-            snapshot.exit_code_exists = False
-        else:
+        found, content = _parse_envelope(r.stdout)
+        if found:
             snapshot.exit_code_exists = True
             try:
-                snapshot.exit_code = int(r.stdout.strip())
+                snapshot.exit_code = int(content.strip())
             except ValueError:
                 snapshot.warnings.append(
-                    f"exit_code 文件内容不是有效整数: {r.stdout.strip()!r}"
+                    f"exit_code 文件内容不是有效整数: {content.strip()!r}"
                 )
+        else:
+            snapshot.exit_code_exists = False
     except Exception as e:
         snapshot.warnings.append(f"读取 .jobdesk_exit_code 失败: {e}")
 
@@ -91,16 +95,31 @@ def read_remote_task_status(
     log_path = f"{dir_q}/.jobdesk_submit.log"
     try:
         r = ssh.run(
-            f"test -f {log_path} && tail -n {log_tail_lines} {log_path} 2>/dev/null"
-            f" || echo '__NOT_FOUND__'",
+            f"test -f {log_path} && {{ echo '__JD_FOUND__'; tail -n {log_tail_lines} {log_path} 2>/dev/null; }}"
+            f" || echo '__JD_MISSING__'",
             timeout=15,
         )
-        if "__NOT_FOUND__" in r.stdout:
-            snapshot.log_exists = False
-        else:
+        found, content = _parse_envelope(r.stdout)
+        if found:
             snapshot.log_exists = True
-            snapshot.submit_log_tail = r.stdout
+            snapshot.submit_log_tail = content
+        else:
+            snapshot.log_exists = False
     except Exception as e:
         snapshot.warnings.append(f"读取 .jobdesk_submit.log 失败: {e}")
 
     return snapshot
+
+
+def _parse_envelope(stdout: str) -> tuple[bool, str]:
+    """Parse the envelope protocol: first line is __JD_FOUND__ or __JD_MISSING__."""
+    first_nl = stdout.find("\n")
+    if first_nl == -1:
+        first_line = stdout.strip()
+        rest = ""
+    else:
+        first_line = stdout[:first_nl].strip()
+        rest = stdout[first_nl + 1:]
+    if first_line == "__JD_FOUND__":
+        return True, rest
+    return False, ""

@@ -79,13 +79,15 @@ BUILTIN_PROFILES: dict[str, AnalysisProfile] = {
                 unit="Hartree",
             ),
             ExtractResult(
-                name="imaginary_freq_count",
+                name="leading_imaginary_frequency_cm1",
                 source_glob="*.log",
                 regex=r"Frequencies --\s+(?P<value>-[\d.]+)",
                 strategy=ExtractStrategy.all,
                 type=ExtractType.float,
                 unit="cm-1",
             ),
+            # NOTE: The true imaginary frequency *count* is available via
+            # parse_gaussian_log(path).imaginary_freq_count (integer).
         ],
     ),
     "orca_sp": AnalysisProfile(

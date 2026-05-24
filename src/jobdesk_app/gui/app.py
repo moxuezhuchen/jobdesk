@@ -31,6 +31,7 @@ def main():
     app.setFont(font)
 
     window = MainWindow()
+    sys.excepthook = window._make_exception_hook()
     app.aboutToQuit.connect(window.shutdown)
     window.show()
     sys.exit(app.exec())

@@ -69,7 +69,8 @@ def _build_parser() -> argparse.ArgumentParser:
     dl = run_sub.add_parser("download")
     dl.add_argument("workspace", type=Path)
     dl.add_argument("run_id")
-    dl.add_argument("--patterns", nargs="+", default=["*.log"])
+    dl.add_argument("--patterns", nargs="+", default=["*.log"],
+                    help="Output file patterns (comma-separated within each arg; commas in filenames not supported)")
     dl.set_defaults(func=_cmd_run_download)
 
     # -- compare subcommand --

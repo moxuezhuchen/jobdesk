@@ -173,6 +173,31 @@ class TestGaussianParser:
         finally:
             p.unlink()
 
+    def test_heavy_atoms_br_and_ti_resolved_correctly(self):
+        """B6: Br (35) and Ti (22) must appear as symbols, not X35/X22."""
+        log = """\
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1         22           0        0.000000    0.000000    0.000000
+      2         35           0        2.300000    0.000000    0.000000
+      3          6           0        1.000000    1.000000    0.000000
+ ---------------------------------------------------------------------
+ Normal termination of Gaussian 16.
+"""
+        p = _write(log)
+        try:
+            r = parse_gaussian_log(p)
+            assert r.atom_symbols == ["Ti", "Br", "C"]
+            assert "Ti" in r.final_xyz
+            assert "Br" in r.final_xyz
+            assert "X22" not in r.final_xyz
+            assert "X35" not in r.final_xyz
+        finally:
+            p.unlink()
+
 
 # ---- ORCA test fixtures ----------------------------------------------------
 
@@ -315,6 +340,23 @@ class TestAnalysisProfileStore:
         assert "scf_energy" in names
         assert "zpe" in names
         assert "gibbs_correction" in names
+
+    def test_gaussian_opt_freq_no_imaginary_freq_count_field(self):
+        """imaginary_freq_count was misleading; replaced by leading_imaginary_frequency_cm1."""
+        profile = BUILTIN_PROFILES["gaussian_opt_freq"]
+        names = [r.name for r in profile.extract_rules]
+        assert "imaginary_freq_count" not in names
+
+    def test_gaussian_opt_freq_has_leading_imaginary_frequency(self):
+        """The true imaginary freq count is from parse_gaussian_log().imaginary_freq_count."""
+        from jobdesk_app.config.schema import ExtractStrategy, ExtractType
+        profile = BUILTIN_PROFILES["gaussian_opt_freq"]
+        rules_by_name = {r.name: r for r in profile.extract_rules}
+        assert "leading_imaginary_frequency_cm1" in rules_by_name
+        rule = rules_by_name["leading_imaginary_frequency_cm1"]
+        assert rule.type == ExtractType.float
+        assert rule.unit == "cm-1"
+        assert rule.strategy == ExtractStrategy.all
 
     def test_user_profile_save_and_load(self, tmp_path):
         from jobdesk_app.config.schema import ExtractResult, ExtractStrategy, ExtractType

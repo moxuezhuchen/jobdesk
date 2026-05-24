@@ -156,11 +156,9 @@ class TestRunsPage:
         assert rows[0][3] == tr("File too large for preview", runs_page._language)
 
     def test_on_activated_ignores_legacy_disabled_automatic_refresh(self, runs_page):
-        from dataclasses import replace
-
         from jobdesk_app.services.gui_settings import GuiSettings
 
-        settings = replace(GuiSettings(), auto_refresh_enabled=False)
+        settings = GuiSettings()
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store:
             store.return_value.load.return_value = settings
             with patch.object(runs_page, "_start_monitoring") as monitor:
@@ -170,11 +168,9 @@ class TestRunsPage:
         assert runs_page._refresh_timer.isActive()
 
     def test_auto_refresh_ignores_legacy_disabled_automatic_download(self, runs_page, qtbot):
-        from dataclasses import replace
-
         from jobdesk_app.services.gui_settings import GuiSettings
 
-        settings = replace(GuiSettings(), auto_download_enabled=False)
+        settings = GuiSettings()
         record = MagicMock(
             run_id="run_done",
             server_id="wsl",
@@ -852,3 +848,19 @@ class TestFileTransferPage:
 
         assert len(confirm_messages) == 1
         assert "Max parallel: 7" in confirm_messages[0]
+
+
+
+class TestMainWindowExcepthook:
+    def test_constructing_main_window_does_not_change_sys_excepthook(self, qtbot):
+        """B7: sys.excepthook must not be modified by MainWindow.__init__."""
+        import sys
+        original_hook = sys.excepthook
+        with patch("jobdesk_app.gui.main_window.configure_file_logging"):
+            with patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store:
+                from jobdesk_app.services.gui_settings import GuiSettings
+                store.return_value.load.return_value = GuiSettings()
+                from jobdesk_app.gui.main_window import MainWindow
+                window = MainWindow()
+                qtbot.addWidget(window)
+        assert sys.excepthook is original_hook

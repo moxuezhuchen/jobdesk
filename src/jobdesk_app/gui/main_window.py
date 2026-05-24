@@ -1,7 +1,5 @@
 """JobDesk GUI — 3-page layout: Files / Runs+Results / Settings+Servers."""
 
-import sys
-
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
@@ -43,7 +41,6 @@ class MainWindow(QMainWindow):
         self.state = AppState()
         self.language = settings.language
         self._file_logger = configure_file_logging()
-        sys.excepthook = self._make_exception_hook()
         self.setStyleSheet(build_app_stylesheet())
 
         nav_items = [(icon, tr(label, self.language)) for icon, label in _NAV_ITEMS]

@@ -103,7 +103,7 @@ class _Watcher:
                 ssh = create_ssh_client(self._server_config)
                 ssh.connect()
                 ssh.run(f"mkdir -p $(dirname {quoted}) && touch {quoted}", timeout=10)
-                channel = ssh._client.get_transport().open_session()
+                channel = ssh.open_session()
                 channel.exec_command(f"tail -n 0 -f {quoted}")
                 channel.settimeout(5.0)
                 connected_at = time.monotonic()

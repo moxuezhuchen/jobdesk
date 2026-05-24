@@ -37,8 +37,6 @@ def test_gui_settings_defaults(tmp_path):
     assert settings.batch_size == 0
     assert settings.language == "en"
     assert settings.column_widths == {}
-    assert settings.auto_refresh_enabled is True
-    assert settings.auto_download_enabled is True
     assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
     assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name}"
 
@@ -112,7 +110,7 @@ def test_save_replace_failure_keeps_existing_settings(tmp_path, monkeypatch):
 
 
 def test_old_config_with_auto_refresh_disabled_is_ignored(tmp_path):
-    """Old YAML with auto_refresh_enabled: false must not suppress auto-progress."""
+    """Old YAML with auto_refresh_enabled: false must be silently tolerated."""
     path = tmp_path / "gui_settings.yaml"
     path.write_text(yaml.safe_dump({
         "auto_refresh_enabled": False,
@@ -121,8 +119,9 @@ def test_old_config_with_auto_refresh_disabled_is_ignored(tmp_path):
 
     settings = GuiSettingsStore(path).load()
 
-    assert settings.auto_refresh_enabled is True
-    assert settings.auto_download_enabled is True
+    # Fields no longer exist; load must not crash
+    assert not hasattr(settings, "auto_refresh_enabled")
+    assert not hasattr(settings, "auto_download_enabled")
 
 
 def test_save_does_not_write_auto_refresh_keys(tmp_path):
@@ -134,3 +133,10 @@ def test_save_does_not_write_auto_refresh_keys(tmp_path):
     saved = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert "auto_refresh_enabled" not in saved
     assert "auto_download_enabled" not in saved
+
+
+
+def test_gui_settings_has_no_auto_refresh_or_auto_download_fields():
+    """B4: auto_refresh_enabled and auto_download_enabled must not exist on GuiSettings."""
+    assert not hasattr(GuiSettings(), "auto_refresh_enabled")
+    assert not hasattr(GuiSettings(), "auto_download_enabled")

@@ -11,21 +11,14 @@ from jobdesk_app.remote.scheduler import ResourceSpec, SlurmAdapter
 from jobdesk_app.services.run_service import RunService
 
 
-@pytest.fixture(autouse=True)
-def isolate_runs_dir(tmp_path, monkeypatch):
-    """Make RunService use tmp_path for runs_dir."""
-    runs_dir = tmp_path / "_global_runs"
-    runs_dir.mkdir()
-    original_init = RunService.__init__
-
-    def _patched(self, workspace_dir=None):
-        original_init(self, workspace_dir)
-        self.runs_dir = runs_dir
-
-    monkeypatch.setattr(RunService, "__init__", _patched)
+@pytest.fixture
+def runs_dir(tmp_path):
+    d = tmp_path / "_global_runs"
+    d.mkdir()
+    return d
 
 
-def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
+def test_create_run_persists_manifest_batch_and_run_json(tmp_path, runs_dir):
     spec = RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -35,7 +28,7 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
         sources=[RunSource("/remote/jobs/a.gjf"), RunSource("/remote/jobs/b.gjf")],
     )
 
-    record = RunService(tmp_path).create_run(spec, run_id="run001")
+    record = RunService(tmp_path, runs_dir=runs_dir).create_run(spec, run_id="run001")
 
     assert record.run_id == "run001"
     assert record.run_dir.exists()
@@ -48,8 +41,8 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path):
     assert all(task.server_id == "s1" for task in tasks)
 
 
-def test_create_run_rejects_duplicate_explicit_run_id(tmp_path):
-    service = RunService(tmp_path)
+def test_create_run_rejects_duplicate_explicit_run_id(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -64,8 +57,8 @@ def test_create_run_rejects_duplicate_explicit_run_id(tmp_path):
         service.create_run(spec, run_id="duplicate")
 
 
-def test_create_run_rejects_unsafe_explicit_run_id(tmp_path):
-    service = RunService(tmp_path)
+def test_create_run_rejects_unsafe_explicit_run_id(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -79,15 +72,15 @@ def test_create_run_rejects_unsafe_explicit_run_id(tmp_path):
         service.create_run(spec, run_id="../outside")
 
 
-def test_load_run_rejects_path_traversal(tmp_path):
-    service = RunService(tmp_path)
+def test_load_run_rejects_path_traversal(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
 
     with pytest.raises(ValueError, match="Invalid run_id"):
         service.load_run("../outside")
 
 
-def test_run_json_replace_failure_keeps_existing_record(tmp_path, monkeypatch):
-    service = RunService(tmp_path)
+def test_run_json_replace_failure_keeps_existing_record(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -108,8 +101,8 @@ def test_run_json_replace_failure_keeps_existing_record(tmp_path, monkeypatch):
     assert (record.run_dir / "run.json").read_text(encoding="utf-8") == original
 
 
-def test_list_runs_returns_latest_first(tmp_path):
-    service = RunService(tmp_path)
+def test_list_runs_returns_latest_first(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     for run_id in ("run001", "run002"):
         service.create_run(RunSpec(
             server_id="s1",
@@ -125,8 +118,8 @@ def test_list_runs_returns_latest_first(tmp_path):
     assert [run.run_id for run in runs] == ["run002", "run001"]
 
 
-def test_update_run_from_manifest_counts_statuses(tmp_path):
-    service = RunService(tmp_path)
+def test_update_run_from_manifest_counts_statuses(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -144,8 +137,8 @@ def test_update_run_from_manifest_counts_statuses(tmp_path):
     assert updated.status_summary == {"submitted": 1}
 
 
-def test_download_completed_run_outputs(tmp_path):
-    service = RunService(tmp_path)
+def test_download_completed_run_outputs(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -174,8 +167,8 @@ def test_download_completed_run_outputs(tmp_path):
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.downloaded
 
 
-def test_download_completed_uses_declared_nested_results(tmp_path):
-    service = RunService(tmp_path)
+def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="wsl",
         remote_dir="/remote/jobs",
@@ -210,8 +203,8 @@ def test_download_completed_uses_declared_nested_results(tmp_path):
     assert (tmp_path / "results" / "run004" / "water" / "water_confflow_work" / "run_summary.json").exists()
 
 
-def test_download_completed_rejects_declared_result_path_traversal(tmp_path):
-    service = RunService(tmp_path)
+def test_download_completed_rejects_declared_result_path_traversal(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="wsl",
         remote_dir="/remote/jobs",
@@ -239,8 +232,26 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path):
     assert task.error_message == "download: unsafe declared result path: ../outside.json"
 
 
-def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
-    service = RunService(tmp_path)
+def test_declared_outputs_pattern_semantics(tmp_path, runs_dir):
+    """Plain filename patterns are used as-is; glob patterns expand to stem+suffix."""
+    from jobdesk_app.core.manifest import TaskRecord
+    from jobdesk_app.services.run_service import _declared_outputs
+
+    task = TaskRecord(
+        task_id="mol", batch_id="b1", remote_job_dir="/tmp/mol",
+        remote_task_files=["mol.gjf"],
+    )
+    # glob patterns → stem expansion
+    assert _declared_outputs(task, ["*.log"]) == ["mol.log"]
+    assert _declared_outputs(task, [".log"]) == ["mol.log"]
+    # plain filenames → exact (no stem prepend)
+    assert _declared_outputs(task, ["result.log"]) == ["result.log"]
+    assert _declared_outputs(task, ["summary.json"]) == ["summary.json"]
+    assert _declared_outputs(task, ["subdir/result.json"]) == ["subdir/result.json"]
+
+
+def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -259,8 +270,8 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path):
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.uploaded
 
 
-def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, monkeypatch):
-    service = RunService(tmp_path)
+def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -298,8 +309,8 @@ def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, monkeypatch
     assert captured[1]["resources"].memory_mb == 4096
 
 
-def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path, monkeypatch):
-    service = RunService(tmp_path)
+def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -325,8 +336,8 @@ def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path,
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.cancelled
 
 
-def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, monkeypatch):
-    service = RunService(tmp_path)
+def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -351,9 +362,9 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, mon
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.running
 
 
-def test_download_failure_persists_error_message_to_manifest(tmp_path):
+def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir):
     """When SFTP download fails, error_message should be written to manifest."""
-    service = RunService(tmp_path)
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -379,9 +390,9 @@ def test_download_failure_persists_error_message_to_manifest(tmp_path):
     assert "sftp timeout" in task.error_message
 
 
-def test_successful_download_clears_previous_download_error(tmp_path):
+def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
     """After retry succeeds, the download error_message must be cleared."""
-    service = RunService(tmp_path)
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -411,8 +422,8 @@ def test_successful_download_clears_previous_download_error(tmp_path):
     assert task.error_message is None or "download:" not in task.error_message
 
 
-def test_download_directory_creation_failure_persists_error_message(tmp_path, monkeypatch):
-    service = RunService(tmp_path)
+def test_download_directory_creation_failure_persists_error_message(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -444,9 +455,9 @@ def test_download_directory_creation_failure_persists_error_message(tmp_path, mo
 
 
 
-def test_download_completed_persists_transfer_record_failed_reason(tmp_path):
+def test_download_completed_persists_transfer_record_failed_reason(tmp_path, runs_dir):
     """When sftp.download_file returns TransferStatus.failed, the reason must be persisted."""
-    service = RunService(tmp_path)
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -478,9 +489,9 @@ def test_download_completed_persists_transfer_record_failed_reason(tmp_path):
 
 
 
-def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, monkeypatch):
+def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, runs_dir, monkeypatch):
     """If results_dir deletion fails, run_dir (metadata) must not be lost."""
-    service = RunService(tmp_path)
+    service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",

@@ -7,16 +7,17 @@ from jobdesk_app.cli import _build_parser, main
 
 
 def _patch_runs_dir(tmp):
-    """Patch RunService to use tmp as runs_dir."""
-    original_init = None
+    """Redirect RunService default runs_dir without patching __init__."""
     from jobdesk_app.services.run_service import RunService
+
+    runs_dir = Path(tmp) / "JobDesk" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
     original_init = RunService.__init__
 
-    def _patched_init(self, workspace_dir=None):
-        original_init(self, workspace_dir)
-        self.runs_dir = Path(tmp) / "JobDesk" / "runs"
-        self.runs_dir.mkdir(parents=True, exist_ok=True)
+    def _patched_init(self, workspace_dir=None, runs_dir=None):
+        original_init(self, workspace_dir, runs_dir=runs_dir or str(runs_dir_ref))
 
+    runs_dir_ref = runs_dir
     return patch.object(RunService, "__init__", _patched_init)
 
 

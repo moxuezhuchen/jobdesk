@@ -427,3 +427,27 @@ class TestSSHClientWrapper:
             MockSSHWrapper(server)._start_wsl_if_configured()
 
         run_wsl.assert_called_once()
+
+
+
+    def test_open_session_when_connected(self):
+        server = _make_server()
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_transport = MagicMock()
+            mock_client.get_transport.return_value = mock_transport
+            mock_session = MagicMock()
+            mock_transport.open_session.return_value = mock_session
+
+            ssh = MockSSHWrapper(server)
+            ssh.connect()
+            session = ssh.open_session()
+            assert session is mock_session
+            mock_transport.open_session.assert_called_once()
+
+    def test_open_session_when_not_connected(self):
+        server = _make_server()
+        ssh = MockSSHWrapper(server)
+        with pytest.raises(SSHConnectionError, match="未连接"):
+            ssh.open_session()

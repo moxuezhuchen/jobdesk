@@ -31,12 +31,12 @@ class TestRemoteTaskStatus:
     def test_all_files_exist(self):
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
-                return SSHResult(command=command, exit_code=0, stdout="completed", stderr="", duration_seconds=0.01)
+                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\ncompleted", stderr="", duration_seconds=0.01)
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0, stdout="0", stderr="", duration_seconds=0.01)
+                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\n0", stderr="", duration_seconds=0.01)
             if ".jobdesk_submit.log" in command:
-                return SSHResult(command=command, exit_code=0, stdout="log line 1\nlog line 2", stderr="", duration_seconds=0.01)
-            return SSHResult(command=command, exit_code=0, stdout="", stderr="", duration_seconds=0.01)
+                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\nlog line 1\nlog line 2", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -51,7 +51,7 @@ class TestRemoteTaskStatus:
 
     def test_files_not_exist(self):
         def handler(command, timeout=None, check=False):
-            return SSHResult(command=command, exit_code=0, stdout="__NOT_FOUND__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -64,8 +64,8 @@ class TestRemoteTaskStatus:
     def test_exit_code_not_integer(self):
         def handler(command, timeout=None, check=False):
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0, stdout="not_an_int", stderr="", duration_seconds=0.01)
-            return SSHResult(command=command, exit_code=0, stdout="__NOT_FOUND__", stderr="", duration_seconds=0.01)
+                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\nnot_an_int", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -75,8 +75,7 @@ class TestRemoteTaskStatus:
 
     def test_path_with_spaces_is_quoted(self):
         def handler(command, timeout=None, check=False):
-            # Verify the path in the command is quoted by shlex
-            return SSHResult(command=command, exit_code=0, stdout="__NOT_FOUND__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job with spaces/task1")
@@ -87,7 +86,7 @@ class TestRemoteTaskStatus:
 
         def handler(command, timeout=None, check=False):
             commands_seen.append(command)
-            return SSHResult(command=command, exit_code=0, stdout="__NOT_FOUND__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         read_remote_task_status(ssh, "task1", "/remote/job-$USER/task1")
@@ -104,3 +103,39 @@ class TestRemoteTaskStatus:
         quoted = shlex.quote("/path/with$dollar")
         assert quoted.startswith("'")
         assert "$" in quoted  # single-quoted preserves literal $
+
+
+    def test_status_file_containing_not_found_is_still_detected_as_existing(self):
+        """File content '__NOT_FOUND__' must not be confused with file absence."""
+        def handler(command, timeout=None, check=False):
+            if ".jobdesk_status" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="__JD_FOUND__\n__NOT_FOUND__", stderr="", duration_seconds=0.01)
+            if ".jobdesk_exit_code" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="__JD_FOUND__\n42", stderr="", duration_seconds=0.01)
+            if ".jobdesk_submit.log" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="__JD_FOUND__\n__NOT_FOUND__ in log\nmore lines", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        assert snap.marker_exists is True
+        assert snap.status_marker == "__NOT_FOUND__"
+        assert snap.exit_code_exists is True
+        assert snap.exit_code == 42
+        assert snap.log_exists is True
+        assert "__NOT_FOUND__ in log" in snap.submit_log_tail
+
+    def test_missing_file_uses_jd_missing_envelope(self):
+        """When file does not exist, envelope is __JD_MISSING__."""
+        def handler(command, timeout=None, check=False):
+            return SSHResult(command=command, exit_code=0,
+                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        assert snap.marker_exists is False
+        assert snap.exit_code_exists is False
+        assert snap.log_exists is False

@@ -185,6 +185,12 @@ class SSHClientWrapper:
 
     # -- 命令执行 -------------------------------------------------------
 
+    def open_session(self):
+        """Open a raw SSH channel session. Raises SSHConnectionError if not connected."""
+        if self._client is None:
+            raise SSHConnectionError("未连接，请先调用 connect()")
+        return self._client.get_transport().open_session()
+
     def run(self, command: str, timeout: int | None = None, check: bool = False) -> SSHResult:
         """在远程服务器执行命令。
 

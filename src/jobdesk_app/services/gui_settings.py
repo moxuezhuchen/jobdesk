@@ -32,9 +32,7 @@ class GuiSettings:
     column_widths: dict[str, list[int]] | None = None
     window_size: list[int] | None = None
     # Runs page state
-    auto_refresh_enabled: bool = True
     auto_refresh_interval: int = 30
-    auto_download_enabled: bool = True
     notify_enabled: bool = False
     download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
     hide_dotfiles: bool = True
@@ -73,9 +71,7 @@ class GuiSettingsStore:
             language=str(raw.get("language", "en") or "en"),
             column_widths=dict(raw.get("column_widths", {}) or {}),
             window_size=raw.get("window_size"),
-            auto_refresh_enabled=True,
             auto_refresh_interval=max(10, int(raw.get("auto_refresh_interval", 30) or 30)),
-            auto_download_enabled=True,
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),

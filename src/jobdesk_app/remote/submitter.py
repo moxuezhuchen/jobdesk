@@ -188,6 +188,7 @@ class JobSubmitter:
             "# 执行: 使用 bash -c 'bash \"$1\"' _ \"{}\" 安全传参",
             "batch_rc=0",
             "if command -v xargs > /dev/null 2>&1; then",
+            "# NOTE: `|| batch_rc=$?` intentionally captures xargs exit code under set -e",
             "  xargs -r -P \"$MAX_PARALLEL\" -I{} bash -c 'bash \"$1\"' _ \"{}\" < launch_list.txt || batch_rc=$?",
             "else",
             "  echo 'ERROR: xargs not found' >&2",

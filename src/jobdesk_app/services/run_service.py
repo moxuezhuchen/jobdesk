@@ -370,10 +370,18 @@ def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
         return list(task.remote_result_files)
     input_name = task.remote_task_files[0] if task.remote_task_files else task.task_id
     stem = input_name.rsplit(".", 1)[0] if "." in input_name else input_name
-    return [
-        f"{stem}{pattern if pattern.startswith('.') else pattern.lstrip('*')}"
-        for pattern in patterns
-    ]
+    results = []
+    for pattern in patterns:
+        if pattern.startswith("."):
+            # Extension shorthand: ".log" → "<stem>.log"
+            results.append(f"{stem}{pattern}")
+        elif "*" in pattern:
+            # Glob: "*.log" → "<stem>.log"
+            results.append(f"{stem}{pattern.lstrip('*')}")
+        else:
+            # Plain filename or relative path: use as-is
+            results.append(pattern)
+    return results
 
 
 def _safe_declared_result_path(value: str) -> PurePosixPath:
