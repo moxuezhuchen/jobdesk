@@ -141,15 +141,39 @@ class TestRemoteTaskStatus:
         assert snap.log_exists is False
 
     def test_read_failure_does_not_produce_false_positive(self):
-        """If cat fails after test -f succeeds (old &&/|| pattern), must not get marker_exists=True
-        with __JD_MISSING__ as content. With the if/then/else fix, cat failure inside 'then'
-        produces __JD_FOUND__ followed by empty/partial content — that's fine. But if the
-        output lacks proper envelope entirely (e.g. command error), must produce warning."""
+        """If cat/tail fails (non-zero exit) but __JD_FOUND__ was already printed,
+        the code must detect the failure via exit_code and set exists=False + warning."""
         def handler(command, timeout=None, check=False):
-            # Simulate: no valid envelope at all (command produced garbage)
             if ".jobdesk_status" in command:
+                # File exists but cat failed — exit_code non-zero, __JD_FOUND__ in stdout
                 return SSHResult(command=command, exit_code=1,
-                                 stdout="some unexpected output", stderr="err", duration_seconds=0.01)
+                                 stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01)
+            if ".jobdesk_exit_code" in command:
+                # File exists but cat failed
+                return SSHResult(command=command, exit_code=1,
+                                 stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01)
+            if ".jobdesk_submit.log" in command:
+                # File exists but tail failed
+                return SSHResult(command=command, exit_code=1,
+                                 stdout="__JD_FOUND__\npartial content", stderr="tail: error", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        # All three must report exists=False due to read failure
+        assert snap.marker_exists is False
+        assert snap.exit_code_exists is False
+        assert snap.log_exists is False
+        # All three must produce warnings
+        assert len(snap.warnings) >= 3
+        assert any("exit_code=" in w for w in snap.warnings)
+
+    def test_invalid_envelope_produces_warning(self):
+        """Completely garbled output (no valid envelope) → warning, exists=False."""
+        def handler(command, timeout=None, check=False):
+            if ".jobdesk_status" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="some unexpected output", stderr="", duration_seconds=0.01)
             if ".jobdesk_exit_code" in command:
                 return SSHResult(command=command, exit_code=0,
                                  stdout="__JD_FOUND__\n__JD_MISSING__", stderr="", duration_seconds=0.01)
@@ -160,13 +184,10 @@ class TestRemoteTaskStatus:
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
-        # Status: invalid envelope → must produce warning, exists=False
         assert snap.marker_exists is False
         assert len(snap.warnings) >= 1
-        # Exit code: __JD_FOUND__ first line, then literal __JD_MISSING__ as content
-        # This is a VALID envelope — the file's content IS the string "__JD_MISSING__"
+        # Exit code: __JD_FOUND__ + content "__JD_MISSING__" — valid envelope, content is literal
         assert snap.exit_code_exists is True
-        # Log: no valid envelope → warning, exists=False
         assert snap.log_exists is False
 
 
@@ -197,8 +218,7 @@ class TestRemoteTaskStatus:
 
 
     def test_shell_commands_use_if_then_else_not_and_or(self):
-        """The shell command must use if/then/else/fi pattern, not &&/|| which has
-        the cat-failure-triggers-else bug."""
+        """The shell command must use if/then/else/fi, not &&/|| pattern."""
         commands_seen = []
 
         def handler(command, timeout=None, check=False):
@@ -210,6 +230,4 @@ class TestRemoteTaskStatus:
         read_remote_task_status(ssh, "task1", "/remote/job/task1")
         for cmd in commands_seen:
             assert "&&" not in cmd, f"Command must not use && pattern: {cmd}"
-            assert "||" not in cmd, f"Command must not use || pattern: {cmd}"
-            assert "if test -f" in cmd or "if [ -f" in cmd or "__JD_MISSING__" in cmd, \
-                f"Command must use if/then/else: {cmd}"
+            assert "if test -f" in cmd, f"Command must use if/then/else: {cmd}"

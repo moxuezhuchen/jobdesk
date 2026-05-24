@@ -61,8 +61,12 @@ def read_remote_task_status(
         )
         found, content = _parse_envelope(r.stdout)
         if found is True:
-            snapshot.marker_exists = True
-            snapshot.status_marker = content.strip()
+            if r.exit_code != 0:
+                snapshot.marker_exists = False
+                snapshot.warnings.append(f"读取 .jobdesk_status 失败 (exit_code={r.exit_code})")
+            else:
+                snapshot.marker_exists = True
+                snapshot.status_marker = content.strip()
         elif found is False:
             snapshot.marker_exists = False
         else:
@@ -80,13 +84,17 @@ def read_remote_task_status(
         )
         found, content = _parse_envelope(r.stdout)
         if found is True:
-            snapshot.exit_code_exists = True
-            try:
-                snapshot.exit_code = int(content.strip())
-            except ValueError:
-                snapshot.warnings.append(
-                    f"exit_code 文件内容不是有效整数: {content.strip()!r}"
-                )
+            if r.exit_code != 0:
+                snapshot.exit_code_exists = False
+                snapshot.warnings.append(f"读取 .jobdesk_exit_code 失败 (exit_code={r.exit_code})")
+            else:
+                snapshot.exit_code_exists = True
+                try:
+                    snapshot.exit_code = int(content.strip())
+                except ValueError:
+                    snapshot.warnings.append(
+                        f"exit_code 文件内容不是有效整数: {content.strip()!r}"
+                    )
         elif found is False:
             snapshot.exit_code_exists = False
         else:
@@ -104,8 +112,12 @@ def read_remote_task_status(
         )
         found, content = _parse_envelope(r.stdout)
         if found is True:
-            snapshot.log_exists = True
-            snapshot.submit_log_tail = content
+            if r.exit_code != 0:
+                snapshot.log_exists = False
+                snapshot.warnings.append(f"读取 .jobdesk_submit.log 失败 (exit_code={r.exit_code})")
+            else:
+                snapshot.log_exists = True
+                snapshot.submit_log_tail = content
         elif found is False:
             snapshot.log_exists = False
         else:
