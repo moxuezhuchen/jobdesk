@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -13,7 +14,6 @@ def pytest_configure(config):
         if env_val:
             fallback = Path(env_val)
         else:
-            repo_root = Path(__file__).resolve().parent
-            fallback = repo_root / f".pytest_tmp_session_{uuid.uuid4().hex[:8]}"
+            fallback = Path(tempfile.gettempdir()) / f"jobdesk_pytest_{uuid.uuid4().hex[:8]}"
         fallback.mkdir(parents=True, exist_ok=True)
         config.option.basetemp = str(fallback)

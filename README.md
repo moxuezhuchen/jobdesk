@@ -77,7 +77,7 @@ jobdesk run retry <workspace> <run_id>
 ```powershell
 python -m ruff check .
 python -m mypy src
-python -m pytest tests -q --basetemp .pytest_tmp_local
+python -m pytest tests -q
 python -m build
 ```
 

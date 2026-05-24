@@ -78,7 +78,7 @@ $env:JOBDESK_TEST_SERVERS_YAML = "$env:APPDATA\JobDesk\servers.yaml"
 $env:JOBDESK_TEST_SSH_SERVER_ID = "wsl"
 $env:JOBDESK_TEST_REMOTE_TMP_DIR = "/tmp/jobdesk_test"
 $env:JOBDESK_TEST_REAL_CONFFLOW = "1"
-pytest tests\integration\test_real_confflow_wsl.py -v --basetemp .pytest_tmp_real_confflow_wsl
+pytest tests\integration\test_real_confflow_wsl.py -v
 ```
 
 The test executes two small molecules through ConfFlow with `max_parallel=2`,
