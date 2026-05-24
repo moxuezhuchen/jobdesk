@@ -219,7 +219,7 @@ class SettingsServersPage(QWidget):
         srv_btns = QHBoxLayout()
         self.test_btn = QPushButton(tr("Test Connection", self._language))
         self.test_btn.clicked.connect(self._test_connection)
-        self.edit_yaml_btn = QPushButton(tr("Add Server", self._language))
+        self.edit_yaml_btn = QPushButton(tr("Add", self._language))
         self.edit_yaml_btn.clicked.connect(self._add_server)
         self.edit_srv_btn = QPushButton(tr("Edit", self._language))
         self.edit_srv_btn.clicked.connect(self._edit_server)
@@ -348,7 +348,7 @@ class SettingsServersPage(QWidget):
         self._add_profile_btn.setText(tr("Add", language))
         self._del_profile_btn.setText(tr("Delete", language))
         self.test_btn.setText(tr("Test Connection", language))
-        self.edit_yaml_btn.setText(tr("Add Server", language))
+        self.edit_yaml_btn.setText(tr("Add", language))
         self.edit_srv_btn.setText(tr("Edit", language))
         self.delete_srv_btn.setText(tr("Delete", language))
         self.save_btn.setText(tr("Save Settings", language))
@@ -608,7 +608,7 @@ class SettingsServersPage(QWidget):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(tr("Add Server", self._language))
+        dlg.setWindowTitle(tr("Add", self._language))
         dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
 
