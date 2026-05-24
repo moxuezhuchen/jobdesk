@@ -631,17 +631,6 @@ class FileTransferPage(QWidget):
         self.run_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.run_mode_combo.blockSignals(False)
 
-    def _populate_submit_mode_combo(self):
-        current = self.submit_mode_combo.currentData() if hasattr(self, "submit_mode_combo") else "all_sequential"
-        self.submit_mode_combo.blockSignals(True)
-        self.submit_mode_combo.clear()
-        self.submit_mode_combo.addItem(tr("Run all sequentially", self._language), "all_sequential")
-        self.submit_mode_combo.addItem(tr("Run first batch only", self._language), "first_batch")
-        self.submit_mode_combo.addItem(tr("Create runs only", self._language), "create_only")
-        idx = self.submit_mode_combo.findData(current)
-        self.submit_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.submit_mode_combo.blockSignals(False)
-
     def _load_servers(self):
         """Reload servers (used by tab switches after first init)."""
         self.server_combo.blockSignals(True)
@@ -730,13 +719,6 @@ class FileTransferPage(QWidget):
         store = GuiSettingsStore()
         current = store.load()
         store.save(replace(current, last_local_folder=str(path)))
-
-    def _apply_gui_settings(self):
-        self._apply_default_local_folder()
-        self._apply_gui_settings_no_folder()
-        local_root = str(self.state.current_project_root or Path.cwd())
-        self.local_path_btn.setText(local_root)
-        self.local_path_btn.setToolTip(local_root)
 
     def _apply_gui_settings_no_folder(self):
         """Apply settings that don't touch the local folder or remote path."""
@@ -912,28 +894,6 @@ class FileTransferPage(QWidget):
             if item:
                 paths.append(item.text())
         return paths
-
-    def _focused_file_pane(self) -> str:
-        focused = self.focusWidget()
-        if focused is self.local_table or self.local_table.isAncestorOf(focused):
-            return "local"
-        if focused is self.remote_table or self.remote_table.isAncestorOf(focused):
-            return "remote"
-        return ""
-
-    def _delete_selected(self):
-        scope = choose_delete_scope(
-            len(self._selected_local_paths()),
-            len(self._selected_remote_paths()),
-            self._focused_file_pane(),
-        )
-        if scope == "local":
-            self._delete_local()
-            return
-        if scope == "remote":
-            self._delete_remote()
-            return
-        self._status_cb("Select a local or remote file/folder")
 
     def _delete_local(self):
         paths = self._selected_local_paths()
@@ -1166,14 +1126,6 @@ class FileTransferPage(QWidget):
             os.startfile(path)
         except Exception as exc:
             self._error_cb("Open File Error", str(exc))
-
-    def _remote_up(self):
-        self.remote_path.setText(remote_parent_path(self.remote_path.text()))
-        self._refresh_remote()
-
-    def _remote_home(self):
-        self.remote_path.setText("/")
-        self._refresh_remote()
 
     def _open_remote_item(self, item):
         row = item.row()
@@ -1860,18 +1812,6 @@ class FileTransferPage(QWidget):
         for cmd in history:
             self.command_edit.addItem(cmd)
 
-    def _progress_callback(self, transferred: int, total: int) -> None:
-        if total > 0:
-            self.progress_bar.setMaximum(total)
-            self.progress_bar.setValue(transferred)
-            self.progress_bar.setVisible(True)
-            pct = transferred * 100 // total
-            self.progress_bar.setFormat(f"{pct}% ({transferred // 1024}KB / {total // 1024}KB)")
-
-    def _reset_progress(self) -> None:
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setValue(0)
-
     def _load_remembered_profile(self):
         if not self._connected_server_id:
             return
@@ -1953,18 +1893,6 @@ class FileTransferPage(QWidget):
     def _keep_worker(self, worker):
         self._background_workers.append(worker)
         worker.finished.connect(lambda: self._background_workers.remove(worker) if worker in self._background_workers else None)
-
-    def _restore_column_widths(self, table: QTableWidget, key: str):
-        widths = (self._gui_settings.column_widths or {}).get(key) or _default_column_widths(key)
-        for column, width in enumerate(_clamp_column_widths(key, widths)):
-            if column < table.columnCount() and width > 0:
-                table.setColumnWidth(column, width)
-
-    def _save_column_widths(self, table: QTableWidget, key: str):
-        current = GuiSettingsStore().load()
-        widths = dict(current.column_widths or {})
-        widths[key] = [table.columnWidth(column) for column in range(table.columnCount()) if not table.isColumnHidden(column)]
-        GuiSettingsStore().save(replace(current, column_widths=widths))
 
 
 class _ConnectedSFTP:

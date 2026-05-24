@@ -43,7 +43,3 @@ class SSHCommandError(RemoteError):
 
 class RemotePathError(RemoteError):
     """远程路径相关错误。"""
-
-
-class RemoteStatusError(RemoteError):
-    """远程状态读取失败。"""

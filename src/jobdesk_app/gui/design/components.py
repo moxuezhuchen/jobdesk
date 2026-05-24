@@ -7,11 +7,8 @@ from dataclasses import replace
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame,
-    QGraphicsDropShadowEffect,
     QHeaderView,
     QLabel,
-    QPushButton,
     QTableWidget,
     QVBoxLayout,
     QWidget,
@@ -19,58 +16,7 @@ from PySide6.QtWidgets import (
 
 from ...services.gui_settings import GuiSettingsStore
 from .icons import get_icon
-from .tokens import Colors, Metrics, Radius, Shadow, Spacing
-
-
-class Card(QFrame):
-    """White rounded container with subtle shadow."""
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("Card")
-        self.setStyleSheet(
-            f"QFrame#Card {{ background: {Colors.BG_SURFACE}; "
-            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.LG}px; }}"
-        )
-        effect = QGraphicsDropShadowEffect(self)
-        ox, oy, blur, alpha = Shadow.SM
-        effect.setOffset(ox, oy)
-        effect.setBlurRadius(blur)
-        effect.setColor(QColor(0, 0, 0, alpha))
-        self.setGraphicsEffect(effect)
-
-
-class StatusBadge(QLabel):
-    """Colored pill with dot indicator."""
-
-    _VARIANTS = {
-        "success": (Colors.SUCCESS, Colors.SUCCESS_BG),
-        "warning": (Colors.WARNING, Colors.WARNING_BG),
-        "error": (Colors.ERROR, Colors.ERROR_BG),
-        "info": (Colors.INFO, Colors.INFO_BG),
-        "muted": (Colors.TEXT_MUTED, Colors.BORDER_SUBTLE),
-    }
-
-    def __init__(self, text: str = "", variant: str = "muted", parent: QWidget | None = None):
-        super().__init__(parent)
-        self.set_status(text, variant)
-
-    def set_status(self, text: str, variant: str = "muted") -> None:
-        fg, bg = self._VARIANTS.get(variant, self._VARIANTS["muted"])
-        self.setText(f" ● {text}")
-        self.setStyleSheet(
-            f"background:{bg}; color:{fg}; border-radius:{Radius.SM}px; "
-            f"padding:2px 8px 2px 4px; font-weight:500;"
-        )
-
-
-class PrimaryButton(QPushButton):
-    """Filled accent button for main actions."""
-
-    def __init__(self, text: str = "", parent: QWidget | None = None):
-        super().__init__(text, parent)
-        self.setObjectName("PrimaryBtn")
-        self.setCursor(Qt.PointingHandCursor)
+from .tokens import Colors, Metrics, Spacing
 
 
 class _GridHeaderView(QHeaderView):

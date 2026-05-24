@@ -64,10 +64,6 @@ class SchedulerAdapter(Protocol):
         """Cancel a running/pending job."""
         ...
 
-    def stdout_path(self, remote_dir: str, job_id: str) -> str:
-        """Return expected stdout file path."""
-        ...
-
 
 class NohupAdapter:
     """Default adapter: nohup bash in background.
@@ -103,9 +99,6 @@ class NohupAdapter:
             r = ssh.run(f"kill -0 {pid_q} 2>/dev/null && echo alive || echo dead")
             if "alive" in r.stdout:
                 raise RuntimeError(f"process {job_id} still alive after kill")
-
-    def stdout_path(self, remote_dir: str, job_id: str) -> str:
-        return f"{remote_dir}/.jobdesk_submit.log"
 
 
 class SlurmAdapter:
@@ -149,9 +142,6 @@ class SlurmAdapter:
         r = ssh.run(f"scancel {shlex.quote(job_id)}", timeout=15)
         if r.exit_code != 0:
             raise RuntimeError(f"scancel failed (exit {r.exit_code}): {r.stderr or r.stdout}")
-
-    def stdout_path(self, remote_dir: str, job_id: str) -> str:
-        return f"{remote_dir}/slurm-{job_id}.out"
 
     @staticmethod
     def build_header(resources: ResourceSpec, job_name: str = "jobdesk") -> list[str]:
@@ -210,9 +200,6 @@ class PBSAdapter:
         r = ssh.run(f"qdel {shlex.quote(job_id)}", timeout=15)
         if r.exit_code != 0:
             raise RuntimeError(f"qdel failed (exit {r.exit_code}): {r.stderr or r.stdout}")
-
-    def stdout_path(self, remote_dir: str, job_id: str) -> str:
-        return f"{remote_dir}/jobdesk.o{job_id}"
 
     @staticmethod
     def build_header(resources: ResourceSpec, job_name: str = "jobdesk") -> list[str]:

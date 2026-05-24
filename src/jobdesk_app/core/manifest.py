@@ -68,18 +68,6 @@ class TaskRecord(BaseModel):
     analyzed_at: datetime | None = None
     error_message: str | None = None
 
-    @property
-    def entry_name(self) -> str:
-        if self.entry_file:
-            return Path(self.entry_file).name
-        if self.task_files:
-            return Path(self.task_files[0]).name
-        return ""
-
-    @property
-    def entry_stem(self) -> str:
-        return Path(self.entry_name).stem
-
 
 class Manifest:
     def __init__(self, tasks: list[TaskRecord] | None = None):

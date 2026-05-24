@@ -24,10 +24,6 @@ class _RemoteEntry:
     permissions: str
 
 
-# Public alias for consumers
-RemoteEntry = _RemoteEntry
-
-
 def _validate_remote_path(remote_path: str) -> str:
     """校验远程路径必须为 POSIX 格式，拒绝反斜杠。"""
     if "\\" in remote_path:
@@ -87,14 +83,6 @@ class SFTPClientWrapper:
                 self._sftp.stat(current)
             except (FileNotFoundError, OSError):
                 self._sftp.mkdir(current)
-
-    def list_dir(self, remote_dir: str) -> list[str]:
-        """列出远程目录内容（仅文件名）。"""
-        _validate_remote_path(remote_dir)
-        try:
-            return self._sftp.listdir(remote_dir)
-        except (FileNotFoundError, OSError):
-            return []
 
     def list_dir_info(self, remote_dir: str) -> list:
         """列出远程目录内容，返回包含名称/大小/时间/权限的条目列表。"""

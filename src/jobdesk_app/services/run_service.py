@@ -283,18 +283,6 @@ class RunService:
             self.update_run_from_manifest(run_id)
         return changed, errors
 
-    def analyze_run(self, run_id: str, profile_name: str = "gaussian_opt_freq") -> tuple[list, list]:
-        """Run result extraction on downloaded files for a run."""
-        from ..core.analyzer import analyze_tasks
-        from ..services.analysis_profiles import AnalysisProfileStore
-        record = self.load_run(run_id)
-        tasks = Manifest.read(record.manifest_path)
-        profile = AnalysisProfileStore().get(profile_name)
-        if profile is None:
-            return [], [{"error": f"profile not found: {profile_name}"}]
-        results_dir = self.workspace_dir / "results"
-        return analyze_tasks(profile.extract_rules, tasks, results_dir, run_id)
-
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
         import shutil

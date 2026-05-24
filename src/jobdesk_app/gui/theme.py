@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QSizePolicy, QTableWidget
+from PySide6.QtWidgets import QLabel
 
-from .design.tokens import Colors, Metrics, Radius, Spacing
+from .design.tokens import Colors, Metrics, Radius
 
 
 class ThemeMetrics:
     CONTROL_HEIGHT = Metrics.CONTROL_HEIGHT
-    PAGE_MARGIN = Spacing.XL
-    PAGE_SPACING = Spacing.MD
-    RADIUS = Radius.MD
     TABLE_ROW_HEIGHT = Metrics.TABLE_ROW_HEIGHT
     TABLE_HEADER_HEIGHT = Metrics.TABLE_HEADER_HEIGHT
 
@@ -244,19 +241,3 @@ def page_title_label(text: str = "") -> QLabel:
     label = QLabel(text)
     label.setObjectName("PageTitle")
     return label
-
-
-def normalize_control_heights(*widgets) -> None:
-    for w in widgets:
-        w.setMinimumHeight(Metrics.CONTROL_HEIGHT)
-        w.setMaximumHeight(Metrics.CONTROL_HEIGHT)
-        w.setSizePolicy(w.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed)
-
-
-def configure_standard_table(table: QTableWidget) -> None:
-    table.setAlternatingRowColors(True)
-    table.setShowGrid(False)
-    table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(Metrics.TABLE_ROW_HEIGHT)
-    table.horizontalHeader().setMinimumHeight(Metrics.TABLE_HEADER_HEIGHT)
-    table.horizontalHeader().setMaximumHeight(Metrics.TABLE_HEADER_HEIGHT)

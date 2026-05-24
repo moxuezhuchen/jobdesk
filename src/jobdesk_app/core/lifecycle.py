@@ -55,14 +55,3 @@ def can_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:
     if to_status in (TaskStatus.failed, TaskStatus.cancelled):
         return True
     return (from_status, to_status) in _ALLOWED_TRANSITIONS
-
-
-def allowed_transitions_from(status: TaskStatus) -> set[TaskStatus]:
-    """返回从给定状态可以迁移到的所有目标状态集合。"""
-    if status in _TERMINAL_STATUSES:
-        return set()
-    targets = {TaskStatus.failed, TaskStatus.cancelled}
-    for src, dst in _ALLOWED_TRANSITIONS:
-        if src == status:
-            targets.add(dst)
-    return targets

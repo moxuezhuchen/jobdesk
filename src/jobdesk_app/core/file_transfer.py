@@ -8,16 +8,6 @@ from uuid import uuid4
 from .transfer import TransferDirection, TransferStatus
 
 
-@dataclass(frozen=True)
-class RemoteFileInfo:
-    name: str
-    path: str
-    is_dir: bool
-    size_bytes: int | None = None
-    modified_at: float | None = None
-    permissions: str = ""
-
-
 class OverwritePolicy(str, Enum):
     skip_same_size = "skip_same_size"
     overwrite = "overwrite"

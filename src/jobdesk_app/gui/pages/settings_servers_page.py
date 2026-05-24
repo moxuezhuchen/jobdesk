@@ -479,19 +479,6 @@ class SettingsServersPage(QWidget):
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
 
-    def _restore_profile_column_widths(self):
-        widths = (self._store.load().column_widths or {}).get("software_profiles")
-        if widths and len(widths) == self.profile_table.columnCount():
-            for i, w in enumerate(widths):
-                self.profile_table.horizontalHeader().resizeSection(i, w)
-
-    def _save_profile_column_widths(self):
-        from dataclasses import replace
-        s = self._store.load()
-        cw = dict(s.column_widths or {})
-        cw["software_profiles"] = [self.profile_table.columnWidth(i) for i in range(self.profile_table.columnCount())]
-        self._store.save(replace(s, column_widths=cw))
-
     def _add_profile_row(self):
         row = self.profile_table.rowCount()
         self.profile_table.insertRow(row)

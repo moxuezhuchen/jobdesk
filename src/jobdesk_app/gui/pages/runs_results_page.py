@@ -277,26 +277,6 @@ class RunsResultsPage(QWidget):
             tr("Status", self._language), tr("Command", self._language), tr("Created At", self._language),
         ])
 
-    def _restore_runs_column_widths(self):
-        from ...services.gui_settings import GuiSettingsStore
-        widths = (GuiSettingsStore().load().column_widths or {}).get("runs_v2")
-        if widths:
-            for col, w in enumerate(widths):
-                if col < self.table.columnCount() and w > 0:
-                    self.table.setColumnWidth(col, w)
-
-    def _save_runs_column_widths(self):
-        from dataclasses import replace
-
-        from ...services.gui_settings import GuiSettingsStore
-        store = GuiSettingsStore()
-        current = store.load()
-        widths = dict(current.column_widths or {})
-        widths["runs_v2"] = [
-            self.table.columnWidth(c) for c in range(self.table.columnCount())
-            if not self.table.isColumnHidden(c)
-        ]
-        store.save(replace(current, column_widths=widths))
 
     def _build_context_actions(self) -> list[tuple[str, object]]:
         """Return (label, callback) pairs for the context menu."""

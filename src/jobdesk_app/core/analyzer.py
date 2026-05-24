@@ -51,17 +51,6 @@ def analyze_tasks(
     return results, failures
 
 
-def analyze_one_task(
-    task_id: str,
-    group_key: str | None,
-    result_dir: Path | str,
-    extract_rules: list[ExtractResult],
-    batch_id: str,
-) -> tuple[list[ResultRecord], list[FailureRecord]]:
-    """对单个任务执行结果提取（公开函数，便于单任务测试）。"""
-    return _analyze_one_task(task_id, group_key, Path(result_dir), extract_rules, batch_id)
-
-
 def _analyze_one_task(
     task_id: str,
     group_key: str | None,

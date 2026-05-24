@@ -33,22 +33,6 @@ class FileTransferService:
         with self._sftp() as sftp:
             return sftp.list_dir_info(ensure_safe_remote_path(remote_dir))
 
-    def list_local(self, local_dir: str | Path):
-        base = Path(local_dir)
-        if not base.is_dir():
-            return []
-        entries = []
-        for child in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name)):
-            st = child.stat()
-            entries.append({
-                "name": child.name,
-                "path": str(child),
-                "is_dir": child.is_dir(),
-                "size_bytes": None if child.is_dir() else st.st_size,
-                "modified_at": st.st_mtime,
-            })
-        return entries
-
     def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False):
         overwrite, skip_same = policy_to_transfer_flags(policy)
         local_path = Path(local_path)

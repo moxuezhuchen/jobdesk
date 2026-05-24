@@ -94,7 +94,3 @@ class ExtractResult(BaseModel):
     strategy: ExtractStrategy = Field(default=ExtractStrategy.last, description="匹配策略")
     type: ExtractType = Field(default=ExtractType.float, description="值类型")
     unit: str | None = Field(default=None, description="单位")
-
-
-class ExtractConfig(BaseModel):
-    results: list[ExtractResult] = Field(default_factory=list, description="结果提取规则")
