@@ -61,16 +61,10 @@ class TestCompareRuns:
     def test_relative_energy_computed(self, tmp_path, monkeypatch):
         """compare_runs should compute relative energies in kcal/mol."""
         from jobdesk_app.services.run_service import RunService
-        runs_dir = tmp_path / "runs"
-        runs_dir.mkdir()
 
-        original_init = RunService.__init__
-
-        def _patched(self, workspace_dir=None, runs_dir=None):
-            original_init(self, workspace_dir, runs_dir=runs_dir or str(runs_dir_ref))
-
-        runs_dir_ref = runs_dir
-        monkeypatch.setattr(RunService, "__init__", _patched)
+        monkeypatch.setenv("APPDATA", str(tmp_path))
+        runs_dir = tmp_path / "JobDesk" / "runs"
+        runs_dir.mkdir(parents=True)
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
         from jobdesk_app.core.run import RunMode, RunSource, RunSpec

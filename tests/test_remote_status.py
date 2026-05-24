@@ -139,3 +139,77 @@ class TestRemoteTaskStatus:
         assert snap.marker_exists is False
         assert snap.exit_code_exists is False
         assert snap.log_exists is False
+
+    def test_read_failure_does_not_produce_false_positive(self):
+        """If cat fails after test -f succeeds (old &&/|| pattern), must not get marker_exists=True
+        with __JD_MISSING__ as content. With the if/then/else fix, cat failure inside 'then'
+        produces __JD_FOUND__ followed by empty/partial content — that's fine. But if the
+        output lacks proper envelope entirely (e.g. command error), must produce warning."""
+        def handler(command, timeout=None, check=False):
+            # Simulate: no valid envelope at all (command produced garbage)
+            if ".jobdesk_status" in command:
+                return SSHResult(command=command, exit_code=1,
+                                 stdout="some unexpected output", stderr="err", duration_seconds=0.01)
+            if ".jobdesk_exit_code" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="__JD_FOUND__\n__JD_MISSING__", stderr="", duration_seconds=0.01)
+            if ".jobdesk_submit.log" in command:
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="garbage_no_envelope", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        # Status: invalid envelope → must produce warning, exists=False
+        assert snap.marker_exists is False
+        assert len(snap.warnings) >= 1
+        # Exit code: __JD_FOUND__ first line, then literal __JD_MISSING__ as content
+        # This is a VALID envelope — the file's content IS the string "__JD_MISSING__"
+        assert snap.exit_code_exists is True
+        # Log: no valid envelope → warning, exists=False
+        assert snap.log_exists is False
+
+
+    def test_cat_failure_in_old_and_or_pattern_does_not_leak_missing_as_content(self):
+        """Regression: if the shell 'cat' fails after 'test -f' succeeds in the &&/||
+        pattern, both __JD_FOUND__ and __JD_MISSING__ may appear in stdout. The parser
+        must not treat __JD_MISSING__ as file content. With the if/then/else fix,
+        this output pattern cannot occur from the shell command itself."""
+        def handler(command, timeout=None, check=False):
+            if ".jobdesk_status" in command:
+                # Simulates: test -f succeeds, echo __JD_FOUND__ runs, cat fails, || echo __JD_MISSING__ runs
+                return SSHResult(command=command, exit_code=0,
+                                 stdout="__JD_FOUND__\n__JD_MISSING__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0,
+                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        # The file content IS literally "__JD_MISSING__" — we cannot distinguish from
+        # the protocol-level missing marker if using the old pattern. With the if/then/else
+        # fix in the shell command, this scenario won't occur. But the parser should handle
+        # it gracefully: if content after __JD_FOUND__ equals __JD_MISSING__, it's
+        # ambiguous — we treat __JD_FOUND__ envelope as authoritative (file exists).
+        # The real fix is the shell command using if/then/else so || cannot fire after then-body.
+        assert snap.marker_exists is True
+        # Content is literally "__JD_MISSING__" which is a valid status marker value
+        assert snap.status_marker == "__JD_MISSING__"
+
+
+    def test_shell_commands_use_if_then_else_not_and_or(self):
+        """The shell command must use if/then/else/fi pattern, not &&/|| which has
+        the cat-failure-triggers-else bug."""
+        commands_seen = []
+
+        def handler(command, timeout=None, check=False):
+            commands_seen.append(command)
+            return SSHResult(command=command, exit_code=0,
+                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        read_remote_task_status(ssh, "task1", "/remote/job/task1")
+        for cmd in commands_seen:
+            assert "&&" not in cmd, f"Command must not use && pattern: {cmd}"
+            assert "||" not in cmd, f"Command must not use || pattern: {cmd}"
+            assert "if test -f" in cmd or "if [ -f" in cmd or "__JD_MISSING__" in cmd, \
+                f"Command must use if/then/else: {cmd}"

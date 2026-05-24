@@ -1,28 +1,28 @@
 """CLI integration tests for the new run + files command groups."""
+import os
 import tempfile
-from pathlib import Path
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from jobdesk_app.cli import _build_parser, main
 
 
-def _patch_runs_dir(tmp):
-    """Redirect RunService default runs_dir without patching __init__."""
-    from jobdesk_app.services.run_service import RunService
-
-    runs_dir = Path(tmp) / "JobDesk" / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    original_init = RunService.__init__
-
-    def _patched_init(self, workspace_dir=None, runs_dir=None):
-        original_init(self, workspace_dir, runs_dir=runs_dir or str(runs_dir_ref))
-
-    runs_dir_ref = runs_dir
-    return patch.object(RunService, "__init__", _patched_init)
+@contextmanager
+def _isolated_appdata(tmp):
+    """Temporarily set APPDATA so RunService defaults to a temp runs_dir."""
+    old = os.environ.get("APPDATA")
+    os.environ["APPDATA"] = str(tmp)
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("APPDATA", None)
+        else:
+            os.environ["APPDATA"] = old
 
 
 def test_cli_run_create_and_list(capsys):
-    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         rc = main([
             "run", "create", workspace,
             "--server", "test_srv",
@@ -42,7 +42,7 @@ def test_cli_run_create_and_list(capsys):
 
 
 def test_cli_run_list_empty(capsys):
-    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         rc = main(["run", "list", workspace])
         assert rc == 0
         out = capsys.readouterr().out
@@ -50,7 +50,7 @@ def test_cli_run_list_empty(capsys):
 
 
 def test_cli_run_retry_no_failed(capsys):
-    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         main([
             "run", "create", workspace,
             "--server", "s", "--remote-dir", "/tmp/x",
@@ -67,7 +67,7 @@ def test_cli_run_retry_no_failed(capsys):
 
 
 def test_cli_run_delete(capsys):
-    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         main([
             "run", "create", workspace,
             "--server", "s", "--remote-dir", "/tmp/x",
@@ -84,7 +84,7 @@ def test_cli_run_delete(capsys):
 
 
 def test_cli_run_cancel_invokes_remote_cancellation(capsys):
-    with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         main([
             "run", "create", workspace,
             "--server", "s", "--remote-dir", "/tmp/x",
@@ -141,7 +141,7 @@ class TestDownloadPatterns:
         return run_id
 
     def test_patterns_comma_separated(self):
-        with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+        with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
             mock_ssh = MagicMock()
             mock_ssh.connect = MagicMock()
@@ -162,7 +162,7 @@ class TestDownloadPatterns:
             assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
 
     def test_patterns_multi_arg(self):
-        with tempfile.TemporaryDirectory() as workspace, _patch_runs_dir(workspace):
+        with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
             mock_ssh = MagicMock()
             mock_ssh.connect = MagicMock()
