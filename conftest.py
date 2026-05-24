@@ -1,7 +1,8 @@
-"""Root conftest — set basetemp to a safe local directory on Windows."""
+"""Root conftest — set basetemp to a safe unique directory on Windows."""
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ def pytest_configure(config):
         if env_val:
             fallback = Path(env_val)
         else:
-            fallback = Path(__file__).resolve().parent / ".pytest_tmp_local"
+            repo_root = Path(__file__).resolve().parent
+            fallback = repo_root / f".pytest_tmp_session_{uuid.uuid4().hex[:8]}"
         fallback.mkdir(parents=True, exist_ok=True)
         config.option.basetemp = str(fallback)

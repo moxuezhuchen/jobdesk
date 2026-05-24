@@ -1,5 +1,6 @@
 """Regression tests for conftest.py basetemp logic."""
 
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -19,7 +20,6 @@ def _run_configure(config, monkeypatch, env_val=None):
         monkeypatch.setenv("JOBDESK_TEST_BASETEMP", env_val)
     else:
         monkeypatch.delenv("JOBDESK_TEST_BASETEMP", raising=False)
-    # Re-import to get fresh module
     import importlib  # noqa: E402
 
     import conftest  # noqa: E402
@@ -30,22 +30,41 @@ def _run_configure(config, monkeypatch, env_val=None):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only conftest logic")
 class TestConftestBasetemp:
-    def test_empty_env_defaults_to_pytest_tmp_local(self, monkeypatch):
+    def test_default_creates_unique_session_dir(self, monkeypatch):
         config = _make_config()
         result = _run_configure(config, monkeypatch, env_val="")
-        # conftest.py lives at repo root, so .pytest_tmp_local is under repo root
-        assert result.endswith(".pytest_tmp_local")
-        assert result != str(Path(__file__).resolve().parent)  # not tests/ dir
+        assert ".pytest_tmp_session_" in result
+        assert len(result) > 0
 
-    def test_whitespace_env_defaults_to_pytest_tmp_local(self, monkeypatch):
+    def test_default_is_unique_each_call(self, monkeypatch):
+        config1 = _make_config()
+        result1 = _run_configure(config1, monkeypatch, env_val="")
+        config2 = _make_config()
+        result2 = _run_configure(config2, monkeypatch, env_val="")
+        assert result1 != result2
+
+    def test_default_is_under_repo_root(self, monkeypatch):
+        config = _make_config()
+        result = _run_configure(config, monkeypatch, env_val="")
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        assert result.startswith(repo_root)
+
+    def test_default_matches_gitignore_pattern(self, monkeypatch):
+        config = _make_config()
+        result = _run_configure(config, monkeypatch, env_val="")
+        dirname = Path(result).name
+        assert dirname.startswith(".pytest_tmp_")
+
+    def test_default_is_not_repo_root(self, monkeypatch):
+        config = _make_config()
+        result = _run_configure(config, monkeypatch, env_val="")
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        assert result != repo_root
+
+    def test_whitespace_env_uses_default(self, monkeypatch):
         config = _make_config()
         result = _run_configure(config, monkeypatch, env_val="   ")
-        assert result.endswith(".pytest_tmp_local")
-
-    def test_unset_env_defaults_to_pytest_tmp_local(self, monkeypatch):
-        config = _make_config()
-        result = _run_configure(config, monkeypatch, env_val=None)
-        assert result.endswith(".pytest_tmp_local")
+        assert ".pytest_tmp_session_" in result
 
     def test_custom_env_value_used(self, monkeypatch, tmp_path):
         config = _make_config()
@@ -59,9 +78,20 @@ class TestConftestBasetemp:
         _run_configure(config, monkeypatch, env_val="")
         assert config.option.basetemp == "C:\\explicit\\path"
 
-    def test_default_does_not_use_repo_root(self, monkeypatch):
-        """The bug: empty env produced Path('.') which is repo root."""
-        config = _make_config()
-        result = _run_configure(config, monkeypatch, env_val="")
-        # Must not be the bare repo root (where .git lives)
-        assert ".pytest_tmp_local" in result
+    def test_subprocess_no_basetemp_smoke(self, monkeypatch, tmp_path):
+        """A real pytest subprocess without --basetemp must succeed using tmp_path."""
+        test_file = tmp_path / "test_smoke.py"
+        test_file.write_text(
+            "def test_tmp_path_works(tmp_path):\n"
+            "    assert tmp_path.exists()\n"
+            "    assert '.pytest_tmp_session_' in str(tmp_path)\n",
+            encoding="utf-8",
+        )
+        env = dict(__import__("os").environ)
+        env.pop("JOBDESK_TEST_BASETEMP", None)
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        r = subprocess.run(
+            [sys.executable, "-m", "pytest", str(test_file), "-q"],
+            capture_output=True, text=True, env=env, cwd=str(Path(__file__).resolve().parent.parent),
+        )
+        assert r.returncode == 0, f"stdout: {r.stdout}\nstderr: {r.stderr}"
