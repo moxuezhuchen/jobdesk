@@ -6,7 +6,6 @@ Verifies that:
 """
 
 import socket
-import threading
 from unittest.mock import MagicMock, patch
 
 from jobdesk_app.services.run_monitor import _Watcher
