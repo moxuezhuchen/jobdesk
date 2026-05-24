@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,11 @@ from ..config.schema import ServerConfig
 from .errors import SSHCommandError, SSHConnectionError
 
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+# Global lock + cooldown to prevent spawning many concurrent wsl.exe processes.
+_wsl_boot_lock = threading.Lock()
+_wsl_boot_last_attempt: float | None = None
+_WSL_BOOT_COOLDOWN = 10.0  # seconds
 
 
 def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
@@ -134,6 +140,7 @@ class SSHClientWrapper:
             ) from e
 
     def _start_wsl_if_configured(self) -> None:
+        global _wsl_boot_last_attempt
         distro = self._server.wsl_distro
         if not distro or sys.platform != "win32":
             return
@@ -141,21 +148,34 @@ class SSHClientWrapper:
             return
         if _is_local_port_open(self._server.host, self._server.port):
             return
-        try:
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            subprocess.run(
-                ["wsl.exe", "-d", distro, "--", "true"],
-                check=True,
-                capture_output=True,
-                timeout=self._timeout,
-                creationflags=creationflags,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise SSHConnectionError(
-                f"无法启动 WSL 发行版 {distro!r}: {exc}",
-                host=self._server.host,
-                port=self._server.port,
-            ) from exc
+
+        with _wsl_boot_lock:
+            # Re-check after acquiring lock (another thread may have booted WSL)
+            if _is_local_port_open(self._server.host, self._server.port):
+                return
+            # Cooldown based on last attempt (success or failure)
+            now = time.monotonic()
+            if (
+                _wsl_boot_last_attempt is not None
+                and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN
+            ):
+                return
+            _wsl_boot_last_attempt = now
+            try:
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                subprocess.run(
+                    ["wsl.exe", "-d", distro, "--", "true"],
+                    check=True,
+                    capture_output=True,
+                    timeout=self._timeout,
+                    creationflags=creationflags,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise SSHConnectionError(
+                    f"无法启动 WSL 发行版 {distro!r}: {exc}",
+                    host=self._server.host,
+                    port=self._server.port,
+                ) from exc
 
     def close(self) -> None:
         """关闭 SSH 连接。"""

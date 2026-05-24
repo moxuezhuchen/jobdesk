@@ -3,14 +3,24 @@
 不依赖真实服务器，完全通过 mock paramiko.SSHClient 测试。
 """
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import paramiko
 import pytest
 
+import jobdesk_app.remote.ssh as ssh_mod
 from jobdesk_app.config.schema import AuthMethod, ServerConfig
 from jobdesk_app.remote.errors import SSHCommandError, SSHConnectionError
 from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult, _AutoAddAndSavePolicy
+
+
+@pytest.fixture(autouse=True)
+def _reset_wsl_boot_state():
+    """Reset module-level WSL boot state between tests."""
+    ssh_mod._wsl_boot_last_attempt = None
+    yield
+    ssh_mod._wsl_boot_last_attempt = None
 
 
 def _make_server(host="test.example.com", port=22, username="testuser",
@@ -353,3 +363,67 @@ class TestSSHClientWrapper:
         ssh = MockSSHWrapper(server)
         r = repr(ssh)
         assert "test.example.com" not in r.lower()  # host not in default repr
+
+
+    def test_wsl_bootstrap_failure_is_rate_limited_during_cooldown(self):
+        """Failed wsl.exe launches must also enter cooldown — no repeated spawns."""
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
+             patch("jobdesk_app.remote.ssh.time.monotonic", side_effect=[100.0, 101.0]), \
+             patch(
+                 "jobdesk_app.remote.ssh.subprocess.run",
+                 side_effect=subprocess.CalledProcessError(1, ["wsl.exe"]),
+             ) as run_wsl:
+            with pytest.raises(SSHConnectionError):
+                MockSSHWrapper(server)._start_wsl_if_configured()
+            # Second call within cooldown should NOT spawn again
+            MockSSHWrapper(server)._start_wsl_if_configured()
+
+        run_wsl.assert_called_once()
+
+    def test_wsl_bootstrap_rechecks_port_inside_lock_before_spawning(self):
+        """After acquiring lock, re-check port; skip spawn if port became available."""
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh._is_local_port_open", side_effect=[False, True]), \
+             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl:
+            MockSSHWrapper(server)._start_wsl_if_configured()
+
+        run_wsl.assert_not_called()
+
+
+    def test_wsl_bootstrap_first_attempt_is_not_suppressed_by_low_monotonic_clock(self):
+        """First WSL boot must not be suppressed even if monotonic() < cooldown."""
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu",
+        )
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
+             patch("jobdesk_app.remote.ssh.time.monotonic", return_value=5.0), \
+             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl:
+            MockSSHWrapper(server)._start_wsl_if_configured()
+
+        run_wsl.assert_called_once()

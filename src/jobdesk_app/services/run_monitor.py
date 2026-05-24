@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import shlex
 import threading
+import time
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, Signal
+
+_WATCHER_STABLE_SECONDS = 30.0
 
 
 @dataclass
@@ -93,6 +96,7 @@ class _Watcher:
     def _run(self):
         from ..gui.session import create_ssh_client
         quoted = shlex.quote(self._events_path)
+        backoff = 10
         while not self._stop_event.is_set():
             ssh = None
             try:
@@ -102,16 +106,20 @@ class _Watcher:
                 channel = ssh._client.get_transport().open_session()
                 channel.exec_command(f"tail -n 0 -f {quoted}")
                 channel.settimeout(5.0)
+                connected_at = time.monotonic()
                 try:
                     while not self._stop_event.is_set():
                         try:
                             data = channel.recv(4096)
                             if not data:
                                 break
+                            backoff = 10
                             for line in data.decode("utf-8", errors="replace").splitlines():
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
                         except Exception:
+                            if time.monotonic() - connected_at >= _WATCHER_STABLE_SECONDS:
+                                backoff = 10
                             continue
                 finally:
                     channel.close()
@@ -123,4 +131,5 @@ class _Watcher:
                         ssh.close()
                     except Exception:
                         pass
-            self._stop_event.wait(10)
+            self._stop_event.wait(backoff)
+            backoff = min(backoff * 2, 120)
