@@ -3,6 +3,7 @@
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -69,22 +70,34 @@ class TestConftestBasetemp:
         _run_configure(config, monkeypatch, env_val="")
         assert config.option.basetemp == "C:\\explicit\\path"
 
-    def test_subprocess_no_basetemp_smoke(self, tmp_path):
-        """Real pytest subprocess without --basetemp succeeds from repo root."""
-        test_file = tmp_path / "test_smoke.py"
+    def test_subprocess_no_basetemp_smoke(self):
+        """A real pytest subprocess allocates tmp_path outside the repo."""
+        repo = Path(__file__).resolve().parent.parent
+        test_file = Path(__file__).with_name(
+            f"_test_basetemp_smoke_{uuid.uuid4().hex}.py"
+        )
         test_file.write_text(
-            "def test_passes():\n    assert True\n",
+            "import tempfile\n"
+            "from pathlib import Path\n\n"
+            "def test_tmp_path_uses_system_basetemp(tmp_path):\n"
+            "    resolved = tmp_path.resolve()\n"
+            "    system_temp = Path(tempfile.gettempdir()).resolve()\n"
+            f"    repo_root = Path({str(repo)!r}).resolve()\n"
+            "    assert resolved.is_relative_to(system_temp)\n"
+            "    assert not resolved.is_relative_to(repo_root)\n"
+            "    assert any(p.name.startswith('jobdesk_pytest_') "
+            "for p in resolved.parents)\n",
             encoding="utf-8",
         )
         env = dict(__import__("os").environ)
         env.pop("JOBDESK_TEST_BASETEMP", None)
         env["QT_QPA_PLATFORM"] = "offscreen"
-        # Run from repo root so conftest.py is picked up; use a repo-local test
-        repo = str(Path(__file__).resolve().parent.parent)
-        r = subprocess.run(
-            [sys.executable, "-m", "pytest",
-             "tests/test_conftest_basetemp.py::TestConftestBasetemp::test_default_in_system_temp",
-             "-q", "-p", "no:cacheprovider"],
-            capture_output=True, text=True, env=env, cwd=repo,
-        )
-        assert r.returncode == 0, f"stdout: {r.stdout}\nstderr: {r.stderr}"
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "pytest", str(test_file),
+                 "-q", "-p", "no:cacheprovider"],
+                capture_output=True, text=True, env=env, cwd=repo,
+            )
+            assert r.returncode == 0, f"stdout: {r.stdout}\nstderr: {r.stderr}"
+        finally:
+            test_file.unlink(missing_ok=True)
