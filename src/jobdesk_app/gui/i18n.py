@@ -175,7 +175,6 @@ ZH: dict[str, str] = {
     "Port": "\u7aef\u53e3",
     "User": "\u7528\u6237",
     "Status": "\u72b6\u6001",
-    "Add": "\u6dfb\u52a0",
     "Discard": "\u653e\u5f03\u66f4\u6539",
     "Testing...": "\u6d4b\u8bd5\u4e2d...",
     "Error:": "\u9519\u8bef:",
