@@ -157,6 +157,25 @@ def test_persistent_session_is_discarded_after_operation_error():
     assert len(sessions) == 2
 
 
+def test_persistent_session_survives_rename_destination_conflict():
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sftp.files["/remote/b.txt"] = b"existing\n"
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    with pytest.raises(RemotePathError, match="Destination already exists"):
+        service.rename_remote("/remote/a.txt", "/remote/b.txt")
+
+    assert sessions[0].closed is False
+    assert service.list_remote("/remote") == ["/remote"]
+    assert len(sessions) == 1
+
+
 def test_delete_remote_guards_dangerous_paths():
     service = FileTransferService(lambda: FakeSFTP(), protected_remote_roots=["/remote/work"])
 

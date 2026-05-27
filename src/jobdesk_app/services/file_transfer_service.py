@@ -143,7 +143,7 @@ class _PersistentSFTPContext:
 
     def __exit__(self, exc_type, exc, tb):
         try:
-            if exc_type is not None:
+            if exc_type is not None and not issubclass(exc_type, RemotePathError):
                 self._service._close_persistent_sftp()
         finally:
             self._service._session_lock.release()
