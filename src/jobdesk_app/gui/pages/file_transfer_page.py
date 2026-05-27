@@ -383,7 +383,9 @@ class FileTransferPage(QWidget):
         self.remote_table.setSortingEnabled(True)
         self.local_table.drop_files.connect(self._download_dropped_remote_paths)
         self.local_table.copy_local_files.connect(self._copy_dropped_local_paths)
+        self.local_table.move_local_files.connect(self._move_local_paths_into_directory)
         self.remote_table.drop_files.connect(self._upload_dropped_local_paths)
+        self.remote_table.move_remote_files.connect(self._move_remote_paths_into_directory)
         _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
         _setup_table(self.remote_table, self._translated_table_headers("remote"), hidden_columns=[4, 5])
         self.local_table.bind_column_widths("files.local", _clamp_column_widths("files.local", _default_column_widths("files.local")))
@@ -1366,6 +1368,70 @@ class FileTransferPage(QWidget):
         if failures:
             self._error_cb("Drop Copy Error", "\n".join(failures))
 
+    def _move_local_paths_into_directory(self, paths: list[str], target_dir_text: str):
+        target_dir = Path(target_dir_text)
+        moved: list[Path] = []
+        failures: list[str] = []
+        if not target_dir.is_dir():
+            self._error_cb("Move Error", f"Target directory does not exist: {target_dir}")
+            return
+        target_resolved = target_dir.resolve()
+        for path_text in paths:
+            source = Path(path_text)
+            if not source.exists():
+                failures.append(f"Source path does not exist: {source}")
+                continue
+            destination = target_dir / source.name
+            source_resolved = source.resolve()
+            try:
+                if source_resolved == destination.resolve():
+                    failures.append(f"Source is already in this directory: {source.name}")
+                    continue
+                if source.is_dir() and (
+                    target_resolved == source_resolved or source_resolved in target_resolved.parents
+                ):
+                    failures.append(f"Cannot move directory into itself: {source.name}")
+                    continue
+                if destination.exists():
+                    failures.append(f"Destination already exists: {destination.name}")
+                    continue
+                shutil.move(str(source), str(destination))
+                moved.append(destination)
+            except Exception as exc:
+                failures.append(f"{source.name}: {exc}")
+        if moved:
+            self._refresh_local()
+            self._status_cb(f"Moved {len(moved)} local path(s)")
+        if failures:
+            self._error_cb("Move Error", "\n".join(failures))
+
+    def _move_remote_paths_into_directory(self, paths: list[str], target_dir_text: str):
+        if self._service is None:
+            self._status_cb("Connect to a server first")
+            return
+        target_dir = normalize_remote_path(target_dir_text)
+        moved = 0
+        failures: list[str] = []
+        for path_text in paths:
+            source = normalize_remote_path(path_text)
+            destination = remote_child_path(target_dir, posixpath.basename(source))
+            if destination == source:
+                failures.append(f"Source is already in this directory: {posixpath.basename(source)}")
+                continue
+            if target_dir == source or target_dir.startswith(source.rstrip("/") + "/"):
+                failures.append(f"Cannot move directory into itself: {posixpath.basename(source)}")
+                continue
+            try:
+                self._service.rename_remote(source, destination)
+                moved += 1
+            except Exception as exc:
+                failures.append(f"{posixpath.basename(source)}: {exc}")
+        if moved:
+            self._refresh_remote()
+            self._status_cb(f"Moved {moved} remote path(s)")
+        if failures:
+            self._error_cb("Move Error", "\n".join(failures))
+
     def _mkdir_local(self):
         name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
         if not ok or not name.strip():
@@ -1988,6 +2054,8 @@ class _ConnectedSFTP:
 class _FileTable(StyledTableWidget):
     drop_files = Signal(list)
     copy_local_files = Signal(list)
+    move_local_files = Signal(list, str)
+    move_remote_files = Signal(list, str)
     key_delete = Signal()
     key_enter = Signal()
 
@@ -2044,6 +2112,22 @@ class _FileTable(StyledTableWidget):
     def dropEvent(self, event):
         mime = event.mimeData()
         local_paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()] if mime.hasUrls() else []
+        if self.role == "local" and local_paths:
+            target_dir = self._drop_directory_path(event)
+            if target_dir:
+                self.move_local_files.emit(local_paths, target_dir)
+                event.acceptProposedAction()
+                return
+        if self.role == "remote" and mime.hasFormat("application/x-jobdesk-remote-paths"):
+            data = bytes(mime.data("application/x-jobdesk-remote-paths")).decode("utf-8")
+            remote_paths = [line for line in data.splitlines() if line]
+            target_dir = self._drop_directory_path(event)
+            if target_dir:
+                self.move_remote_files.emit(remote_paths, target_dir)
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
         if self.role == "remote" and local_paths:
             self.drop_files.emit(local_paths)
             event.acceptProposedAction()
@@ -2059,10 +2143,31 @@ class _FileTable(StyledTableWidget):
             return
         super().dropEvent(event)
 
+    def _drop_directory_path(self, event) -> str | None:
+        try:
+            item = self.itemAt(event.position().toPoint())
+        except (AttributeError, TypeError):
+            return None
+        if item is None:
+            return None
+        row = item.row()
+        name_item = self.item(row, 0)
+        kind_item = self.item(row, 3 if self.role == "local" else 4)
+        path_item = self.item(row, 4 if self.role == "local" else 5)
+        if (
+            name_item is None
+            or name_item.text() == ".."
+            or kind_item is None
+            or kind_item.text() != "dir"
+            or path_item is None
+        ):
+            return None
+        return path_item.text()
+
     def _accepts_mime(self, mime: QMimeData) -> bool:
         has_local_paths = mime.hasUrls() and any(url.isLocalFile() for url in mime.urls())
         if self.role == "remote":
-            return has_local_paths
+            return has_local_paths or mime.hasFormat("application/x-jobdesk-remote-paths")
         return mime.hasFormat("application/x-jobdesk-remote-paths") or has_local_paths
 
 

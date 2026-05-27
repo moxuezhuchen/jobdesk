@@ -814,6 +814,62 @@ class TestFileTransferPage:
         assert dropped_paths == [["/remote/result.log"]]
         event.acceptProposedAction.assert_called_once_with()
 
+    def test_local_table_routes_drop_on_directory_for_move(self, file_page, tmp_path):
+        from PySide6.QtCore import QMimeData, QUrl
+
+        source = tmp_path / "source.log"
+        target_dir = tmp_path / "archive"
+        source.write_text("output", encoding="utf-8")
+        target_dir.mkdir()
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source))])
+        event = MagicMock()
+        event.mimeData.return_value = mime
+        moves = []
+        file_page.local_table.move_local_files.connect(
+            lambda paths, target: moves.append((paths, target))
+        )
+
+        with patch.object(file_page.local_table, "_drop_directory_path", return_value=str(target_dir)):
+            file_page.local_table.dropEvent(event)
+
+        assert len(moves) == 1
+        assert [Path(path) for path in moves[0][0]] == [source]
+        assert Path(moves[0][1]) == target_dir
+        event.acceptProposedAction.assert_called_once_with()
+
+    def test_remote_table_routes_drop_on_directory_for_move(self, file_page):
+        from PySide6.QtCore import QMimeData
+
+        mime = QMimeData()
+        mime.setData("application/x-jobdesk-remote-paths", b"/remote/source.log")
+        event = MagicMock()
+        event.mimeData.return_value = mime
+        moves = []
+        file_page.remote_table.move_remote_files.connect(
+            lambda paths, target: moves.append((paths, target))
+        )
+
+        with patch.object(file_page.remote_table, "_drop_directory_path", return_value="/remote/archive"):
+            file_page.remote_table.dropEvent(event)
+
+        assert moves == [(["/remote/source.log"], "/remote/archive")]
+        event.acceptProposedAction.assert_called_once_with()
+
+    def test_parent_row_is_not_a_move_drop_target(self, file_page):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem(".."))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("dir"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem("C:/parent"))
+        event = MagicMock()
+        event.position.return_value.toPoint.return_value = QPoint(1, 1)
+
+        with patch.object(file_page.local_table, "itemAt", return_value=file_page.local_table.item(0, 0)):
+            assert file_page.local_table._drop_directory_path(event) is None
+
     def test_external_local_url_drop_on_remote_table_uploads_to_current_remote_dir(
         self, file_page, qtbot, tmp_path
     ):
@@ -1057,6 +1113,72 @@ class TestFileTransferPage:
         file_page._copy_dropped_local_paths([str(source)])
 
         assert destination.read_text(encoding="utf-8") == "existing"
+        assert errors
+
+    def test_move_local_path_into_directory(self, file_page, tmp_path):
+        source = tmp_path / "source.log"
+        target_dir = tmp_path / "archive"
+        source.write_text("contents", encoding="utf-8")
+        target_dir.mkdir()
+
+        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+
+        assert not source.exists()
+        assert (target_dir / "source.log").read_text(encoding="utf-8") == "contents"
+
+    def test_move_local_does_not_overwrite_existing_destination(self, file_page, tmp_path):
+        errors = []
+        source = tmp_path / "source.log"
+        target_dir = tmp_path / "archive"
+        target_dir.mkdir()
+        source.write_text("incoming", encoding="utf-8")
+        destination = target_dir / "source.log"
+        destination.write_text("existing", encoding="utf-8")
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+
+        assert source.read_text(encoding="utf-8") == "incoming"
+        assert destination.read_text(encoding="utf-8") == "existing"
+        assert errors
+
+    def test_move_local_directory_rejects_descendant_target(self, file_page, tmp_path):
+        errors = []
+        source = tmp_path / "source"
+        target_dir = source / "nested"
+        target_dir.mkdir(parents=True)
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+
+        assert source.exists()
+        assert errors
+
+    def test_move_remote_path_into_directory_uses_rename(self, file_page):
+        service = MagicMock()
+        file_page._service = service
+
+        with patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page._move_remote_paths_into_directory(
+                ["/remote/source.log"], "/remote/archive"
+            )
+
+        service.rename_remote.assert_called_once_with(
+            "/remote/source.log", "/remote/archive/source.log"
+        )
+        refresh_remote.assert_called_once_with()
+
+    def test_move_remote_directory_rejects_descendant_target(self, file_page):
+        errors = []
+        service = MagicMock()
+        file_page._service = service
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._move_remote_paths_into_directory(
+            ["/remote/source"], "/remote/source/nested"
+        )
+
+        service.rename_remote.assert_not_called()
         assert errors
 
     def test_rename_local_selected_file(self, file_page, tmp_path):

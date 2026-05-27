@@ -45,6 +45,9 @@ class FakeSFTP:
     def rename(self, old_path, new_path):
         self.renamed.append((old_path, new_path))
 
+    def exists(self, remote_path):
+        return remote_path in self.files
+
     def read_file_bytes(self, remote_path, max_bytes):
         return self.files[remote_path][:max_bytes]
 
@@ -147,6 +150,16 @@ def test_mkdir_rename_and_preview_text():
     assert sftp.created == ["/remote/new"]
     assert sftp.renamed == [("/remote/a.txt", "/remote/b.txt")]
     assert text == "hello\n"
+
+def test_rename_remote_rejects_existing_destination():
+    sftp = FakeSFTP()
+    sftp.files["/remote/b.txt"] = b"existing\n"
+    service = FileTransferService(lambda: sftp)
+
+    with pytest.raises(RemotePathError, match="Destination already exists"):
+        service.rename_remote("/remote/a.txt", "/remote/b.txt")
+
+    assert sftp.renamed == []
 
 
 def test_upload_path_passes_progress_callback(tmp_path):

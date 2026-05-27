@@ -70,8 +70,12 @@ class FileTransferService:
                 sftp.remove_file(remote_path)
 
     def rename_remote(self, old_path: str, new_path: str) -> None:
+        old_path = ensure_safe_remote_path(old_path)
+        new_path = ensure_safe_remote_path(new_path)
         with self._sftp() as sftp:
-            sftp.rename(ensure_safe_remote_path(old_path), ensure_safe_remote_path(new_path))
+            if sftp.exists(new_path):
+                raise RemotePathError(f"Destination already exists: {new_path}")
+            sftp.rename(old_path, new_path)
 
     def preview_remote_text(self, remote_path: str, max_bytes: int = 65536) -> str:
         with self._sftp() as sftp:
