@@ -30,6 +30,9 @@ class FakeSFTP:
         self.last_progress_callback = progress_callback
         return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
 
+    def list_dir_info(self, remote_dir):
+        return [remote_dir]
+
     def is_dir(self, remote_path):
         return False
 
@@ -93,6 +96,65 @@ def test_download_path_maps_skip_policy(tmp_path):
     service.download_path("/remote/a.txt", tmp_path / "a.txt", OverwritePolicy.skip_same_size)
 
     assert sftp.downloads[0][2:4] == (False, True)
+
+
+def test_list_remote_default_mode_closes_each_session():
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory)
+
+    assert service.list_remote("/remote") == ["/remote"]
+    assert service.list_remote("/remote") == ["/remote"]
+    assert len(sessions) == 2
+    assert all(sftp.closed for sftp in sessions)
+
+
+def test_list_remote_persistent_mode_reuses_session_until_close():
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    service.list_remote("/remote")
+    service.list_remote("/remote")
+
+    assert len(sessions) == 1
+    assert sessions[0].closed is False
+
+    service.close()
+
+    assert sessions[0].closed is True
+
+
+def test_persistent_session_is_discarded_after_operation_error():
+    class FailingSFTP(FakeSFTP):
+        def list_dir_info(self, remote_dir):
+            raise RuntimeError("connection lost")
+
+    sessions = []
+
+    def factory():
+        sftp = FailingSFTP() if not sessions else FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    with pytest.raises(RuntimeError, match="connection lost"):
+        service.list_remote("/remote")
+
+    assert sessions[0].closed is True
+    assert service.list_remote("/remote") == ["/remote"]
+    assert len(sessions) == 2
 
 
 def test_delete_remote_guards_dangerous_paths():

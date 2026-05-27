@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import posixpath
+import threading
 from pathlib import Path
 
 from ..core.file_transfer import OverwritePolicy, policy_to_transfer_flags
@@ -26,8 +27,12 @@ class FileTransferService:
         sftp_factory,
         protected_remote_roots: list[str] | None = None,
         allowed_delete_roots: list[str] | None = None,
+        persistent_session: bool = False,
     ):
         self._sftp_factory = sftp_factory
+        self._persistent_session = persistent_session
+        self._persistent_sftp = None
+        self._session_lock = threading.RLock()
         self._protected_roots = {ensure_safe_remote_path(p) for p in (protected_remote_roots or [])}
         self._allowed_delete_roots = {
             ensure_safe_remote_path(p) for p in (allowed_delete_roots or [])
@@ -84,6 +89,10 @@ class FileTransferService:
             raise ValueError(f"remote file looks binary: {remote_path}")
         return data.decode("utf-8", errors="replace")
 
+    def close(self) -> None:
+        with self._session_lock:
+            self._close_persistent_sftp()
+
     def _ensure_deletable(self, remote_path: str) -> None:
         protected_exact_paths = {"/", "/home", "/root"}
         if remote_path in protected_exact_paths:
@@ -96,7 +105,14 @@ class FileTransferService:
             raise RemotePathError(f"refusing to delete path outside allowed roots: {remote_path}")
 
     def _sftp(self):
+        if self._persistent_session:
+            return _PersistentSFTPContext(self)
         return _SFTPContext(self._sftp_factory())
+
+    def _close_persistent_sftp(self) -> None:
+        if self._persistent_sftp is not None and hasattr(self._persistent_sftp, "close"):
+            self._persistent_sftp.close()
+        self._persistent_sftp = None
 
 
 class _SFTPContext:
@@ -109,6 +125,28 @@ class _SFTPContext:
     def __exit__(self, exc_type, exc, tb):
         if hasattr(self._sftp, "close"):
             self._sftp.close()
+
+
+class _PersistentSFTPContext:
+    def __init__(self, service: FileTransferService):
+        self._service = service
+
+    def __enter__(self):
+        self._service._session_lock.acquire()
+        try:
+            if self._service._persistent_sftp is None:
+                self._service._persistent_sftp = self._service._sftp_factory()
+            return self._service._persistent_sftp
+        except Exception:
+            self._service._session_lock.release()
+            raise
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is not None:
+                self._service._close_persistent_sftp()
+        finally:
+            self._service._session_lock.release()
 
 
 def _is_path_at_or_under(path: str, root: str) -> bool:

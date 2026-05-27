@@ -704,15 +704,23 @@ class FileTransferPage(QWidget):
             sftp = create_sftp_client(ssh)
             return _ConnectedSFTP(ssh, sftp)
 
+        if self._service is not None:
+            self._close_service_async(self._service)
         self._service = FileTransferService(
             factory,
             allowed_delete_roots=collect_remote_delete_roots(self.state.current_manifest_path),
+            persistent_session=True,
         )
         self._connected_server_id = server_id
         self._connected_server = server
         self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
         self._load_remembered_profile()
         self._refresh_remote()
+
+    def _close_service_async(self, service: FileTransferService) -> None:
+        worker = _BackgroundRunWorker(service.close)
+        self._keep_worker(worker)
+        worker.start()
 
     def _apply_default_local_folder(self):
         # Prefer last-used folder over the static default
@@ -2036,6 +2044,9 @@ class FileTransferPage(QWidget):
                 elif hasattr(worker, "isRunning") and worker.isRunning():
                     worker.quit()
                     worker.wait()
+            if self._service is not None:
+                self._service.close()
+                self._service = None
 
     def _keep_worker(self, worker):
         self._background_workers.append(worker)

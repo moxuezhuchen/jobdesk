@@ -1,5 +1,7 @@
 """GUI behavior tests using pytest-qt."""
 import json
+import threading
+import time
 
 import pytest
 
@@ -1358,6 +1360,46 @@ class TestFileTransferPage:
             file_page.shutdown()
 
         worker.stop_safely.assert_called_once_with()
+
+    def test_connect_enables_persistent_remote_session(self, file_page):
+        file_page._servers = {"wsl": MagicMock()}
+        file_page.server_combo.clear()
+        file_page.server_combo.addItem("wsl", "wsl")
+
+        with patch.object(file_page, "_refresh_remote"):
+            file_page._connect()
+
+        assert file_page._service._persistent_session is True
+
+    def test_reconnect_releases_previous_remote_session_without_blocking_ui(self, file_page, qtbot):
+        old_service = MagicMock()
+        release_close = threading.Event()
+        old_service.close.side_effect = lambda: release_close.wait(timeout=1)
+        file_page._service = old_service
+        file_page._servers = {"wsl": MagicMock()}
+        file_page.server_combo.clear()
+        file_page.server_combo.addItem("wsl", "wsl")
+
+        try:
+            started = time.monotonic()
+            with patch.object(file_page, "_refresh_remote"):
+                file_page._connect()
+            elapsed = time.monotonic() - started
+            qtbot.waitUntil(lambda: old_service.close.called, timeout=1000)
+        finally:
+            release_close.set()
+
+        old_service.close.assert_called_once_with()
+        assert elapsed < 0.2
+
+    def test_shutdown_closes_active_remote_session(self, file_page):
+        service = MagicMock()
+        file_page._service = service
+
+        file_page.shutdown()
+
+        service.close.assert_called_once_with()
+        assert file_page._service is None
 
     def test_confflow_uses_spinbox_max_parallel_not_stored_setting(self, file_page, qtbot, tmp_path):
         """ConfFlow batch must use the current spinbox value, not the stored setting."""
