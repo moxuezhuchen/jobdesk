@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import posixpath
 from pathlib import Path
 
 from ..core.file_transfer import OverwritePolicy, policy_to_transfer_flags
@@ -13,7 +14,10 @@ def ensure_safe_remote_path(remote_path: str) -> str:
         raise RemotePathError(f"remote path must use POSIX separators: {remote_path!r}")
     if ".." in remote_path.split("/"):
         raise RemotePathError(f"remote path must not contain '..': {remote_path!r}")
-    return remote_path.rstrip("/") if remote_path != "/" else "/"
+    normalized = posixpath.normpath(remote_path)
+    if normalized.startswith("//"):
+        normalized = "/" + normalized.lstrip("/")
+    return normalized
 
 
 class FileTransferService:
@@ -33,22 +37,22 @@ class FileTransferService:
         with self._sftp() as sftp:
             return sftp.list_dir_info(ensure_safe_remote_path(remote_dir))
 
-    def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False):
+    def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
         overwrite, skip_same = policy_to_transfer_flags(policy)
         local_path = Path(local_path)
         remote_path = ensure_safe_remote_path(remote_path)
         with self._sftp() as sftp:
             if local_path.is_dir():
                 return sftp.upload_dir(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
-            return sftp.upload_file(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
+            return sftp.upload_file(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run, progress_callback=progress_callback)
 
-    def download_path(self, remote_path: str, local_path: str | Path, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False):
+    def download_path(self, remote_path: str, local_path: str | Path, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
         overwrite, skip_same = policy_to_transfer_flags(policy)
         remote_path = ensure_safe_remote_path(remote_path)
         with self._sftp() as sftp:
             if sftp.is_dir(remote_path):
                 return sftp.download_dir(remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
-            return sftp.download_file(remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
+            return sftp.download_file(remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run, progress_callback=progress_callback)
 
     def mkdir_remote(self, remote_dir: str) -> None:
         with self._sftp() as sftp:
@@ -77,16 +81,14 @@ class FileTransferService:
         return data.decode("utf-8", errors="replace")
 
     def _ensure_deletable(self, remote_path: str) -> None:
-        protected_exact_paths = {"/", "/home", "/root", "~"}
+        protected_exact_paths = {"/", "/home", "/root"}
         if remote_path in protected_exact_paths:
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
         if any(_is_path_at_or_under(remote_path, root) for root in self._protected_roots):
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
         if not self._allowed_delete_roots:
             raise RemotePathError("refusing to delete remote path: no allowed delete roots configured")
-        if not any(
-            _is_path_at_or_under(remote_path, root) for root in self._allowed_delete_roots
-        ):
+        if not any(_is_path_at_or_under(remote_path, root) for root in self._allowed_delete_roots):
             raise RemotePathError(f"refusing to delete path outside allowed roots: {remote_path}")
 
     def _sftp(self):

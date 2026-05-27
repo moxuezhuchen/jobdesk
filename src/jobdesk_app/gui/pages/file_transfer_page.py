@@ -381,8 +381,9 @@ class FileTransferPage(QWidget):
         self.remote_table.setAlternatingRowColors(True)
         self.local_table.setSortingEnabled(True)
         self.remote_table.setSortingEnabled(True)
-        self.local_table.drop_files.connect(self._upload_dropped_local_paths)
-        self.remote_table.drop_files.connect(self._download_dropped_remote_paths)
+        self.local_table.drop_files.connect(self._download_dropped_remote_paths)
+        self.local_table.copy_local_files.connect(self._copy_dropped_local_paths)
+        self.remote_table.drop_files.connect(self._upload_dropped_local_paths)
         _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
         _setup_table(self.remote_table, self._translated_table_headers("remote"), hidden_columns=[4, 5])
         self.local_table.bind_column_widths("files.local", _clamp_column_widths("files.local", _default_column_widths("files.local")))
@@ -490,7 +491,8 @@ class FileTransferPage(QWidget):
         command_row.addWidget(self.preview_commands_btn)
         run_layout.addLayout(command_row)
 
-        run_options_row = QHBoxLayout()
+        self.run_options_row = QHBoxLayout()
+        run_options_row = self.run_options_row
         run_options_row.setSpacing(6)
         self.run_mode_label = QLabel(tr("Run mode:", self._language))
         run_options_row.addWidget(self.run_mode_label)
@@ -513,6 +515,13 @@ class FileTransferPage(QWidget):
         self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
         self.create_only_btn.clicked.connect(self._create_only)
         run_options_row.addWidget(self.create_only_btn)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMinimumWidth(180)
+        self.progress_bar.setMaximumWidth(320)
+        self.progress_bar.setMaximumHeight(18)
+        self.progress_bar.setTextVisible(True)
+        run_options_row.addWidget(self.progress_bar)
         run_options_row.addStretch()
         run_layout.addLayout(run_options_row)
 
@@ -523,11 +532,6 @@ class FileTransferPage(QWidget):
         self.command_preview.setVisible(False)
         run_layout.addWidget(self.command_preview)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setMaximumHeight(18)
-        self.progress_bar.setTextVisible(True)
-        run_layout.addWidget(self.progress_bar)
         main_splitter.addWidget(run_panel)
         main_splitter.setChildrenCollapsible(False)
         main_splitter.setCollapsible(1, False)
@@ -990,6 +994,7 @@ class FileTransferPage(QWidget):
         menu.addSeparator()
         menu.addAction(tr("New Folder", self._language), self._mkdir_local)
         menu.addAction(tr("New File", self._language), self._new_file_local)
+        menu.addAction(tr("Rename", self._language), self._rename_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
         menu.addSeparator()
         menu.addAction(tr("Generate GJF from XYZ…", self._language), self._local_generate_gjf)
@@ -1193,17 +1198,19 @@ class FileTransferPage(QWidget):
             return
         local_base = self.state.current_project_root or Path.cwd()
         target = Path(local_base) / Path(remote_path).name
+        service = self._service
 
         worker = _BackgroundRunWorker(lambda: None)  # placeholder, replaced below
 
         def _run():
             def _progress(done, total):
                 worker.progress.emit(int(done), int(total))
-            with self._service._sftp_factory() as sftp:
-                rec = sftp.download_file(remote_path, target,
-                                         overwrite=True, skip_if_same_size=False,
-                                         progress_callback=_progress)
-            return [rec]
+            rec = service.download_path(
+                remote_path, target,
+                OverwritePolicy.overwrite,
+                progress_callback=_progress,
+            )
+            return rec if isinstance(rec, list) else [rec]
 
         worker._target_fn = _run
         self._start_transfer_worker(worker, "Download", self._refresh_local)
@@ -1217,21 +1224,19 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a local file or folder")
             return
         remote_target = self._remote_target_for_local(local_path)
+        service = self._service
 
         worker = _BackgroundRunWorker(lambda: None)
 
         def _run():
             def _progress(done, total):
                 worker.progress.emit(int(done), int(total))
-            with self._service._sftp_factory() as sftp:
-                if local_path.is_dir():
-                    records = sftp.upload_dir(local_path, remote_target,
-                                              overwrite=False, skip_if_same_size=True)
-                else:
-                    records = [sftp.upload_file(local_path, remote_target,
-                                                overwrite=False, skip_if_same_size=True,
-                                                progress_callback=_progress)]
-            return records
+            rec = service.upload_path(
+                local_path, remote_target,
+                OverwritePolicy.overwrite,
+                progress_callback=_progress,
+            )
+            return rec if isinstance(rec, list) else [rec]
 
         worker._target_fn = _run
         self._start_transfer_worker(worker, "Upload", self._refresh_remote)
@@ -1273,10 +1278,6 @@ class FileTransferPage(QWidget):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        # If paths are remote (start with /), treat as download
-        if paths and paths[0].startswith("/"):
-            self._download_dropped_remote_paths(paths)
-            return
         service = self._service
         remote_dir = self.remote_path.text().strip() or "/"
 
@@ -1310,10 +1311,6 @@ class FileTransferPage(QWidget):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        # If paths look like local files (Windows paths), treat as upload
-        if paths and (paths[0].startswith("/") is False) and Path(paths[0]).exists():
-            self._upload_dropped_local_paths(paths)
-            return
         service = self._service
         local_base = self.state.current_project_root or Path.cwd()
 
@@ -1338,6 +1335,36 @@ class FileTransferPage(QWidget):
         w.finished.connect(w.deleteLater)
         self._keep_worker(w)
         w.start()
+
+    def _copy_dropped_local_paths(self, paths: list[str]):
+        local_base = Path(self.state.current_project_root or Path.cwd())
+        copied: list[Path] = []
+        failures: list[str] = []
+        for path_text in paths:
+            source = Path(path_text)
+            if not source.exists():
+                failures.append(f"Source path does not exist: {source}")
+                continue
+            destination = local_base / source.name
+            try:
+                if source.resolve() == destination.resolve():
+                    failures.append(f"Source is already in this directory: {source.name}")
+                    continue
+                if destination.exists():
+                    failures.append(f"Destination already exists: {destination.name}")
+                    continue
+                if source.is_dir():
+                    shutil.copytree(source, destination)
+                else:
+                    shutil.copy2(source, destination)
+                copied.append(destination)
+            except Exception as exc:
+                failures.append(f"{source.name}: {exc}")
+        if copied:
+            self._refresh_local()
+            self._status_cb(f"Copied {len(copied)} local path(s)")
+        if failures:
+            self._error_cb("Drop Copy Error", "\n".join(failures))
 
     def _mkdir_local(self):
         name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
@@ -1423,6 +1450,36 @@ class FileTransferPage(QWidget):
         except Exception as exc:
             self._error_cb("Preview Error", str(exc))
 
+    def _rename_name(self, name: str) -> str | None:
+        name = name.strip()
+        if not name or "/" in name or "\\" in name or name in (".", ".."):
+            self._error_cb("Invalid Name", "Name cannot contain path separators, '.' or '..'")
+            return None
+        return name
+
+    def _rename_local(self):
+        local_path = self._selected_local_path()
+        if local_path is None:
+            self._status_cb("Select a local file or folder")
+            return
+        new_name, ok = QInputDialog.getText(self, "Rename Local Path", "New name:", text=local_path.name)
+        if not ok:
+            return
+        new_name = self._rename_name(new_name)
+        if new_name is None:
+            return
+        new_path = local_path.with_name(new_name)
+        if new_path == local_path:
+            return
+        if new_path.exists():
+            self._error_cb("Rename Error", f"Destination already exists: {new_name}")
+            return
+        try:
+            local_path.rename(new_path)
+            self._refresh_local()
+        except Exception as exc:
+            self._error_cb("Rename Error", str(exc))
+
     def _rename_remote(self):
         if self._service is None:
             self._status_cb("Connect to a server first")
@@ -1432,10 +1489,13 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a remote file or folder")
             return
         new_name, ok = QInputDialog.getText(self, "Rename Remote Path", "New name:", text=Path(remote_path).name)
-        if not ok or not new_name.strip():
+        if not ok:
+            return
+        new_name = self._rename_name(new_name)
+        if new_name is None:
             return
         parent = remote_path.rsplit("/", 1)[0] or "/"
-        new_path = f"{parent}/{new_name.strip()}" if parent != "/" else f"/{new_name.strip()}"
+        new_path = f"{parent}/{new_name}" if parent != "/" else f"/{new_name}"
         try:
             self._service.rename_remote(remote_path, new_path)
             self._refresh_remote()
@@ -1450,9 +1510,24 @@ class FileTransferPage(QWidget):
         if not remote_paths:
             self._status_cb("Select a remote file or folder")
             return
-        message = "\n".join(remote_paths[:10])
-        if len(remote_paths) > 10:
-            message += f"\n... {len(remote_paths) - 10} more"
+        current_dir = (self.remote_path.text().strip() or "/").rstrip("/") or "/"
+        # Reject deletion when browsing a dangerous top-level directory
+        _dangerous_tops = {"/", "/root", "/home"}
+        if current_dir in _dangerous_tops:
+            self._error_cb("Delete Error", f"Cannot delete items at top-level directory: {current_dir}")
+            return
+        # Filter out parent entries and paths outside current dir
+        valid_paths = []
+        for p in remote_paths:
+            if p == current_dir or not p.startswith(current_dir + "/"):
+                continue
+            valid_paths.append(p)
+        if not valid_paths:
+            self._error_cb("Delete Error", "Selected path(s) cannot be deleted from this location")
+            return
+        message = "\n".join(valid_paths[:10])
+        if len(valid_paths) > 10:
+            message += f"\n... {len(valid_paths) - 10} more"
         if QMessageBox.question(
             self,
             "Delete Remote Path",
@@ -1461,7 +1536,7 @@ class FileTransferPage(QWidget):
         ) != QMessageBox.Yes:
             return
         try:
-            for remote_path in remote_paths:
+            for remote_path in valid_paths:
                 self._service.delete_remote(remote_path, recursive=True)
             self._refresh_remote()
         except Exception as exc:
@@ -1866,6 +1941,8 @@ class FileTransferPage(QWidget):
         )
 
     def shutdown(self):
+        # Ignore results from remote-list workers that finish during teardown.
+        self._remote_list_request_id += 1
         try:
             self._remember_current_remote_dir()
             store = GuiSettingsStore()
@@ -1910,6 +1987,7 @@ class _ConnectedSFTP:
 
 class _FileTable(StyledTableWidget):
     drop_files = Signal(list)
+    copy_local_files = Signal(list)
     key_delete = Signal()
     key_enter = Signal()
 
@@ -1965,8 +2043,9 @@ class _FileTable(StyledTableWidget):
 
     def dropEvent(self, event):
         mime = event.mimeData()
-        if self.role == "remote" and mime.hasUrls():
-            self.drop_files.emit([url.toLocalFile() for url in mime.urls() if url.isLocalFile()])
+        local_paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()] if mime.hasUrls() else []
+        if self.role == "remote" and local_paths:
+            self.drop_files.emit(local_paths)
             event.acceptProposedAction()
             return
         if self.role == "local" and mime.hasFormat("application/x-jobdesk-remote-paths"):
@@ -1974,12 +2053,17 @@ class _FileTable(StyledTableWidget):
             self.drop_files.emit([line for line in data.splitlines() if line])
             event.acceptProposedAction()
             return
+        if self.role == "local" and local_paths:
+            self.copy_local_files.emit(local_paths)
+            event.acceptProposedAction()
+            return
         super().dropEvent(event)
 
     def _accepts_mime(self, mime: QMimeData) -> bool:
+        has_local_paths = mime.hasUrls() and any(url.isLocalFile() for url in mime.urls())
         if self.role == "remote":
-            return mime.hasUrls()
-        return mime.hasFormat("application/x-jobdesk-remote-paths")
+            return has_local_paths
+        return mime.hasFormat("application/x-jobdesk-remote-paths") or has_local_paths
 
 
 class _BackgroundRunWorker:

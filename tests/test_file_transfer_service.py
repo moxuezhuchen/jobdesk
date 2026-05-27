@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 
 import pytest
@@ -17,13 +18,16 @@ class FakeSFTP:
         self.renamed = []
         self.created = []
         self.files = {"/remote/a.txt": b"hello\n"}
+        self.last_progress_callback = None
 
-    def upload_file(self, local_path, remote_path, overwrite=False, skip_if_same_size=True, dry_run=False):
+    def upload_file(self, local_path, remote_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None):
         self.uploads.append((Path(local_path), remote_path, overwrite, skip_if_same_size, dry_run))
+        self.last_progress_callback = progress_callback
         return TransferRecord(TransferDirection.upload, str(local_path), remote_path, status=TransferStatus.transferred)
 
-    def download_file(self, remote_path, local_path, overwrite=False, skip_if_same_size=True, dry_run=False):
+    def download_file(self, remote_path, local_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None):
         self.downloads.append((remote_path, Path(local_path), overwrite, skip_if_same_size, dry_run))
+        self.last_progress_callback = progress_callback
         return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
 
     def is_dir(self, remote_path):
@@ -52,6 +56,18 @@ def test_ensure_safe_remote_path_rejects_relative_backslash_and_parent():
     for value in ("relative/path", "/tmp/../etc", "/tmp\\bad"):
         with pytest.raises(RemotePathError):
             ensure_safe_remote_path(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("//", "/"),
+        ("/root/", "/root"),
+        ("/root/.", "/root"),
+    ],
+)
+def test_ensure_safe_remote_path_canonicalizes_equivalent_paths(value, expected):
+    assert ensure_safe_remote_path(value) == expected
 
 
 def test_upload_path_maps_overwrite_policy(tmp_path):
@@ -131,3 +147,52 @@ def test_mkdir_rename_and_preview_text():
     assert sftp.created == ["/remote/new"]
     assert sftp.renamed == [("/remote/a.txt", "/remote/b.txt")]
     assert text == "hello\n"
+
+
+def test_upload_path_passes_progress_callback(tmp_path):
+    sftp = FakeSFTP()
+    service = FileTransferService(lambda: sftp)
+    local = tmp_path / "a.txt"
+    local.write_text("x", encoding="utf-8")
+
+    def cb(done, total):
+        return None
+
+    service.upload_path(local, "/remote/a.txt", progress_callback=cb)
+
+    assert sftp.last_progress_callback is cb
+    assert sftp.closed is True
+
+
+def test_download_path_passes_progress_callback(tmp_path):
+    sftp = FakeSFTP()
+    service = FileTransferService(lambda: sftp)
+
+    def cb(done, total):
+        return None
+
+    service.download_path("/remote/a.txt", tmp_path / "a.txt", progress_callback=cb)
+
+    assert sftp.last_progress_callback is cb
+    assert sftp.closed is True
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/passwd",
+        "/home/user/file.txt",
+        "/root/uma/file.gjf",
+    ],
+)
+def test_delete_remote_does_not_authorize_current_browsing_directory(target):
+    """Browsing a directory does not replace configured deletion roots."""
+    sftp = FakeSFTP()
+    service = FileTransferService(lambda: sftp)
+
+    with pytest.raises(RemotePathError, match="no allowed delete roots"):
+        service.delete_remote(target)
+
+
+def test_delete_remote_has_no_browsing_directory_authorization_override():
+    assert "extra_allowed_roots" not in inspect.signature(FileTransferService.delete_remote).parameters

@@ -28,11 +28,16 @@ def runs_page(qtbot, app_state):
 
 
 @pytest.fixture
-def file_page(qtbot, app_state):
+def file_page(qtbot, app_state, tmp_path):
     from jobdesk_app.gui.pages.file_transfer_page import FileTransferPage
-    page = FileTransferPage(app_state, log_cb=lambda m: None, status_cb=lambda m: None, error_cb=lambda t, m: None)
-    qtbot.addWidget(page)
-    return page
+    from jobdesk_app.services.gui_settings import GuiSettingsStore
+
+    store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
+    with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore", return_value=store):
+        page = FileTransferPage(app_state, log_cb=lambda m: None, status_cb=lambda m: None, error_cb=lambda t, m: None)
+        qtbot.addWidget(page)
+        yield page
+        page.shutdown()
 
 
 class TestRunsPage:
@@ -761,6 +766,118 @@ class TestFileTransferPage:
         from jobdesk_app.gui.i18n import tr
         assert file_page.confflow_btn.text() == tr("Run ConfFlow", file_page._language)
 
+    def test_transfer_progress_is_compact_and_in_task_action_row(self, file_page):
+        assert file_page.run_options_row.indexOf(file_page.progress_bar) == (
+            file_page.run_options_row.indexOf(file_page.create_only_btn) + 1
+        )
+        assert file_page.progress_bar.maximumWidth() <= 360
+
+    def test_remote_table_routes_external_local_url_drop_for_upload(self, file_page, tmp_path):
+        from PySide6.QtCore import QMimeData, QUrl
+
+        source = tmp_path / "source.log"
+        source.write_text("output", encoding="utf-8")
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source))])
+        event = MagicMock()
+        event.mimeData.return_value = mime
+        dropped_paths = []
+        file_page.remote_table.drop_files.connect(lambda paths: dropped_paths.append(paths))
+
+        file_page.remote_table.dropEvent(event)
+
+        assert len(dropped_paths) == 1
+        assert [Path(path) for path in dropped_paths[0]] == [source]
+        event.acceptProposedAction.assert_called_once_with()
+
+    @pytest.mark.parametrize("role", ["local", "remote"])
+    def test_file_table_rejects_non_local_url_drop(self, file_page, role):
+        from PySide6.QtCore import QMimeData, QUrl
+
+        mime = QMimeData()
+        mime.setUrls([QUrl("https://example.invalid/result.log")])
+
+        assert not getattr(file_page, f"{role}_table")._accepts_mime(mime)
+
+    def test_local_table_routes_remote_path_drop_for_download(self, file_page):
+        from PySide6.QtCore import QMimeData
+
+        mime = QMimeData()
+        mime.setData("application/x-jobdesk-remote-paths", b"/remote/result.log")
+        event = MagicMock()
+        event.mimeData.return_value = mime
+        dropped_paths = []
+        file_page.local_table.drop_files.connect(lambda paths: dropped_paths.append(paths))
+
+        file_page.local_table.dropEvent(event)
+
+        assert dropped_paths == [["/remote/result.log"]]
+        event.acceptProposedAction.assert_called_once_with()
+
+    def test_external_local_url_drop_on_remote_table_uploads_to_current_remote_dir(
+        self, file_page, qtbot, tmp_path
+    ):
+        from PySide6.QtCore import QMimeData, QUrl
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        source = tmp_path / "source.log"
+        source.write_text("output", encoding="utf-8")
+        file_page.remote_path.setText("/remote/current")
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload,
+            str(source),
+            "/remote/current/source.log",
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source))])
+        event = MagicMock()
+        event.mimeData.return_value = mime
+
+        with patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page.remote_table.dropEvent(event)
+            qtbot.waitUntil(
+                lambda: service.upload_path.called and refresh_remote.called,
+                timeout=2000,
+            )
+
+        assert Path(service.upload_path.call_args.args[0]) == source
+        assert service.upload_path.call_args.args[1] == "/remote/current/source.log"
+
+    def test_remote_path_drop_on_local_table_downloads_to_current_local_dir(
+        self, file_page, qtbot, tmp_path
+    ):
+        from PySide6.QtCore import QMimeData
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        file_page.state.current_project_root = tmp_path
+        service = MagicMock()
+        service.download_path.return_value = TransferRecord(
+            TransferDirection.download,
+            str(tmp_path / "result.log"),
+            "/remote/result.log",
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+        mime = QMimeData()
+        mime.setData("application/x-jobdesk-remote-paths", b"/remote/result.log")
+        event = MagicMock()
+        event.mimeData.return_value = mime
+
+        with patch.object(file_page, "_refresh_local") as refresh_local:
+            file_page.local_table.dropEvent(event)
+            qtbot.waitUntil(
+                lambda: service.download_path.called and refresh_local.called,
+                timeout=2000,
+            )
+
+        assert service.download_path.call_args.args[0] == "/remote/result.log"
+        assert Path(service.download_path.call_args.args[1]) == tmp_path / "result.log"
+
     def test_confflow_invalid_input_reports_visible_error(self, file_page):
         errors = []
         file_page._service = MagicMock()
@@ -796,6 +913,290 @@ class TestFileTransferPage:
         file_page._service = None
         file_page._upload_dropped_local_paths(["C:/fake/file.gjf"])
         assert any("Connect" in m for m in messages)
+
+    def test_upload_selected_uses_service_public_api(self, file_page, qtbot, tmp_path):
+        """_upload_selected must not call _sftp_factory directly; must use service.upload_path."""
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        local_file = tmp_path / "test.gjf"
+        local_file.write_text("data", encoding="utf-8")
+        file_page.state.current_project_root = tmp_path
+
+        # Set up local table with selection
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("test.gjf"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
+        file_page.local_table.selectRow(0)
+        file_page.remote_path.setText("/remote/dir")
+
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload, str(local_file), "/remote/dir/test.gjf",
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+
+        with patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page._upload_selected()
+            qtbot.waitUntil(
+                lambda: service.upload_path.called and refresh_remote.called,
+                timeout=2000,
+            )
+
+        call_args = service.upload_path.call_args
+        assert call_args is not None
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+        assert call_args[0][2] == OverwritePolicy.overwrite
+        assert call_args[1].get("progress_callback") is not None
+
+    def test_download_selected_uses_service_public_api(self, file_page, qtbot, tmp_path):
+        """_download_selected must not call _sftp_factory directly."""
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        file_page.state.current_project_root = tmp_path
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("result.log"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/result.log"))
+        file_page.remote_table.selectRow(0)
+
+        service = MagicMock()
+        service.download_path.return_value = TransferRecord(
+            TransferDirection.download, str(tmp_path / "result.log"), "/remote/result.log",
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+
+        with patch.object(file_page, "_refresh_local") as refresh_local:
+            file_page._download_selected()
+            qtbot.waitUntil(
+                lambda: service.download_path.called and refresh_local.called,
+                timeout=2000,
+            )
+
+        call_args = service.download_path.call_args
+        assert call_args is not None
+        assert call_args[1].get("progress_callback") is not None
+
+    def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
+        """Ordinary drag-drop must not overwrite a remote destination silently."""
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        local_file = tmp_path / "mol.xyz"
+        local_file.write_text("xyz", encoding="utf-8")
+        file_page.remote_path.setText("/remote/dir")
+
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload, str(local_file), "/remote/dir/mol.xyz",
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+
+        with patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page._upload_dropped_local_paths([str(local_file)])
+            qtbot.waitUntil(
+                lambda: service.upload_path.called and refresh_remote.called,
+                timeout=2000,
+            )
+
+        call_args = service.upload_path.call_args
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+        assert call_args[0][2] == OverwritePolicy.skip_same_size
+
+    def test_upload_dropped_posix_local_path_is_not_misrouted_as_download(self, file_page):
+        file_page._service = MagicMock()
+
+        with patch.object(file_page, "_download_dropped_remote_paths") as download:
+            file_page._upload_dropped_local_paths(["/tmp/source.log"])
+
+        download.assert_not_called()
+
+    def test_local_table_accepts_external_local_url_drop(self, file_page, tmp_path):
+        from PySide6.QtCore import QMimeData, QUrl
+
+        source = tmp_path / "source.txt"
+        source.write_text("source", encoding="utf-8")
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source))])
+
+        assert file_page.local_table._accepts_mime(mime)
+
+    def test_external_local_drop_copies_file_into_current_local_directory(self, file_page, tmp_path):
+        source_dir = tmp_path / "source"
+        target_dir = tmp_path / "target"
+        source_dir.mkdir()
+        target_dir.mkdir()
+        source = source_dir / "result.log"
+        source.write_text("contents", encoding="utf-8")
+        file_page.state.current_project_root = target_dir
+
+        file_page._copy_dropped_local_paths([str(source)])
+
+        assert source.read_text(encoding="utf-8") == "contents"
+        assert (target_dir / "result.log").read_text(encoding="utf-8") == "contents"
+
+    def test_external_local_drop_does_not_overwrite_existing_destination(self, file_page, tmp_path):
+        errors = []
+        source_dir = tmp_path / "source"
+        target_dir = tmp_path / "target"
+        source_dir.mkdir()
+        target_dir.mkdir()
+        source = source_dir / "result.log"
+        source.write_text("incoming", encoding="utf-8")
+        destination = target_dir / "result.log"
+        destination.write_text("existing", encoding="utf-8")
+        file_page.state.current_project_root = target_dir
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._copy_dropped_local_paths([str(source)])
+
+        assert destination.read_text(encoding="utf-8") == "existing"
+        assert errors
+
+    def test_rename_local_selected_file(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            return_value=("after.txt", True),
+        ):
+            file_page._rename_local()
+
+        assert not original.exists()
+        assert (tmp_path / "after.txt").read_text(encoding="utf-8") == "contents"
+
+    @pytest.mark.parametrize("invalid_name", ["nested/new.txt", r"nested\new.txt"])
+    def test_rename_local_rejects_path_separator(self, file_page, tmp_path, invalid_name):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        errors = []
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            return_value=(invalid_name, True),
+        ):
+            file_page._rename_local()
+
+        assert original.exists()
+        assert errors
+
+    def test_rename_remote_rejects_path_separator(self, file_page):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/root/uma/before.txt"))
+        file_page.remote_table.selectRow(0)
+        file_page._service = MagicMock()
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            return_value=("nested/after.txt", True),
+        ):
+            file_page._rename_remote()
+
+        file_page._service.rename_remote.assert_not_called()
+
+    def test_delete_remote_uses_service_configured_roots_only(self, file_page, qtbot):
+        """Browsing a directory must not grant deletion authority."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        file_page.remote_path.setText("/root/uma")
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("file.gjf"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/root/uma/file.gjf"))
+        file_page.remote_table.selectRow(0)
+
+        service = MagicMock()
+        file_page._service = service
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            file_page._delete_remote()
+
+        service.delete_remote.assert_called_once_with("/root/uma/file.gjf", recursive=True)
+
+    def test_delete_remote_in_toplevel_rejected(self, file_page, qtbot):
+        """Delete at top-level (/, /root, /home) must be rejected by the GUI."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        errors = []
+        file_page._error_cb = lambda t, m: errors.append((t, m))
+
+        for toplevel in ["/", "/root", "/home"]:
+            file_page.remote_path.setText(toplevel)
+            file_page.remote_table.setRowCount(1)
+            file_page.remote_table.setItem(0, 0, QTableWidgetItem("something"))
+            file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+            child = f"{toplevel.rstrip('/')}/something"
+            file_page.remote_table.setItem(0, 5, QTableWidgetItem(child))
+            file_page.remote_table.selectRow(0)
+
+            service = MagicMock()
+            file_page._service = service
+
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+                file_page._delete_remote()
+
+            service.delete_remote.assert_not_called()
+
+        assert len(errors) == 3
+
+    def test_delete_remote_rejects_parent_and_current_dir(self, file_page, qtbot):
+        """Cannot delete the current dir itself or parent path."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        errors = []
+        file_page._error_cb = lambda t, m: errors.append((t, m))
+        file_page.remote_path.setText("/root/uma")
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem(".."))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("dir"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/root"))
+        file_page.remote_table.selectRow(0)
+
+        service = MagicMock()
+        file_page._service = service
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            file_page._delete_remote()
+
+        service.delete_remote.assert_not_called()
+
+    def test_shutdown_ignores_pending_remote_list_error_callback(self, file_page):
+        """A late remote-list result must not update a page after shutdown."""
+        errors = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._remote_list_fallbacks = []
+        request_id = file_page._remote_list_request_id
+
+        file_page.shutdown()
+        file_page._on_remote_list_error(request_id, "late remote error")
+
+        assert errors == []
 
     def test_shutdown_stops_worker_when_settings_save_fails(self, file_page):
         worker = MagicMock()
