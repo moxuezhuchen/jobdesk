@@ -27,7 +27,8 @@ def runs_page(qtbot, app_state):
         mock_svc.return_value.list_runs.return_value = []
         page = RunsResultsPage(app_state, log_cb=lambda m: None, status_cb=lambda m: None)
         qtbot.addWidget(page)
-        return page
+        yield page
+        page.shutdown()
 
 
 @pytest.fixture
