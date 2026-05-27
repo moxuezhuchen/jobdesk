@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import posixpath
 import shutil
 import subprocess
@@ -1473,7 +1472,7 @@ class FileTransferPage(QWidget):
         try:
             new_file.touch(exist_ok=False)
             self._refresh_local()
-            os.startfile(str(new_file))
+            self._open_in_text_editor(new_file)
         except Exception as exc:
             self._error_cb("New File Error", str(exc))
 

@@ -992,6 +992,18 @@ class TestFileTransferPage:
         assert launch.call_args.args[0][0] == "C:/Tools/editor.exe"
         assert launch.call_args.args[0][1].endswith("result.log")
 
+    def test_new_local_file_uses_configured_text_editor(self, file_page, tmp_path):
+        file_page.state.current_project_root = tmp_path
+        file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            return_value=("new.txt", True),
+        ), patch.object(file_page, "_refresh_local"), patch.object(file_page, "_open_in_text_editor") as open_editor:
+            file_page._new_file_local()
+
+        open_editor.assert_called_once_with(tmp_path / "new.txt")
+
     def test_upload_without_service_shows_message(self, file_page, qtbot):
         """Drag-drop without connection should show status message."""
         messages = []
