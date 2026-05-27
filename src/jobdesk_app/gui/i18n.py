@@ -157,6 +157,9 @@ ZH: dict[str, str] = {
     # -- Settings/Servers page --
     "Local Directory": "\u672c\u5730\u76ee\u5f55",
     "Default save path for downloaded results": "\u4e0b\u8f7d\u7ed3\u679c\u6587\u4ef6\u7684\u9ed8\u8ba4\u4fdd\u5b58\u4f4d\u7f6e",
+    "Text Editor": "\u6587\u672c\u7f16\u8f91\u5668",
+    "Editor used to open files in Files page": "\u6587\u4ef6\u9875\u9ed8\u8ba4\u7528\u4e8e\u6253\u5f00\u6587\u4ef6\u7684\u7f16\u8f91\u5668",
+    "Select text editor": "\u9009\u62e9\u6587\u672c\u7f16\u8f91\u5668",
     "Max Parallel": "\u6700\u5927\u5e76\u53d1",
     "Maximum concurrent remote tasks": "\u540c\u65f6\u8fd0\u884c\u7684\u8fdc\u7a0b\u4efb\u52a1\u6570\u4e0a\u9650",
     "Language": "\u8bed\u8a00",

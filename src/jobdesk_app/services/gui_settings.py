@@ -21,6 +21,7 @@ class GuiSettings:
     last_local_folder: str = ""
     default_remote_dir: str = "/tmp"
     default_server_id: str = ""
+    text_editor_path: str = "notepad.exe"
     last_server_id: str = ""
     last_remote_dirs: dict[str, str] | None = None  # server_id -> last remote path
     auto_connect: bool = True
@@ -61,6 +62,7 @@ class GuiSettingsStore:
             last_local_folder=str(raw.get("last_local_folder", "")),
             default_remote_dir=str(raw.get("default_remote_dir", "/tmp") or "/tmp"),
             default_server_id=str(raw.get("default_server_id", "")),
+            text_editor_path=str(raw.get("text_editor_path", "notepad.exe") or "notepad.exe"),
             last_server_id=str(raw.get("last_server_id", "")),
             last_remote_dirs=dict(raw.get("last_remote_dirs", {}) or {}),
             auto_connect=bool(raw.get("auto_connect", True)),
@@ -103,6 +105,7 @@ class GuiSettingsStore:
             "last_local_folder": settings.last_local_folder,
             "default_remote_dir": settings.default_remote_dir,
             "default_server_id": settings.default_server_id,
+            "text_editor_path": settings.text_editor_path,
             "last_server_id": settings.last_server_id,
             "last_remote_dirs": settings.last_remote_dirs or {},
             "auto_connect": settings.auto_connect,

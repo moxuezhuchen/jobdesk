@@ -156,6 +156,21 @@ class SettingsServersPage(QWidget):
         self._card_local = SettingCard(tr("Local Directory", self._language), tr("Default save path for downloaded results", self._language), folder_ctrl)
         layout.addWidget(self._card_local)
 
+        editor_ctrl = QWidget()
+        editor_layout = QHBoxLayout(editor_ctrl)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        self.text_editor_edit = QLineEdit()
+        self.text_editor_browse_btn = QPushButton(tr("Browse", self._language))
+        self.text_editor_browse_btn.clicked.connect(self._browse_text_editor)
+        editor_layout.addWidget(self.text_editor_edit, 1)
+        editor_layout.addWidget(self.text_editor_browse_btn)
+        self._card_text_editor = SettingCard(
+            tr("Text Editor", self._language),
+            tr("Editor used to open files in Files page", self._language),
+            editor_ctrl,
+        )
+        layout.addWidget(self._card_text_editor)
+
         # ─── 最大并发 ───
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
@@ -337,6 +352,8 @@ class SettingsServersPage(QWidget):
         # Setting cards
         self._card_local.lbl_title.setText(tr("Local Directory", language))
         self._card_local.lbl_desc.setText(tr("Default save path for downloaded results", language))
+        self._card_text_editor.lbl_title.setText(tr("Text Editor", language))
+        self._card_text_editor.lbl_desc.setText(tr("Editor used to open files in Files page", language))
         self._card_parallel.lbl_title.setText(tr("Max Parallel", language))
         self._card_parallel.lbl_desc.setText(tr("Maximum concurrent remote tasks", language))
         self._card_language.lbl_title.setText(tr("Language", language))
@@ -345,6 +362,7 @@ class SettingsServersPage(QWidget):
         self._card_dotfiles.lbl_desc.setText(tr("Hide files starting with . in remote listing", language))
         # Buttons
         self.browse_btn.setText(tr("Browse", language))
+        self.text_editor_browse_btn.setText(tr("Browse", language))
         self._add_profile_btn.setText(tr("Add", language))
         self._del_profile_btn.setText(tr("Delete", language))
         self.test_btn.setText(tr("Test Connection", language))
@@ -436,6 +454,7 @@ class SettingsServersPage(QWidget):
     def _load_settings(self):
         s = self._store.load()
         self.local_folder_edit.setText(s.default_local_folder)
+        self.text_editor_edit.setText(s.text_editor_path)
         self.max_parallel_spin.setValue(s.max_parallel)
         idx = self.language_combo.findData(s.language)
         if idx >= 0:
@@ -469,6 +488,7 @@ class SettingsServersPage(QWidget):
         new_settings = replace(
             existing,
             default_local_folder=self.local_folder_edit.text().strip(),
+            text_editor_path=self.text_editor_edit.text().strip() or "notepad.exe",
             max_parallel=self.max_parallel_spin.value(),
             language=self.language_combo.currentData() or "zh",
             hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
@@ -494,6 +514,16 @@ class SettingsServersPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language), self.local_folder_edit.text())
         if path:
             self.local_folder_edit.setText(path)
+
+    def _browse_text_editor(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("Select text editor", self._language),
+            self.text_editor_edit.text(),
+            "Applications (*.exe);;All files (*)",
+        )
+        if path:
+            self.text_editor_edit.setText(path)
 
     def _delete_server(self):
         import yaml

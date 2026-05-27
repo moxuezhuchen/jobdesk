@@ -5,6 +5,7 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -30,9 +31,10 @@ def runs_page(qtbot, app_state):
 @pytest.fixture
 def file_page(qtbot, app_state, tmp_path):
     from jobdesk_app.gui.pages.file_transfer_page import FileTransferPage
-    from jobdesk_app.services.gui_settings import GuiSettingsStore
+    from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
 
     store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
+    store.save(GuiSettings(auto_connect=False))
     with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore", return_value=store):
         page = FileTransferPage(app_state, log_cb=lambda m: None, status_cb=lambda m: None, error_cb=lambda t, m: None)
         qtbot.addWidget(page)
@@ -961,6 +963,32 @@ class TestFileTransferPage:
         file_page._refresh_local()
         # Should have at least the parent row
         assert file_page.local_table.rowCount() >= 0
+
+    def test_open_local_file_uses_configured_text_editor(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        local_file = tmp_path / "notes.txt"
+        local_file.write_text("notes", encoding="utf-8")
+        file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.subprocess.Popen") as launch:
+            file_page._open_local_item(file_page.local_table.item(0, 4))
+
+        launch.assert_called_once_with(["C:/Tools/editor.exe", str(local_file)])
+
+    def test_open_remote_file_uses_configured_text_editor_after_download(self, file_page, qtbot):
+        file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
+        file_page._service = MagicMock()
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.subprocess.Popen") as launch:
+            file_page._open_remote_file_in_editor("/remote/result.log")
+            qtbot.waitUntil(lambda: launch.called, timeout=2000)
+
+        assert launch.call_args.args[0][0] == "C:/Tools/editor.exe"
+        assert launch.call_args.args[0][1].endswith("result.log")
 
     def test_upload_without_service_shows_message(self, file_page, qtbot):
         """Drag-drop without connection should show status message."""

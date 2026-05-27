@@ -80,6 +80,26 @@ def test_shutdown_waits_for_worker_without_timeout(qtbot):
     worker.stop_safely.assert_called_once_with()
 
 
+def test_text_editor_setting_loads_and_saves(qtbot):
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings(text_editor_path="C:/Tools/notepad++.exe")
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ):
+        page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
+        qtbot.addWidget(page)
+
+    assert page.text_editor_edit.text() == "C:/Tools/notepad++.exe"
+
+    page.text_editor_edit.setText("C:/Tools/code.exe")
+    page._save_settings()
+
+    saved = settings_store.save.call_args.args[0]
+    assert saved.text_editor_path == "C:/Tools/code.exe"
+
+
 def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_path):
     servers_path = tmp_path / "servers.yaml"
     servers_path.write_text(

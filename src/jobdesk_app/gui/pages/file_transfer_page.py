@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import posixpath
 import shutil
+import subprocess
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -1129,10 +1130,7 @@ class FileTransferPage(QWidget):
             self._save_last_local_folder(path)
             self._refresh_local_after_navigation()
             return
-        try:
-            os.startfile(path)
-        except Exception as exc:
-            self._error_cb("Open File Error", str(exc))
+        self._open_in_text_editor(path)
 
     def _open_remote_item(self, item):
         row = item.row()
@@ -1160,7 +1158,7 @@ class FileTransferPage(QWidget):
             self._open_remote_item(item)
 
     def _open_remote_file_in_editor(self, remote_path: str):
-        """Download remote file to a temp directory and open with the default OS editor."""
+        """Download a remote file to a temp directory and open it in the configured editor."""
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
@@ -1177,11 +1175,8 @@ class FileTransferPage(QWidget):
             return tmp_file
 
         def _on_done(path):
-            try:
-                os.startfile(str(path))
+            if self._open_in_text_editor(path):
                 self._status_cb(f"Opened: {name}")
-            except Exception as exc:
-                self._error_cb("Open Error", str(exc))
 
         worker = _BackgroundRunWorker(_download)
         worker.result.connect(_on_done)
@@ -1189,6 +1184,15 @@ class FileTransferPage(QWidget):
         self._background_workers.append(worker)
         worker.start()
         self._status_cb(f"Downloading {name}…")
+
+    def _open_in_text_editor(self, path: str | Path) -> bool:
+        editor = self._gui_settings.text_editor_path or "notepad.exe"
+        try:
+            subprocess.Popen([editor, str(path)])
+        except Exception as exc:
+            self._error_cb("Open File Error", str(exc))
+            return False
+        return True
 
     def _download_selected(self):
         if self._service is None:

@@ -13,6 +13,7 @@ def test_gui_settings_store_roundtrip(tmp_path):
         default_local_folder=str(tmp_path / "inputs"),
         default_remote_dir="/scratch/jobs",
         default_server_id="s1",
+        text_editor_path="C:/Tools/editor.exe",
         auto_connect=False,
         overwrite_policy="overwrite",
         command_template="g16 {name}",
@@ -31,6 +32,7 @@ def test_gui_settings_defaults(tmp_path):
     settings = GuiSettingsStore(tmp_path / "missing.yaml").load()
 
     assert settings.default_remote_dir == "/tmp"
+    assert settings.text_editor_path == "notepad.exe"
     assert settings.auto_connect is True
     assert settings.command_template == "bash {name}"
     assert settings.max_parallel == 4
