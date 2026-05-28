@@ -1,4 +1,5 @@
 import inspect
+import threading
 from pathlib import Path
 
 import pytest
@@ -171,9 +172,9 @@ def test_persistent_session_survives_rename_destination_conflict():
     with pytest.raises(RemotePathError, match="Destination already exists"):
         service.rename_remote("/remote/a.txt", "/remote/b.txt")
 
-    assert sessions[0].closed is False
+    assert sessions[0].closed is False  # write SFTP survives RemotePathError
     assert service.list_remote("/remote") == ["/remote"]
-    assert len(sessions) == 1
+    assert len(sessions) == 2  # write + read use separate SFTP instances
 
 
 def test_delete_remote_guards_dangerous_paths():
@@ -290,3 +291,199 @@ def test_delete_remote_does_not_authorize_current_browsing_directory(target):
 
 def test_delete_remote_has_no_browsing_directory_authorization_override():
     assert "extra_allowed_roots" not in inspect.signature(FileTransferService.delete_remote).parameters
+
+
+
+# ---------------------------------------------------------------------------
+# #6: persistent SFTP read/write split tests
+# ---------------------------------------------------------------------------
+
+
+def test_persistent_list_remote_reuses_read_sftp():
+    """Consecutive list_remote calls reuse the same read SFTP instance."""
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+    service.list_remote("/remote")
+    service.list_remote("/remote")
+
+    assert len(sessions) == 1
+    assert sessions[0].closed is False
+    service.close()
+
+
+def test_persistent_list_and_upload_use_different_sftp(tmp_path):
+    """list_remote (read) and upload_path (write) get different SFTP instances."""
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+    local = tmp_path / "a.txt"
+    local.write_text("x")
+
+    service.list_remote("/remote")
+    service.upload_path(local, "/remote/a.txt")
+
+    assert len(sessions) == 2
+    assert sessions[0] is not sessions[1]
+    service.close()
+
+
+def test_persistent_list_not_blocked_by_write_lock(tmp_path):
+    """list_remote can proceed while a write operation holds the write lock."""
+    sessions = []
+    write_entered = threading.Event()
+    allow_write_finish = threading.Event()
+
+    class SlowSFTP(FakeSFTP):
+        def upload_file(self, *args, **kwargs):
+            write_entered.set()
+            allow_write_finish.wait(timeout=5)
+            return super().upload_file(*args, **kwargs)
+
+    call_count = {"factory": 0}
+
+    def factory():
+        call_count["factory"] += 1
+        if call_count["factory"] == 1:
+            # First call is for list_remote (read)
+            sftp = FakeSFTP()
+        else:
+            # Second call is for upload (write) — slow
+            sftp = SlowSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+    # Prime read SFTP
+    service.list_remote("/remote")
+
+    local = tmp_path / "big.txt"
+    local.write_text("x" * 1000)
+
+    # Start upload in background (holds write lock)
+    upload_thread = threading.Thread(
+        target=service.upload_path, args=(local, "/remote/big.txt")
+    )
+    upload_thread.start()
+    write_entered.wait(timeout=5)
+
+    # list_remote should succeed immediately despite write lock being held
+    result = service.list_remote("/remote")
+    assert result == ["/remote"]
+
+    allow_write_finish.set()
+    upload_thread.join(timeout=5)
+    service.close()
+
+
+def test_persistent_read_error_does_not_affect_write():
+    """Read SFTP failure only discards read SFTP; write SFTP stays intact."""
+    class FailOnceReadSFTP(FakeSFTP):
+        def __init__(self, fail=False):
+            super().__init__()
+            self._fail = fail
+
+        def list_dir_info(self, remote_dir):
+            if self._fail:
+                raise RuntimeError("read channel error")
+            return super().list_dir_info(remote_dir)
+
+    sessions = []
+    call_count = {"n": 0}
+
+    def factory():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            sftp = FailOnceReadSFTP(fail=True)  # read - will fail
+        elif call_count["n"] == 2:
+            sftp = FakeSFTP()  # write
+        else:
+            sftp = FakeSFTP()  # replacement read
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    # Trigger read failure
+    with pytest.raises(RuntimeError):
+        service.list_remote("/remote")
+    assert sessions[0].closed is True
+
+    # Write SFTP should work (created fresh, unaffected by read failure)
+    service.mkdir_remote("/remote/new")
+    assert sessions[1].closed is False
+
+    # Read SFTP should be re-created on next list_remote
+    service.list_remote("/remote")
+    assert len(sessions) == 3
+    service.close()
+
+
+def test_persistent_write_error_does_not_affect_read():
+    """Write SFTP failure only discards write SFTP; read SFTP stays intact."""
+    class FailWriteSFTP(FakeSFTP):
+        def mkdir_p(self, remote_dir):
+            raise RuntimeError("write channel error")
+
+    sessions = []
+    call_count = {"n": 0}
+
+    def factory():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            sftp = FakeSFTP()  # read
+        elif call_count["n"] == 2:
+            sftp = FailWriteSFTP()  # write - will fail
+        else:
+            sftp = FakeSFTP()  # replacement write
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    # Prime read
+    service.list_remote("/remote")
+    assert len(sessions) == 1
+
+    # Write failure
+    with pytest.raises(RuntimeError):
+        service.mkdir_remote("/remote/new")
+    assert sessions[1].closed is True
+
+    # Read still uses original SFTP (not closed)
+    service.list_remote("/remote")
+    assert len(sessions) == 2  # no new session for read
+    assert sessions[0].closed is False
+    service.close()
+
+
+def test_persistent_close_closes_both_read_and_write(tmp_path):
+    """close() closes both read and write SFTP sessions."""
+    sessions = []
+
+    def factory():
+        sftp = FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+    local = tmp_path / "a.txt"
+    local.write_text("x")
+
+    service.list_remote("/remote")
+    service.upload_path(local, "/remote/a.txt")
+    assert len(sessions) == 2
+
+    service.close()
+    assert sessions[0].closed is True  # read
+    assert sessions[1].closed is True  # write

@@ -757,7 +757,6 @@ class FileTransferPage(QWidget):
             self._refresh_local()
 
     def _refresh_local(self):
-        self._gui_settings = GuiSettingsStore().load()
         base = self.state.current_project_root or Path.cwd()
         hide_dot = self._gui_settings.hide_dotfiles
         rows = []

@@ -759,6 +759,312 @@ class TestRunsPage:
         assert getattr(runs_page, '_auto_refresh_running', False)
 
 
+
+class TestAutoRefreshConnectionReuse:
+    """Tests for #3: SSH/SFTP connection reuse per server in _auto_refresh_active."""
+
+    def test_same_server_multiple_runs_one_connection(self, runs_page, qtbot):
+        """Multiple active runs on the same server should create only one SSH + one SFTP."""
+        records = [
+            MagicMock(run_id=f"run_{i}", server_id="wsl", remote_dir="/remote/work",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None)
+            for i in range(3)
+        ]
+        updated = MagicMock(status_summary={"running": 1})
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status"):
+            service.return_value.list_runs.return_value = records
+            service.return_value.load_run.return_value = updated
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        assert make_ssh.call_count == 1
+        assert make_sftp.call_count == 1
+
+    def test_active_and_needs_download_share_connection(self, runs_page, qtbot):
+        """Active run refresh + needs_download run on same server share one connection."""
+        active_rec = MagicMock(run_id="run_active", server_id="wsl", remote_dir="/r",
+                               manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None)
+        dl_rec = MagicMock(run_id="run_dl", server_id="wsl", remote_dir="/r",
+                           manifest_path=Path("m.tsv"), status_summary={"remote_completed": 1}, local_dir=None)
+        updated_active = MagicMock(status_summary={"running": 1})
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status"), \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.out"]):
+            service.return_value.list_runs.return_value = [active_rec, dl_rec]
+            service.return_value.load_run.return_value = updated_active
+            service.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        assert make_ssh.call_count == 1
+        assert make_sftp.call_count == 1
+
+    def test_different_servers_get_separate_connections(self, runs_page, qtbot):
+        """Runs on different servers each get their own SSH+SFTP."""
+        records = [
+            MagicMock(run_id="run_a", server_id="srv_a", remote_dir="/r",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
+            MagicMock(run_id="run_b", server_id="srv_b", remote_dir="/r",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
+        ]
+        updated = MagicMock(status_summary={"running": 1})
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status"):
+            service.return_value.list_runs.return_value = records
+            service.return_value.load_run.return_value = updated
+            servers.return_value.servers = {"srv_a": MagicMock(), "srv_b": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        assert make_ssh.call_count == 2
+        assert make_sftp.call_count == 2
+
+    def test_run_error_does_not_affect_others_and_all_closed(self, runs_page, qtbot):
+        """If one run's refresh fails, others still proceed and all sessions close."""
+        records = [
+            MagicMock(run_id="run_fail", server_id="wsl", remote_dir="/r",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
+            MagicMock(run_id="run_ok", server_id="wsl", remote_dir="/r",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
+        ]
+        updated = MagicMock(status_summary={"running": 1})
+        call_count = {"refresh": 0}
+
+        def fake_refresh(**kwargs):
+            call_count["refresh"] += 1
+            if call_count["refresh"] == 1:
+                raise RuntimeError("simulated failure")
+
+        mock_ssh = MagicMock()
+        mock_sftp = MagicMock()
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status", side_effect=fake_refresh):
+            service.return_value.list_runs.return_value = records
+            service.return_value.load_run.return_value = updated
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = mock_ssh
+            make_sftp.return_value = mock_sftp
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        # Both runs attempted refresh (2 calls to refresh_batch_status)
+        assert call_count["refresh"] == 2
+        # Connection created only once (reuse)
+        assert make_ssh.call_count == 1
+        # All sessions closed in finally
+        mock_sftp.close.assert_called_once()
+        mock_ssh.close.assert_called_once()
+
+    def test_sftp_creation_failure_closes_ssh_and_does_not_cache(self, runs_page, qtbot):
+        """If SFTP creation fails, SSH is closed and the bad session is not cached."""
+        records = [
+            MagicMock(run_id="run_1", server_id="wsl", remote_dir="/r",
+                      manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
+        ]
+        mock_ssh = MagicMock()
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status"):
+            service.return_value.list_runs.return_value = records
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = mock_ssh
+            make_sftp.side_effect = RuntimeError("SFTP channel failed")
+
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(
+                lambda: not getattr(runs_page, "_auto_refresh_running", False),
+                timeout=2000,
+            )
+
+        # SSH was closed immediately when SFTP failed
+        mock_ssh.close.assert_called_once()
+
+
+
+class TestTaskDoneDebounce:
+    """Tests for #4: _on_task_done debounce."""
+
+    def _make_event(self, run_id="run_1", server_id="wsl", exit_code=None):
+        evt = MagicMock()
+        evt.run_id = run_id
+        evt.server_id = server_id
+        evt.exit_code = exit_code
+        return evt
+
+    def test_multiple_running_events_single_refresh(self, runs_page, qtbot):
+        """3 RUNNING events for same run_id within 1s → only 1 refresh_batch_status call."""
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh:
+            service.return_value.load_run.return_value = MagicMock(
+                local_dir=None, manifest_path=Path("m.tsv"), remote_dir="/r", server_id="wsl",
+                status_summary={"running": 1},
+            )
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            # Fire 3 RUNNING events rapidly
+            for _ in range(3):
+                runs_page._on_task_done(self._make_event(exit_code=None))
+
+            # Wait for debounce timer to fire + worker to finish
+            qtbot.waitUntil(
+                lambda: "run_1" not in runs_page._pending_task_events,
+                timeout=3000,
+            )
+            qtbot.waitUntil(
+                lambda: not runs_page._bg_workers,
+                timeout=3000,
+            )
+
+        refresh.assert_called_once()
+        service.return_value.download_completed.assert_not_called()
+
+    def test_multiple_done_events_single_refresh_and_download(self, runs_page, qtbot):
+        """Multiple DONE events → 1 refresh + 1 download_completed."""
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh, \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+            service.return_value.load_run.return_value = MagicMock(
+                local_dir=None, manifest_path=Path("m.tsv"), remote_dir="/r", server_id="wsl",
+                status_summary={"remote_completed": 1},
+            )
+            service.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            for _ in range(3):
+                runs_page._on_task_done(self._make_event(exit_code=0))
+
+            qtbot.waitUntil(
+                lambda: "run_1" not in runs_page._pending_task_events,
+                timeout=3000,
+            )
+            qtbot.waitUntil(lambda: not runs_page._bg_workers, timeout=3000)
+
+            refresh.assert_called_once()
+            service.return_value.download_completed.assert_called_once()
+
+    def test_running_then_done_triggers_download(self, runs_page, qtbot):
+        """RUNNING followed by DONE → merged as has_done=True → download."""
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh, \
+             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+            service.return_value.load_run.return_value = MagicMock(
+                local_dir=None, manifest_path=Path("m.tsv"), remote_dir="/r", server_id="wsl",
+                status_summary={"remote_completed": 1},
+            )
+            service.return_value.download_completed.return_value = ([], [])
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._on_task_done(self._make_event(exit_code=None))  # RUNNING
+            runs_page._on_task_done(self._make_event(exit_code=0))     # DONE
+
+            qtbot.waitUntil(
+                lambda: "run_1" not in runs_page._pending_task_events,
+                timeout=3000,
+            )
+            qtbot.waitUntil(lambda: not runs_page._bg_workers, timeout=3000)
+
+            refresh.assert_called_once()
+            service.return_value.download_completed.assert_called_once()
+
+    def test_different_run_ids_debounce_independently(self, runs_page, qtbot):
+        """Events for different run_ids each produce their own refresh."""
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
+             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
+             patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh:
+            service.return_value.load_run.return_value = MagicMock(
+                local_dir=None, manifest_path=Path("m.tsv"), remote_dir="/r", server_id="wsl",
+                status_summary={"running": 1},
+            )
+            servers.return_value.servers = {"wsl": MagicMock()}
+            make_ssh.return_value = MagicMock()
+            make_sftp.return_value = MagicMock()
+
+            runs_page._on_task_done(self._make_event(run_id="run_a"))
+            runs_page._on_task_done(self._make_event(run_id="run_b"))
+
+            qtbot.waitUntil(
+                lambda: not runs_page._pending_task_events,
+                timeout=3000,
+            )
+            qtbot.waitUntil(lambda: not runs_page._bg_workers, timeout=3000)
+
+            assert refresh.call_count == 2
+
+    def test_shutdown_prevents_pending_timer_from_firing(self, runs_page, qtbot):
+        """After shutdown, pending debounce timers must not trigger refresh."""
+        with patch("jobdesk_app.remote.status_refresh.refresh_batch_status") as refresh:
+            runs_page._on_task_done(self._make_event())
+            assert "run_1" in runs_page._pending_task_events
+            runs_page.shutdown()
+            assert runs_page._pending_task_events == {}
+            assert runs_page._task_done_timers == {}
+            # Wait past debounce window — no refresh should fire
+            qtbot.wait(1200)
+
+        refresh.assert_not_called()
+
+
 class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):
         assert file_page is not None
@@ -966,6 +1272,43 @@ class TestFileTransferPage:
         file_page._refresh_local()
         # Should have at least the parent row
         assert file_page.local_table.rowCount() >= 0
+
+    def test_refresh_local_does_not_reload_settings(self, file_page):
+        """_refresh_local must not call GuiSettingsStore().load() — uses cached settings."""
+        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as mock_store:
+            file_page._refresh_local()
+        mock_store.return_value.load.assert_not_called()
+
+    def test_refresh_local_uses_cached_hide_dotfiles(self, file_page, tmp_path):
+        """_refresh_local hides/shows dotfiles based on cached self._gui_settings."""
+        from dataclasses import replace as dc_replace
+        # Create a dotfile in tmp_path
+        (tmp_path / ".hidden").write_text("x")
+        (tmp_path / "visible.txt").write_text("y")
+        file_page.state.current_project_root = tmp_path
+
+        # hide_dotfiles=True → dotfile hidden
+        file_page._gui_settings = dc_replace(file_page._gui_settings, hide_dotfiles=True)
+        file_page._refresh_local()
+        names = [file_page.local_table.item(r, 0).text() for r in range(file_page.local_table.rowCount())]
+        assert ".hidden" not in names
+        assert "visible.txt" in names
+
+        # hide_dotfiles=False → dotfile shown
+        file_page._gui_settings = dc_replace(file_page._gui_settings, hide_dotfiles=False)
+        file_page._refresh_local()
+        names = [file_page.local_table.item(r, 0).text() for r in range(file_page.local_table.rowCount())]
+        assert ".hidden" in names
+        assert "visible.txt" in names
+
+    def test_on_activated_reloads_settings(self, file_page):
+        """on_activated must reload settings so external changes take effect."""
+        from jobdesk_app.services.gui_settings import GuiSettings
+        new_settings = GuiSettings(auto_connect=False, hide_dotfiles=True)
+        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as mock_store:
+            mock_store.return_value.load.return_value = new_settings
+            file_page.on_activated()
+        assert file_page._gui_settings.hide_dotfiles is True
 
     def test_open_local_file_uses_configured_text_editor(self, file_page, tmp_path):
         from PySide6.QtWidgets import QTableWidgetItem

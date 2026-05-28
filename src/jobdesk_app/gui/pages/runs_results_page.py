@@ -179,6 +179,10 @@ class RunsResultsPage(QWidget):
         self._monitor.task_done.connect(self._on_task_done)
         self._bg_workers: list = []
 
+        # Debounce state for _on_task_done events
+        self._pending_task_events: dict[str, dict] = {}  # run_id -> {server_id, has_done}
+        self._task_done_timers: dict[str, QTimer] = {}
+
         # Auto-refresh timer for active runs
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._auto_refresh_active)
@@ -199,12 +203,40 @@ class RunsResultsPage(QWidget):
             pass
 
     def _on_task_done(self, event):
-        """Called when a remote task changes state — refresh in background."""
+        """Called when a remote task changes state — debounce before refresh."""
+        run_id = event.run_id
+        # Merge event into pending state
+        if run_id in self._pending_task_events:
+            state = self._pending_task_events[run_id]
+            state["has_done"] = state["has_done"] or (event.exit_code is not None)
+        else:
+            self._pending_task_events[run_id] = {
+                "server_id": event.server_id,
+                "has_done": event.exit_code is not None,
+            }
+        # Start or restart debounce timer (1000ms)
+        if run_id in self._task_done_timers:
+            self._task_done_timers[run_id].start(1000)
+        else:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda rid=run_id: self._flush_task_done(rid))
+            self._task_done_timers[run_id] = timer
+            timer.start(1000)
+
+    def _flush_task_done(self, run_id: str):
+        """Execute debounced refresh for a run after the quiet window."""
+        state = self._pending_task_events.pop(run_id, None)
+        self._task_done_timers.pop(run_id, None)
+        if state is None:
+            return
+        has_done = state["has_done"]
+        server_id = state["server_id"]
         fallback_ws = self._workspace()
 
         def _run():
             from ...remote.status_refresh import refresh_batch_status
-            record = RunService(fallback_ws).load_run(event.run_id)
+            record = RunService(fallback_ws).load_run(run_id)
             rec_ws = Path(record.local_dir) if record.local_dir else fallback_ws
             server = load_servers().servers[record.server_id]
             ssh = create_ssh_client(server)
@@ -215,31 +247,36 @@ class RunsResultsPage(QWidget):
                     refresh_batch_status(
                         ssh=ssh,
                         manifest_path=record.manifest_path,
-                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
-                        batch_id=record.run_id,
+                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
+                        batch_id=run_id,
                         write=True,
                     )
-                    RunService(rec_ws).update_run_from_manifest(record.run_id)
-                    # Only download on DONE (exit_code is not None)
-                    if event.exit_code is not None:
-                        updated = RunService(rec_ws).load_run(record.run_id)
+                    RunService(rec_ws).update_run_from_manifest(run_id)
+                    if has_done:
+                        updated = RunService(rec_ws).load_run(run_id)
                         if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
-                            _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
+                            _records, failures = RunService(rec_ws).download_completed(run_id, sftp, patterns)
                             if failures:
                                 return "Result download failed: " + str(failures)
-                            return f"Run complete; results downloaded: {record.run_id}"
-                        RunService(rec_ws).update_run_from_manifest(record.run_id)
+                            return f"Run complete; results downloaded: {run_id}"
+                        RunService(rec_ws).update_run_from_manifest(run_id)
                 finally:
                     sftp.close()
             finally:
                 ssh.close()
 
+        class _FakeEvent:
+            pass
+        evt = _FakeEvent()
+        evt.run_id = run_id
+        evt.server_id = server_id
+
         from ..workers import BackgroundWorker
         w = BackgroundWorker(_run)
         w.result.connect(lambda message: self._status_cb(message) if message else None)
         w.error.connect(lambda error: self._status_cb(f"Automatic refresh failed: {error}"))
-        w.finished.connect(lambda: self._on_monitor_refresh_done(event))
+        w.finished.connect(lambda: self._on_monitor_refresh_done(evt))
         w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
         w.finished.connect(w.deleteLater)
         self._bg_workers.append(w)
@@ -630,66 +667,75 @@ class RunsResultsPage(QWidget):
             errors = []
             downloaded = []
             dl_failures: dict[str, int] = {}
-            for record in active:
-                rec_ws = Path(record.local_dir) if record.local_dir else workspace
-                srv = cfg.servers.get(record.server_id)
-                if not srv:
-                    continue
-                try:
+            sessions: dict[str, tuple] = {}  # server_id -> (ssh, sftp)
+
+            def get_session(server_id, srv):
+                if server_id not in sessions:
                     ssh = create_ssh_client(srv)
                     ssh.connect()
                     try:
                         sftp = create_sftp_client(ssh)
-                        try:
-                            refresh_batch_status(
-                                ssh=ssh,
-                                manifest_path=record.manifest_path,
-                                remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
-                                batch_id=record.run_id,
-                                write=True,
-                            )
-                            RunService(rec_ws).update_run_from_manifest(record.run_id)
-                            updated = RunService(rec_ws).load_run(record.run_id)
-                            if updated.status_summary.get("remote_completed", 0) > 0:
-                                patterns = self._get_download_patterns(record)
-                                _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
-                                if failures:
-                                    errors.append(f"{record.run_id}: {failures}")
-                                else:
-                                    downloaded.append(record.run_id)
-                        finally:
-                            sftp.close()
-                    finally:
+                    except Exception:
                         ssh.close()
-                except Exception as exc:
-                    errors.append(f"{record.run_id}: {exc}")
-            # Auto-recover remote_completed runs
-            for record in needs_download:
-                rec_ws = Path(record.local_dir) if record.local_dir else workspace
-                srv = cfg.servers.get(record.server_id)
-                if not srv:
-                    continue
-                try:
-                    ssh = create_ssh_client(srv)
-                    ssh.connect()
+                        raise
+                    sessions[server_id] = (ssh, sftp)
+                return sessions[server_id]
+
+            try:
+                for record in active:
+                    rec_ws = Path(record.local_dir) if record.local_dir else workspace
+                    srv = cfg.servers.get(record.server_id)
+                    if not srv:
+                        continue
                     try:
-                        sftp = create_sftp_client(ssh)
-                        try:
+                        ssh, sftp = get_session(record.server_id, srv)
+                        refresh_batch_status(
+                            ssh=ssh,
+                            manifest_path=record.manifest_path,
+                            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                            batch_id=record.run_id,
+                            write=True,
+                        )
+                        RunService(rec_ws).update_run_from_manifest(record.run_id)
+                        updated = RunService(rec_ws).load_run(record.run_id)
+                        if updated.status_summary.get("remote_completed", 0) > 0:
                             patterns = self._get_download_patterns(record)
                             _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
                             if failures:
                                 errors.append(f"{record.run_id}: {failures}")
-                                dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
                             else:
                                 downloaded.append(record.run_id)
-                                dl_failures[record.run_id] = 0
-                        finally:
-                            sftp.close()
-                    finally:
+                    except Exception as exc:
+                        errors.append(f"{record.run_id}: {exc}")
+                # Auto-recover remote_completed runs
+                for record in needs_download:
+                    rec_ws = Path(record.local_dir) if record.local_dir else workspace
+                    srv = cfg.servers.get(record.server_id)
+                    if not srv:
+                        continue
+                    try:
+                        ssh, sftp = get_session(record.server_id, srv)
+                        patterns = self._get_download_patterns(record)
+                        _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
+                        if failures:
+                            errors.append(f"{record.run_id}: {failures}")
+                            dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+                        else:
+                            downloaded.append(record.run_id)
+                            dl_failures[record.run_id] = 0
+                    except Exception as exc:
+                        errors.append(f"{record.run_id}: {exc}")
+                        dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+            finally:
+                for ssh, sftp in sessions.values():
+                    try:
+                        sftp.close()
+                    except Exception:
+                        pass
+                    try:
                         ssh.close()
-                except Exception as exc:
-                    errors.append(f"{record.run_id}: {exc}")
-                    dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+                    except Exception:
+                        pass
             return downloaded, errors, dl_failures
 
         from ..workers import BackgroundWorker
@@ -971,6 +1017,10 @@ class RunsResultsPage(QWidget):
 
     def shutdown(self):
         self._refresh_timer.stop()
+        for timer in self._task_done_timers.values():
+            timer.stop()
+        self._task_done_timers.clear()
+        self._pending_task_events.clear()
         self._monitor.stop_all()
         for w in list(getattr(self, "_bg_workers", [])):
             w.stop_safely()
