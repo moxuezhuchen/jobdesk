@@ -478,7 +478,7 @@ class TestSSHClientWrapper:
         client.get_host_keys.return_value.save.side_effect = OSError("permission denied")
         policy = _AutoAddAndSavePolicy(tmp_path / "known_hosts")
 
-        with pytest.raises(OSError, match="permission denied"):
+        with pytest.raises(SSHConnectionError, match="persistence failed"):
             policy.missing_host_key(client, "wsl", MagicMock())
 
     def test_key_not_found(self):

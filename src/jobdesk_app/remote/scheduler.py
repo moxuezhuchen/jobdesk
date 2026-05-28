@@ -76,7 +76,7 @@ class NohupAdapter:
         dir_q = shlex.quote(str(script_path).rsplit("/", 1)[0])
         script_q = shlex.quote(script_path)
         r = ssh.run(
-            f"cd {dir_q} && nohup bash {script_q} > .jobdesk_submit.log 2>&1 & echo $!",
+            f"cd {dir_q} && nohup setsid bash {script_q} > .jobdesk_submit.log 2>&1 & echo $!",
             timeout=30,
         )
         return r.stdout.strip() or "0"
@@ -91,14 +91,26 @@ class NohupAdapter:
     def cancel(self, ssh, job_id: str) -> None:
         if job_id and job_id != "0":
             pid_q = shlex.quote(job_id)
+            # Group-priority check command (reused after TERM and KILL)
+            check_cmd = (
+                f"kill -0 -- -{pid_q} 2>/dev/null || kill -0 {pid_q} 2>/dev/null"
+            )
+            # TERM with process-group preference
             ssh.run(
                 f"kill -TERM -- -{pid_q} 2>/dev/null || kill -TERM {pid_q} 2>/dev/null",
                 timeout=15,
             )
-            # Verify the process is no longer running
-            r = ssh.run(f"kill -0 {pid_q} 2>/dev/null && echo alive || echo dead")
+            # Brief grace period then group-priority check
+            r = ssh.run(f"sleep 2; {check_cmd} && echo alive || echo dead", timeout=20)
             if "alive" in r.stdout:
-                raise RuntimeError(f"process {job_id} still alive after kill")
+                # Escalate to SIGKILL
+                ssh.run(
+                    f"kill -KILL -- -{pid_q} 2>/dev/null || kill -KILL {pid_q} 2>/dev/null",
+                    timeout=15,
+                )
+                r = ssh.run(f"sleep 1; {check_cmd} && echo alive || echo dead", timeout=15)
+                if "alive" in r.stdout:
+                    raise RuntimeError(f"process {job_id} still alive after SIGKILL")
 
 
 class SlurmAdapter:

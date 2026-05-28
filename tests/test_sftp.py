@@ -249,6 +249,54 @@ class TestUploadFile:
         assert rec.status == TransferStatus.failed
         assert "文件不存在" in rec.reason
 
+    def test_upload_text_normalizes_crlf(self, fake_sftp):
+        """Text files have CRLF/CR normalized to LF on upload."""
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".gjf", delete=False) as f:
+            f.write(b"line1\r\nline2\rline3\n")
+            tmp = f.name
+        try:
+            rec = fake_sftp.upload_file(Path(tmp), "/remote/mol.gjf")
+            assert rec.status == TransferStatus.transferred
+            content = fake_sftp._sftp._files["/remote/mol.gjf"]
+            assert content == b"line1\nline2\nline3\n"
+            assert b"\r" not in content
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+    def test_upload_large_text_streaming_normalizes_crlf(self, fake_sftp, monkeypatch):
+        """Large text files use streaming normalization (not full read_bytes)."""
+        import jobdesk_app.remote.sftp as sftp_mod
+        # Use a tiny chunk size to exercise multi-chunk path
+        monkeypatch.setattr(sftp_mod, "_CRLF_CHUNK_SIZE", 16)
+        # Build content with CRLF split across chunk boundary
+        content = b"A" * 15 + b"\r\n" + b"B" * 15 + b"\r" + b"C" * 5
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".log", delete=False) as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            rec = fake_sftp.upload_file(Path(tmp), "/remote/big.log")
+            assert rec.status == TransferStatus.transferred
+            uploaded = fake_sftp._sftp._files["/remote/big.log"]
+            assert b"\r" not in uploaded
+            # Verify content correctness
+            expected = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            assert uploaded == expected
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+    def test_upload_binary_no_crlf_normalization(self, fake_sftp):
+        """Binary files (.bin) are uploaded verbatim without CRLF normalization."""
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".bin", delete=False) as f:
+            f.write(b"\r\n\x00\r\n")
+            tmp = f.name
+        try:
+            rec = fake_sftp.upload_file(Path(tmp), "/remote/data.bin")
+            assert rec.status == TransferStatus.transferred
+            content = fake_sftp._sftp._files["/remote/data.bin"]
+            assert content == b"\r\n\x00\r\n"  # unchanged
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
 
 # ---- download ----------------------------------------------------------
 

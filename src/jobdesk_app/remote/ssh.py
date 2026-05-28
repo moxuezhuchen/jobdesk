@@ -56,10 +56,16 @@ class _AutoAddAndSavePolicy(paramiko.MissingHostKeyPolicy):
 
     def missing_host_key(self, client, hostname, key):
         # Trust only when the accepted key can be persisted for later verification.
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        host_keys = client.get_host_keys()
-        host_keys.add(hostname, key.get_name(), key)
-        host_keys.save(str(self._path))
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            host_keys = client.get_host_keys()
+            host_keys.add(hostname, key.get_name(), key)
+            host_keys.save(str(self._path))
+        except OSError as exc:
+            raise SSHConnectionError(
+                f"Host key accepted but known_hosts persistence failed: {exc}",
+                host=hostname,
+            ) from exc
 
 
 class SSHClientWrapper:

@@ -48,14 +48,54 @@ class TestNohupAdapter:
         assert NohupAdapter().poll(ssh, "123") == JobState.completed
 
     def test_cancel_sends_kill(self):
+        """TERM succeeds: process dies after grace period."""
         ssh = MagicMock()
         ssh.run.side_effect = [
-            MagicMock(stdout="", exit_code=0, stderr=""),
-            MagicMock(stdout="dead", exit_code=0, stderr=""),
+            MagicMock(stdout="", exit_code=0, stderr=""),    # kill -TERM
+            MagicMock(stdout="dead", exit_code=0, stderr=""),  # sleep+kill -0
         ]
         NohupAdapter().cancel(ssh, "123")
         assert ssh.run.call_count == 2
-        assert "kill" in ssh.run.call_args_list[0][0][0]
+        assert "TERM" in ssh.run.call_args_list[0][0][0]
+        # Verification uses group-priority: kill -0 -- -<pid>
+        check_cmd = ssh.run.call_args_list[1][0][0]
+        assert "kill -0 -- -" in check_cmd
+
+    def test_cancel_escalates_to_sigkill(self):
+        """TERM fails, KILL succeeds. Both checks use group-priority."""
+        ssh = MagicMock()
+        ssh.run.side_effect = [
+            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -TERM
+            MagicMock(stdout="alive", exit_code=0, stderr=""),  # still alive
+            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -KILL
+            MagicMock(stdout="dead", exit_code=0, stderr=""),  # now dead
+        ]
+        NohupAdapter().cancel(ssh, "123")
+        assert ssh.run.call_count == 4
+        assert "KILL" in ssh.run.call_args_list[2][0][0]
+        # Both check commands use group-priority
+        assert "kill -0 -- -" in ssh.run.call_args_list[1][0][0]
+        assert "kill -0 -- -" in ssh.run.call_args_list[3][0][0]
+
+    def test_cancel_raises_if_still_alive_after_kill(self):
+        """TERM fails, KILL fails → RuntimeError."""
+        ssh = MagicMock()
+        ssh.run.side_effect = [
+            MagicMock(stdout="", exit_code=0, stderr=""),
+            MagicMock(stdout="alive", exit_code=0, stderr=""),
+            MagicMock(stdout="", exit_code=0, stderr=""),
+            MagicMock(stdout="alive", exit_code=0, stderr=""),
+        ]
+        import pytest
+        with pytest.raises(RuntimeError, match="SIGKILL"):
+            NohupAdapter().cancel(ssh, "123")
+
+    def test_submit_uses_setsid(self):
+        """submit command must include setsid for PGID consistency."""
+        ssh = _ssh(stdout="12345")
+        NohupAdapter().submit(ssh, "/tmp/run.sh", ResourceSpec())
+        cmd = ssh.run.call_args[0][0]
+        assert "setsid" in cmd
 
 
 class TestSlurmAdapter:
@@ -226,12 +266,14 @@ class TestCancellationTruthfulness:
 
     def test_nohup_cancel_raises_when_process_still_alive(self):
         ssh = MagicMock()
-        # First call: kill command, second call: check alive
+        # TERM → still alive → KILL → still alive → RuntimeError
         ssh.run.side_effect = [
-            MagicMock(stdout="", exit_code=1, stderr=""),
-            MagicMock(stdout="alive", exit_code=0, stderr=""),
+            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -TERM
+            MagicMock(stdout="alive", exit_code=0, stderr=""),  # check after TERM
+            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -KILL
+            MagicMock(stdout="alive", exit_code=0, stderr=""),  # check after KILL
         ]
-        with pytest.raises(RuntimeError, match="still alive"):
+        with pytest.raises(RuntimeError, match="SIGKILL"):
             NohupAdapter().cancel(ssh, "12345")
 
     def test_slurm_cancel_succeeds_on_zero_exit(self):

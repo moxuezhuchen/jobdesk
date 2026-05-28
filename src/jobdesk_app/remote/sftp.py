@@ -119,13 +119,15 @@ class SFTPClientWrapper:
         _validate_remote_path(remote_path)
         self._sftp.remove(remote_path)
 
-    def remove_dir(self, remote_dir: str) -> None:
+    def remove_dir(self, remote_dir: str, _depth: int = 0) -> None:
         """递归删除远程目录。"""
         _validate_remote_path(remote_dir)
+        if _depth > 50:
+            raise RemotePathError(f"remove_dir exceeded max depth (50): {remote_dir}")
         for name in self._sftp.listdir(remote_dir):
             full = posixpath.join(remote_dir, name)
             if self.is_dir(full):
-                self.remove_dir(full)
+                self.remove_dir(full, _depth + 1)
             else:
                 self._sftp.remove(full)
         self._sftp.rmdir(remote_dir)
@@ -222,13 +224,9 @@ class SFTPClientWrapper:
         if remote_dir and remote_dir != "/":
             self.mkdir_p(remote_dir)
 
-        # Normalize CRLF→LF for text files (issue #2)
+        # Normalize CRLF→LF for text files via streaming chunked read/write.
         if _is_text_file(local_path):
-            data = local_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-            with self._sftp.open(remote_path, "wb") as f:
-                f.write(data)
-            if progress_callback:
-                progress_callback(len(data), len(data))
+            _upload_text_normalized(self._sftp, local_path, remote_path, local_size, progress_callback)
         else:
             self._sftp.put(str(local_path), remote_path, confirm=True, callback=progress_callback)
         rec.status = TransferStatus.transferred
@@ -499,6 +497,41 @@ _TEXT_EXTENSIONS = {
     ".json", ".xml", ".csv", ".tsv", ".log", ".md", ".rst", ".cfg", ".conf",
     ".toml", ".ini", ".env", ".cif", ".xyz", ".mol", ".pdb", ".smi",
 }
+
+_CRLF_CHUNK_SIZE = 256 * 1024  # 256KB chunks for streaming normalization
+
+
+def _upload_text_normalized(sftp, local_path: Path, remote_path: str, total_size: int | None, progress_callback) -> None:
+    """Stream-upload a text file, normalizing CRLF/CR→LF in chunks."""
+    bytes_written = 0
+    with sftp.open(remote_path, "wb") as remote_f:
+        with open(local_path, "rb") as local_f:
+            carry_cr = False
+            while True:
+                chunk = local_f.read(_CRLF_CHUNK_SIZE)
+                if not chunk:
+                    # Flush trailing CR from previous chunk
+                    if carry_cr:
+                        remote_f.write(b"\n")
+                        bytes_written += 1
+                    break
+                # If previous chunk ended with \r, check if this starts with \n
+                if carry_cr:
+                    if chunk[0:1] == b"\n":
+                        chunk = chunk[1:]  # skip \n, the \r\n pair becomes \n below
+                    # Emit the pending \r as \n
+                    remote_f.write(b"\n")
+                    bytes_written += 1
+                # Check if chunk ends with \r (might be split \r\n)
+                carry_cr = chunk[-1:] == b"\r"
+                if carry_cr:
+                    chunk = chunk[:-1]
+                # Normalize \r\n → \n, then remaining \r → \n
+                normalized = chunk.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                remote_f.write(normalized)
+                bytes_written += len(normalized)
+    if progress_callback:
+        progress_callback(bytes_written, bytes_written)
 
 
 def _is_text_file(path: Path) -> bool:

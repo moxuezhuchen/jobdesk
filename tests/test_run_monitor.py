@@ -158,3 +158,20 @@ def test_watcher_resets_backoff_after_30s_stable_silent_connection():
     )
     assert waits == [10, 20, 10, 20]
     assert events == []
+
+
+
+def test_watcher_logs_connection_failure(caplog):
+    """Connection exceptions are logged at WARNING level."""
+    import logging
+
+    w, events = _make_watcher()
+    w._stop_event = ControlledStopEvent(max_waits=1)
+
+    with patch(
+        "jobdesk_app.gui.session.create_ssh_client",
+        side_effect=OSError("connection refused"),
+    ), caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
+        w._run()
+
+    assert any("connection refused" in r.message for r in caplog.records)

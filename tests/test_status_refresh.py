@@ -113,6 +113,37 @@ class TestRecoveryRules:
         new, _ = _recover_status(TaskStatus.uploaded, rs, task)
         assert new == TaskStatus.running
 
+    def test_completed_marker_but_exit_code_missing_keeps_current(self):
+        """marker=completed but .jobdesk_exit_code missing → keep current status + warning."""
+        task = _make_task("t1", TaskStatus.running)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", None, "", True, False, False)
+        new, snap = _recover_status(TaskStatus.running, rs, task)
+        assert new == TaskStatus.running  # non-terminal, not failed
+        assert snap.failure_reason is not None
+        assert "退出码缺失" in snap.failure_reason
+        assert any("exit_code" in w.lower() or "退出码" in w for w in snap.warnings)
+
+    def test_exit_code_missing_then_appears_resolves(self):
+        """Two refreshes: first sees completed+missing → stays running; second sees exit_code=0 → remote_completed."""
+        task = _make_task("t1", TaskStatus.running)
+        # First refresh: exit_code missing
+        rs1 = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", None, "", True, False, False)
+        new1, _ = _recover_status(TaskStatus.running, rs1, task)
+        assert new1 == TaskStatus.running
+        # Second refresh: exit_code arrives
+        rs2 = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)
+        new2, snap2 = _recover_status(TaskStatus.running, rs2, task)
+        assert new2 == TaskStatus.remote_completed
+        assert not snap2.warnings
+
+    def test_completed_marker_exit_code_zero_succeeds(self):
+        """marker=completed + exit_code=0 → remote_completed, no warning."""
+        task = _make_task("t1", TaskStatus.running)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)
+        new, snap = _recover_status(TaskStatus.running, rs, task)
+        assert new == TaskStatus.remote_completed
+        assert not snap.warnings
+
     def test_local_ready_stays(self):
         task = _make_task("t1", TaskStatus.local_ready)
         rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)

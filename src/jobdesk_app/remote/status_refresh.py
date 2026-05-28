@@ -146,7 +146,9 @@ def _recover_status(
                 new_status = TaskStatus.running
                 snap.failure_reason = None
             elif marker == "completed":
-                new_status = _check_exit_code(remote_snap, snap)
+                result = _check_exit_code(remote_snap, snap)
+                if result is not None:
+                    new_status = result
             elif marker == "failed":
                 new_status = TaskStatus.failed
                 snap.failure_reason = "远程状态标记为 failed"
@@ -158,7 +160,9 @@ def _recover_status(
             if marker == "running":
                 new_status = TaskStatus.running
             elif marker in ("completed",):
-                new_status = _check_exit_code(remote_snap, snap)
+                result = _check_exit_code(remote_snap, snap)
+                if result is not None:
+                    new_status = result
             elif marker == "failed":
                 new_status = TaskStatus.failed
                 snap.failure_reason = "远程状态标记为 failed"
@@ -179,7 +183,9 @@ def _recover_status(
         if remote_snap and remote_snap.marker_exists:
             marker = remote_snap.status_marker.strip()
             if marker == "completed":
-                new_status = _check_exit_code(remote_snap, snap)
+                result = _check_exit_code(remote_snap, snap)
+                if result is not None:
+                    new_status = result
             elif marker == "failed":
                 new_status = TaskStatus.failed
                 snap.failure_reason = "远程状态标记为 failed"
@@ -196,14 +202,21 @@ def _recover_status(
     return new_status, snap
 
 
-def _check_exit_code(remote_snap, snap: TaskStatusSnapshot) -> TaskStatus:
+def _check_exit_code(remote_snap, snap: TaskStatusSnapshot) -> TaskStatus | None:
+    """Determine status from exit_code. Returns None if exit_code is missing (keep current)."""
     if remote_snap.exit_code_exists and remote_snap.exit_code == 0:
         return TaskStatus.remote_completed
     elif remote_snap.exit_code_exists and remote_snap.exit_code != 0:
         snap.failure_reason = f"远程退出码非零: {remote_snap.exit_code}"
         return TaskStatus.failed
     else:
-        return TaskStatus.remote_completed
+        # marker=completed but .jobdesk_exit_code missing — cannot confirm success yet.
+        # Keep current (non-terminal) status so next refresh can resolve it.
+        snap.warnings.append(
+            "marker=completed 但 .jobdesk_exit_code 缺失，无法确认退出码"
+        )
+        snap.failure_reason = "marker=completed 但退出码缺失，等待下次刷新"
+        return None
 
 
 def _read_batch_control(ssh, remote_batch_dir: str, control_subdir: str = "_batch") -> BatchControlSnapshot:

@@ -520,7 +520,7 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
 
     monkeypatch.setattr(shutil, "rmtree", failing_rmtree)
 
-    with pytest.raises(PermissionError, match="locked"):
+    with pytest.raises(OSError, match="Failed to delete results"):
         service.delete_run("run_locked")
 
     # Metadata must survive

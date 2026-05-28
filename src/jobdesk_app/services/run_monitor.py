@@ -5,6 +5,7 @@ Emits a signal when a task completes (DONE line received).
 """
 from __future__ import annotations
 
+import logging
 import shlex
 import threading
 import time
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QObject, Signal
 
 _WATCHER_STABLE_SECONDS = 30.0
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -117,7 +119,11 @@ class _Watcher:
                             for line in data.decode("utf-8", errors="replace").splitlines():
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug(
+                                "watcher %s/%s channel read error, will retry: %s",
+                                self._server_id, self._run_id, exc,
+                            )
                             if time.monotonic() - connected_at >= _WATCHER_STABLE_SECONDS:
                                 backoff = 10
                             continue
@@ -125,7 +131,11 @@ class _Watcher:
                     channel.close()
                     ssh.close()
                     ssh = None
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "watcher %s/%s connection lost, reconnecting in %ds: %s",
+                    self._server_id, self._run_id, backoff, exc,
+                )
                 if ssh:
                     try:
                         ssh.close()

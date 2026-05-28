@@ -35,7 +35,7 @@ class GuiSettings:
     # Runs page state
     auto_refresh_interval: int = 30
     notify_enabled: bool = False
-    download_patterns: str = "result.log, output.log, .jobdesk_submit.log"
+    download_patterns: str = "*.log, *.out, .jobdesk_submit.log"
     hide_dotfiles: bool = True
     # Per-software profiles: input_extensions, command_template, download_patterns
     software_profiles: dict[str, dict[str, str]] | None = None
@@ -75,7 +75,7 @@ class GuiSettingsStore:
             window_size=raw.get("window_size"),
             auto_refresh_interval=max(10, int(raw.get("auto_refresh_interval", 30) or 30)),
             notify_enabled=bool(raw.get("notify_enabled", False)),
-            download_patterns=str(raw.get("download_patterns", "result.log, output.log, .jobdesk_submit.log")),
+            download_patterns=str(raw.get("download_patterns", "*.log, *.out, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
             software_profiles=self._load_profiles(raw),
         )

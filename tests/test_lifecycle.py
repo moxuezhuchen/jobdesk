@@ -13,6 +13,10 @@ class TestTaskStatus:
         assert can_transition(TaskStatus.remote_completed, TaskStatus.downloaded)
         assert can_transition(TaskStatus.downloaded, TaskStatus.analyzed)
 
+    def test_uploaded_to_running_remote_recovery(self):
+        """Remote recovery: task may start running without going through submitted."""
+        assert can_transition(TaskStatus.uploaded, TaskStatus.running)
+
     def test_invalid_transitions(self):
         assert not can_transition(TaskStatus.local_ready, TaskStatus.running)
         assert not can_transition(TaskStatus.uploaded, TaskStatus.remote_completed)

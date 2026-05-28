@@ -293,7 +293,13 @@ class RunService:
             raise ValueError(f"run_id escapes results dir: {run_id}")
         # Delete results first; if this fails, metadata is preserved for recovery.
         if results_dir.exists():
-            shutil.rmtree(results_dir)
+            try:
+                shutil.rmtree(results_dir)
+            except OSError as exc:
+                raise OSError(
+                    f"Failed to delete results for run {run_id} "
+                    f"(metadata preserved at {run_dir}): {exc}"
+                ) from exc
         if run_dir.exists():
             shutil.rmtree(run_dir)
 

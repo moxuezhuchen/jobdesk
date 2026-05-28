@@ -28,6 +28,8 @@ _ALLOWED_TRANSITIONS: set[tuple[TaskStatus, TaskStatus]] = {
     (TaskStatus.running, TaskStatus.remote_completed),
     (TaskStatus.remote_completed, TaskStatus.downloaded),
     (TaskStatus.downloaded, TaskStatus.analyzed),
+    # 远程恢复：任务可能跳过 submitted 直接被远端执行（手动启动或恢复场景）
+    (TaskStatus.uploaded, TaskStatus.running),
     # 回退（远程输入不存在时）
     (TaskStatus.uploaded, TaskStatus.local_ready),
     # 重试下载
