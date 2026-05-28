@@ -4,7 +4,11 @@
 不生成这些文件，不修改远程状态。
 """
 
+import base64
+import binascii
+import re
 import shlex
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .ssh import SSHClientWrapper
@@ -147,3 +151,232 @@ def _parse_envelope(stdout: str) -> tuple[bool | None, str]:
     if first_line == "__JD_MISSING__":
         return False, ""
     return None, ""
+
+
+# ---------------------------------------------------------------------------
+# 批量读取
+# ---------------------------------------------------------------------------
+
+# 批量脚本的输出协议：
+#   ##JD-BEGIN <key> F\n<base64-on-one-line>\n##JD-END <key>\n   - 文件存在
+#   ##JD-BEGIN <key> M\n##JD-END <key>\n                         - 文件缺失
+# base64 用 `tr -d '\n'` 压成单行，避免与协议标记冲突；空文件 base64 为空字符串。
+# 整个脚本结束时输出 ##JD-DONE 作为完整性标记。
+
+_BATCH_BEGIN_RE = re.compile(r"^##JD-BEGIN (\S+) ([FME])$")
+_BATCH_END_RE = re.compile(r"^##JD-END (\S+)$")
+_BATCH_DONE_MARK = "##JD-DONE"
+
+_BATCH_PROLOGUE = (
+    "set +e\n"
+    "_jd_tmp=$(mktemp)\n"
+    "encode_block() {\n"
+    "  key=$1; path=$2; n=$3\n"
+    '  if [ -f "$path" ]; then\n'
+    '    if [ "$n" -gt 0 ]; then\n'
+    '      tail -n "$n" -- "$path" > "$_jd_tmp" 2>/dev/null\n'
+    "    else\n"
+    '      cat -- "$path" > "$_jd_tmp" 2>/dev/null\n'
+    "    fi\n"
+    '    if [ $? -eq 0 ]; then\n'
+    "      printf '##JD-BEGIN %s F\\n' \"$key\"\n"
+    '      base64 "$_jd_tmp" | tr -d \'\\n\'\n'
+    "      printf '\\n##JD-END %s\\n' \"$key\"\n"
+    "    else\n"
+    "      printf '##JD-BEGIN %s E\\n##JD-END %s\\n' \"$key\" \"$key\"\n"
+    "    fi\n"
+    "  else\n"
+    "    printf '##JD-BEGIN %s M\\n##JD-END %s\\n' \"$key\" \"$key\"\n"
+    "  fi\n"
+    "}\n"
+)
+
+
+def read_remote_task_statuses_batch(
+    ssh: SSHClientWrapper,
+    tasks: Iterable[tuple[str, str]],
+    log_tail_lines: int = 50,
+    timeout: int | None = None,
+) -> dict[str, RemoteTaskStatusSnapshot]:
+    """批量读取多个任务的远程状态文件（一条 SSH 命令完成）。
+
+    相比循环调用 :func:`read_remote_task_status`，对 N 个任务把 3N 次远程命令
+    降为 1 次。文件内容用 base64 编码后传输，避免与协议标记冲突；空文件、
+    缺失文件能正确区分。
+
+    Args:
+        ssh: 已连接的 SSHClientWrapper。
+        tasks: ``(task_id, remote_job_dir)`` 序列。``remote_job_dir`` 为空
+            的条目会被跳过（视为无远程目录），仍会在返回字典中得到一个
+            空快照。
+        log_tail_lines: ``.jobdesk_submit.log`` tail 行数。
+        timeout: SSH 超时（秒）；默认按任务数自适应。
+
+    Returns:
+        ``{task_id: RemoteTaskStatusSnapshot}`` 字典；输入的每个 ``task_id``
+        都对应一项条目。
+
+    Notes:
+        - 所有路径使用 ``shlex.quote`` 转义，安全应对含空格/特殊字符的目录。
+        - 整体 SSH 命令失败时，返回的所有快照都会带有相应 warning。
+        - 单个 ``cat``/``tail`` 失败会被识别为 read error（``E`` 标记），
+          对应 snapshot 的 exists 字段为 False，并在 warnings 中记录。
+    """
+    items = list(tasks)
+    snapshots: dict[str, RemoteTaskStatusSnapshot] = {}
+    pending: list[tuple[int, str, str]] = []
+
+    for idx, (task_id, remote_job_dir) in enumerate(items):
+        snap = RemoteTaskStatusSnapshot(
+            task_id=task_id,
+            remote_job_dir=remote_job_dir or "",
+        )
+        snapshots[task_id] = snap
+        if remote_job_dir:
+            pending.append((idx, task_id, remote_job_dir))
+
+    if not pending:
+        return snapshots
+
+    script = _build_batch_script(pending, log_tail_lines)
+    effective_timeout = timeout if timeout is not None else max(30, 5 + len(pending) // 4)
+
+    try:
+        result = ssh.run(script, timeout=effective_timeout)
+    except Exception as exc:
+        for _idx, task_id, _ in pending:
+            snapshots[task_id].warnings.append(f"批量读取远程状态失败: {exc}")
+        return snapshots
+
+    blocks = _parse_batch_output(result.stdout)
+
+    if _BATCH_DONE_MARK not in result.stdout:
+        for _idx, task_id, _ in pending:
+            snapshots[task_id].warnings.append("批量读取远程状态：未收到结束标记")
+
+    for idx, task_id, remote_job_dir in pending:
+        snap = snapshots[task_id]
+        _apply_batch_block(
+            snap,
+            blocks.get(f"T{idx}:S"),
+            field="status",
+            label=f"{remote_job_dir}/.jobdesk_status",
+        )
+        _apply_batch_block(
+            snap,
+            blocks.get(f"T{idx}:E"),
+            field="exit_code",
+            label=f"{remote_job_dir}/.jobdesk_exit_code",
+        )
+        _apply_batch_block(
+            snap,
+            blocks.get(f"T{idx}:L"),
+            field="log",
+            label=f"{remote_job_dir}/.jobdesk_submit.log",
+        )
+
+    return snapshots
+
+
+def _build_batch_script(
+    pending: list[tuple[int, str, str]],
+    log_tail_lines: int,
+) -> str:
+    """根据待查询的任务列表构造批量脚本。"""
+    lines = [_BATCH_PROLOGUE.rstrip("\n")]
+    for idx, _task_id, remote_job_dir in pending:
+        d = shlex.quote(remote_job_dir)
+        lines.append(f"encode_block 'T{idx}:S' {d}/.jobdesk_status 0")
+        lines.append(f"encode_block 'T{idx}:E' {d}/.jobdesk_exit_code 0")
+        lines.append(
+            f"encode_block 'T{idx}:L' {d}/.jobdesk_submit.log {int(log_tail_lines)}"
+        )
+    lines.append("rm -f \"$_jd_tmp\"")
+    lines.append(f"printf '{_BATCH_DONE_MARK}\\n'")
+    return "\n".join(lines)
+
+
+def _parse_batch_output(stdout: str) -> dict[str, tuple[str, bytes | None]]:
+    """解析批量脚本输出。
+
+    Returns:
+        ``{key: (kind, decoded_bytes)}``：
+        - ``kind="F"``，``decoded_bytes`` 为文件内容（空文件为 ``b""``）；
+          无法 base64 解码时 ``decoded_bytes`` 为 ``None``。
+        - ``kind="M"``，``decoded_bytes`` 为 ``None``。
+        - ``kind="E"``，``decoded_bytes`` 为 ``None``（读取错误）。
+    """
+    blocks: dict[str, tuple[str, bytes | None]] = {}
+    current_key: str | None = None
+    current_kind: str | None = None
+    current_lines: list[str] = []
+
+    for line in stdout.splitlines():
+        m_begin = _BATCH_BEGIN_RE.match(line)
+        if m_begin:
+            current_key = m_begin.group(1)
+            current_kind = m_begin.group(2)
+            current_lines = []
+            continue
+        m_end = _BATCH_END_RE.match(line)
+        if m_end and current_key == m_end.group(1):
+            end_key = m_end.group(1)
+            if current_kind == "M" or current_kind == "E":
+                blocks[end_key] = (current_kind, None)
+            else:
+                joined = "".join(current_lines).strip()
+                if not joined:
+                    blocks[end_key] = ("F", b"")
+                else:
+                    try:
+                        decoded = base64.b64decode(joined, validate=True)
+                        blocks[end_key] = ("F", decoded)
+                    except (binascii.Error, ValueError):
+                        blocks[end_key] = ("F", None)
+            current_key = None
+            current_kind = None
+            current_lines = []
+            continue
+        if current_key is not None:
+            current_lines.append(line)
+
+    return blocks
+
+
+def _apply_batch_block(
+    snap: RemoteTaskStatusSnapshot,
+    block: tuple[str, bytes | None] | None,
+    *,
+    field: str,
+    label: str,
+) -> None:
+    """把单个解析后的块应用到 snapshot 的相应字段。"""
+    if block is None:
+        snap.warnings.append(f"批量读取 {label} 缺失结果")
+        return
+    kind, data = block
+    if kind == "M":
+        # 文件不存在不是错误
+        return
+    if kind == "E":
+        # 文件存在但读取失败
+        snap.warnings.append(f"读取 {label} 失败 (read error)")
+        return
+    if kind == "F" and data is None:
+        snap.warnings.append(f"读取 {label} base64 解码失败")
+        return
+    # kind == "F", data is bytes (possibly empty)
+    assert data is not None
+    if field == "status":
+        snap.marker_exists = True
+        snap.status_marker = data.decode("utf-8", errors="replace").strip()
+    elif field == "exit_code":
+        snap.exit_code_exists = True
+        text = data.decode("utf-8", errors="replace").strip()
+        try:
+            snap.exit_code = int(text)
+        except ValueError:
+            snap.warnings.append(f"exit_code 文件内容不是有效整数: {text!r}")
+    elif field == "log":
+        snap.log_exists = True
+        snap.submit_log_tail = data.decode("utf-8", errors="replace")

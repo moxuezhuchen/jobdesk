@@ -138,12 +138,12 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_status",
-                side_effect=[
-                    RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False),
-                    RemoteTaskStatusSnapshot("t2", "/r/t2", "completed", 0, "", True, True, True),
-                    RemoteTaskStatusSnapshot("t3", "/r/t3", "completed", 0, "", True, True, False),
-                ],
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False),
+                    "t2": RemoteTaskStatusSnapshot("t2", "/r/t2", "completed", 0, "", True, True, True),
+                    "t3": RemoteTaskStatusSnapshot("t3", "/r/t3", "completed", 0, "", True, True, False),
+                },
             ):
                 result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
                 assert result.task_count == 3
@@ -161,8 +161,10 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_status",
-                return_value=RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
+                },
             ):
                 result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=True)
                 assert result.changed_count == 1
@@ -183,8 +185,10 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_status",
-                return_value=RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
+                },
             ):
                 refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
 
@@ -202,13 +206,69 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_status",
-                return_value=RemoteTaskStatusSnapshot("t1", "/r/t1", "failed", 1, "error log", True, True, True),
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot(
+                        "t1", "/r/t1", "failed", 1, "error log", True, True, True
+                    ),
+                },
             ):
                 result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
                 assert len(result.failures) == 1
                 assert result.failures[0].stage == "runtime"
                 assert result.failures[0].task_id == "t1"
+
+    def test_refresh_uses_single_ssh_command_for_task_files(self):
+        """N 个 task 应只触发 1 次 SSH 命令读取所有任务的状态文件
+        （加上 batch_control 的 2 条，共 3 条），而不是 3N+2 条。"""
+        tasks = [
+            _make_task("t1", TaskStatus.submitted, "/r/t1"),
+            _make_task("t2", TaskStatus.submitted, "/r/t2"),
+            _make_task("t3", TaskStatus.submitted, "/r/t3"),
+            _make_task("t4", TaskStatus.submitted, "/r/t4"),
+            _make_task("t5", TaskStatus.submitted, "/r/t5"),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(mp, tasks)
+
+            mock_ssh = MagicMock()
+            mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
+
+            # 把批量读取替换为可控的返回，避免真正构造脚本
+            with patch(
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    t.task_id: RemoteTaskStatusSnapshot(
+                        t.task_id, t.remote_job_dir, "", None, "", False, False, False
+                    )
+                    for t in tasks
+                },
+            ) as mock_batch:
+                refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
+                # 批量读 1 次，与 task 数无关
+                assert mock_batch.call_count == 1
+                # batch_control 仍然是 2 条
+                assert mock_ssh.run.call_count == 2
+
+    def test_refresh_skips_batch_call_when_no_remote_dirs(self):
+        """所有 task 都没有 remote_job_dir 时，不应调用批量读取。"""
+        tasks = [_make_task("t1", TaskStatus.local_ready, remote_job_dir="-")]
+        # 用空 remote_job_dir 模拟未分配 - 通过手工构造
+        for t in tasks:
+            t.remote_job_dir = ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(mp, tasks)
+
+            mock_ssh = MagicMock()
+            mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
+
+            with patch(
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+            ) as mock_batch:
+                refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
+                assert mock_batch.call_count == 0
 
 
 # ---- batch_control ------------------------------------------------

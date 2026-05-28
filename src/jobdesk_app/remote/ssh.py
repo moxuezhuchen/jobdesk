@@ -5,6 +5,7 @@
 """
 
 import os
+import select
 import socket
 import subprocess
 import sys
@@ -211,22 +212,42 @@ class SSHClientWrapper:
             stdin, stdout, stderr = self._client.exec_command(
                 command, timeout=_timeout
             )
-            # Drain stdout and stderr concurrently to prevent deadlock
+            # Drain stdout and stderr concurrently to prevent deadlock.
             channel = stdout.channel
             channel.settimeout(_timeout)
             out_chunks = []
             err_chunks = []
             deadline = t0 + _timeout
+            # Wait efficiently with select on the channel's fileno instead of
+            # busy-polling with time.sleep — that 50ms sleep used to dominate
+            # the latency of every short SSH command (status checks etc.).
+            # When the channel does not support select (e.g. a MagicMock in
+            # unit tests, or a closing channel), fall back to a short sleep
+            # so we never busy-loop.
             while not channel.exit_status_ready() or channel.recv_ready() or channel.recv_stderr_ready():
-                if time.monotonic() > deadline:
+                now = time.monotonic()
+                if now > deadline:
                     raise TimeoutError(f"Command timed out after {_timeout}s")
+                drained = False
                 if channel.recv_ready():
                     out_chunks.append(channel.recv(65536))
+                    drained = True
                 if channel.recv_stderr_ready():
                     err_chunks.append(channel.recv_stderr(65536))
-                if not channel.recv_ready() and not channel.recv_stderr_ready() and not channel.exit_status_ready():
-                    time.sleep(0.05)
-            # Drain remaining
+                    drained = True
+                if drained:
+                    continue
+                remaining = deadline - now
+                if remaining <= 0:
+                    raise TimeoutError(f"Command timed out after {_timeout}s")
+                # Cap select wait at 0.01s so exit-status arrivals that don't
+                # also wake the channel pipe still get noticed promptly.
+                wait = remaining if remaining < 0.01 else 0.01
+                try:
+                    select.select([channel], [], [], wait)
+                except (OSError, ValueError, TypeError):
+                    time.sleep(0.005)
+            # Drain any data that arrived alongside the exit-status packet.
             while channel.recv_ready():
                 out_chunks.append(channel.recv(65536))
             while channel.recv_stderr_ready():

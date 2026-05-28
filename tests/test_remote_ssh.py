@@ -187,6 +187,178 @@ class TestSSHClientWrapper:
             with pytest.raises(SSHCommandError):
                 ssh.run("hang", timeout=0.05)
 
+    def test_run_does_not_busy_sleep_when_data_is_available(self):
+        """Fast-path: when output is ready immediately, run() must not call
+        time.sleep — the old 50 ms polling sleep added a latency floor to every
+        SSH command and was the dominant cost of status-refresh loops."""
+        server = _make_server()
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.exec_command.return_value = (
+                MagicMock(),
+                _mock_stdout("hello", stderr_content="warn"),
+                _mock_stderr("warn"),
+            )
+
+            ssh = MockSSHWrapper(server)
+            ssh.connect()
+            result = ssh.run("echo hello")
+
+        assert result.exit_code == 0
+        assert result.stdout == "hello"
+        assert result.stderr == "warn"
+        mock_sleep.assert_not_called()
+
+
+    def test_run_no_output_command_exits_within_select_cap(self):
+        """No-output commands whose exit status becomes ready after one select
+        cycle must complete within the select cap (0.01s), not stall for 100ms+."""
+        import time as _time
+
+        server = _make_server()
+        # Channel that produces no output; exit_status becomes ready after
+        # select returns (simulating a fast command with no stdout/stderr).
+        call_count = {"select": 0}
+        channel = MagicMock()
+        channel.recv_ready = lambda: False
+        channel.recv_stderr_ready = lambda: False
+        channel.recv = lambda s: b""
+        channel.recv_stderr = lambda s: b""
+        channel.recv_exit_status = lambda: 0
+        channel.settimeout = MagicMock()
+
+        def _exit_ready():
+            # Becomes ready after the first select call returns
+            return call_count["select"] > 0
+
+        channel.exit_status_ready = _exit_ready
+
+        def _fake_select(rlist, wlist, xlist, timeout=None):
+            call_count["select"] += 1
+            # Verify the timeout cap is ≤ 0.01s (10ms)
+            assert timeout is not None and timeout <= 0.01
+            return ([], [], [])
+
+        stdout_obj = MagicMock()
+        stdout_obj.channel = channel
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.exec_command.return_value = (MagicMock(), stdout_obj, MagicMock())
+
+            ssh = MockSSHWrapper(server)
+            ssh.connect()
+            t0 = _time.monotonic()
+            result = ssh.run("true", timeout=5)
+            elapsed = _time.monotonic() - t0
+
+        assert result.exit_code == 0
+        assert result.stdout == ""
+        assert elapsed < 0.1, f"no-output command took {elapsed:.3f}s, should be < 0.1s"
+
+
+    def test_run_uses_select_to_wait_for_data(self):
+        """When no data is ready yet, run() must wait via select.select on the
+        channel rather than time.sleep(0.05)."""
+        server = _make_server()
+        # Channel that on the first poll has no data, then on second poll has data.
+        produced = {"yielded": False}
+        channel = MagicMock()
+        stdout_buf = [b""]
+        stderr_buf = [b""]
+
+        def _recv_ready():
+            return len(stdout_buf[0]) > 0
+
+        def _recv_stderr_ready():
+            return len(stderr_buf[0]) > 0
+
+        def _exit_status_ready():
+            return produced["yielded"] and len(stdout_buf[0]) == 0
+
+        def _recv(size):
+            data = stdout_buf[0][:size]
+            stdout_buf[0] = stdout_buf[0][size:]
+            return data
+
+        def _recv_stderr(size):
+            data = stderr_buf[0][:size]
+            stderr_buf[0] = stderr_buf[0][size:]
+            return data
+
+        channel.recv_ready = _recv_ready
+        channel.recv_stderr_ready = _recv_stderr_ready
+        channel.exit_status_ready = _exit_status_ready
+        channel.recv = _recv
+        channel.recv_stderr = _recv_stderr
+        channel.recv_exit_status = lambda: 0
+        channel.settimeout = MagicMock()
+
+        # When select is called, simulate "data arrived" by populating stdout_buf.
+        def _fake_select(rlist, wlist, xlist, timeout=None):
+            stdout_buf[0] = b"delayed-output"
+            produced["yielded"] = True
+            return (rlist, [], [])
+
+        stdout_obj = MagicMock()
+        stdout_obj.channel = channel
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select) as mock_select, \
+             patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.exec_command.return_value = (MagicMock(), stdout_obj, MagicMock())
+
+            ssh = MockSSHWrapper(server)
+            ssh.connect()
+            result = ssh.run("slow", timeout=2)
+
+        assert result.stdout == "delayed-output"
+        assert mock_select.called, "run() must use select.select to wait for data"
+        # Fallback sleep path should not fire when select works normally.
+        mock_sleep.assert_not_called()
+
+    def test_run_falls_back_to_short_sleep_when_select_unavailable(self):
+        """If select.select raises (e.g. unsupported fileno on the channel),
+        run() must fall back to a short sleep — not crash, and not busy-loop."""
+        server = _make_server()
+        channel = MagicMock()
+        channel.recv_ready = lambda: False
+        channel.recv_stderr_ready = lambda: False
+        channel.exit_status_ready = lambda: False
+        channel.settimeout = MagicMock()
+        stdout = MagicMock()
+        stdout.channel = channel
+
+        sleep_calls: list[float] = []
+
+        def _record_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch(
+                 "jobdesk_app.remote.ssh.select.select",
+                 side_effect=TypeError("fileno not supported"),
+             ), \
+             patch("jobdesk_app.remote.ssh.time.sleep", side_effect=_record_sleep):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.exec_command.return_value = (MagicMock(), stdout, MagicMock())
+
+            ssh = MockSSHWrapper(server, timeout=0.05)
+            ssh.connect()
+            with pytest.raises(SSHCommandError):
+                ssh.run("hang", timeout=0.05)
+
+        # The fallback sleep is short (≤ 10 ms) — never the old 50 ms.
+        assert sleep_calls, "fallback path must call time.sleep when select fails"
+        assert max(sleep_calls) <= 0.01
+
     def test_connect_failure(self):
         server = _make_server()
         with patch("paramiko.SSHClient") as mock_client_class:

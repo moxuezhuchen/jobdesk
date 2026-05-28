@@ -12,7 +12,7 @@ from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.models import FailureRecord
 from ..core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
-from .status import read_remote_task_status
+from .status import read_remote_task_status, read_remote_task_statuses_batch
 
 
 def refresh_batch_status(
@@ -47,14 +47,27 @@ def refresh_batch_status(
     # 读取 batch_control 状态
     result.batch_control = _read_batch_control(ssh, remote_batch_dir, control_subdir)
 
+    # 批量读取所有 task 的远程状态文件（一条 SSH 命令）。
+    # 没有 remote_job_dir 的 task 不会被远程查询。
+    batch_pairs = [(t.task_id, t.remote_job_dir) for t in tasks if t.remote_job_dir]
+    if batch_pairs:
+        batch_snapshots = read_remote_task_statuses_batch(
+            ssh, batch_pairs, log_tail_lines=log_tail_lines
+        )
+    else:
+        batch_snapshots = {}
+
     # 遍历每个任务
     changed_tasks: dict[str, TaskRecord] = {}
     for task in tasks:
         old_status = task.status
         if task.remote_job_dir:
-            remote_snap = read_remote_task_status(
-                ssh, task.task_id, task.remote_job_dir, log_tail_lines
-            )
+            remote_snap = batch_snapshots.get(task.task_id)
+            if remote_snap is None:
+                # 防御：批量读取应已为该 task 生成 snapshot；缺失则回退单读。
+                remote_snap = read_remote_task_status(
+                    ssh, task.task_id, task.remote_job_dir, log_tail_lines
+                )
         else:
             remote_snap = None
 
