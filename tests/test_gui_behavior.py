@@ -118,6 +118,68 @@ class TestRunsPage:
             runs_page.refresh_run_list()
         assert runs_page.table.rowCount() == 0
 
+    def test_refresh_caches_record_and_selected_record_avoids_reload(self, runs_page):
+        """refresh_run_list stores the RunRecord on the row; _selected_record reads it without load_run."""
+        from PySide6.QtCore import Qt
+
+        from jobdesk_app.services.run_service import RunRecord
+        rec = RunRecord(
+            run_id="r1", server_id="wsl", remote_dir="/r", command_template="g16 {name}",
+            max_parallel=1, mode="selected_files", created_at="t",
+            run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"),
+        )
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = [rec]
+            runs_page.refresh_run_list()
+        assert runs_page.table.item(0, 0).data(Qt.UserRole) is rec
+        runs_page.table.selectRow(0)
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc2:
+            got = runs_page._selected_record()
+            mock_svc2.return_value.load_run.assert_not_called()  # served from cache
+        assert got is rec
+
+    def test_refresh_preserves_manual_selection(self, runs_page):
+        """A manually selected run stays selected after a refresh rebuild."""
+        from jobdesk_app.services.run_service import RunRecord
+
+        def mk(rid):
+            return RunRecord(run_id=rid, server_id="wsl", remote_dir="/r", command_template="g16 {name}",
+                             max_parallel=1, mode="selected_files", created_at="t",
+                             run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"))
+        runs = [mk("a"), mk("b"), mk("c")]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = runs
+            runs_page.refresh_run_list()
+            runs_page.table.selectRow(1)  # select "b"
+            runs_page.refresh_run_list()
+        assert runs_page.table.item(runs_page.table.currentRow(), 0).text() == "b"
+
+    def test_flush_task_done_skips_when_run_in_progress(self, runs_page):
+        """_flush_task_done is a no-op when the run is already being processed."""
+        runs_page._in_progress.add("busy")
+        runs_page._pending_task_events["busy"] = {"server_id": "wsl", "has_done": True}
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            runs_page._flush_task_done("busy")
+            mock_svc.return_value.load_run.assert_not_called()
+
+    def test_fresh_batch_id_jumps_then_manual_selection_is_kept(self, runs_page):
+        """A new current_batch_id selects that run once; later refreshes keep manual selection."""
+        from jobdesk_app.services.run_service import RunRecord
+
+        def mk(rid):
+            return RunRecord(run_id=rid, server_id="wsl", remote_dir="/r", command_template="g16 {name}",
+                             max_parallel=1, mode="selected_files", created_at="t",
+                             run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"))
+        runs = [mk("new"), mk("old")]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = runs
+            runs_page.state.current_batch_id = "new"
+            runs_page.refresh_run_list()
+            assert runs_page.table.item(runs_page.table.currentRow(), 0).text() == "new"  # jumped
+            runs_page.table.selectRow(1)  # user manually selects "old"
+            runs_page.refresh_run_list()  # batch_id unchanged -> keep manual
+            assert runs_page.table.item(runs_page.table.currentRow(), 0).text() == "old"
+
     def test_get_download_patterns_gaussian(self, runs_page):
         """Should return Gaussian patterns for g16 command."""
         record = MagicMock()

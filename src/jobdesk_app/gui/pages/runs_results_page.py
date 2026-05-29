@@ -188,6 +188,21 @@ class RunsResultsPage(QWidget):
         self._refresh_timer.timeout.connect(self._auto_refresh_active)
         self._refresh_timer.setInterval(15000)
 
+        # Selection-driven preview is debounced so rapid scrolling through the
+        # run list does not parse output files on the UI thread for every row.
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(200)
+        self._preview_timer.timeout.connect(self._render_selected_preview)
+        # Memoized parsed rows keyed by result-dir, invalidated by file signature.
+        self._analyze_cache: dict[str, tuple] = {}
+        # run_ids currently being refreshed/downloaded, shared by the auto-refresh
+        # timer and the monitor-driven flush to avoid duplicate concurrent work.
+        self._in_progress: set[str] = set()
+        # Tracks the last current_batch_id we auto-selected, so a freshly-set one
+        # (a new submission) still jumps while later refreshes keep manual selection.
+        self._applied_batch_id: str | None = None
+
     def _start_monitoring(self):
         """Watch all running runs."""
         try:
@@ -230,6 +245,9 @@ class RunsResultsPage(QWidget):
         self._task_done_timers.pop(run_id, None)
         if state is None:
             return
+        if run_id in self._in_progress:
+            return  # auto-refresh or a prior flush is already handling this run
+        self._in_progress.add(run_id)
         has_done = state["has_done"]
         server_id = state["server_id"]
         fallback_ws = self._workspace()
@@ -277,6 +295,7 @@ class RunsResultsPage(QWidget):
         w.result.connect(lambda message: self._status_cb(message) if message else None)
         w.error.connect(lambda error: self._status_cb(f"Automatic refresh failed: {error}"))
         w.finished.connect(lambda: self._on_monitor_refresh_done(evt))
+        w.finished.connect(lambda: self._in_progress.discard(run_id))
         w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
         w.finished.connect(w.deleteLater)
         self._bg_workers.append(w)
@@ -341,14 +360,41 @@ class RunsResultsPage(QWidget):
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
         runs = RunService(workspace).list_runs()
+        prev_selected = self._current_run_id()
         self._set_headers()
+        self.table.blockSignals(True)
         self.table.setRowCount(len(runs))
+        manual_row = None
+        batch_row = None
         for row, record in enumerate(runs):
             for col, value in enumerate(_format_row(record, self._language)):
-                self.table.setItem(row, col, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setData(Qt.UserRole, record)  # cache to avoid re-reading run.json on selection
+                self.table.setItem(row, col, item)
+            if record.run_id == prev_selected:
+                manual_row = row
             if record.run_id == getattr(self.state, "current_batch_id", None):
-                self.table.setCurrentCell(row, 0)
+                batch_row = row
+        self.table.blockSignals(False)
+        # A freshly-set current_batch_id (new submission) jumps to that run;
+        # otherwise keep the user's manual selection across refreshes.
+        batch_id = getattr(self.state, "current_batch_id", None)
+        if batch_id is not None and batch_id != self._applied_batch_id and batch_row is not None:
+            target_row = batch_row
+            self._applied_batch_id = batch_id
+        else:
+            target_row = manual_row if manual_row is not None else batch_row
+        if target_row is not None:
+            self.table.setCurrentCell(target_row, 0)
         self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
+
+    def _current_run_id(self) -> str | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        return item.text() if item else None
 
     def _workspace(self) -> Path:
         return Path(self.state.current_project_root or Path.cwd())
@@ -366,10 +412,17 @@ class RunsResultsPage(QWidget):
         item = self.table.item(row, 0)
         if item is None:
             return None
+        cached = item.data(Qt.UserRole)
+        if isinstance(cached, RunRecord):
+            return cached
         return RunService(self._workspace()).load_run(item.text())
 
     def _on_run_selected(self, row, col, prev_row, prev_col):
-        """When a run is selected, show its results below."""
+        """Debounce selection so rapid scrolling doesn't parse files per row."""
+        self._preview_timer.start()
+
+    def _render_selected_preview(self):
+        """Render the preview for the settled selection (called after debounce)."""
         record = self._selected_record()
         if record is None:
             self.result_table.setRowCount(0)
@@ -496,6 +549,11 @@ class RunsResultsPage(QWidget):
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
         """Auto-detect and parse Gaussian/ORCA output files matching task stem."""
+        key = str(result_dir)
+        sig = _dir_parse_signature(result_dir)
+        cached = self._analyze_cache.get(key)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
         from ...core.parsers.gaussian import diagnose_gaussian_result, parse_gaussian_log
         from ...core.parsers.orca import diagnose_orca_result, parse_orca_out
         rows: list[list[str]] = []
@@ -526,6 +584,7 @@ class RunsResultsPage(QWidget):
                         rows.append(_analysis_row(stem, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
                         rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
+        self._analyze_cache[key] = (sig, rows)
         return rows
 
     def _show_confflow_batch_results(self, record, result_dir: Path):
@@ -644,10 +703,15 @@ class RunsResultsPage(QWidget):
             and r.status_summary.get("remote_completed", 0) > 0
             and not getattr(self, '_download_backoff', {}).get(r.run_id, 0) > 2
         ]
+        # Skip runs the monitor-driven flush is already handling.
+        active = [r for r in active if r.run_id not in self._in_progress]
+        needs_download = [r for r in needs_download if r.run_id not in self._in_progress]
         if not active and not needs_download:
             return
 
         self._auto_refresh_running = True
+        claimed = [r.run_id for r in active] + [r.run_id for r in needs_download]
+        self._in_progress.update(claimed)
         backoff = getattr(self, '_download_backoff', {})
 
         def _run():
@@ -743,6 +807,7 @@ class RunsResultsPage(QWidget):
 
         def _on_done():
             self._auto_refresh_running = False
+            self._in_progress.difference_update(claimed)
             if worker in self._bg_workers:
                 self._bg_workers.remove(worker)
             self.refresh_run_list()
@@ -1065,6 +1130,7 @@ class RunsResultsPage(QWidget):
 
     def shutdown(self):
         self._refresh_timer.stop()
+        self._preview_timer.stop()
         for timer in self._task_done_timers.values():
             timer.stop()
         self._task_done_timers.clear()
@@ -1087,6 +1153,21 @@ def _command_executable(command: str) -> str:
     if not tokens:
         return ""
     return tokens[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+
+
+def _dir_parse_signature(result_dir: Path) -> tuple:
+    """Cheap signature of the parseable outputs under a results dir (name+mtime+size).
+
+    Used to invalidate the parse cache when files change, without re-parsing.
+    """
+    if not result_dir.exists():
+        return ()
+    items = []
+    for p in sorted(result_dir.rglob("*")):
+        if p.suffix.lower() in (".log", ".out") and p.is_file():
+            st = p.stat()
+            items.append((str(p), st.st_mtime, st.st_size))
+    return tuple(items)
 
 
 def _analysis_row(task_id: str, file_name: str, program: str, result, diagnosis: str | None, language: str) -> list[str]:
