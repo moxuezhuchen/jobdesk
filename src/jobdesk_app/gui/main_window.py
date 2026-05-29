@@ -101,9 +101,7 @@ class MainWindow(QMainWindow):
 
     def shutdown(self):
         try:
-            from dataclasses import replace
-            current = self._settings_store.load()
-            self._settings_store.save(replace(current, window_size=[self.width(), self.height()]))
+            self._settings_store.update(window_size=[self.width(), self.height()])
         except Exception:
             pass
         for page in (self.files_page, self.runs_page, self.settings_page):

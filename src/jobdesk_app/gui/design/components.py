@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -117,7 +115,7 @@ class StyledTableWidget(QTableWidget):
             self.horizontalHeader().sectionSize(column)
             for column in range(self.columnCount())
         ]
-        settings_store.save(replace(settings, column_widths=widths))
+        settings_store.update(column_widths=widths)
 
     def _save_bound_column_widths(self) -> None:
         if self._column_width_key:

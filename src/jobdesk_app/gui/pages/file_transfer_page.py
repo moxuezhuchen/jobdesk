@@ -3,7 +3,6 @@ from __future__ import annotations
 import posixpath
 import shutil
 import subprocess
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -729,10 +728,7 @@ class FileTransferPage(QWidget):
 
     def _save_last_local_folder(self, path: Path) -> None:
         """Persist the current local folder so it survives restarts."""
-        from dataclasses import replace
-        store = GuiSettingsStore()
-        current = store.load()
-        store.save(replace(current, last_local_folder=str(path)))
+        GuiSettingsStore().update(last_local_folder=str(path))
 
     def _apply_gui_settings_no_folder(self):
         """Apply settings that don't touch the local folder or remote path."""
@@ -2025,10 +2021,7 @@ class FileTransferPage(QWidget):
             current = store.load()
             new_server_id = self._connected_server_id or self.server_combo.currentData() or ""
             new_remote_dirs = {**dict(current.last_remote_dirs or {}), **self._server_remote_dirs}
-            store.save(replace(current,
-                last_server_id=new_server_id,
-                last_remote_dirs=new_remote_dirs,
-            ))
+            store.update(last_server_id=new_server_id, last_remote_dirs=new_remote_dirs)
         except OSError:
             pass
         finally:

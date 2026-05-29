@@ -142,3 +142,17 @@ def test_gui_settings_has_no_auto_refresh_or_auto_download_fields():
     """B4: auto_refresh_enabled and auto_download_enabled must not exist on GuiSettings."""
     assert not hasattr(GuiSettings(), "auto_refresh_enabled")
     assert not hasattr(GuiSettings(), "auto_download_enabled")
+
+
+def test_update_merges_only_given_fields_without_losing_others(tmp_path):
+    """update() must not clobber fields written by a different code path."""
+    path = tmp_path / "gui_settings.yaml"
+    store = GuiSettingsStore(path)
+    # Writer A persists a remote dir; writer B (fresh store) persists window size.
+    store.update(last_remote_dirs={"wsl": "/scratch"})
+    GuiSettingsStore(path).update(window_size=[800, 600])
+
+    loaded = GuiSettingsStore(path).load()
+    assert loaded.last_remote_dirs == {"wsl": "/scratch"}  # not lost by the second update
+    assert loaded.window_size == [800, 600]
+

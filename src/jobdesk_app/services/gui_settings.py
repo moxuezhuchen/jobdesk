@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -50,6 +51,10 @@ class GuiSettings:
 
 
 class GuiSettingsStore:
+    # Shared across instances: every page creates its own store but they all
+    # write the same file, so the lock must be class-level to serialize RMWs.
+    _lock = threading.RLock()
+
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path is not None else get_app_data_dir() / "gui_settings.yaml"
 
@@ -99,28 +104,36 @@ class GuiSettingsStore:
         return defaults
 
     def save(self, settings: GuiSettings) -> Path:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "default_local_folder": settings.default_local_folder,
-            "last_local_folder": settings.last_local_folder,
-            "default_remote_dir": settings.default_remote_dir,
-            "default_server_id": settings.default_server_id,
-            "text_editor_path": settings.text_editor_path,
-            "last_server_id": settings.last_server_id,
-            "last_remote_dirs": settings.last_remote_dirs or {},
-            "auto_connect": settings.auto_connect,
-            "overwrite_policy": settings.overwrite_policy,
-            "command_template": settings.command_template,
-            "max_parallel": settings.max_parallel,
-            "batch_size": settings.batch_size,
-            "language": settings.language,
-            "column_widths": settings.column_widths or {},
-            "window_size": settings.window_size,
-            "auto_refresh_interval": settings.auto_refresh_interval,
-            "notify_enabled": settings.notify_enabled,
-            "download_patterns": settings.download_patterns,
-            "hide_dotfiles": settings.hide_dotfiles,
-            "software_profiles": settings.software_profiles or {},
-        }
-        atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
-        return self.path
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "default_local_folder": settings.default_local_folder,
+                "last_local_folder": settings.last_local_folder,
+                "default_remote_dir": settings.default_remote_dir,
+                "default_server_id": settings.default_server_id,
+                "text_editor_path": settings.text_editor_path,
+                "last_server_id": settings.last_server_id,
+                "last_remote_dirs": settings.last_remote_dirs or {},
+                "auto_connect": settings.auto_connect,
+                "overwrite_policy": settings.overwrite_policy,
+                "command_template": settings.command_template,
+                "max_parallel": settings.max_parallel,
+                "batch_size": settings.batch_size,
+                "language": settings.language,
+                "column_widths": settings.column_widths or {},
+                "window_size": settings.window_size,
+                "auto_refresh_interval": settings.auto_refresh_interval,
+                "notify_enabled": settings.notify_enabled,
+                "download_patterns": settings.download_patterns,
+                "hide_dotfiles": settings.hide_dotfiles,
+                "software_profiles": settings.software_profiles or {},
+            }
+            atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+            return self.path
+
+    def update(self, **fields) -> GuiSettings:
+        """Atomically read-modify-write only the given fields, preserving the rest."""
+        with self._lock:
+            new_settings = replace(self.load(), **fields)
+            self.save(new_settings)
+            return new_settings
