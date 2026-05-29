@@ -146,6 +146,19 @@ class SSHClientWrapper:
                 port=self._server.port,
             ) from e
 
+        # Keep reused (persistent) connections alive and detect dead peers, so
+        # callers that hold a connection across operations avoid silent stalls.
+        transport = self._client.get_transport()
+        if transport is not None:
+            transport.set_keepalive(15)
+
+    def is_alive(self) -> bool:
+        """True if connected and the underlying transport is still active."""
+        if self._client is None:
+            return False
+        transport = self._client.get_transport()
+        return transport is not None and transport.is_active()
+
     def _start_wsl_if_configured(self) -> None:
         global _wsl_boot_last_attempt
         distro = self._server.wsl_distro

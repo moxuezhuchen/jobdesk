@@ -334,6 +334,52 @@ class TestRemoteTaskStatusesBatch:
         assert snaps == {}
         assert called == [], "no SSH command should be issued for an empty task list"
 
+    def test_extra_files_read_in_same_command(self):
+        body = (
+            _make_block("T0:S", "M")
+            + _make_block("T0:E", "M")
+            + _make_block("T0:L", "M")
+            + _make_block("BC:E", "F", _b64("0"))
+            + _make_block("BC:L", "M")
+            + "##JD-DONE\n"
+        )
+        captured: list[str] = []
+
+        def handler(command, timeout=None, check=False):
+            captured.append(command)
+            return SSHResult(command=command, exit_code=0, stdout=body, stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        out: dict = {}
+        snaps = read_remote_task_statuses_batch(
+            ssh,
+            [("t1", "/r/t1")],
+            extra_files=[("BC:E", "/r/_batch/batch_control_exit_code", 0),
+                         ("BC:L", "/r/_batch/batch_control.log", 20)],
+            extra_out=out,
+        )
+        assert len(captured) == 1, "tasks + extra files must share one SSH command"
+        assert out["BC:E"] == b"0"
+        assert out["BC:L"] is None  # missing file
+        assert "t1" in snaps
+
+    def test_extra_files_only_still_one_command(self):
+        body = _make_block("BC:E", "F", _b64("0")) + "##JD-DONE\n"
+        captured: list[str] = []
+
+        def handler(command, timeout=None, check=False):
+            captured.append(command)
+            return SSHResult(command=command, exit_code=0, stdout=body, stderr="", duration_seconds=0.01)
+
+        ssh = _make_ssh_with_handler(handler)
+        out: dict = {}
+        snaps = read_remote_task_statuses_batch(
+            ssh, [], extra_files=[("BC:E", "/r/x", 0)], extra_out=out
+        )
+        assert len(captured) == 1
+        assert out["BC:E"] == b"0"
+        assert snaps == {}
+
     def test_tasks_without_remote_dir_are_skipped_but_returned(self):
         """task_id 在结果里会有，但不会出现在远程查询中。"""
         body = "##JD-DONE\n"

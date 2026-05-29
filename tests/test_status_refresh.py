@@ -9,7 +9,7 @@ from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.remote.status import RemoteTaskStatusSnapshot
 from jobdesk_app.remote.status_refresh import (
-    _read_batch_control,
+    _parse_batch_control,
     _recover_status,
     refresh_batch_status,
 )
@@ -250,8 +250,8 @@ class TestRefreshBatchStatus:
                 assert result.failures[0].task_id == "t1"
 
     def test_refresh_uses_single_ssh_command_for_task_files(self):
-        """N 个 task 应只触发 1 次 SSH 命令读取所有任务的状态文件
-        （加上 batch_control 的 2 条，共 3 条），而不是 3N+2 条。"""
+        """N 个 task + batch_control 应只触发「1 次」批量 SSH 命令，
+        而不是 3N+2 条，且不再单独为 batch_control 调用 ssh.run。"""
         tasks = [
             _make_task("t1", TaskStatus.submitted, "/r/t1"),
             _make_task("t2", TaskStatus.submitted, "/r/t2"),
@@ -279,13 +279,12 @@ class TestRefreshBatchStatus:
                 refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
                 # 批量读 1 次，与 task 数无关
                 assert mock_batch.call_count == 1
-                # batch_control 仍然是 2 条
-                assert mock_ssh.run.call_count == 2
+                # batch_control 已并入批量读取，不再单独 ssh.run
+                assert mock_ssh.run.call_count == 0
 
-    def test_refresh_skips_batch_call_when_no_remote_dirs(self):
-        """所有 task 都没有 remote_job_dir 时，不应调用批量读取。"""
+    def test_refresh_single_call_even_without_remote_dirs(self):
+        """即使所有 task 都没有 remote_job_dir，仍需 1 次批量读取来获取 batch_control。"""
         tasks = [_make_task("t1", TaskStatus.local_ready, remote_job_dir="-")]
-        # 用空 remote_job_dir 模拟未分配 - 通过手工构造
         for t in tasks:
             t.remote_job_dir = ""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -297,9 +296,10 @@ class TestRefreshBatchStatus:
 
             with patch(
                 "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={},
             ) as mock_batch:
                 refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
-                assert mock_batch.call_count == 0
+                assert mock_batch.call_count == 1
 
 
 # ---- batch_control ------------------------------------------------
@@ -307,22 +307,17 @@ class TestRefreshBatchStatus:
 
 class TestBatchControlReading:
     def test_exit_code_zero(self):
-        mock_ssh = MagicMock()
-        mock_ssh.run = MagicMock(side_effect=[
-            SSHResult("", 0, "0", "", 0.01),
-            SSHResult("", 0, "BATCH_FINISHED\n", "", 0.01),
-        ])
-        snap = _read_batch_control(mock_ssh, "/r")
+        snap = _parse_batch_control({"BC:E": b"0", "BC:L": b"BATCH_FINISHED\n"})
         assert snap.exit_code == 0
         assert snap.finished_marker_found is True
 
     def test_exit_code_nonzero(self):
-        mock_ssh = MagicMock()
-        mock_ssh.run = MagicMock(side_effect=[
-            SSHResult("", 0, "1", "", 0.01),
-            SSHResult("", 0, "BATCH_FINISHED\n", "", 0.01),
-        ])
-        snap = _read_batch_control(mock_ssh, "/r")
+        snap = _parse_batch_control({"BC:E": b"1", "BC:L": b"BATCH_FINISHED\n"})
         assert snap.exit_code == 1
         assert snap.finished_marker_found is True
         assert any("非零" in w for w in snap.warnings)
+
+    def test_missing_files(self):
+        snap = _parse_batch_control({"BC:E": None, "BC:L": None})
+        assert snap.exit_code is None
+        assert snap.finished_marker_found is False

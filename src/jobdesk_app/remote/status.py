@@ -197,6 +197,8 @@ def read_remote_task_statuses_batch(
     tasks: Iterable[tuple[str, str]],
     log_tail_lines: int = 50,
     timeout: int | None = None,
+    extra_files: list[tuple[str, str, int]] | None = None,
+    extra_out: dict[str, bytes | None] | None = None,
 ) -> dict[str, RemoteTaskStatusSnapshot]:
     """批量读取多个任务的远程状态文件（一条 SSH 命令完成）。
 
@@ -235,17 +237,23 @@ def read_remote_task_statuses_batch(
         if remote_job_dir:
             pending.append((idx, task_id, remote_job_dir))
 
-    if not pending:
+    extra = list(extra_files or [])
+    if not pending and not extra:
         return snapshots
 
-    script = _build_batch_script(pending, log_tail_lines)
-    effective_timeout = timeout if timeout is not None else max(30, 5 + len(pending) // 4)
+    script = _build_batch_script(pending, log_tail_lines, extra)
+    effective_timeout = (
+        timeout if timeout is not None else max(30, 5 + (len(pending) + len(extra)) // 4)
+    )
 
     try:
         result = ssh.run(script, timeout=effective_timeout)
     except Exception as exc:
         for _idx, task_id, _ in pending:
             snapshots[task_id].warnings.append(f"批量读取远程状态失败: {exc}")
+        if extra_out is not None:
+            for key, _p, _t in extra:
+                extra_out[key] = None
         return snapshots
 
     blocks = _parse_batch_output(result.stdout)
@@ -275,14 +283,20 @@ def read_remote_task_statuses_batch(
             label=f"{remote_job_dir}/.jobdesk_submit.log",
         )
 
+    if extra_out is not None:
+        for key, _p, _t in extra:
+            block = blocks.get(key)
+            extra_out[key] = block[1] if block else None
+
     return snapshots
 
 
 def _build_batch_script(
     pending: list[tuple[int, str, str]],
     log_tail_lines: int,
+    extra_files: list[tuple[str, str, int]] | None = None,
 ) -> str:
-    """根据待查询的任务列表构造批量脚本。"""
+    """根据待查询的任务列表（及可选的额外文件）构造批量脚本。"""
     lines = [_BATCH_PROLOGUE.rstrip("\n")]
     for idx, _task_id, remote_job_dir in pending:
         d = shlex.quote(remote_job_dir)
@@ -291,6 +305,8 @@ def _build_batch_script(
         lines.append(
             f"encode_block 'T{idx}:L' {d}/.jobdesk_submit.log {int(log_tail_lines)}"
         )
+    for key, path, tail in (extra_files or []):
+        lines.append(f"encode_block {shlex.quote(key)} {shlex.quote(path)} {int(tail)}")
     lines.append("rm -f \"$_jd_tmp\"")
     lines.append(f"printf '{_BATCH_DONE_MARK}\\n'")
     return "\n".join(lines)

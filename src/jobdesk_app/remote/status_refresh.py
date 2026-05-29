@@ -4,7 +4,6 @@
 不下载输出文件、不做本地分析、不提交任务。
 """
 
-import shlex
 from datetime import datetime
 from pathlib import Path
 
@@ -44,18 +43,25 @@ def refresh_batch_status(
     tasks = Manifest.read(manifest_path)
     result = StatusRefreshResult(batch_id=batch_id, task_count=len(tasks))
 
-    # 读取 batch_control 状态
-    result.batch_control = _read_batch_control(ssh, remote_batch_dir, control_subdir)
+    # 把 batch_control 文件与所有 task 的状态文件合并为「一条」SSH 命令读取，
+    # 减少高延迟链路（如 frp 中继隧道）上的往返次数。
+    control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
+    extra_files = [
+        ("BC:E", f"{control_dir}/batch_control_exit_code", 0),
+        ("BC:L", f"{control_dir}/batch_control.log", 20),
+    ]
+    extra_out: dict[str, bytes | None] = {}
 
-    # 批量读取所有 task 的远程状态文件（一条 SSH 命令）。
     # 没有 remote_job_dir 的 task 不会被远程查询。
     batch_pairs = [(t.task_id, t.remote_job_dir) for t in tasks if t.remote_job_dir]
-    if batch_pairs:
-        batch_snapshots = read_remote_task_statuses_batch(
-            ssh, batch_pairs, log_tail_lines=log_tail_lines
-        )
-    else:
-        batch_snapshots = {}
+    batch_snapshots = read_remote_task_statuses_batch(
+        ssh,
+        batch_pairs,
+        log_tail_lines=log_tail_lines,
+        extra_files=extra_files,
+        extra_out=extra_out,
+    )
+    result.batch_control = _parse_batch_control(extra_out)
 
     # 遍历每个任务
     changed_tasks: dict[str, TaskRecord] = {}
@@ -219,40 +225,27 @@ def _check_exit_code(remote_snap, snap: TaskStatusSnapshot) -> TaskStatus | None
         return None
 
 
-def _read_batch_control(ssh, remote_batch_dir: str, control_subdir: str = "_batch") -> BatchControlSnapshot:
-    """读取 batch_control 相关状态文件。"""
+def _parse_batch_control(extra_out: dict[str, bytes | None]) -> BatchControlSnapshot:
+    """从合并批量读取的结果解析 batch_control 状态（不再单独发起 SSH）。
+
+    Args:
+        extra_out: ``{"BC:E": bytes|None, "BC:L": bytes|None}``，
+            ``None`` 表示文件不存在或读取失败。
+    """
     snap = BatchControlSnapshot()
-    control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
-    cd_q = shlex.quote(control_dir)
 
-    # 读取 batch_control_exit_code
-    try:
-        r = ssh.run(
-            f"test -f {cd_q}/batch_control_exit_code && cat {cd_q}/batch_control_exit_code"
-            f" || echo '__NOT_FOUND__'",
-            timeout=10,
-        )
-        if "__NOT_FOUND__" not in r.stdout:
-            try:
-                snap.exit_code = int(r.stdout.strip())
-            except ValueError:
-                snap.warnings.append(f"batch_control_exit_code 非整数: {r.stdout.strip()!r}")
-    except Exception as e:
-        snap.warnings.append(f"读取 batch_control_exit_code 失败: {e}")
+    ec = extra_out.get("BC:E")
+    if ec is not None:
+        text = ec.decode("utf-8", errors="replace").strip()
+        try:
+            snap.exit_code = int(text)
+        except ValueError:
+            snap.warnings.append(f"batch_control_exit_code 非整数: {text!r}")
 
-    # 读取 batch_control.log tail
-    try:
-        r = ssh.run(
-            f"test -f {cd_q}/batch_control.log && tail -n 20 {cd_q}/batch_control.log 2>/dev/null"
-            f" || echo '__NOT_FOUND__'",
-            timeout=15,
-        )
-        if "__NOT_FOUND__" not in r.stdout:
-            snap.log_tail = r.stdout
-    except Exception as e:
-        snap.warnings.append(f"读取 batch_control.log 失败: {e}")
+    log = extra_out.get("BC:L")
+    if log is not None:
+        snap.log_tail = log.decode("utf-8", errors="replace")
 
-    # 检查 BATCH_FINISHED
     snap.finished_marker_found = "BATCH_FINISHED" in snap.log_tail
 
     if snap.exit_code is not None and snap.exit_code != 0:

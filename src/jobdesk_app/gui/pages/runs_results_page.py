@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
+import threading
 from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer
@@ -202,6 +203,55 @@ class RunsResultsPage(QWidget):
         # Tracks the last current_batch_id we auto-selected, so a freshly-set one
         # (a new submission) still jumps while later refreshes keep manual selection.
         self._applied_batch_id: str | None = None
+
+        # Persistent SSH/SFTP sessions reused across status-refresh ticks so the
+        # (high-latency, e.g. relay-tunneled) connection handshake is paid once
+        # rather than on every refresh. Serialized by a single lock because the
+        # auto-refresh timer and manual refresh run on background threads and an
+        # SFTP client must not be used concurrently.
+        self._refresh_sessions: dict[str, tuple] = {}  # server_id -> (ssh, sftp)
+        self._refresh_lock = threading.Lock()
+
+    def _persistent_session(self, server_id: str, srv):
+        """Return a live ``(ssh, sftp)`` for ``server_id``, reusing the cached
+        connection and reconnecting only if it died. Call under ``_refresh_lock``."""
+        sess = self._refresh_sessions.get(server_id)
+        if sess is not None:
+            if sess[0].is_alive():
+                return sess
+            self._close_session(server_id)
+        ssh = create_ssh_client(srv)
+        ssh.connect()
+        try:
+            sftp = create_sftp_client(ssh)
+        except Exception:
+            ssh.close()
+            raise
+        self._refresh_sessions[server_id] = (ssh, sftp)
+        return self._refresh_sessions[server_id]
+
+    def _close_session(self, server_id: str) -> None:
+        sess = self._refresh_sessions.pop(server_id, None)
+        if not sess:
+            return
+        ssh, sftp = sess
+        for obj in (sftp, ssh):
+            try:
+                obj.close()
+            except Exception:
+                pass
+
+    def _close_all_sessions(self) -> None:
+        with self._refresh_lock:
+            for server_id in list(self._refresh_sessions):
+                self._close_session(server_id)
+
+    def _drop_dead_session(self, server_id: str) -> None:
+        """Drop a cached session only if its connection actually died, so a
+        non-connection error doesn't force an unnecessary reconnect."""
+        s = self._refresh_sessions.get(server_id)
+        if s is not None and not s[0].is_alive():
+            self._close_session(server_id)
 
     def _start_monitoring(self):
         """Watch all running runs."""
@@ -720,28 +770,15 @@ class RunsResultsPage(QWidget):
             errors = []
             downloaded = []
             dl_failures: dict[str, int] = {}
-            sessions: dict[str, tuple] = {}  # server_id -> (ssh, sftp)
 
-            def get_session(server_id, srv):
-                if server_id not in sessions:
-                    ssh = create_ssh_client(srv)
-                    ssh.connect()
-                    try:
-                        sftp = create_sftp_client(ssh)
-                    except Exception:
-                        ssh.close()
-                        raise
-                    sessions[server_id] = (ssh, sftp)
-                return sessions[server_id]
-
-            try:
+            with self._refresh_lock:
                 for record in active:
                     rec_ws = Path(record.local_dir) if record.local_dir else workspace
                     srv = cfg.servers.get(record.server_id)
                     if not srv:
                         continue
                     try:
-                        ssh, sftp = get_session(record.server_id, srv)
+                        ssh, sftp = self._persistent_session(record.server_id, srv)
                         refresh_batch_status(
                             ssh=ssh,
                             manifest_path=record.manifest_path,
@@ -760,6 +797,7 @@ class RunsResultsPage(QWidget):
                                 downloaded.append(record.run_id)
                     except Exception as exc:
                         errors.append(f"{record.run_id}: {exc}")
+                        self._drop_dead_session(record.server_id)
                 # Auto-recover remote_completed runs
                 for record in needs_download:
                     rec_ws = Path(record.local_dir) if record.local_dir else workspace
@@ -767,7 +805,7 @@ class RunsResultsPage(QWidget):
                     if not srv:
                         continue
                     try:
-                        ssh, sftp = get_session(record.server_id, srv)
+                        _ssh, sftp = self._persistent_session(record.server_id, srv)
                         patterns = self._get_download_patterns(record)
                         _records, failures = RunService(rec_ws).download_completed(record.run_id, sftp, patterns)
                         if failures:
@@ -779,16 +817,7 @@ class RunsResultsPage(QWidget):
                     except Exception as exc:
                         errors.append(f"{record.run_id}: {exc}")
                         dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
-            finally:
-                for ssh, sftp in sessions.values():
-                    try:
-                        sftp.close()
-                    except Exception:
-                        pass
-                    try:
-                        ssh.close()
-                    except Exception:
-                        pass
+                        self._drop_dead_session(record.server_id)
             return downloaded, errors, dl_failures
 
         from ..workers import BackgroundWorker
@@ -827,26 +856,25 @@ class RunsResultsPage(QWidget):
         def _run():
             from ...remote.status_refresh import refresh_batch_status
             server = load_servers().servers[record.server_id]
-            ssh = create_ssh_client(server)
-            ssh.connect()
-            sftp = create_sftp_client(ssh)
-            try:
-                refresh_batch_status(
-                    ssh=ssh,
-                    manifest_path=record.manifest_path,
-                    remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
-                    batch_id=run_id,
-                    write=True,
-                )
-                RunService(workspace).update_run_from_manifest(run_id)
-                updated = RunService(workspace).load_run(run_id)
-                if updated.status_summary.get("remote_completed", 0) > 0:
-                    patterns = self._get_download_patterns(record)
-                    recs, fails = RunService(workspace).download_completed(run_id, sftp, patterns)
-                    return tr("Download done: {n} files, failed: {f}", self._language, n=len(recs), f=len(fails))
-            finally:
-                sftp.close()
-                ssh.close()
+            with self._refresh_lock:
+                try:
+                    ssh, sftp = self._persistent_session(record.server_id, server)
+                    refresh_batch_status(
+                        ssh=ssh,
+                        manifest_path=record.manifest_path,
+                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
+                        batch_id=run_id,
+                        write=True,
+                    )
+                    RunService(workspace).update_run_from_manifest(run_id)
+                    updated = RunService(workspace).load_run(run_id)
+                    if updated.status_summary.get("remote_completed", 0) > 0:
+                        patterns = self._get_download_patterns(record)
+                        recs, fails = RunService(workspace).download_completed(run_id, sftp, patterns)
+                        return tr("Download done: {n} files, failed: {f}", self._language, n=len(recs), f=len(fails))
+                except Exception:
+                    self._drop_dead_session(record.server_id)
+                    raise
 
         from ..workers import BackgroundWorker
         worker = BackgroundWorker(_run)
@@ -1141,6 +1169,7 @@ class RunsResultsPage(QWidget):
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely()
+        self._close_all_sessions()
 
 
 def _too_large_for_preview(path: Path) -> bool:

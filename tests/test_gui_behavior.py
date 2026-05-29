@@ -978,8 +978,9 @@ class TestAutoRefreshConnectionReuse:
         assert make_ssh.call_count == 2
         assert make_sftp.call_count == 2
 
-    def test_run_error_does_not_affect_others_and_all_closed(self, runs_page, qtbot):
-        """If one run's refresh fails, others still proceed and all sessions close."""
+    def test_run_error_does_not_affect_others_and_session_persists(self, runs_page, qtbot):
+        """If one run's refresh fails, others still proceed; the live session is
+        reused (not closed per tick) and only closed on shutdown."""
         records = [
             MagicMock(run_id="run_fail", server_id="wsl", remote_dir="/r",
                       manifest_path=Path("m.tsv"), status_summary={"running": 1}, local_dir=None),
@@ -995,6 +996,7 @@ class TestAutoRefreshConnectionReuse:
                 raise RuntimeError("simulated failure")
 
         mock_ssh = MagicMock()
+        mock_ssh.is_alive.return_value = True  # not a connection failure
         mock_sftp = MagicMock()
 
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
@@ -1016,9 +1018,13 @@ class TestAutoRefreshConnectionReuse:
 
         # Both runs attempted refresh (2 calls to refresh_batch_status)
         assert call_count["refresh"] == 2
-        # Connection created only once (reuse)
+        # Connection created only once and reused (still alive after a non-connection error)
         assert make_ssh.call_count == 1
-        # All sessions closed in finally
+        # Persistent across the tick: not closed after the refresh
+        mock_sftp.close.assert_not_called()
+        mock_ssh.close.assert_not_called()
+        # Closed on shutdown
+        runs_page.shutdown()
         mock_sftp.close.assert_called_once()
         mock_ssh.close.assert_called_once()
 
