@@ -36,10 +36,14 @@ class BackgroundWorker(QThread):
     def wait_all(cls, timeout_ms: int | None = None):
         """Block until all running workers finish (use on app shutdown)."""
         for worker in list(cls._active):
-            if timeout_ms is None:
-                worker.wait()
-            else:
-                worker.wait(timeout_ms)
+            try:
+                finished = worker.wait() if timeout_ms is None else worker.wait(timeout_ms)
+            except RuntimeError:
+                # Underlying C++ QThread already deleted (e.g. test teardown).
+                cls._active.discard(worker)
+                continue
+            if finished:
+                cls._active.discard(worker)
 
     def run(self):
         self.started.emit()
