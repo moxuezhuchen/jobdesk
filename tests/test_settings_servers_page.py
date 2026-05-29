@@ -138,3 +138,58 @@ def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_pa
     saved = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]["wsl"]
     assert saved["auth_method"] == "key"
     assert saved["trust_on_first_use"] is True
+
+
+def test_edit_server_saves_scheduler_fields_and_preserves_hidden_keys(qtbot, tmp_path):
+    from PySide6.QtWidgets import QComboBox, QSpinBox
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  hpc:\n"
+        "    host: cluster\n"
+        "    username: chemist\n"
+        "    auth_method: key\n"
+        "    scheduler:\n"
+        "      type: nohup\n"
+        "      default_cpus: 1\n"
+        "      extra_directives:\n"
+        "        - '#SBATCH --qos=high'\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+
+    def accept_with_scheduler(dialog):
+        type_combo = next(
+            c for c in dialog.findChildren(QComboBox)
+            if [c.itemText(i) for i in range(c.count())] == ["nohup", "slurm", "pbs"]
+        )
+        type_combo.setCurrentIndex(1)  # slurm
+        spins = dialog.findChildren(QSpinBox)
+        # spins order: port, cpus, mem, walltime
+        spins[1].setValue(16)   # cpus
+        spins[2].setValue(32000)  # memory MB
+        spins[3].setValue(720)  # walltime minutes
+        return QDialog.Accepted
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_scheduler):
+        page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
+        qtbot.addWidget(page)
+        page.server_table.selectRow(0)
+        page._edit_server()
+
+    sched = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]["hpc"]["scheduler"]
+    assert sched["type"] == "slurm"
+    assert sched["default_cpus"] == 16
+    assert sched["default_memory_mb"] == 32000
+    assert sched["default_walltime_minutes"] == 720
+    assert sched["extra_directives"] == ["#SBATCH --qos=high"]  # hidden key preserved

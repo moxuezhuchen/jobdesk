@@ -320,6 +320,7 @@ class RunsResultsPage(QWidget):
         return [
             (tr("Refresh Status", self._language), self._refresh_all),
             (tr("Rerun", self._language), self._rerun_all),
+            (tr("Compare Selected", self._language), self._compare_selected),
             (tr("Open Results", self._language), self._open_results_folder),
             (tr("Show Logs", self._language), self._show_logs),
             (tr("Show Paths", self._language), self._show_paths),
@@ -446,8 +447,8 @@ class RunsResultsPage(QWidget):
         """Analyze output files directly from workspace if they exist locally."""
         from ...core.lifecycle import TaskStatus
         from ...core.manifest import Manifest
-        from ...core.parsers.gaussian import parse_gaussian_log
-        from ...core.parsers.orca import parse_orca_out
+        from ...core.parsers.gaussian import diagnose_gaussian_result, parse_gaussian_log
+        from ...core.parsers.orca import diagnose_orca_result, parse_orca_out
         manifest_path = record.manifest_path
         if not manifest_path or not Path(manifest_path).exists():
             return []
@@ -465,31 +466,25 @@ class RunsResultsPage(QWidget):
             if log_file.is_file():
                 found = True
                 if _too_large_for_preview(log_file):
-                    rows.append([task.task_id, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", ""])
+                    rows.append([task.task_id, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
                     try:
                         r = parse_gaussian_log(log_file)
-                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                        rows.append([task.task_id, log_file.name, "Gaussian", energy, gibbs,
-                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                        rows.append(_analysis_row(task.task_id, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
-                        rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
+                        rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", "", "", ""])
             # Check .out (ORCA)
             out_file = workspace / f"{stem}.out"
             if out_file.is_file():
                 found = True
                 if _too_large_for_preview(out_file):
-                    rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
+                    rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
                     try:
-                        r = parse_orca_out(out_file)  # type: ignore[assignment]
-                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                        rows.append([task.task_id, out_file.name, "ORCA", energy, gibbs,
-                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                        ro = parse_orca_out(out_file)
+                        rows.append(_analysis_row(task.task_id, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
-                        rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
+                        rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
             if found and task.status == TaskStatus.remote_completed:
                 task.status = TaskStatus.downloaded
                 changed = True
@@ -501,8 +496,8 @@ class RunsResultsPage(QWidget):
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
         """Auto-detect and parse Gaussian/ORCA output files matching task stem."""
-        from ...core.parsers.gaussian import parse_gaussian_log
-        from ...core.parsers.orca import parse_orca_out
+        from ...core.parsers.gaussian import diagnose_gaussian_result, parse_gaussian_log
+        from ...core.parsers.orca import diagnose_orca_result, parse_orca_out
         rows: list[list[str]] = []
         dirs = sorted(d for d in result_dir.iterdir() if d.is_dir())
         if not dirs:
@@ -513,30 +508,24 @@ class RunsResultsPage(QWidget):
             log_file = task_dir / f"{stem}.log"
             if log_file.is_file():
                 if _too_large_for_preview(log_file):
-                    rows.append([stem, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", ""])
+                    rows.append([stem, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
                     try:
                         r = parse_gaussian_log(log_file)
-                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                        rows.append([stem, log_file.name, "Gaussian", energy, gibbs,
-                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                        rows.append(_analysis_row(stem, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
-                        rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", ""])
+                        rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", "", "", ""])
             # ORCA .out
             out_file = task_dir / f"{stem}.out"
             if out_file.is_file():
                 if _too_large_for_preview(out_file):
-                    rows.append([stem, out_file.name, "ORCA", tr("File too large for preview", self._language), "", ""])
+                    rows.append([stem, out_file.name, "ORCA", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
                     try:
-                        r = parse_orca_out(out_file)  # type: ignore[assignment]
-                        energy = f"{r.final_energy_au:.6f}" if r.final_energy_au else ""
-                        gibbs = f"{r.gibbs_au:.6f}" if r.gibbs_au else ""
-                        rows.append([stem, out_file.name, "ORCA", energy, gibbs,
-                                     tr("Yes", self._language) if r.normal_termination else tr("No", self._language)])
+                        ro = parse_orca_out(out_file)
+                        rows.append(_analysis_row(stem, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
-                        rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", ""])
+                        rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
         return rows
 
     def _show_confflow_batch_results(self, record, result_dir: Path):
@@ -614,7 +603,7 @@ class RunsResultsPage(QWidget):
         self.result_label.setText(f"{prefix} - {notice}")
 
     def _show_analysis_rows(self, rows: list[list[str]]):
-        headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", tr("Normal Term", self._language)]
+        headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", "ZPE(Hartree)", tr("Imag.Freq", self._language), tr("Diagnosis", self._language)]
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
         self.result_table.restore_column_widths("runs_results.preview")
@@ -906,6 +895,66 @@ class RunsResultsPage(QWidget):
         self.refresh_run_list()
         self._submit_record(record.run_id)
 
+    def _selected_run_ids(self) -> list[str]:
+        ids: list[str] = []
+        for row in sorted({idx.row() for idx in self.table.selectedIndexes()}):
+            item = self.table.item(row, 0)
+            if item:
+                ids.append(item.text())
+        return ids
+
+    def _compare_selected(self):
+        """Compare energies across the selected runs and show them in the result table."""
+        from PySide6.QtWidgets import QInputDialog
+
+        from ...services.analysis_profiles import AnalysisProfileStore
+        run_ids = self._selected_run_ids()
+        if len(run_ids) < 2:
+            self._status_cb(tr("Select at least two runs to compare", self._language))
+            return
+        profiles = sorted(AnalysisProfileStore().list_profiles())
+        if not profiles:
+            return
+        default_idx = profiles.index("gaussian_opt_freq") if "gaussian_opt_freq" in profiles else 0
+        profile, ok = QInputDialog.getItem(
+            self, tr("Compare Selected", self._language),
+            tr("Analysis profile:", self._language), profiles, default_idx, False,
+        )
+        if not ok:
+            return
+        energy_field = "final_energy" if profile.startswith("orca") else "scf_energy"
+        workspace = self._workspace()
+
+        def _run():
+            from ...services.comparison import compare_runs
+            return compare_runs(workspace, run_ids, energy_field=energy_field, profile_name=profile)
+
+        from ..workers import BackgroundWorker
+        worker = BackgroundWorker(_run)
+        worker.result.connect(self._show_comparison_rows)
+        worker.error.connect(lambda e: self._status_cb(tr("Compare failed: {e}", self._language, e=e)))
+        worker.finished.connect(lambda: self._bg_workers.remove(worker) if worker in self._bg_workers else None)
+        worker.finished.connect(worker.deleteLater)
+        self._bg_workers.append(worker)
+        worker.start()
+
+    def _show_comparison_rows(self, comparison):
+        if not comparison.rows:
+            self._set_parsed_results_label(tr("Cross-run Comparison", self._language) + " - " + tr("No comparable results", self._language))
+            self.result_text.setVisible(False)
+            self.result_table.setRowCount(0)
+            return
+        headers = comparison.field_names
+        self.result_text.setVisible(False)
+        self.result_table.setColumnCount(len(headers))
+        self.result_table.setHorizontalHeaderLabels(headers)
+        self.result_table.setRowCount(len(comparison.rows))
+        for r, row in enumerate(comparison.rows):
+            for c, key in enumerate(headers):
+                self.result_table.setItem(r, c, QTableWidgetItem(str(row.get(key, ""))))
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self._set_parsed_results_label(tr("Cross-run Comparison", self._language) + f" ({len(comparison.rows)})")
+
     def _cancel_run(self):
         record = self._selected_record()
         if record is None:
@@ -1031,3 +1080,12 @@ class RunsResultsPage(QWidget):
 
 def _too_large_for_preview(path: Path) -> bool:
     return path.stat().st_size > MAX_PREVIEW_FILE_BYTES
+
+
+def _analysis_row(task_id: str, file_name: str, program: str, result, diagnosis: str | None, language: str) -> list[str]:
+    """Build an 8-column analysis row from a parsed Gaussian/ORCA result."""
+    energy = f"{result.final_energy_au:.6f}" if result.final_energy_au else ""
+    gibbs = f"{result.gibbs_au:.6f}" if result.gibbs_au else ""
+    zpe = f"{result.zpe_au:.6f}" if result.zpe_au else ""
+    imag = str(result.imaginary_freq_count)
+    return [task_id, file_name, program, energy, gibbs, zpe, imag, diagnosis or tr("OK", language)]

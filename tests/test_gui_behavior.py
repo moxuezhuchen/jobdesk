@@ -61,9 +61,55 @@ class TestRunsPage:
     def test_context_menu_has_refresh(self, runs_page, qtbot):
         """Right-click context menu should contain refresh action."""
         actions = runs_page._build_context_actions()
-        assert len(actions) == 5
+        assert len(actions) == 6
         # First action is refresh
         assert actions[0][1] == runs_page._refresh_all
+
+    def test_compare_selected_renders_comparison_rows(self, runs_page, qtbot):
+        """Comparing >=2 selected runs renders the comparison table from compare_runs."""
+        from PySide6.QtWidgets import QInputDialog, QTableWidgetItem
+
+        from jobdesk_app.services.comparison import RunComparison
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(2)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run_a"))
+        runs_page.table.setItem(1, 0, QTableWidgetItem("run_b"))
+        runs_page.table.selectAll()
+        runs_page.table.blockSignals(False)
+
+        comparison = RunComparison(
+            rows=[
+                {"run_id": "run_a", "task_id": "t", "scf_energy": -76.1, "scf_energy_rel_kcal": 0.0},
+                {"run_id": "run_b", "task_id": "t", "scf_energy": -76.0, "scf_energy_rel_kcal": 62.8},
+            ],
+            field_names=["run_id", "task_id", "scf_energy", "scf_energy_rel_kcal"],
+        )
+        with patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)), \
+             patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store, \
+             patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison):
+            store.return_value.list_profiles.return_value = {"gaussian_opt_freq": object()}
+            runs_page._compare_selected()
+            qtbot.waitUntil(lambda: runs_page.result_table.rowCount() == 2, timeout=3000)
+
+        assert runs_page.result_table.columnCount() == 4
+        assert "scf_energy_rel_kcal" in [
+            runs_page.result_table.horizontalHeaderItem(c).text()
+            for c in range(runs_page.result_table.columnCount())
+        ]
+
+    def test_compare_selected_requires_two_runs(self, runs_page):
+        """Comparing with <2 runs shows a hint and does not crash."""
+        from PySide6.QtWidgets import QTableWidgetItem
+        messages = []
+        runs_page._status_cb = messages.append
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("only_one"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+        runs_page._compare_selected()
+        from jobdesk_app.gui.i18n import tr
+        assert tr("Select at least two runs to compare", runs_page._language) in messages
 
     def test_refresh_run_list_empty(self, runs_page):
         """refresh_run_list should not crash with no runs."""
@@ -558,6 +604,9 @@ class TestRunsPage:
         result_dir.mkdir(parents=True)
         (result_dir / "task1.log").write_text(
             " SCF Done:  E(RHF) =   -76.123456     A.U.\n"
+            " Zero-point correction=                           0.020000 (Hartree/Particle)\n"
+            " Frequencies --   -50.0000    100.0000    200.0000\n"
+            " Stationary point found\n"
             " Normal termination of Gaussian 16\n",
             encoding="utf-8",
         )
@@ -569,10 +618,15 @@ class TestRunsPage:
         with patch.object(runs_page, "_workspace", return_value=tmp_path):
             runs_page._load_result_preview(record)
 
+        from jobdesk_app.gui.i18n import tr
         assert runs_page.result_table.rowCount() >= 1
+        assert runs_page.result_table.columnCount() == 8
         energy_cell = runs_page.result_table.item(0, 3)
         assert energy_cell is not None
         assert "-76.123456" in energy_cell.text()
+        assert runs_page.result_table.item(0, 5).text() == "0.020000"  # ZPE
+        assert runs_page.result_table.item(0, 6).text() == "1"  # one imaginary frequency
+        assert runs_page.result_table.item(0, 7).text() == tr("OK", runs_page._language)  # diagnosis: clean
 
     def test_retry_download_uses_record_local_dir_not_current_workspace(self, runs_page, qtbot, tmp_path):
         """Retry Download must use record.local_dir when set, not GUI workspace."""

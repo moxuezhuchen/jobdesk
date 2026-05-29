@@ -542,6 +542,57 @@ class SettingsServersPage(QWidget):
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
+    def _add_scheduler_fields(self, form, dlg, sched: dict) -> dict:
+        """Add scheduler resource widgets to a server dialog form; return widget dict."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox
+        type_combo = QComboBox()
+        type_combo.addItems(["nohup", "slurm", "pbs"])
+        ti = type_combo.findText(str(sched.get("type", "nohup")))
+        if ti >= 0:
+            type_combo.setCurrentIndex(ti)
+        cpus = QSpinBox()
+        cpus.setRange(1, 4096)
+        cpus.setValue(int(sched.get("default_cpus", 1)))
+        mem = QSpinBox()
+        mem.setRange(128, 4194304)
+        mem.setValue(int(sched.get("default_memory_mb", 2048)))
+        wall = QSpinBox()
+        wall.setRange(1, 1051200)
+        wall.setValue(int(sched.get("default_walltime_minutes", 1440)))
+        partition = QLineEdit(str(sched.get("default_partition", "")))
+        account = QLineEdit(str(sched.get("default_account", "")))
+        widgets = {"type": type_combo, "cpus": cpus, "mem": mem, "wall": wall,
+                   "partition": partition, "account": account}
+
+        def _toggle(*_):
+            hpc = type_combo.currentText() != "nohup"
+            for w in (partition, account, wall):
+                w.setEnabled(hpc)
+        type_combo.currentTextChanged.connect(_toggle)
+        _toggle()
+
+        form.addRow(tr("Scheduler:", self._language), type_combo)
+        form.addRow("CPUs:", cpus)
+        form.addRow(tr("Memory(MB):", self._language), mem)
+        form.addRow(tr("Walltime:", self._language), wall)
+        form.addRow(tr("Partition/Queue:", self._language), partition)
+        form.addRow(tr("Account:", self._language), account)
+        return widgets
+
+    @staticmethod
+    def _scheduler_dict(widgets: dict, existing: dict | None = None) -> dict:
+        """Read scheduler widgets into a config dict, preserving hidden keys (gpus, extra_directives)."""
+        result = dict(existing or {})
+        result.update({
+            "type": widgets["type"].currentText(),
+            "default_cpus": widgets["cpus"].value(),
+            "default_memory_mb": widgets["mem"].value(),
+            "default_walltime_minutes": widgets["wall"].value(),
+            "default_partition": widgets["partition"].text().strip(),
+            "default_account": widgets["account"].text().strip(),
+        })
+        return result
+
     def _edit_server(self):
         import yaml
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
@@ -590,6 +641,7 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
+        sched_widgets = self._add_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {})
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -612,6 +664,7 @@ class SettingsServersPage(QWidget):
             "auth_method": auth_combo.currentText(),
             "trust_on_first_use": tofu_toggle.isChecked(),
         })
+        existing["scheduler"] = self._scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
         if key_edit.text().strip():
             existing["key_path"] = key_edit.text().strip()
         elif "key_path" in existing and not key_edit.text().strip():
@@ -660,6 +713,7 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
+        sched_widgets = self._add_scheduler_fields(form, dlg, {})
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -686,6 +740,7 @@ class SettingsServersPage(QWidget):
             "username": user,
             "auth_method": auth_combo.currentText(),
             "trust_on_first_use": tofu_toggle.isChecked(),
+            "scheduler": self._scheduler_dict(sched_widgets),
         }
         if key_edit.text().strip():
             servers[sid]["key_path"] = key_edit.text().strip()

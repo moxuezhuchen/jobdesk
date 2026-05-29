@@ -177,9 +177,8 @@ def parse_orca_out(path: Path | str) -> OrcaResult:
     return result
 
 
-def diagnose_orca(path: Path | str) -> str | None:
-    """Return a human-readable error diagnosis for an ORCA output, or None if clean."""
-    result = parse_orca_out(path)
+def diagnose_orca_result(result: OrcaResult) -> str | None:
+    """Return a human-readable error diagnosis from an already-parsed result, or None if clean."""
     if result.normal_termination:
         return None
     if result.error_message:
@@ -189,3 +188,8 @@ def diagnose_orca(path: Path | str) -> str | None:
     if result.scf_energies and not result.normal_termination:
         return "Abnormal termination (job may have been killed or timed out)"
     return None
+
+
+def diagnose_orca(path: Path | str) -> str | None:
+    """Return a human-readable error diagnosis for an ORCA output, or None if clean."""
+    return diagnose_orca_result(parse_orca_out(path))

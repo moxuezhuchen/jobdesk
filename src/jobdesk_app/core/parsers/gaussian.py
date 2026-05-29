@@ -221,9 +221,8 @@ def parse_gaussian_log(path: Path | str) -> GaussianResult:
     return result
 
 
-def diagnose_gaussian(path: Path | str) -> str | None:
-    """Return a human-readable error diagnosis for a Gaussian log, or None if clean."""
-    result = parse_gaussian_log(path)
+def diagnose_gaussian_result(result: GaussianResult) -> str | None:
+    """Return a human-readable error diagnosis from an already-parsed result, or None if clean."""
     if result.normal_termination and result.converged:
         return None
     if result.error_message:
@@ -233,3 +232,8 @@ def diagnose_gaussian(path: Path | str) -> str | None:
     if not result.normal_termination and result.scf_energies:
         return "Abnormal termination (job may have been killed or timed out)"
     return None
+
+
+def diagnose_gaussian(path: Path | str) -> str | None:
+    """Return a human-readable error diagnosis for a Gaussian log, or None if clean."""
+    return diagnose_gaussian_result(parse_gaussian_log(path))
