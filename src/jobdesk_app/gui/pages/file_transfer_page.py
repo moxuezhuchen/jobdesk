@@ -1730,10 +1730,15 @@ class FileTransferPage(QWidget):
                 ssh.close()
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
-        self.worker = _BackgroundRunWorker(_run)
-        self.worker.result.connect(self._on_confflow_done)
-        self.worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))
-        self.worker.start()
+        worker = _BackgroundRunWorker(_run)
+        worker.result.connect(self._on_confflow_done)
+        worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))
+        worker.finished.connect(
+            lambda: self._background_workers.remove(worker)
+            if worker in self._background_workers else None
+        )
+        self._background_workers.append(worker)
+        worker.start()
 
     def _on_confflow_done(self, payload):
         record, result = payload
@@ -1855,10 +1860,15 @@ class FileTransferPage(QWidget):
                     ssh.close()
 
             self._status_cb("提交中...")
-            self.worker = _BackgroundRunWorker(_run)
-            self.worker.result.connect(lambda results: self._on_runs_done(results))
-            self.worker.error.connect(lambda error: self._error_cb("Run Error", error))
-            self.worker.start()
+            worker = _BackgroundRunWorker(_run)
+            worker.result.connect(lambda results: self._on_runs_done(results))
+            worker.error.connect(lambda error: self._error_cb("Run Error", error))
+            worker.finished.connect(
+                lambda: self._background_workers.remove(worker)
+                if worker in self._background_workers else None
+            )
+            self._background_workers.append(worker)
+            worker.start()
             self._save_remembered_profile()
             self._save_command_history()
             return
@@ -1915,10 +1925,15 @@ class FileTransferPage(QWidget):
 
         self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
         self._status_cb(f"Running {run_record.run_id}...")
-        self.worker = _BackgroundRunWorker(_run)
-        self.worker.result.connect(lambda results: self._on_runs_done(results))
-        self.worker.error.connect(lambda error: self._error_cb("Run Error", error))
-        self.worker.start()
+        worker = _BackgroundRunWorker(_run)
+        worker.result.connect(lambda results: self._on_runs_done(results))
+        worker.error.connect(lambda error: self._error_cb("Run Error", error))
+        worker.finished.connect(
+            lambda: self._background_workers.remove(worker)
+            if worker in self._background_workers else None
+        )
+        self._background_workers.append(worker)
+        worker.start()
 
     def _on_runs_done(self, results):
         for result in results:

@@ -12,11 +12,34 @@ class BackgroundWorker(QThread):
     log = Signal(str)
     progress = Signal(int, int)  # bytes_done, bytes_total
 
+    # Keep-alive registry: a running QThread whose Python wrapper is garbage
+    # collected triggers "QThread: Destroyed while thread is still running" and
+    # aborts the process. Rapid resubmission overwrites caller-held references,
+    # so every started worker holds a strong reference here until it finishes.
+    _active: set["BackgroundWorker"] = set()
+
     def __init__(self, target_fn, *args, **kwargs):
         super().__init__()
         self._target_fn = target_fn
         self._args = args
         self._kwargs = kwargs
+
+    def start(self, *args, **kwargs):
+        BackgroundWorker._active.add(self)
+        self.finished.connect(self._unregister)
+        super().start(*args, **kwargs)
+
+    def _unregister(self):
+        BackgroundWorker._active.discard(self)
+
+    @classmethod
+    def wait_all(cls, timeout_ms: int | None = None):
+        """Block until all running workers finish (use on app shutdown)."""
+        for worker in list(cls._active):
+            if timeout_ms is None:
+                worker.wait()
+            else:
+                worker.wait(timeout_ms)
 
     def run(self):
         self.started.emit()

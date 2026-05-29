@@ -110,6 +110,8 @@ class MainWindow(QMainWindow):
                     page.shutdown()
                 except Exception:
                     pass
+        from .workers import BackgroundWorker
+        BackgroundWorker.wait_all()
 
     def closeEvent(self, event):
         self.shutdown()

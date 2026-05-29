@@ -1972,3 +1972,33 @@ class TestMainWindowExcepthook:
 
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
+
+
+def test_running_worker_kept_alive_until_finished(qtbot):
+    """Regression: rapid submissions overwrote the single reference to a running
+    QThread, letting it be GC'd mid-run and aborting the process with
+    'QThread: Destroyed while thread is still running'. A started worker must stay
+    registered (strongly referenced) until it finishes."""
+    import gc
+    import weakref
+
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    release = threading.Event()
+    started = threading.Event()
+
+    def _task():
+        started.set()
+        release.wait(2.0)
+
+    worker = BackgroundWorker(_task)
+    ref = weakref.ref(worker)
+    worker.start()
+    qtbot.waitUntil(started.is_set, timeout=2000)
+
+    del worker  # drop the only caller-held reference while the thread runs
+    gc.collect()
+    assert ref() is not None and ref() in BackgroundWorker._active
+
+    release.set()
+    qtbot.waitUntil(lambda: ref() not in BackgroundWorker._active, timeout=2000)
