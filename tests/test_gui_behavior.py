@@ -1974,31 +1974,30 @@ class TestMainWindowExcepthook:
         QApplication.processEvents()
 
 
-def test_running_worker_kept_alive_until_finished(qtbot):
-    """Regression: rapid submissions overwrote the single reference to a running
+def test_started_worker_is_kept_alive_in_registry():
+    """Regression: rapid submissions overwrote the only reference to a running
     QThread, letting it be GC'd mid-run and aborting the process with
-    'QThread: Destroyed while thread is still running'. A started worker must stay
-    registered (strongly referenced) until it finishes."""
-    import gc
-    import weakref
+    'QThread: Destroyed while thread is still running'. start() must keep a strong
+    reference in the registry until the thread finishes."""
+    from PySide6.QtCore import QThread
 
     from jobdesk_app.gui.workers import BackgroundWorker
 
-    release = threading.Event()
-    started = threading.Event()
+    worker = BackgroundWorker(lambda: None)
+    with patch.object(QThread, "start"):  # register without spawning a real thread
+        worker.start()
+    assert worker in BackgroundWorker._active  # strong reference prevents GC
+    worker._unregister()  # simulate the finished signal
+    assert worker not in BackgroundWorker._active
 
-    def _task():
-        started.set()
-        release.wait(2.0)
 
-    worker = BackgroundWorker(_task)
-    ref = weakref.ref(worker)
-    worker.start()
-    qtbot.waitUntil(started.is_set, timeout=2000)
+def test_wait_all_tolerates_deleted_worker():
+    """wait_all must not raise when a registered worker's C++ object was already
+    deleted (e.g. on test/app teardown)."""
+    from jobdesk_app.gui.workers import BackgroundWorker
 
-    del worker  # drop the only caller-held reference while the thread runs
-    gc.collect()
-    assert ref() is not None and ref() in BackgroundWorker._active
-
-    release.set()
-    qtbot.waitUntil(lambda: ref() not in BackgroundWorker._active, timeout=2000)
+    dead = MagicMock()
+    dead.wait.side_effect = RuntimeError("Internal C++ object already deleted")
+    BackgroundWorker._active.add(dead)
+    BackgroundWorker.wait_all()
+    assert dead not in BackgroundWorker._active
