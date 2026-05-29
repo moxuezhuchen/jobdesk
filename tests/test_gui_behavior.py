@@ -138,6 +138,16 @@ class TestRunsPage:
             patterns = runs_page._get_download_patterns(record)
         assert "*.out" in patterns or "*.gbw" in patterns
 
+    def test_get_download_patterns_no_misdetect_from_substring(self, runs_page):
+        """A command whose program merely contains a profile name must not match it."""
+        record = MagicMock()
+        record.command_template = "python run_orca.py {name}"  # program is python, not orca
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
+            from jobdesk_app.services.gui_settings import GuiSettings
+            mock_store.return_value.load.return_value = GuiSettings()
+            patterns = runs_page._get_download_patterns(record)
+        assert patterns == [".log", ".out"]  # falls back to default, not ORCA's
+
     def test_load_result_preview_renders_confflow_summary(self, runs_page, tmp_path):
         runs_page.state.current_project_root = tmp_path
         summary_dir = tmp_path / "results" / "run001" / "water" / "water_confflow_work"

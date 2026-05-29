@@ -803,12 +803,11 @@ class RunsResultsPage(QWidget):
         """Get download patterns based on command template (auto-detect software)."""
         settings = GuiSettingsStore().load()
         profiles = settings.software_profiles or {}
-        cmd = record.command_template.lower()
+        exe = _command_executable(record.command_template)
         for profile in profiles.values():
-            tmpl = profile.get("command_template", "").lower()
-            # Match if the profile's command base appears in the record's command
-            base = tmpl.split()[0] if tmpl else ""
-            if base and base in cmd:
+            # Match on the actual program (first token), not a substring anywhere,
+            # so e.g. "python run_orca.py" is not misdetected as ORCA.
+            if exe and exe == _command_executable(profile.get("command_template", "")):
                 raw = profile.get("download_patterns", "")
                 return [p.strip() for p in raw.split(",") if p.strip()]
         return [".log", ".out"]
@@ -1080,6 +1079,14 @@ class RunsResultsPage(QWidget):
 
 def _too_large_for_preview(path: Path) -> bool:
     return path.stat().st_size > MAX_PREVIEW_FILE_BYTES
+
+
+def _command_executable(command: str) -> str:
+    """Return the lowercased basename of a command's first token (the program)."""
+    tokens = command.split()
+    if not tokens:
+        return ""
+    return tokens[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
 
 
 def _analysis_row(task_id: str, file_name: str, program: str, result, diagnosis: str | None, language: str) -> list[str]:
