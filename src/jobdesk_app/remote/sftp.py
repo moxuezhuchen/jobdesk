@@ -460,14 +460,18 @@ class SFTPClientWrapper:
         if not self.is_dir(remote_dir):
             return records
 
-        def _walk(rdir: str, rel_prefix: str):
+        def _walk(rdir: str, rel_prefix: str, depth: int = 0):
             import stat as stat_mod
+            if depth > 50:
+                raise RemotePathError(f"download_dir exceeded max depth (50): {rdir}")
             for attr in sorted(self._sftp.listdir_attr(rdir), key=lambda a: a.filename or ""):
                 name = attr.filename
                 full = posixpath.join(rdir, name)
                 rel = posixpath.join(rel_prefix, name) if rel_prefix else name
+                if stat_mod.S_ISLNK(attr.st_mode or 0):
+                    continue  # skip symlinks to avoid traversal loops
                 if stat_mod.S_ISDIR(attr.st_mode or 0):
-                    _walk(full, rel)
+                    _walk(full, rel, depth + 1)
                 else:
                     if not _matches_globs(rel, include_globs, exclude_globs):
                         continue

@@ -512,6 +512,19 @@ class TestDirTransfer:
             assert records[0].dry_run is True
             assert records[0].status == TransferStatus.planned
 
+    def test_download_dir_skips_symlinks(self, fake_sftp):
+        fake_sftp.mkdir_p("/remote/d3")
+        fake_sftp._sftp._files["/remote/d3/real.txt"] = b"x"
+        fake_sftp._sftp._attrs["/remote/d3/real.txt"] = FakeStat(st_size=1)
+        link = FakeStat(is_dir=True)
+        link.st_mode = statlib.S_IFLNK | 0o777  # symlinked dir (potential loop)
+        fake_sftp._sftp._attrs["/remote/d3/loop"] = link
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            records = fake_sftp.download_dir("/remote/d3", Path(tmpdir))
+            assert len(records) == 1
+            assert (Path(tmpdir) / "real.txt").exists()
+
 
 # ---- TransferRecord ----------------------------------------------------
 

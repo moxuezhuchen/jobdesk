@@ -24,6 +24,14 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8", newl
             handle.flush()
             os.fsync(handle.fileno())
         tmp_path.replace(path)
+        try:
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except (OSError, AttributeError):
+            pass  # directory fsync unsupported (e.g. Windows); replace is durable enough there
     except Exception:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
