@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from jobdesk_app.core.transfer import TransferStatus
-from jobdesk_app.gui.pages.file_transfer_page import (
+from jobdesk_app.gui.pages.file_transfer_helpers import (
     breadcrumb_parts,
     build_file_button_reasons,
     choose_chunks_to_submit,
@@ -263,7 +263,7 @@ def test_table_resize_mode_is_interactive():
 
 def test_choose_confflow_yaml_remote_yaml_with_remote_xyz():
     """Remote YAML with remote XYZ is valid."""
-    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/confflow.yaml", "/tmp/mol.xyz"],
         xyz_origin="remote",
@@ -273,7 +273,7 @@ def test_choose_confflow_yaml_remote_yaml_with_remote_xyz():
 
 
 def test_choose_confflow_yaml_no_remote_yaml_returns_empty():
-    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/mol.xyz"],
         xyz_origin="remote",
@@ -283,7 +283,7 @@ def test_choose_confflow_yaml_no_remote_yaml_returns_empty():
 
 
 def test_choose_confflow_yaml_multiple_remote_yamls_is_error():
-    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/a.yaml", "/tmp/b.yml"],
         xyz_origin="remote",
@@ -293,7 +293,7 @@ def test_choose_confflow_yaml_multiple_remote_yamls_is_error():
 
 
 def test_choose_confflow_yaml_remote_yaml_with_local_xyz_rejected():
-    from jobdesk_app.gui.pages.file_transfer_page import choose_confflow_yaml
+    from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/confflow.yaml"],
         xyz_origin="local",

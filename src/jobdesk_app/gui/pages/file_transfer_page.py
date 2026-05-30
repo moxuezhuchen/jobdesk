@@ -3,18 +3,15 @@ from __future__ import annotations
 import posixpath
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDrag
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -26,7 +23,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QTableWidget,
-    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -34,278 +30,46 @@ from PySide6.QtWidgets import (
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
-from ...core.manifest import Manifest
-from ...core.run import RunMode, RunSource, RunSpec, build_run_plan, chunk_sources
-from ...core.transfer import TransferStatus
+from ...core.run import RunMode, RunSource, RunSpec, chunk_sources
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
-from ..design.components import StyledTableWidget
 from ..i18n import tr
-from ..session import create_sftp_client, create_ssh_client
+from ..session import create_sftp_client, create_ssh_client, sftp_session
+from ..workers import BackgroundWorker
+from .file_transfer_helpers import (
+    choose_confflow_xyz,
+    choose_confflow_yaml,
+    collect_remote_delete_roots,
+    connection_status_text,
+    default_remote_dir_for_server,
+    file_table_headers,
+    format_command_preview_rows,
+    format_file_size,
+    format_modified_time,
+    format_queue_summary,
+    format_remote_size,
+    format_selection_summary,
+    local_parent_row,
+    local_table_row,
+    normalize_remote_path,
+    remote_child_path,
+    remote_parent_row,
+    remote_table_row,
+    run_button_reason,
+)
+from .file_transfer_widgets import (
+    _clamp_column_widths,
+    _ConnectedSFTP,
+    _default_column_widths,
+    _FileTable,
+    _load_rows,
+    _setup_table,
+)
 
 CONTROL_HEIGHT = 44
-
-
-def format_file_size(size: int | None) -> str:
-    if size is None:
-        return ""
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
-
-
-def format_remote_size(size: int | None, is_dir: bool) -> str:
-    if is_dir:
-        return ""
-    return format_file_size(size)
-
-
-def format_modified_time(timestamp: float | None) -> str:
-    if timestamp is None:
-        return ""
-    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def table_resize_mode_name() -> str:
-    return "Interactive"
-
-
-def format_queue_summary(statuses: list[TransferStatus], language: str = "en") -> str:
-    transferred = sum(1 for s in statuses if s == TransferStatus.transferred)
-    skipped = sum(1 for s in statuses if s == TransferStatus.skipped)
-    failed = sum(1 for s in statuses if s == TransferStatus.failed)
-    return tr(
-        "Queue {transferred} ok | {skipped} skip | {failed} fail",
-        language,
-        transferred=transferred,
-        skipped=skipped,
-        failed=failed,
-    )
-
-
-def build_file_button_reasons(local_selected: bool, remote_selected: bool, connected: bool) -> dict[str, str]:
-    return {
-        "upload": "" if local_selected else "Select a local file or folder",
-        "download": "" if connected and remote_selected else (
-            "Connect to a server first" if not connected else "Select a remote file or folder"
-        ),
-        "preview": "" if connected and remote_selected else (
-            "Connect to a server first" if not connected else "Select a remote file"
-        ),
-    }
-
-
-def collect_remote_delete_roots(manifest_path: Path | None) -> list[str]:
-    if manifest_path is None or not Path(manifest_path).exists():
-        return []
-    roots: set[str] = set()
-    for task in Manifest.read(Path(manifest_path)):
-        if task.remote_work_dir and task.batch_id:
-            roots.add(f"{task.remote_work_dir.rstrip('/')}/.jobdesk_runs/{task.batch_id}")
-    return sorted(roots)
-
-
-def run_button_reason(connected: bool, selected_count: int, command_template: str) -> str:
-    if not connected:
-        return "Connect to a server first"
-    if selected_count <= 0:
-        return "Select remote files or directories"
-    if not command_template.strip():
-        return "Enter a command template"
-    return ""
-
-
-def format_command_preview_rows(
-    remote_paths: list[str],
-    remote_dirs: list[str],
-    remote_dir: str,
-    command_template: str,
-    run_mode: str,
-    max_preview: int = 10,
-) -> list[str]:
-    mode = RunMode(run_mode)
-    sources = [RunSource(path=p, is_dir=False) for p in remote_paths]
-    sources.extend(RunSource(path=p, is_dir=True) for p in remote_dirs)
-    plan = build_run_plan(RunSpec(
-        server_id="preview",
-        remote_dir=remote_dir,
-        command_template=command_template,
-        max_parallel=1,
-        mode=mode,
-        sources=sources,
-    ), run_id="preview")
-    return [f"{task.task_id}: {task.command}" for task in plan.tasks[:max_preview]]
-
-
-def choose_chunks_to_submit(chunks: list, submit_mode: str) -> list:
-    if submit_mode == "create_only":
-        return []
-    if submit_mode == "first_batch":
-        return chunks[:1]
-    return chunks
-
-
-def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tuple[str, list[str], str]:
-    """Select XYZ files for ConfFlow batch from exactly one pane.
-
-    Returns (origin, xyz_paths, error). error is non-empty when selection is invalid.
-    """
-    local_xyz = [p for p in local_files if Path(p).suffix.lower() == ".xyz"]
-    remote_xyz = [p for p in remote_files if posixpath.splitext(p)[1].lower() == ".xyz"]
-    if local_xyz and remote_xyz:
-        return "", [], "Ambiguous: .xyz selected in both local and remote panes"
-    if local_xyz:
-        return "local", local_xyz, ""
-    if remote_xyz:
-        return "remote", remote_xyz, ""
-    return "", [], "No .xyz files selected"
-
-
-def choose_confflow_yaml(remote_files: list[str], xyz_origin: str) -> tuple[str, str]:
-    """Find a single remote YAML for ConfFlow. Returns (yaml_path, error)."""
-    remote_yamls = [
-        p for p in remote_files
-        if posixpath.splitext(p)[1].lower() in {".yaml", ".yml"}
-    ]
-    if not remote_yamls:
-        return "", ""
-    if xyz_origin == "local":
-        return "", "Local XYZ batch cannot use a remote YAML; choose a local YAML instead"
-    if len(remote_yamls) > 1:
-        return "", "Select only one remote YAML configuration file"
-    return remote_yamls[0], ""
-
-
-def choose_delete_scope(local_count: int, remote_count: int, focused_pane: str) -> str:
-    if focused_pane == "local" and local_count > 0:
-        return "local"
-    if focused_pane == "remote" and remote_count > 0:
-        return "remote"
-    if remote_count > 0:
-        return "remote"
-    if local_count > 0:
-        return "local"
-    return ""
-
-
-def default_remote_dir_for_server(server) -> str:
-    username = (getattr(server, "username", "") or "").strip()
-    if username == "root":
-        return "/root"
-    if username:
-        return f"/home/{username}"
-    return "/"
-
-
-def remote_child_path(remote_dir: str, name: str) -> str:
-    base = normalize_remote_path(remote_dir)
-    child = name.strip("/")
-    if not child:
-        return base
-    return normalize_remote_path(posixpath.join(base, child))
-
-
-def remote_parent_path(remote_dir: str) -> str:
-    path = normalize_remote_path(remote_dir)
-    if path == "/":
-        return "/"
-    parent = posixpath.dirname(path.rstrip("/"))
-    return parent or "/"
-
-
-def local_parent_row(local_dir: str | Path) -> list[str] | None:
-    path = Path(local_dir).resolve()
-    parent = path.parent
-    if parent == path:
-        return None
-    return local_table_row("..", True, "", str(parent))
-
-
-def remote_parent_row(remote_dir: str) -> list[str] | None:
-    path = normalize_remote_path(remote_dir)
-    if path == "/":
-        return None
-    return remote_table_row("..", True, "", "", "", remote_parent_path(path))
-
-
-def normalize_remote_path(remote_dir: str) -> str:
-    path = (remote_dir or "/").replace("\\", "/").strip()
-    if not path.startswith("/"):
-        path = f"/{path}"
-    normalized = posixpath.normpath(path)
-    return "/" if normalized == "." else normalized
-
-
-def breadcrumb_parts(remote_dir: str) -> list[tuple[str, str]]:
-    path = normalize_remote_path(remote_dir)
-    parts = [("/", "/")]
-    if path == "/":
-        return parts
-    current = ""
-    for part in path.strip("/").split("/"):
-        current = f"{current}/{part}" if current else f"/{part}"
-        parts.append((part, current))
-    return parts
-
-
-def connection_status_text(server_id: str | None, connected: bool, error: str = "", language: str = "en") -> str:
-    if error:
-        return f"Connection failed: {error}"
-    if not server_id:
-        return tr("No server selected", language)
-    key = "Connected: {server_id}" if connected else "Connecting: {server_id}"
-    return tr(key, language, server_id=server_id)
-
-
-def file_action_labels() -> dict[str, str]:
-    return {
-        "up": "Up",
-        "home": "Home",
-        "refresh_local": "Refresh Local",
-        "refresh_remote": "Refresh Remote",
-        "upload": "Upload ->",
-        "download": "<- Download",
-        "mkdir": "New Folder",
-        "rename": "Rename",
-        "delete": "Delete",
-        "preview": "Preview",
-    }
-
-
-def file_table_headers(kind: str) -> list[str]:
-    if kind == "remote":
-        return ["name", "size", "modified", "permissions"]
-    return ["name", "size", "modified"]
-
-
-def files_layout_row_counts() -> dict[str, int]:
-    return {
-        "top_toolbar_rows": 1,
-        "action_rows": 1,
-        "run_rows": 3,
-    }
-
-
-def local_table_row(name: str, is_dir: bool, size: str, path: str, modified: str = "") -> list[str]:
-    return [name, size, modified, "dir" if is_dir else "file", path]
-
-
-def remote_table_row(name: str, is_dir: bool, size: str, modified: str, permissions: str, path: str) -> list[str]:
-    return [name, size, modified, permissions, "dir" if is_dir else "file", path]
-
-
-def format_selection_summary(local_count: int, remote_count: int, language: str = "en") -> str:
-    return tr(
-        "Local {local_count} | Remote {remote_count}",
-        language,
-        local_count=local_count,
-        remote_count=remote_count,
-    )
 
 
 class FileTransferPage(QWidget):
@@ -411,9 +175,6 @@ class FileTransferPage(QWidget):
         local_header_widget.setStyleSheet(
             "#LocalHeader { background: #e2e8f0; border: 1px solid #cbd5e1;"
             " border-radius: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0; }"
-            " #LocalHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #LocalHeader QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
         )
         local_header_widget.setFixedHeight(60)
         local_header = QHBoxLayout(local_header_widget)
@@ -716,7 +477,7 @@ class FileTransferPage(QWidget):
         self._refresh_remote()
 
     def _close_service_async(self, service: FileTransferService) -> None:
-        worker = _BackgroundRunWorker(service.close)
+        worker = BackgroundWorker(service.close)
         self._keep_worker(worker)
         worker.start()
 
@@ -806,7 +567,7 @@ class FileTransferPage(QWidget):
             return service.list_remote(remote_dir)
 
         self._status_cb(f"Listing remote: {remote_dir}")
-        self.remote_worker = _BackgroundRunWorker(_run)
+        self.remote_worker = BackgroundWorker(_run)
         self.remote_worker.result.connect(lambda entries: self._on_remote_entries_loaded(request_id, remote_dir, entries))
         self.remote_worker.error.connect(lambda error: self._on_remote_list_error(request_id, error))
         self._keep_worker(self.remote_worker)
@@ -1180,7 +941,7 @@ class FileTransferPage(QWidget):
             if self._open_in_text_editor(path):
                 self._status_cb(f"Opened: {name}")
 
-        worker = _BackgroundRunWorker(_download)
+        worker = BackgroundWorker(_download)
         worker.result.connect(_on_done)
         worker.error.connect(lambda e: self._status_cb(f"Download failed: {e}"))
         self._background_workers.append(worker)
@@ -1208,7 +969,7 @@ class FileTransferPage(QWidget):
         target = Path(local_base) / Path(remote_path).name
         service = self._service
 
-        worker = _BackgroundRunWorker(lambda: None)  # placeholder, replaced below
+        worker = BackgroundWorker(lambda: None)  # placeholder, replaced below
 
         def _run():
             def _progress(done, total):
@@ -1234,7 +995,7 @@ class FileTransferPage(QWidget):
         remote_target = self._remote_target_for_local(local_path)
         service = self._service
 
-        worker = _BackgroundRunWorker(lambda: None)
+        worker = BackgroundWorker(lambda: None)
 
         def _run():
             def _progress(done, total):
@@ -1714,10 +1475,7 @@ class FileTransferPage(QWidget):
             )
             service = RunService(local_base)
             record = service.create_run(spec, local_dir=str(local_base))
-            ssh = create_ssh_client(connected_server)
-            ssh.connect()
-            sftp = create_sftp_client(ssh)
-            try:
+            with sftp_session(connected_server) as (ssh, sftp):
                 result = service.submit_run(
                     record.run_id, ssh, sftp,
                     env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
@@ -1725,12 +1483,9 @@ class FileTransferPage(QWidget):
                     resources=resources_from_server(connected_server),
                 )
                 return record, result
-            finally:
-                sftp.close()
-                ssh.close()
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
-        worker = _BackgroundRunWorker(_run)
+        worker = BackgroundWorker(_run)
         worker.result.connect(self._on_confflow_done)
         worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))
         worker.finished.connect(
@@ -1860,7 +1615,7 @@ class FileTransferPage(QWidget):
                     ssh.close()
 
             self._status_cb("提交中...")
-            worker = _BackgroundRunWorker(_run)
+            worker = BackgroundWorker(_run)
             worker.result.connect(lambda results: self._on_runs_done(results))
             worker.error.connect(lambda error: self._error_cb("Run Error", error))
             worker.finished.connect(
@@ -1925,7 +1680,7 @@ class FileTransferPage(QWidget):
 
         self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
         self._status_cb(f"Running {run_record.run_id}...")
-        worker = _BackgroundRunWorker(_run)
+        worker = BackgroundWorker(_run)
         worker.result.connect(lambda results: self._on_runs_done(results))
         worker.error.connect(lambda error: self._error_cb("Run Error", error))
         worker.finished.connect(
@@ -2058,210 +1813,3 @@ class FileTransferPage(QWidget):
         self._background_workers.append(worker)
         worker.finished.connect(lambda: self._background_workers.remove(worker) if worker in self._background_workers else None)
 
-
-class _ConnectedSFTP:
-    def __init__(self, ssh, sftp):
-        self._ssh = ssh
-        self._sftp = sftp
-
-    def __getattr__(self, name):
-        return getattr(self._sftp, name)
-
-    def close(self):
-        self._sftp.close()
-        self._ssh.close()
-
-
-class _FileTable(StyledTableWidget):
-    drop_files = Signal(list)
-    copy_local_files = Signal(list)
-    move_local_files = Signal(list, str)
-    move_remote_files = Signal(list, str)
-    key_delete = Signal()
-    key_enter = Signal()
-
-    def __init__(self, role: str):
-        super().__init__()
-        self.role = role
-        self.setDragEnabled(True)
-        self.setAcceptDrops(True)
-        self.setDropIndicatorShown(True)
-        self.setDragDropMode(QAbstractItemView.DragDrop)
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Delete:
-            self.key_delete.emit()
-        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.key_enter.emit()
-        else:
-            super().keyPressEvent(event)
-
-    def startDrag(self, supported_actions):
-        rows = sorted({idx.row() for idx in self.selectedIndexes()})
-        if not rows and self.currentRow() >= 0:
-            rows = [self.currentRow()]
-        paths = []
-        for row in rows:
-            name_item = self.item(row, 0)
-            path_item = self.item(row, 4 if self.role == "local" else 5)
-            if not path_item or (name_item and name_item.text() == ".."):
-                continue
-            paths.append(path_item.text())
-        if not paths:
-            return
-        mime = QMimeData()
-        if self.role == "local":
-            mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
-        else:
-            mime.setData("application/x-jobdesk-remote-paths", "\n".join(paths).encode("utf-8"))
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        drag.exec(Qt.CopyAction)
-
-    def dragEnterEvent(self, event):
-        if self._accepts_mime(event.mimeData()):
-            event.acceptProposedAction()
-            return
-        super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        if self._accepts_mime(event.mimeData()):
-            event.acceptProposedAction()
-            return
-        super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        mime = event.mimeData()
-        local_paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()] if mime.hasUrls() else []
-        if self.role == "local" and local_paths:
-            target_dir = self._drop_directory_path(event)
-            if target_dir:
-                self.move_local_files.emit(local_paths, target_dir)
-                event.acceptProposedAction()
-                return
-        if self.role == "remote" and mime.hasFormat("application/x-jobdesk-remote-paths"):
-            data = bytes(mime.data("application/x-jobdesk-remote-paths")).decode("utf-8")
-            remote_paths = [line for line in data.splitlines() if line]
-            target_dir = self._drop_directory_path(event)
-            if target_dir:
-                self.move_remote_files.emit(remote_paths, target_dir)
-                event.acceptProposedAction()
-                return
-            event.ignore()
-            return
-        if self.role == "remote" and local_paths:
-            self.drop_files.emit(local_paths)
-            event.acceptProposedAction()
-            return
-        if self.role == "local" and mime.hasFormat("application/x-jobdesk-remote-paths"):
-            data = bytes(mime.data("application/x-jobdesk-remote-paths")).decode("utf-8")
-            self.drop_files.emit([line for line in data.splitlines() if line])
-            event.acceptProposedAction()
-            return
-        if self.role == "local" and local_paths:
-            self.copy_local_files.emit(local_paths)
-            event.acceptProposedAction()
-            return
-        super().dropEvent(event)
-
-    def _drop_directory_path(self, event) -> str | None:
-        try:
-            item = self.itemAt(event.position().toPoint())
-        except (AttributeError, TypeError):
-            return None
-        if item is None:
-            return None
-        row = item.row()
-        name_item = self.item(row, 0)
-        kind_item = self.item(row, 3 if self.role == "local" else 4)
-        path_item = self.item(row, 4 if self.role == "local" else 5)
-        if (
-            name_item is None
-            or name_item.text() == ".."
-            or kind_item is None
-            or kind_item.text() != "dir"
-            or path_item is None
-        ):
-            return None
-        return path_item.text()
-
-    def _accepts_mime(self, mime: QMimeData) -> bool:
-        has_local_paths = mime.hasUrls() and any(url.isLocalFile() for url in mime.urls())
-        if self.role == "remote":
-            return has_local_paths or mime.hasFormat("application/x-jobdesk-remote-paths")
-        return mime.hasFormat("application/x-jobdesk-remote-paths") or has_local_paths
-
-
-class _BackgroundRunWorker:
-    def __new__(cls, target):
-        from ..workers import BackgroundWorker
-        return BackgroundWorker(target)
-
-
-def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[int] | None = None) -> None:
-    from PySide6.QtCore import QSize
-    table.setColumnCount(len(headers))
-    table.setHorizontalHeaderLabels(headers)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    table.verticalHeader().setVisible(False)
-    table.setIconSize(QSize(24, 24))
-    table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-    table.horizontalHeader().setStretchLastSection(False)
-    table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
-    for column in hidden_columns or []:
-        table.setColumnHidden(column, True)
-
-
-def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
-    from PySide6.QtWidgets import QStyle
-    style = table.style()
-    folder_icon = style.standardIcon(QStyle.SP_DirIcon)
-    file_icon = style.standardIcon(QStyle.SP_FileIcon)
-    up_icon = style.standardIcon(QStyle.SP_ArrowUp)
-    # kind column: local=3, remote=4
-    kind_col = 4 if table.role == "remote" else 3
-    table.setSortingEnabled(False)
-    table.setRowCount(len(rows))
-    for r, row in enumerate(rows):
-        kind = row[kind_col] if kind_col < len(row) else ""
-        is_parent = (str(row[0]) == "..")
-        # Sort rank: ".." = 0, dir = 1, file = 2
-        sort_rank = 0 if is_parent else (1 if kind == "dir" else 2)
-        for c, value in enumerate(row):
-            item = _SortableItem(str(value), sort_rank)
-            if c == 0:
-                if is_parent:
-                    item.setIcon(up_icon)
-                elif kind == "dir":
-                    item.setIcon(folder_icon)
-                else:
-                    item.setIcon(file_icon)
-            table.setItem(r, c, item)
-    table.setSortingEnabled(True)
-
-
-class _SortableItem(QTableWidgetItem):
-    """Table item that sorts directories before files."""
-
-    def __init__(self, text: str, sort_rank: int):
-        super().__init__(text)
-        self._sort_rank = sort_rank
-
-    def __lt__(self, other):
-        if isinstance(other, _SortableItem) and self._sort_rank != other._sort_rank:
-            return self._sort_rank < other._sort_rank
-        return self.text().lower() < other.text().lower()
-
-
-def _default_column_widths(key: str) -> list[int]:
-    if key == "files.remote":
-        return [320, 95, 155, 82]
-    return [360, 95, 155]
-
-
-def _clamp_column_widths(key: str, widths: list[int]) -> list[int]:
-    minimums = [90, 60, 110, 55]
-    return [
-        max(minimums[min(index, len(minimums) - 1)], int(width))
-        for index, width in enumerate(widths)
-    ]

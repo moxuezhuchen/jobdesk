@@ -26,7 +26,7 @@ from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
 from ..design.components import StyledTableWidget
 from ..i18n import tr
-from ..session import create_ssh_client
+from ..session import ssh_session
 from ..workers import BackgroundWorker
 
 
@@ -88,12 +88,6 @@ class SettingCard(QFrame):
         self.setStyleSheet(
             "#SettingCard { background: #e2e8f0; border: none; border-radius: 12px; }"
             " #SettingCard QLabel { background: transparent; }"
-            " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #SettingCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
-            " #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {"
-            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
-            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
         )
 
         layout = QHBoxLayout(self)
@@ -414,10 +408,8 @@ class SettingsServersPage(QWidget):
 
             def _test_one(sid, srv):
                 try:
-                    ssh = create_ssh_client(srv)
-                    ssh.connect()
-                    ok = ssh.test_connection()
-                    ssh.close()
+                    with ssh_session(srv) as ssh:
+                        ok = ssh.test_connection()
                     return sid, "connected" if ok else "no-response"
                 except Exception as e:
                     return sid, f"{tr('Error:', self._language)} {e}"

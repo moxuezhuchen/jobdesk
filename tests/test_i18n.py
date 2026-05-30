@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from jobdesk_app.gui.i18n import tr
-from jobdesk_app.gui.pages.file_transfer_page import (
+from jobdesk_app.gui.pages.file_transfer_helpers import (
     connection_status_text,
     format_selection_summary,
 )

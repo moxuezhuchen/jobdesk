@@ -33,7 +33,7 @@ from ..session import create_sftp_client, create_ssh_client
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
 
-def _format_status(summary: dict[str, int], language: str = "zh") -> str:
+def _format_status(summary: dict[str, int], language: str = "en") -> str:
     if not summary:
         return ""
     from ..i18n import tr
@@ -56,7 +56,7 @@ def _format_status(summary: dict[str, int], language: str = "zh") -> str:
     return " | ".join(parts)
 
 
-def _format_row(record: RunRecord, language: str = "zh") -> list[str]:
+def _format_row(record: RunRecord, language: str = "en") -> list[str]:
     return [
         record.run_id,
         record.server_id,
@@ -115,11 +115,6 @@ class RunsResultsPage(QWidget):
         btn_card.setObjectName("BtnCard")
         btn_card.setStyleSheet(
             "#BtnCard { background: #e2e8f0; border: none; border-radius: 12px; }"
-            " #BtnCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #BtnCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
-            " #BtnCard QLineEdit { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " border-radius: 4px; padding: 0 8px; min-height: 44px; max-height: 44px; }"
         )
         btn_card.setFixedHeight(60)
         btn_row = QHBoxLayout(btn_card)
@@ -372,6 +367,7 @@ class RunsResultsPage(QWidget):
         self._language = language
         self.retry_btn.setText(tr("Retry Failed", language))
         self.cancel_btn.setText(tr("Cancel", language))
+        self.retry_dl_btn.setText(tr("Retry Download", language))
         self.delete_btn.setText(tr("Delete", language))
         self.result_label.setText(tr("Result Preview", language))
         self._set_headers()

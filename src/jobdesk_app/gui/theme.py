@@ -234,6 +234,31 @@ QScrollBar::handle:hover {{
 QScrollBar::add-line, QScrollBar::sub-line {{
     width: 0; height: 0;
 }}
+
+/* ─── Card-embedded controls (shared by BtnCard / SettingCard / LocalHeader) ─── */
+#BtnCard QPushButton, #SettingCard QPushButton, #LocalHeader QPushButton {{
+    background: #cbd5e1;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    padding: 0 16px;
+    min-height: 44px;
+    max-height: 44px;
+}}
+#LocalHeader QPushButton {{
+    padding: 0 8px;
+}}
+#BtnCard QPushButton:pressed, #SettingCard QPushButton:pressed, #LocalHeader QPushButton:pressed {{
+    background: #93c5fd;
+    border-color: #3b82f6;
+}}
+#BtnCard QLineEdit, #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {{
+    background: #cbd5e1;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    padding: 0 8px;
+    min-height: 44px;
+    max-height: 44px;
+}}
 """
 
 
