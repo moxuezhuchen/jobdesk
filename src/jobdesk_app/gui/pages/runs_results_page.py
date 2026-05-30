@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...config.servers import load_servers
+from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
 from ..design.components import StyledTableWidget
@@ -257,7 +258,7 @@ class RunsResultsPage(QWidget):
                 if record.status_summary.get("running", 0) > 0 or record.status_summary.get("submitted", 0) > 0:
                     srv = cfg.servers.get(record.server_id)
                     if srv:
-                        batch_dir = f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}"
+                        batch_dir = remote_run_dir(record.remote_dir, record.run_id)
                         self._monitor.watch(record.run_id, record.server_id, batch_dir, srv)
         except Exception:
             pass
@@ -310,7 +311,7 @@ class RunsResultsPage(QWidget):
                     refresh_batch_status(
                         ssh=ssh,
                         manifest_path=record.manifest_path,
-                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
+                        remote_batch_dir=remote_run_dir(record.remote_dir, run_id),
                         batch_id=run_id,
                         write=True,
                     )
@@ -778,7 +779,7 @@ class RunsResultsPage(QWidget):
                         refresh_batch_status(
                             ssh=ssh,
                             manifest_path=record.manifest_path,
-                            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+                            remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
                             batch_id=record.run_id,
                             write=True,
                         )
@@ -858,7 +859,7 @@ class RunsResultsPage(QWidget):
                     refresh_batch_status(
                         ssh=ssh,
                         manifest_path=record.manifest_path,
-                        remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{run_id}",
+                        remote_batch_dir=remote_run_dir(record.remote_dir, run_id),
                         batch_id=run_id,
                         write=True,
                     )
@@ -955,10 +956,12 @@ class RunsResultsPage(QWidget):
 
         worker.result.connect(_done)
         worker.error.connect(_err)
-        worker.start()
         if not hasattr(self, "_bg_workers"):
             self._bg_workers = []
+        worker.finished.connect(lambda: self._bg_workers.remove(worker) if worker in self._bg_workers else None)
+        worker.finished.connect(worker.deleteLater)
         self._bg_workers.append(worker)
+        worker.start()
 
     def _open_results_folder(self):
         """Open the local results directory in file explorer."""
@@ -1136,7 +1139,7 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        remote_dir = f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}"
+        remote_dir = remote_run_dir(record.remote_dir, record.run_id)
         self.result_text.setPlainText(
             f"{tr('Remote logs', self._language)}:\n  {remote_dir}/.jobdesk_submit.log\n  {remote_dir}/.jobdesk_submit.err")
         self.result_text.setVisible(True)

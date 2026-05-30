@@ -195,6 +195,10 @@ class TestMakeAdapter:
         assert isinstance(make_adapter("pbs"), PBSAdapter)
         assert isinstance(make_adapter("torque"), PBSAdapter)
 
+    def test_unknown_scheduler_type_is_rejected(self):
+        with pytest.raises(ValueError, match="Unknown scheduler type"):
+            make_adapter("slrum")
+
 
 class TestSchedulerConfig:
     def test_server_config_default_scheduler(self):
@@ -216,6 +220,10 @@ class TestSchedulerConfig:
         assert cfg.scheduler.type == "slurm"
         assert cfg.scheduler.default_partition == "cpu"
         assert cfg.scheduler.default_cpus == 8
+
+    def test_scheduler_config_rejects_unknown_type(self):
+        with pytest.raises(ValueError, match="scheduler.type"):
+            SchedulerConfig(type="slrum")
 
     def test_scheduler_config_from_yaml(self):
         import tempfile

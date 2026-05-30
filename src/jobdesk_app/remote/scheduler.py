@@ -234,8 +234,10 @@ class PBSAdapter:
 def make_adapter(scheduler_type: str) -> SchedulerAdapter:
     """Factory: return the right adapter for the given scheduler type."""
     t = (scheduler_type or "nohup").lower()
+    if t == "nohup":
+        return NohupAdapter()
     if t in ("slurm", "sbatch"):
         return SlurmAdapter()
     if t in ("pbs", "torque", "qsub"):
         return PBSAdapter()
-    return NohupAdapter()
+    raise ValueError(f"Unknown scheduler type: {scheduler_type}")

@@ -90,6 +90,25 @@ def test_collect_remote_delete_roots_from_manifest(tmp_path):
     ]
 
 
+def test_collect_remote_delete_roots_keeps_root_remote_dir_absolute(tmp_path):
+    from jobdesk_app.core.lifecycle import TaskStatus
+    from jobdesk_app.core.manifest import Manifest, TaskRecord
+
+    manifest_path = tmp_path / "manifest.tsv"
+    Manifest.write(manifest_path, [
+        TaskRecord(
+            task_id="t1",
+            batch_id="b1",
+            remote_job_dir="/.jobdesk_runs/b1/t1",
+            server_id="s",
+            remote_work_dir="/",
+            status=TaskStatus.submitted,
+        ),
+    ])
+
+    assert collect_remote_delete_roots(manifest_path) == ["/.jobdesk_runs/b1"]
+
+
 def test_format_command_preview_rows_for_remote_files():
     rows = format_command_preview_rows(
         remote_paths=["/remote/jobs/a.gjf", "/remote/jobs/b.gjf"],

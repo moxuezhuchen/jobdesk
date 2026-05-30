@@ -944,7 +944,7 @@ class FileTransferPage(QWidget):
         worker = BackgroundWorker(_download)
         worker.result.connect(_on_done)
         worker.error.connect(lambda e: self._status_cb(f"Download failed: {e}"))
-        self._background_workers.append(worker)
+        self._keep_worker(worker)
         worker.start()
         self._status_cb(f"Downloading {name}…")
 
@@ -1039,7 +1039,7 @@ class FileTransferPage(QWidget):
         worker.progress.connect(_on_progress)
         worker.result.connect(_on_done)
         worker.error.connect(_on_error)
-        self._background_workers.append(worker)
+        self._keep_worker(worker)
         worker.start()
         self._status_cb(f"{label} started…")
 
@@ -1812,4 +1812,5 @@ class FileTransferPage(QWidget):
     def _keep_worker(self, worker):
         self._background_workers.append(worker)
         worker.finished.connect(lambda: self._background_workers.remove(worker) if worker in self._background_workers else None)
-
+        if hasattr(worker, "deleteLater"):
+            worker.finished.connect(worker.deleteLater)

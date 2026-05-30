@@ -1,6 +1,7 @@
 """M6 测试: remote/status_refresh.py — 状态恢复 mock 测试。"""
 
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -254,6 +255,48 @@ class TestRefreshBatchStatus:
             updated = Manifest.read(mp)
             t1 = next(t for t in updated if t.task_id == "t1")
             assert t1.status == TaskStatus.running
+
+    def test_refresh_default_stale_timeout_fails_old_running_task(self):
+        task = _make_task("t1", TaskStatus.running, "/r/t1")
+        task.submitted_at = datetime.now() - timedelta(days=2)
+        tasks = [task]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(mp, tasks)
+
+            mock_ssh = MagicMock()
+            mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
+
+            with patch(
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False),
+                },
+            ):
+                result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=True)
+
+            assert result.changed_count == 1
+            updated = Manifest.read(mp)
+            assert updated[0].status == TaskStatus.failed
+            assert updated[0].error_message is not None
+
+    def test_refresh_does_not_fail_stale_task_when_remote_read_failed(self):
+        task = _make_task("t1", TaskStatus.running, "/r/t1")
+        task.submitted_at = datetime.now() - timedelta(days=2)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(mp, [task])
+
+            mock_ssh = MagicMock()
+            mock_ssh.run.side_effect = RuntimeError("temporary ssh read failure")
+
+            result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=True)
+
+            assert result.changed_count == 0
+            updated = Manifest.read(mp)
+            assert updated[0].status == TaskStatus.running
+            assert updated[0].error_message is None
+            assert result.snapshots[0].warnings
 
     def test_runtime_failures_generated(self):
         tasks = [_make_task("t1", TaskStatus.running, "/r/t1")]

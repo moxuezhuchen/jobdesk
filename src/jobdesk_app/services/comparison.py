@@ -58,7 +58,8 @@ def compare_runs(
             continue
         from ..core.manifest import Manifest
         tasks = Manifest.read(record.manifest_path)
-        results, _ = analyze_tasks(profile.extract_rules, tasks, workspace / "results", run_id)
+        result_workspace = Path(record.local_dir) if record.local_dir else workspace
+        results, _ = analyze_tasks(profile.extract_rules, tasks, result_workspace / "results", run_id)
         # Group by task_id, collect all fields
         task_data: dict[str, dict] = {}
         for r in results:

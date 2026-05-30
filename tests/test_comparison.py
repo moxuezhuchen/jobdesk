@@ -105,6 +105,51 @@ class TestCompareRuns:
         expected_rel = round((-78.5 - (-78.6)) * HARTREE_TO_KCAL, 4)
         assert abs(higher["scf_energy_rel_kcal"] - expected_rel) < 0.01
 
+    def test_compare_runs_uses_each_record_local_dir(self, tmp_path, monkeypatch):
+        """Global run records may point to results in different project roots."""
+        from jobdesk_app.services.run_service import RunService
+
+        monkeypatch.setenv("APPDATA", str(tmp_path))
+        runs_dir = tmp_path / "JobDesk" / "runs"
+        runs_dir.mkdir(parents=True)
+        project_a = tmp_path / "project_a"
+        project_b = tmp_path / "project_b"
+        current_project = tmp_path / "current_project"
+        for project in (project_a, project_b, current_project):
+            project.mkdir()
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.run import RunMode, RunSource, RunSpec
+
+        spec = RunSpec(
+            server_id="s", remote_dir="/tmp/x",
+            command_template="g16 {name}", max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource(path="/remote/mol.gjf")],
+        )
+        svc_a = RunService(project_a, runs_dir=runs_dir)
+        svc_b = RunService(project_b, runs_dir=runs_dir)
+        r1 = svc_a.create_run(spec, run_id="run_a", local_dir=str(project_a))
+        r2 = svc_b.create_run(spec, run_id="run_b", local_dir=str(project_b))
+
+        for record, project, energy in [(r1, project_a, -78.5), (r2, project_b, -78.6)]:
+            tasks = Manifest.read(record.manifest_path)
+            for task in tasks:
+                result_dir = project / "results" / record.run_id / task.task_id
+                result_dir.mkdir(parents=True, exist_ok=True)
+                (result_dir / "mol.log").write_text(
+                    f"SCF Done:  E(RB3LYP) =  {energy}     A.U. after    9 cycles\n"
+                    "Normal termination of Gaussian 16.\n",
+                    encoding="utf-8",
+                )
+                task.status = TaskStatus.downloaded
+            Manifest.write(record.manifest_path, tasks)
+
+        comparison = compare_runs(current_project, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
+
+        assert [row["run_id"] for row in comparison.rows] == ["run_b", "run_a"]
+
     def test_empty_run_ids_returns_empty(self, tmp_path):
         comparison = compare_runs(tmp_path, [])
         assert comparison.rows == []

@@ -65,8 +65,14 @@ class RunPlan:
     tasks: list[RunTaskPlan]
 
 
+def remote_run_dir(remote_dir: str, run_id: str) -> str:
+    base = (remote_dir or "/").rstrip("/") or "/"
+    return posixpath.join(base, ".jobdesk_runs", run_id)
+
+
 def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
     rid = run_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    run_remote_dir = remote_run_dir(spec.remote_dir, rid)
     tasks: list[RunTaskPlan] = []
     used_task_ids: set[str] = set()
     sources = _sources_for_mode(spec)
@@ -82,7 +88,7 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
             task_id=task_id,
             source_path=source.path,
             source_name=source.name,
-            remote_job_dir=posixpath.join(spec.remote_dir.rstrip("/"), ".jobdesk_runs", rid, task_id),
+            remote_job_dir=posixpath.join(run_remote_dir, task_id),
             command=f"cd {shlex.quote(work_dir)} && {command}",
             supporting_paths=[item.path for item in spec.supporting_sources],
             remote_result_files=[_render_text_template(item, source) for item in spec.result_templates],

@@ -45,6 +45,29 @@ def file_page(qtbot, app_state, tmp_path):
         page.shutdown()
 
 
+class _FakeSignal:
+    def __init__(self):
+        self._callbacks = []
+
+    def connect(self, callback):
+        self._callbacks.append(callback)
+
+    def emit(self, *args):
+        for callback in list(self._callbacks):
+            callback(*args)
+
+
+class _FakeWorker:
+    def __init__(self):
+        self.progress = _FakeSignal()
+        self.result = _FakeSignal()
+        self.error = _FakeSignal()
+        self.finished = _FakeSignal()
+        self.start = MagicMock()
+        self.stop_safely = MagicMock()
+        self.deleteLater = MagicMock()
+
+
 class TestRunsPage:
     def test_page_creates_without_crash(self, runs_page):
         assert runs_page is not None
@@ -778,6 +801,24 @@ class TestRunsPage:
         assert worker in runs_page._bg_workers
         worker.start.assert_called_once_with()
 
+    def test_retry_download_worker_is_removed_when_finished(self, runs_page):
+        worker = _FakeWorker()
+        record = MagicMock(
+            run_id="run_refresh",
+            server_id="wsl",
+            remote_dir="/r",
+            local_dir="",
+            status_summary={"remote_completed": 1},
+        )
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+            runs_page._retry_download()
+
+        assert worker in runs_page._bg_workers
+        worker.finished.emit()
+        assert worker not in runs_page._bg_workers
+
     def test_open_results_uses_record_local_dir(self, runs_page, tmp_path):
         """Open Results must use record.local_dir path."""
         local_a = tmp_path / "project_a"
@@ -1468,6 +1509,17 @@ class TestFileTransferPage:
         assert launch.call_args.args[0][0] == "C:/Tools/editor.exe"
         assert launch.call_args.args[0][1].endswith("result.log")
 
+    def test_open_remote_file_worker_is_removed_when_finished(self, file_page):
+        worker = _FakeWorker()
+        file_page._service = MagicMock()
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker", return_value=worker):
+            file_page._open_remote_file_in_editor("/remote/result.log")
+
+        assert worker in file_page._background_workers
+        worker.finished.emit()
+        assert worker not in file_page._background_workers
+
     def test_new_local_file_uses_configured_text_editor(self, file_page, tmp_path):
         file_page.state.current_project_root = tmp_path
         file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
@@ -1556,6 +1608,15 @@ class TestFileTransferPage:
         call_args = service.download_path.call_args
         assert call_args is not None
         assert call_args[1].get("progress_callback") is not None
+
+    def test_transfer_worker_is_removed_when_finished(self, file_page):
+        worker = _FakeWorker()
+
+        file_page._start_transfer_worker(worker, "Download", MagicMock())
+
+        assert worker in file_page._background_workers
+        worker.finished.emit()
+        assert worker not in file_page._background_workers
 
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""

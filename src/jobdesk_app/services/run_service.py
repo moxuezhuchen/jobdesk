@@ -11,7 +11,7 @@ from ..core.batch import create_batch, write_batch_json
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.models import BatchMeta
-from ..core.run import RunPlan, RunSpec, build_run_plan
+from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
 
@@ -77,7 +77,7 @@ class RunService:
         batch = create_batch(
             project_name=self.workspace_dir.name,
             max_parallel=spec.max_parallel,
-            remote_batch_dir=f"{spec.remote_dir.rstrip('/')}/.jobdesk_runs/{plan.run_id}",
+            remote_batch_dir=remote_run_dir(spec.remote_dir, plan.run_id),
             task_count=len(plan.tasks),
             manifest_path=str(manifest_path),
         )
@@ -152,7 +152,7 @@ class RunService:
             ssh=ssh,
             sftp=sftp,
             max_parallel=record.max_parallel,
-            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+            remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
             batch_id=record.run_id,
             env_init_scripts=list(env_init_scripts),
             scheduler=scheduler,

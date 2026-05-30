@@ -65,6 +65,15 @@ class SchedulerConfig(BaseModel):
     default_gpus: int = Field(default=0, description="默认 GPU 数")
     extra_directives: list[str] = Field(default_factory=list, description="额外调度器指令（如 #SBATCH --qos=high）")
 
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str) -> str:
+        scheduler_type = (value or "nohup").lower()
+        allowed = {"nohup", "slurm", "sbatch", "pbs", "torque", "qsub"}
+        if scheduler_type not in allowed:
+            raise ValueError("scheduler.type must be one of: nohup, slurm, sbatch, pbs, torque, qsub")
+        return scheduler_type
+
 
 class ServersConfig(BaseModel):
     """servers.yaml 的顶层结构。"""

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config.servers import load_servers
 from .core.file_transfer import OverwritePolicy
-from .core.run import RunMode, RunSource, RunSpec
+from .core.run import RunMode, RunSource, RunSpec, remote_run_dir
 from .core.transfer import TransferStatus
 from .remote.status_refresh import refresh_batch_status
 from .services.file_transfer_service import FileTransferService
@@ -236,7 +236,7 @@ def _cmd_run_refresh(args) -> int:
         result = refresh_batch_status(
             ssh=ssh,
             manifest_path=record.manifest_path,
-            remote_batch_dir=f"{record.remote_dir.rstrip('/')}/.jobdesk_runs/{record.run_id}",
+            remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
             batch_id=record.run_id,
             write=True,
         )

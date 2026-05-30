@@ -13,6 +13,8 @@ from ..core.models import FailureRecord
 from ..core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from .status import read_remote_task_status, read_remote_task_statuses_batch
 
+DEFAULT_STALE_TIMEOUT_SECONDS = 24 * 60 * 60
+
 
 def refresh_batch_status(
     ssh,      # SSHClientWrapper
@@ -22,7 +24,7 @@ def refresh_batch_status(
     write: bool = False,
     log_tail_lines: int = 50,
     control_subdir: str = "_batch",
-    stale_timeout_seconds: int | None = None,
+    stale_timeout_seconds: int | None = DEFAULT_STALE_TIMEOUT_SECONDS,
 ) -> StatusRefreshResult:
     """刷新整个 Batch 的任务状态。
 
@@ -174,7 +176,9 @@ def _recover_status(
                 snap.failure_reason = "远程状态标记为 failed"
         else:
             # Check for stale timeout
-            if stale_timeout_seconds and task.submitted_at:
+            if _remote_read_incomplete(remote_snap):
+                snap.warnings.append("stale timeout skipped because remote status read was incomplete")
+            elif stale_timeout_seconds and task.submitted_at:
                 elapsed = (datetime.now() - task.submitted_at).total_seconds()
                 if elapsed > stale_timeout_seconds:
                     new_status = TaskStatus.failed
@@ -201,7 +205,9 @@ def _recover_status(
             # before writing a terminal status. Fail on stale timeout so the
             # task does not hang in running indefinitely.
             ref_time = task.started_at or task.submitted_at
-            if stale_timeout_seconds and ref_time:
+            if _remote_read_incomplete(remote_snap):
+                snap.warnings.append("stale timeout skipped because remote status read was incomplete")
+            elif stale_timeout_seconds and ref_time:
                 elapsed = (datetime.now() - ref_time).total_seconds()
                 if elapsed > stale_timeout_seconds:
                     new_status = TaskStatus.failed
@@ -219,6 +225,10 @@ def _recover_status(
 
     snap.recovered_status = new_status.value
     return new_status, snap
+
+
+def _remote_read_incomplete(remote_snap) -> bool:
+    return bool(remote_snap and remote_snap.warnings and not remote_snap.marker_exists)
 
 
 def _check_exit_code(remote_snap, snap: TaskStatusSnapshot) -> TaskStatus | None:

@@ -22,6 +22,21 @@ def test_build_run_plan_for_selected_files():
     assert all(task.remote_job_dir.startswith("/remote/jobs/.jobdesk_runs/run001/") for task in plan.tasks)
 
 
+def test_build_run_plan_keeps_root_remote_dir_absolute():
+    spec = RunSpec(
+        server_id="s1",
+        remote_dir="/",
+        command_template="g16 {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource(path="/water.gjf", is_dir=False)],
+    )
+
+    plan = build_run_plan(spec, run_id="run_root")
+
+    assert plan.tasks[0].remote_job_dir == "/.jobdesk_runs/run_root/water"
+
+
 def test_build_run_plan_for_selected_directories():
     spec = RunSpec(
         server_id="s1",
