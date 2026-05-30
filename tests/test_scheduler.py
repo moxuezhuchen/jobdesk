@@ -295,3 +295,22 @@ class TestCancellationTruthfulness:
             MagicMock(stdout="dead", exit_code=0, stderr=""),
         ]
         NohupAdapter().cancel(ssh, "123")  # should not raise
+
+
+
+class TestSchedulerResourceValidation:
+    def test_scheduler_config_rejects_non_positive_resources(self):
+        with pytest.raises(ValueError):
+            SchedulerConfig(default_cpus=0)
+        with pytest.raises(ValueError):
+            SchedulerConfig(default_walltime_minutes=0)
+        with pytest.raises(ValueError):
+            SchedulerConfig(default_memory_mb=0)
+
+    def test_resource_spec_rejects_newline_in_text_fields(self):
+        with pytest.raises(ValueError, match="control characters"):
+            ResourceSpec(extra_directives=["--qos=high\nrm -rf /"])
+        with pytest.raises(ValueError, match="control characters"):
+            ResourceSpec(partition="cpu\nmalicious")
+        with pytest.raises(ValueError, match="control characters"):
+            ResourceSpec(account="acct\x00x")

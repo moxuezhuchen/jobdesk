@@ -120,13 +120,16 @@ class SFTPClientWrapper:
         self._sftp.remove(remote_path)
 
     def remove_dir(self, remote_dir: str, _depth: int = 0) -> None:
-        """递归删除远程目录。"""
+        """递归删除远程目录；symlink 只删除链接本身，绝不跟随进入目标。"""
         _validate_remote_path(remote_dir)
         if _depth > 50:
             raise RemotePathError(f"remove_dir exceeded max depth (50): {remote_dir}")
-        for name in self._sftp.listdir(remote_dir):
-            full = posixpath.join(remote_dir, name)
-            if self.is_dir(full):
+        # listdir_attr reports each entry's own type (lstat-like), so symlinks are
+        # detected via S_ISLNK and unlinked without traversing outside this tree.
+        for attr in self._sftp.listdir_attr(remote_dir):
+            full = posixpath.join(remote_dir, attr.filename)
+            mode = attr.st_mode or 0
+            if stat.S_ISDIR(mode) and not stat.S_ISLNK(mode):
                 self.remove_dir(full, _depth + 1)
             else:
                 self._sftp.remove(full)

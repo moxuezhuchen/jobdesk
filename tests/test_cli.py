@@ -181,3 +181,19 @@ class TestDownloadPatterns:
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log", "*.out"])
             assert rc == 0
             assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
+
+
+
+def test_cli_files_list_closes_ssh_with_sftp():
+    """P2d: the CLI files service must close the SSH transport, not just the SFTP channel."""
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
+        ssh = MagicMock()
+        sftp = MagicMock()
+        sftp.list_dir_info.return_value = []
+        with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
+             patch("jobdesk_app.cli.create_ssh_client", return_value=ssh), \
+             patch("jobdesk_app.cli.create_sftp_client", return_value=sftp):
+            rc = main(["files", "list-remote", "srv", "/remote/dir"])
+        assert rc == 0
+        sftp.close.assert_called_once_with()
+        ssh.close.assert_called_once_with()

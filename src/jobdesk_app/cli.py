@@ -11,7 +11,7 @@ from .core.transfer import TransferStatus
 from .remote.status_refresh import refresh_batch_status
 from .services.file_transfer_service import FileTransferService
 from .services.run_service import RunService
-from .services.ssh_session import create_sftp_client, create_ssh_client
+from .services.ssh_session import ConnectedSFTP, create_sftp_client, create_ssh_client
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -425,7 +425,7 @@ def _file_transfer_service(args, server_id: str) -> FileTransferService:
         ssh = create_ssh_client(server)
         ssh.connect()
         sftp = create_sftp_client(ssh)
-        return sftp
+        return ConnectedSFTP(ssh, sftp)
 
     return FileTransferService(factory)
 

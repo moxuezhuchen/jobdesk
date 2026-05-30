@@ -14,6 +14,7 @@ from ..core.models import BatchMeta
 from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
+from .file_transfer_service import ensure_safe_remote_path
 
 
 @dataclass
@@ -59,6 +60,9 @@ class RunService:
         return f"{prefix}-{candidate:03d}"
 
     def create_run(self, spec: RunSpec, run_id: str | None = None, local_dir: str = "") -> RunRecord:
+        ensure_safe_remote_path(spec.remote_dir)
+        for src in (*spec.sources, *spec.supporting_sources):
+            ensure_safe_remote_path(src.path)
         if run_id is None:
             while True:
                 run_id = self._next_run_id()
@@ -191,6 +195,8 @@ class RunService:
                     safe_path = _safe_declared_result_path(relative_output)
                     remote_file = f"{work_dir.rstrip('/')}/{safe_path.as_posix()}"
                     local_file = task_dir.joinpath(*safe_path.parts)
+                    if not local_file.resolve().is_relative_to(task_dir.resolve()):
+                        raise ValueError(f"declared result path escapes task dir: {relative_output}")
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
@@ -384,8 +390,10 @@ def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
 
 
 def _safe_declared_result_path(value: str) -> PurePosixPath:
+    if "\\" in value or "\x00" in value:
+        raise ValueError(f"unsafe declared result path: {value}")
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts:
+    if path.is_absolute() or not path.parts or ".." in path.parts:
         raise ValueError(f"unsafe declared result path: {value}")
     return path
 

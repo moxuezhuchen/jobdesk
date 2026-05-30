@@ -32,6 +32,13 @@ class ResourceSpec:
     gpus: int = 0
     extra_directives: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # Scheduler text fields are interpolated into Slurm/PBS script headers;
+        # a newline/NUL would let a directive break out into an executable line.
+        for text in (self.partition, self.account, *self.extra_directives):
+            if "\n" in text or "\r" in text or "\x00" in text:
+                raise ValueError(f"scheduler directive must not contain control characters: {text!r}")
+
     @classmethod
     def from_dict(cls, d: dict) -> "ResourceSpec":
         return cls(

@@ -9,20 +9,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
+from ...services.ssh_session import ConnectedSFTP as _ConnectedSFTP  # noqa: F401  re-export for Files page
 from ..design.components import StyledTableWidget
-
-
-class _ConnectedSFTP:
-    def __init__(self, ssh, sftp):
-        self._ssh = ssh
-        self._sftp = sftp
-
-    def __getattr__(self, name):
-        return getattr(self._sftp, name)
-
-    def close(self):
-        self._sftp.close()
-        self._ssh.close()
 
 
 class _FileTable(StyledTableWidget):

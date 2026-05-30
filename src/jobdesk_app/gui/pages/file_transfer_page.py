@@ -31,7 +31,8 @@ from PySide6.QtWidgets import (
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
 from ...core.run import RunMode, RunSource, RunSpec, chunk_sources
-from ...services.file_transfer_service import FileTransferService
+from ...remote.errors import RemotePathError
+from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
 from ...services.gui_settings import GuiSettingsStore
 from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_profiles import RunProfileStore
@@ -1553,6 +1554,11 @@ class FileTransferPage(QWidget):
             return
         local_base = self.state.current_project_root or Path.cwd()
         remote_dir = self.remote_path.text().strip() or "/"
+        try:
+            ensure_safe_remote_path(remote_dir)
+        except RemotePathError as exc:
+            self._status_cb(str(exc))
+            return
         command_template = self.command_edit.currentText().strip()
         max_parallel = self.max_parallel_spin.value()
         run_mode = RunMode(self.run_mode_combo.currentData())
@@ -1572,7 +1578,7 @@ class FileTransferPage(QWidget):
                 sftp = create_sftp_client(ssh)
                 try:
                     # 1. Upload
-                    self._status_cb("上传文件中...")
+                    worker.log.emit("上传文件中...")
                     uploaded_files = []
                     uploaded_dirs = []
                     for lp in local_paths_files:
@@ -1616,6 +1622,7 @@ class FileTransferPage(QWidget):
 
             self._status_cb("提交中...")
             worker = BackgroundWorker(_run)
+            worker.log.connect(self._status_cb)
             worker.result.connect(lambda results: self._on_runs_done(results))
             worker.error.connect(lambda error: self._error_cb("Run Error", error))
             worker.finished.connect(

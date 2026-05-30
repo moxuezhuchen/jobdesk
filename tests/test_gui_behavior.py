@@ -1618,6 +1618,26 @@ class TestFileTransferPage:
         worker.finished.emit()
         assert worker not in file_page._background_workers
 
+    def test_submit_rejects_unsafe_remote_dir_on_main_thread(self, file_page):
+        """A manually-entered relative remote_dir must be rejected before create_run runs."""
+        from PySide6.QtWidgets import QMessageBox
+
+        file_page._service = MagicMock()
+        file_page._connected_server = MagicMock()
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("relative/path")
+        messages: list[str] = []
+        file_page._status_cb = messages.append
+
+        with patch.object(file_page, "_selected_remote_entries", return_value=(["/remote/a.gjf"], [])), \
+             patch.object(file_page, "_selected_local_entries", return_value=([], [])), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls:
+            file_page._run_selected_chunks(submit=True)
+
+        run_service_cls.assert_not_called()
+        assert any("relative/path" in m for m in messages)
+
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""
         from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus

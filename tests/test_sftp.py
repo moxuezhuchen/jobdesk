@@ -569,3 +569,31 @@ class TestUtf8Filenames:
             assert fake_sftp.exists("/remote/中文路径/文件.txt")
         finally:
             Path(tmp).unlink(missing_ok=True)
+
+
+
+def test_remove_dir_unlinks_symlink_without_traversing():
+    """P0: a symlinked dir inside the tree is unlinked, never traversed into."""
+    import stat as statlib
+    from unittest.mock import MagicMock as _MagicMock
+
+    link = _MagicMock(filename="evil_link", st_mode=statlib.S_IFLNK | 0o777)
+    realfile = _MagicMock(filename="data.txt", st_mode=statlib.S_IFREG | 0o644)
+
+    listed: list[str] = []
+    removed: list[str] = []
+    client = _MagicMock()
+
+    def _listdir_attr(path):
+        listed.append(path)
+        return [link, realfile] if path == "/runs/job" else []
+
+    client.listdir_attr.side_effect = _listdir_attr
+    client.remove.side_effect = lambda p: removed.append(p)
+
+    SFTPClientWrapper(client).remove_dir("/runs/job")
+
+    assert "/runs/job/evil_link" in removed  # symlink unlinked, target untouched
+    assert "/runs/job/data.txt" in removed
+    assert listed == ["/runs/job"]  # never descended into the symlink target
+    client.rmdir.assert_called_once_with("/runs/job")

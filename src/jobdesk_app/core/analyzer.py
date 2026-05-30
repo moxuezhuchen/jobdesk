@@ -61,6 +61,9 @@ def _analyze_one_task(
     results: list[ResultRecord] = []
     failures: list[FailureRecord] = []
 
+    # Read each source file at most once per task, even when multiple rules
+    # match the same file (large Gaussian/ORCA outputs are expensive to re-read).
+    read_cache: dict[Path, str] = {}
     for rule in extract_rules:
         rule_results, rule_failures = _extract_field(
             task_id=task_id,
@@ -68,6 +71,7 @@ def _analyze_one_task(
             result_dir=result_dir,
             rule=rule,
             batch_id=batch_id,
+            read_cache=read_cache,
         )
         results.extend(rule_results)
         failures.extend(rule_failures)
@@ -81,6 +85,7 @@ def _extract_field(
     result_dir: Path,
     rule: ExtractResult,
     batch_id: str,
+    read_cache: dict[Path, str] | None = None,
 ) -> tuple[list[ResultRecord], list[FailureRecord]]:
     results: list[ResultRecord] = []
     failures: list[FailureRecord] = []
@@ -100,6 +105,8 @@ def _extract_field(
         return results, failures
 
     try:
+        # NOTE: rule.regex is operator-supplied; a pathological pattern can backtrack
+        # catastrophically. Profiles are trusted local config, not untrusted input.
         compiled_re = re.compile(rule.regex)
     except re.error as e:
         failures.append(FailureRecord(
@@ -116,7 +123,12 @@ def _extract_field(
 
     for sf in source_files:
         try:
-            content = sf.read_text(encoding="utf-8", errors="replace")
+            if read_cache is not None and sf in read_cache:
+                content = read_cache[sf]
+            else:
+                content = sf.read_text(encoding="utf-8", errors="replace")
+                if read_cache is not None:
+                    read_cache[sf] = content
         except Exception as e:
             failures.append(FailureRecord(
                 task_id=task_id,

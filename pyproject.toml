@@ -64,6 +64,11 @@ warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
 
+# Type-check the bodies of untyped functions in the non-GUI layers.
+[[tool.mypy.overrides]]
+module = ["jobdesk_app.core.*", "jobdesk_app.remote.*", "jobdesk_app.services.*"]
+check_untyped_defs = true
+
 [[tool.mypy.overrides]]
 module = "PySide6.*"
 ignore_missing_imports = true

@@ -526,3 +526,48 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
     # Metadata must survive
     assert (record.run_dir / "run.json").exists()
     assert record.manifest_path.exists()
+
+
+
+def test_create_run_rejects_relative_remote_dir(tmp_path, runs_dir):
+    from jobdesk_app.remote.errors import RemotePathError
+    spec = RunSpec(
+        server_id="s1", remote_dir="relative/path", command_template="g16 {name}",
+        max_parallel=1, mode=RunMode.selected_files, sources=[RunSource("/remote/a.gjf")],
+    )
+    with pytest.raises(RemotePathError):
+        RunService(tmp_path, runs_dir=runs_dir).create_run(spec, run_id="rel")
+
+
+def test_create_run_rejects_remote_source_with_parent_ref(tmp_path, runs_dir):
+    from jobdesk_app.remote.errors import RemotePathError
+    spec = RunSpec(
+        server_id="s1", remote_dir="/remote/jobs", command_template="g16 {name}",
+        max_parallel=1, mode=RunMode.selected_files,
+        sources=[RunSource("/remote/../etc/passwd")],
+    )
+    with pytest.raises(RemotePathError):
+        RunService(tmp_path, runs_dir=runs_dir).create_run(spec, run_id="parref")
+
+
+def test_download_completed_rejects_backslash_result_traversal(tmp_path, runs_dir):
+    from unittest.mock import MagicMock
+    spec = RunSpec(
+        server_id="s1", remote_dir="/remote/jobs", command_template="g16 {name}",
+        max_parallel=1, mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.gjf")],
+        result_templates=["..\\evil.txt"],
+    )
+    svc = RunService(tmp_path, runs_dir=runs_dir)
+    record = svc.create_run(spec, run_id="bsrun")
+    tasks = Manifest.read(record.manifest_path)
+    for t in tasks:
+        t.status = TaskStatus.remote_completed
+    Manifest.write(record.manifest_path, tasks)
+
+    sftp = MagicMock()
+    _, failures = svc.download_completed("bsrun", sftp, patterns=["*.log"])
+
+    sftp.download_file.assert_not_called()
+    assert failures
+    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed
