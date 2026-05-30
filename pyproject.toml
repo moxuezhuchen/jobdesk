@@ -1,6 +1,6 @@
 [project]
 name = "jobdesk"
-version = "0.3.0-dev"
+version = "0.3.0.dev0"
 description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 
 [project.optional-dependencies]
 chem = [
-    "rdkit-pypi>=2023.9",
+    "rdkit>=2023.9",
 ]
 dev = [
     "build>=1.2",

@@ -37,12 +37,11 @@ class RunRecord:
 
 class RunService:
     def __init__(self, workspace_dir: str | Path | None = None, runs_dir: str | Path | None = None):
-        import os
         if runs_dir:
             self.runs_dir = Path(runs_dir)
         else:
-            appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-            self.runs_dir = Path(appdata) / "JobDesk" / "runs"
+            from ..app_paths import get_app_data_dir
+            self.runs_dir = get_app_data_dir() / "runs"
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
 
     def _next_run_id(self) -> str:
@@ -164,6 +163,12 @@ class RunService:
         return result
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
+        """Download declared outputs for remote_completed tasks.
+
+        All-or-nothing per task: a task is marked ``downloaded`` only when every
+        declared output transfers (or is skipped as identical). If any declared
+        output is missing/fails, the task keeps its status and records the error.
+        """
         record = self.load_run(run_id)
         tasks = Manifest.read(record.manifest_path)
         records = []

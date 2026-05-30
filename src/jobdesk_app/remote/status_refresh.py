@@ -175,7 +175,6 @@ def _recover_status(
         else:
             # Check for stale timeout
             if stale_timeout_seconds and task.submitted_at:
-                from datetime import datetime
                 elapsed = (datetime.now() - task.submitted_at).total_seconds()
                 if elapsed > stale_timeout_seconds:
                     new_status = TaskStatus.failed
@@ -198,7 +197,21 @@ def _recover_status(
             elif marker == "running":
                 pass  # 保持 running
         else:
-            snap.warnings.append("运行中但远程无状态文件")
+            # No marker: the runner may have been killed (e.g. OOM kill -9)
+            # before writing a terminal status. Fail on stale timeout so the
+            # task does not hang in running indefinitely.
+            ref_time = task.started_at or task.submitted_at
+            if stale_timeout_seconds and ref_time:
+                elapsed = (datetime.now() - ref_time).total_seconds()
+                if elapsed > stale_timeout_seconds:
+                    new_status = TaskStatus.failed
+                    snap.failure_reason = (
+                        f"no remote status after {int(elapsed)}s (timeout={stale_timeout_seconds}s)"
+                    )
+                else:
+                    snap.warnings.append("运行中但远程无状态文件")
+            else:
+                snap.warnings.append("运行中但远程无状态文件")
 
     elif current in (TaskStatus.remote_completed, TaskStatus.downloaded,
                      TaskStatus.analyzed, TaskStatus.failed, TaskStatus.cancelled):

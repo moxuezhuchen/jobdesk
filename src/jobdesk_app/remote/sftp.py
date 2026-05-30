@@ -5,6 +5,7 @@
 """
 
 import posixpath
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,18 +87,17 @@ class SFTPClientWrapper:
 
     def list_dir_info(self, remote_dir: str) -> list:
         """列出远程目录内容，返回包含名称/大小/时间/权限的条目列表。"""
-        import stat as stat_mod
         _validate_remote_path(remote_dir)
         try:
             attrs_list = self._sftp.listdir_attr(remote_dir)
         except (FileNotFoundError, OSError):
             return []
         entries = []
-        for attr in sorted(attrs_list, key=lambda a: (not stat_mod.S_ISDIR(a.st_mode or 0), (a.filename or "").lower())):
-            is_dir = stat_mod.S_ISDIR(attr.st_mode or 0)
+        for attr in sorted(attrs_list, key=lambda a: (not stat.S_ISDIR(a.st_mode or 0), (a.filename or "").lower())):
+            is_dir = stat.S_ISDIR(attr.st_mode or 0)
             name = attr.filename
             path = posixpath.join(remote_dir, name) if remote_dir != "/" else f"/{name}"
-            perm_str = stat_mod.filemode(attr.st_mode) if attr.st_mode else ""
+            perm_str = stat.filemode(attr.st_mode) if attr.st_mode else ""
             entries.append(_RemoteEntry(
                 name=name,
                 path=path,
@@ -143,7 +143,6 @@ class SFTPClientWrapper:
         st = self.stat(remote_path)
         if st is None:
             return False
-        import stat
         return stat.S_ISDIR(st.st_mode)
 
     # -- 单文件上传 ---------------------------------------------------------
@@ -461,16 +460,15 @@ class SFTPClientWrapper:
             return records
 
         def _walk(rdir: str, rel_prefix: str, depth: int = 0):
-            import stat as stat_mod
             if depth > 50:
                 raise RemotePathError(f"download_dir exceeded max depth (50): {rdir}")
             for attr in sorted(self._sftp.listdir_attr(rdir), key=lambda a: a.filename or ""):
                 name = attr.filename
                 full = posixpath.join(rdir, name)
                 rel = posixpath.join(rel_prefix, name) if rel_prefix else name
-                if stat_mod.S_ISLNK(attr.st_mode or 0):
+                if stat.S_ISLNK(attr.st_mode or 0):
                     continue  # skip symlinks to avoid traversal loops
-                if stat_mod.S_ISDIR(attr.st_mode or 0):
+                if stat.S_ISDIR(attr.st_mode or 0):
                     _walk(full, rel, depth + 1)
                 else:
                     if not _matches_globs(rel, include_globs, exclude_globs):
@@ -507,7 +505,8 @@ _CRLF_CHUNK_SIZE = 256 * 1024  # 256KB chunks for streaming normalization
 
 def _upload_text_normalized(sftp, local_path: Path, remote_path: str, total_size: int | None, progress_callback) -> None:
     """Stream-upload a text file, normalizing CRLF/CR→LF in chunks."""
-    bytes_written = 0
+    total = total_size or 0
+    bytes_read = 0
     with sftp.open(remote_path, "wb") as remote_f:
         with open(local_path, "rb") as local_f:
             carry_cr = False
@@ -517,15 +516,14 @@ def _upload_text_normalized(sftp, local_path: Path, remote_path: str, total_size
                     # Flush trailing CR from previous chunk
                     if carry_cr:
                         remote_f.write(b"\n")
-                        bytes_written += 1
                     break
+                bytes_read += len(chunk)
                 # If previous chunk ended with \r, check if this starts with \n
                 if carry_cr:
                     if chunk[0:1] == b"\n":
                         chunk = chunk[1:]  # skip \n, the \r\n pair becomes \n below
                     # Emit the pending \r as \n
                     remote_f.write(b"\n")
-                    bytes_written += 1
                 # Check if chunk ends with \r (might be split \r\n)
                 carry_cr = chunk[-1:] == b"\r"
                 if carry_cr:
@@ -533,9 +531,13 @@ def _upload_text_normalized(sftp, local_path: Path, remote_path: str, total_size
                 # Normalize \r\n → \n, then remaining \r → \n
                 normalized = chunk.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
                 remote_f.write(normalized)
-                bytes_written += len(normalized)
+                # Progress tracks bytes consumed from the source so the denominator
+                # stays the file size and the bar reaches 100%.
+                if progress_callback:
+                    progress_callback(bytes_read, total or bytes_read)
     if progress_callback:
-        progress_callback(bytes_written, bytes_written)
+        final = total or bytes_read
+        progress_callback(final, final)
 
 
 def _is_text_file(path: Path) -> bool:

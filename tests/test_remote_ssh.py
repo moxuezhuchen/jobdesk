@@ -475,11 +475,28 @@ class TestSSHClientWrapper:
 
     def test_trust_on_first_use_does_not_ignore_key_persistence_failure(self, tmp_path):
         client = MagicMock()
-        client.get_host_keys.return_value.save.side_effect = OSError("permission denied")
         policy = _AutoAddAndSavePolicy(tmp_path / "known_hosts")
 
-        with pytest.raises(SSHConnectionError, match="persistence failed"):
-            policy.missing_host_key(client, "wsl", MagicMock())
+        with patch("paramiko.HostKeys.save", side_effect=OSError("permission denied")):
+            with pytest.raises(SSHConnectionError, match="persistence failed"):
+                policy.missing_host_key(client, "wsl", MagicMock())
+
+    def test_trust_on_first_use_persists_only_app_scoped_keys(self, tmp_path):
+        """TOFU 写入应用私有 known_hosts：保留已有应用条目并追加新条目。"""
+        app_path = tmp_path / "known_hosts"
+        key_a = paramiko.ECDSAKey.generate()
+        seed = paramiko.HostKeys()
+        seed.add("hosta", key_a.get_name(), key_a)
+        seed.save(str(app_path))
+
+        client = MagicMock()
+        client.get_host_keys.return_value = paramiko.HostKeys()
+        _AutoAddAndSavePolicy(app_path).missing_host_key(client, "hostb", paramiko.ECDSAKey.generate())
+
+        written = paramiko.HostKeys()
+        written.load(str(app_path))
+        assert written.lookup("hosta") is not None
+        assert written.lookup("hostb") is not None
 
     def test_key_not_found(self):
         server = _make_server(key_path="/nonexistent/key")

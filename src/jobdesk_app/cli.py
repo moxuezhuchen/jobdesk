@@ -384,7 +384,7 @@ def _cmd_viewer_open(args) -> int:
 def _cmd_smiles_to_xyz(args) -> int:
     from .core.viewer import is_rdkit_available, smiles_to_xyz
     if not is_rdkit_available():
-        print("rdkit is required. Install with: pip install rdkit-pypi")
+        print("rdkit is required. Install with: pip install rdkit")
         return 2
     try:
         content = smiles_to_xyz(args.smiles, args.output, args.title)
@@ -401,7 +401,7 @@ def _cmd_smiles_to_xyz(args) -> int:
 def _cmd_smiles_to_gjf(args) -> int:
     from .core.viewer import is_rdkit_available, smiles_to_gjf
     if not is_rdkit_available():
-        print("rdkit is required. Install with: pip install rdkit-pypi")
+        print("rdkit is required. Install with: pip install rdkit")
         return 2
     try:
         content = smiles_to_gjf(args.smiles, args.output, args.preset, args.title)

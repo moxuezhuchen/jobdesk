@@ -150,6 +150,34 @@ class TestRecoveryRules:
         new, _ = _recover_status(TaskStatus.local_ready, rs, task)
         assert new == TaskStatus.local_ready
 
+    def test_running_missing_marker_stale_timeout_fails(self):
+        """running 任务远程无状态文件且超过 stale 超时 → 判失败（避免永久挂起）。"""
+        from datetime import datetime, timedelta
+
+        task = _make_task("t1", TaskStatus.running)
+        task.submitted_at = datetime.now() - timedelta(seconds=600)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False)
+        new, snap = _recover_status(TaskStatus.running, rs, task, stale_timeout_seconds=300)
+        assert new == TaskStatus.failed
+        assert snap.failure_reason is not None
+
+    def test_running_missing_marker_within_timeout_stays(self):
+        from datetime import datetime, timedelta
+
+        task = _make_task("t1", TaskStatus.running)
+        task.submitted_at = datetime.now() - timedelta(seconds=10)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False)
+        new, snap = _recover_status(TaskStatus.running, rs, task, stale_timeout_seconds=300)
+        assert new == TaskStatus.running
+        assert any("无状态文件" in w for w in snap.warnings)
+
+    def test_running_missing_marker_no_timeout_stays(self):
+        task = _make_task("t1", TaskStatus.running)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False)
+        new, snap = _recover_status(TaskStatus.running, rs, task)
+        assert new == TaskStatus.running
+        assert any("无状态文件" in w for w in snap.warnings)
+
 
 # ---- refresh_batch_status integration ----------------------------------
 

@@ -56,11 +56,16 @@ class _AutoAddAndSavePolicy(paramiko.MissingHostKeyPolicy):
 
     def missing_host_key(self, client, hostname, key):
         # Trust only when the accepted key can be persisted for later verification.
+        # Persist to the app-scoped file alone so the user's global known_hosts
+        # entries are never copied into it.
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            host_keys = client.get_host_keys()
-            host_keys.add(hostname, key.get_name(), key)
-            host_keys.save(str(self._path))
+            client.get_host_keys().add(hostname, key.get_name(), key)
+            app_keys = paramiko.HostKeys()
+            if self._path.is_file():
+                app_keys.load(str(self._path))
+            app_keys.add(hostname, key.get_name(), key)
+            app_keys.save(str(self._path))
         except OSError as exc:
             raise SSHConnectionError(
                 f"Host key accepted but known_hosts persistence failed: {exc}",
@@ -88,15 +93,20 @@ class SSHClientWrapper:
         self._start_wsl_if_configured()
         self._client = paramiko.SSHClient()
 
-        # Load known_hosts; unknown keys require explicit opt-in to trust-on-first-use.
-        known_hosts = Path(os.path.expanduser("~/.ssh/known_hosts"))
-        try:
-            if known_hosts.is_file():
-                self._client.load_host_keys(str(known_hosts))
-        except OSError:
-            pass
+        # Load the user's global known_hosts for verification, plus an
+        # app-scoped file. Trust-on-first-use only ever writes the app-scoped
+        # file, so the user's ~/.ssh/known_hosts is never rewritten.
+        from ..app_paths import get_app_data_dir
+
+        app_known_hosts = get_app_data_dir() / "known_hosts"
+        for kh in (Path(os.path.expanduser("~/.ssh/known_hosts")), app_known_hosts):
+            try:
+                if kh.is_file():
+                    self._client.load_host_keys(str(kh))
+            except OSError:
+                pass
         if getattr(self._server, "trust_on_first_use", False):
-            self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(known_hosts))
+            self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(app_known_hosts))
         else:
             self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
@@ -209,7 +219,10 @@ class SSHClientWrapper:
         """Open a raw SSH channel session. Raises SSHConnectionError if not connected."""
         if self._client is None:
             raise SSHConnectionError("未连接，请先调用 connect()")
-        return self._client.get_transport().open_session()
+        transport = self._client.get_transport()
+        if transport is None or not transport.is_active():
+            raise SSHConnectionError("SSH 传输不可用，请重新连接", host=self._server.host)
+        return transport.open_session()
 
     def run(self, command: str, timeout: int | None = None, check: bool = False) -> SSHResult:
         """在远程服务器执行命令。

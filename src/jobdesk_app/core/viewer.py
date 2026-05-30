@@ -18,7 +18,7 @@ def smiles_to_xyz(
 ) -> str:
     """Convert a SMILES string to a 3D XYZ file using RDKit.
 
-    Requires: pip install rdkit-pypi
+    Requires: pip install rdkit
 
     Args:
         smiles: SMILES string (e.g. "c1ccccc1" for benzene).
@@ -39,7 +39,7 @@ def smiles_to_xyz(
     except ImportError:
         raise ImportError(
             "rdkit is required for SMILES→3D conversion. "
-            "Install it with: pip install rdkit-pypi"
+            "Install it with: pip install rdkit"
         )
 
     mol = Chem.MolFromSmiles(smiles)
