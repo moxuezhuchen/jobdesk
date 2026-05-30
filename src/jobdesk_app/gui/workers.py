@@ -57,9 +57,14 @@ class BackgroundWorker(QThread):
 
     def stop_safely(self, timeout_ms: int | None = None):
         """Request stop and wait for thread completion before destruction."""
-        self.requestInterruption()
-        self.quit()
-        if timeout_ms is None:
-            self.wait()
-        else:
-            self.wait(timeout_ms)
+        try:
+            self.requestInterruption()
+            self.quit()
+            if timeout_ms is None:
+                self.wait()
+            else:
+                self.wait(timeout_ms)
+        except RuntimeError:
+            # Underlying C++ QThread already deleted (e.g. finished + deleteLater
+            # during teardown). Nothing left to stop.
+            BackgroundWorker._active.discard(self)
