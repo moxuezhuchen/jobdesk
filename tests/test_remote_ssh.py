@@ -506,6 +506,12 @@ class TestSSHClientWrapper:
             with pytest.raises(SSHConnectionError, match="私钥不存在"):
                 ssh.connect()
 
+    def test_encrypted_key_reports_clear_error(self, tmp_path):
+        key_file = tmp_path / "id_rsa_enc"
+        paramiko.RSAKey.generate(2048).write_private_key_file(str(key_file), password="secret")
+        with pytest.raises(SSHConnectionError, match="加密"):
+            SSHClientWrapper._resolve_key(str(key_file))
+
     def test_password_auth_rejected(self):
         server = _make_server(auth_method=AuthMethod.password)
         ssh = MockSSHWrapper(server)

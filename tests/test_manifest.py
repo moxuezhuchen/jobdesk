@@ -7,7 +7,60 @@ from pathlib import Path
 import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import _MANIFEST_COLUMNS, Manifest, TaskRecord
+from jobdesk_app.core.manifest import _MANIFEST_COLUMNS, Manifest, TaskRecord, manifest_lock
+
+
+class TestManifestLock:
+    def test_same_path_shares_one_lock_distinct_paths_differ(self, tmp_path):
+        a = tmp_path / "sub" / "manifest.tsv"
+        a_eq = tmp_path / "sub" / ".." / "sub" / "manifest.tsv"
+        b = tmp_path / "other.tsv"
+        assert manifest_lock(a) is manifest_lock(a_eq)
+        assert manifest_lock(a) is not manifest_lock(b)
+
+    def test_lock_is_reentrant(self, tmp_path):
+        lock = manifest_lock(tmp_path / "m.tsv")
+        with lock:
+            with lock:
+                assert True
+
+    def test_lock_prevents_lost_update_under_concurrency(self, tmp_path):
+        """Two threads each bump a distinct task's counter through a read-modify-write.
+
+        With manifest_lock serializing the RMW, every increment survives. Without
+        it, each thread writes back a stale copy of the other task and updates are
+        lost (the sleep widens the window so the race would manifest reliably).
+        """
+        import threading
+        import time
+
+        p = tmp_path / "manifest.tsv"
+        Manifest.write(p, [
+            TaskRecord(task_id="a", batch_id="b", remote_job_dir="/x", error_message="0"),
+            TaskRecord(task_id="b", batch_id="b", remote_job_dir="/y", error_message="0"),
+        ])
+        iterations = 30
+        barrier = threading.Barrier(2)
+
+        def bump(index: int):
+            barrier.wait()
+            for _ in range(iterations):
+                with manifest_lock(p):
+                    tasks = Manifest.read(p)
+                    tasks[index].error_message = str(int(tasks[index].error_message) + 1)
+                    time.sleep(0.0005)
+                    Manifest.write(p, tasks)
+
+        threads = [threading.Thread(target=bump, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        final = Manifest.read(p)
+        assert final[0].error_message == str(iterations)
+        assert final[1].error_message == str(iterations)
+
 
 
 class TestTaskRecord:

@@ -100,6 +100,9 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, title, message)
 
     def shutdown(self):
+        if getattr(self, "_shutdown_done", False):
+            return
+        self._shutdown_done = True
         try:
             self._settings_store.update(window_size=[self.width(), self.height()])
         except Exception:

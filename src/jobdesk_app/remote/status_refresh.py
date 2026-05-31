@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..core.lifecycle import TaskStatus
-from ..core.manifest import Manifest, TaskRecord
+from ..core.manifest import Manifest, TaskRecord, manifest_lock
 from ..core.models import FailureRecord
 from ..core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from .status import read_remote_task_status, read_remote_task_statuses_batch
@@ -17,6 +17,24 @@ DEFAULT_STALE_TIMEOUT_SECONDS = 24 * 60 * 60
 
 
 def refresh_batch_status(
+    ssh,      # SSHClientWrapper
+    manifest_path: Path,
+    remote_batch_dir: str,
+    batch_id: str,
+    write: bool = False,
+    log_tail_lines: int = 50,
+    control_subdir: str = "_batch",
+    stale_timeout_seconds: int | None = DEFAULT_STALE_TIMEOUT_SECONDS,
+) -> StatusRefreshResult:
+    """Serialize the manifest read-modify-write against other run workers."""
+    with manifest_lock(manifest_path):
+        return _refresh_batch_status(
+            ssh, manifest_path, remote_batch_dir, batch_id, write,
+            log_tail_lines, control_subdir, stale_timeout_seconds,
+        )
+
+
+def _refresh_batch_status(
     ssh,      # SSHClientWrapper
     manifest_path: Path,
     remote_batch_dir: str,

@@ -343,9 +343,17 @@ class SSHClientWrapper:
         p = Path(key_path)
         if not p.exists():
             raise SSHConnectionError(f"SSH 私钥不存在: {key_path}")
+        encrypted = False
         for key_class in (paramiko.Ed25519Key, paramiko.RSAKey, paramiko.ECDSAKey):
             try:
                 return key_class.from_private_key_file(str(p))
+            except paramiko.PasswordRequiredException:
+                encrypted = True
             except paramiko.SSHException:
                 continue
+        if encrypted:
+            raise SSHConnectionError(
+                f"SSH 私钥已加密，暂不支持带密码短语的私钥。请提供未加密的私钥，"
+                f"或改用 ssh-agent（不配置 key_path）: {key_path}"
+            )
         raise SSHConnectionError(f"无法识别或加载私钥: {key_path}")

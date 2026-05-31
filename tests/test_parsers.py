@@ -124,6 +124,22 @@ class TestGaussianParser:
         finally:
             p.unlink()
 
+    def test_open_shell_mulliken_charges_and_spin_densities(self):
+        log = (
+            " Mulliken charges and spin densities:\n"
+            "               1          2\n"
+            "     1  C   -0.111111   0.987654\n"
+            "     2  H    0.111111   0.012346\n"
+            " Sum of Mulliken charges =   0.00000\n"
+        )
+        p = _write(log)
+        try:
+            r = parse_gaussian_log(p)
+            assert r.mulliken_charges[1] == pytest.approx(-0.111111)
+            assert r.mulliken_charges[2] == pytest.approx(0.111111)
+        finally:
+            p.unlink()
+
     def test_timing(self):
         p = _write(GAUSSIAN_OPT_FREQ_LOG)
         try:

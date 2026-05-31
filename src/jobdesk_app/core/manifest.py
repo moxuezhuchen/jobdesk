@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import threading
 from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
@@ -9,6 +10,25 @@ from pydantic import BaseModel, Field
 
 from .atomic_write import atomic_write_text
 from .lifecycle import TaskStatus
+
+_manifest_locks_guard = threading.Lock()
+_manifest_locks: dict[str, threading.RLock] = {}
+
+
+def manifest_lock(manifest_path: Path | str) -> threading.RLock:
+    """Return a process-wide reentrant lock keyed by the manifest's resolved path.
+
+    Callers hold this lock around a read-modify-write sequence so concurrent
+    refresh/download/retry workers cannot lose each other's status updates.
+    """
+    key = str(Path(manifest_path).resolve())
+    with _manifest_locks_guard:
+        lock = _manifest_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _manifest_locks[key] = lock
+    return lock
+
 
 _MANIFEST_COLUMNS: list[str] = [
     "task_id",

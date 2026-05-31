@@ -146,12 +146,16 @@ def _build_parser() -> argparse.ArgumentParser:
     up.add_argument("server_id")
     up.add_argument("local_path", type=Path)
     up.add_argument("remote_path")
+    up.add_argument("--overwrite", action="store_true", help="Overwrite remote files that differ")
+    up.add_argument("--dry-run", action="store_true", help="Report planned actions without transferring")
     up.set_defaults(func=_cmd_files_upload)
 
     dn = files_sub.add_parser("download")
     dn.add_argument("server_id")
     dn.add_argument("remote_path")
     dn.add_argument("local_path", type=Path)
+    dn.add_argument("--overwrite", action="store_true", help="Overwrite local files that differ")
+    dn.add_argument("--dry-run", action="store_true", help="Report planned actions without transferring")
     dn.set_defaults(func=_cmd_files_download)
 
     mk = files_sub.add_parser("mkdir")
@@ -446,8 +450,9 @@ def _cmd_files_list_remote(args) -> int:
 
 
 def _cmd_files_upload(args) -> int:
+    policy = OverwritePolicy.overwrite if args.overwrite else OverwritePolicy.skip_same_size
     records = _file_transfer_service(args, args.server_id).upload_path(
-        args.local_path, args.remote_path, OverwritePolicy.skip_same_size
+        args.local_path, args.remote_path, policy, dry_run=args.dry_run
     )
     if not isinstance(records, list):
         records = [records]
@@ -457,8 +462,9 @@ def _cmd_files_upload(args) -> int:
 
 
 def _cmd_files_download(args) -> int:
+    policy = OverwritePolicy.overwrite if args.overwrite else OverwritePolicy.skip_same_size
     records = _file_transfer_service(args, args.server_id).download_path(
-        args.remote_path, args.local_path, OverwritePolicy.skip_same_size
+        args.remote_path, args.local_path, policy, dry_run=args.dry_run
     )
     if not isinstance(records, list):
         records = [records]

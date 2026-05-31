@@ -44,6 +44,23 @@ def test_cli_run_create_and_list(capsys):
         assert "/tmp/test" in out
 
 
+def test_cli_files_upload_passes_overwrite_and_dry_run(monkeypatch):
+    import jobdesk_app.cli as cli
+    captured = {}
+
+    class FakeService:
+        def upload_path(self, local, remote, policy, dry_run=False):
+            captured["policy"] = policy
+            captured["dry_run"] = dry_run
+            return []
+
+    monkeypatch.setattr(cli, "_file_transfer_service", lambda args, sid: FakeService())
+    rc = main(["files", "upload", "srv", "local.txt", "/remote/x.txt", "--overwrite", "--dry-run"])
+    assert rc == 0
+    from jobdesk_app.core.file_transfer import OverwritePolicy
+    assert captured == {"policy": OverwritePolicy.overwrite, "dry_run": True}
+
+
 def test_cli_run_list_empty(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         rc = main(["run", "list", workspace])

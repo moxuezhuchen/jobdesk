@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from ..core.atomic_write import atomic_write_text
 from ..core.batch import create_batch, write_batch_json
 from ..core.lifecycle import TaskStatus
-from ..core.manifest import Manifest, TaskRecord
+from ..core.manifest import Manifest, TaskRecord, manifest_lock
 from ..core.models import BatchMeta
 from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
@@ -162,8 +162,9 @@ class RunService:
             scheduler=scheduler,
             resources=resources,
         )
-        result = submitter.submit_batch()
-        self.update_run_from_manifest(run_id)
+        with manifest_lock(record.manifest_path):
+            result = submitter.submit_batch()
+            self.update_run_from_manifest(run_id)
         return result
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
@@ -174,6 +175,10 @@ class RunService:
         output is missing/fails, the task keeps its status and records the error.
         """
         record = self.load_run(run_id)
+        with manifest_lock(record.manifest_path):
+            return self._download_completed_locked(record, run_id, sftp, patterns)
+
+    def _download_completed_locked(self, record: RunRecord, run_id: str, sftp, patterns: list[str]):
         tasks = Manifest.read(record.manifest_path)
         records = []
         failures = []
@@ -240,20 +245,26 @@ class RunService:
     def prepare_retry_failed(self, run_id: str) -> int:
         record = self.load_run(run_id)
         from ..core.manifest_ops import reset_failed_to_uploaded
-        changed = reset_failed_to_uploaded(record.manifest_path)
-        self.update_run_from_manifest(run_id)
+        with manifest_lock(record.manifest_path):
+            changed = reset_failed_to_uploaded(record.manifest_path)
+            self.update_run_from_manifest(run_id)
         return changed
 
     def prepare_rerun(self, run_id: str) -> int:
         record = self.load_run(run_id)
         from ..core.manifest_ops import reset_all_to_uploaded
-        changed = reset_all_to_uploaded(record.manifest_path)
-        self.update_run_from_manifest(run_id)
+        with manifest_lock(record.manifest_path):
+            changed = reset_all_to_uploaded(record.manifest_path)
+            self.update_run_from_manifest(run_id)
         return changed
 
     def cancel_run(self, run_id: str, ssh) -> tuple[int, list[str]]:
         """Cancel remote jobs, recording cancellation only after the remote action succeeds."""
         record = self.load_run(run_id)
+        with manifest_lock(record.manifest_path):
+            return self._cancel_run_locked(record, run_id, ssh)
+
+    def _cancel_run_locked(self, record: RunRecord, run_id: str, ssh) -> tuple[int, list[str]]:
         from ..remote.scheduler import make_adapter
 
         tasks = list(Manifest.read(record.manifest_path))
