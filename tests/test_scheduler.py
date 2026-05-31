@@ -307,6 +307,19 @@ class TestSchedulerResourceValidation:
         with pytest.raises(ValueError):
             SchedulerConfig(default_memory_mb=0)
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"cpus": 0},
+            {"memory_mb": 0},
+            {"walltime_minutes": 0},
+            {"gpus": -1},
+        ],
+    )
+    def test_resource_spec_rejects_invalid_resource_bounds(self, kwargs):
+        with pytest.raises(ValueError):
+            ResourceSpec.from_dict(kwargs)
+
     def test_resource_spec_rejects_newline_in_text_fields(self):
         with pytest.raises(ValueError, match="control characters"):
             ResourceSpec(extra_directives=["--qos=high\nrm -rf /"])

@@ -198,9 +198,6 @@ def _cmd_run_list(args) -> int:
 
 def _cmd_run_submit(args) -> int:
     server = _get_server(args)
-    ssh = create_ssh_client(server)
-    ssh.connect()
-    sftp = create_sftp_client(ssh)
     from .services.scheduler_helpers import resources_from_server, scheduler_from_server
     overrides = {}
     if getattr(args, "cpus", None) is not None:
@@ -211,12 +208,17 @@ def _cmd_run_submit(args) -> int:
         overrides["walltime_minutes"] = args.walltime
     if getattr(args, "partition", None) is not None:
         overrides["partition"] = args.partition
+    scheduler = scheduler_from_server(server)
+    resources = resources_from_server(server, overrides or None)
+    ssh = create_ssh_client(server)
+    ssh.connect()
+    sftp = create_sftp_client(ssh)
     try:
         result = RunService(args.workspace).submit_run(
             args.run_id, ssh, sftp,
             env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
-            scheduler=scheduler_from_server(server),
-            resources=resources_from_server(server, overrides or None),
+            scheduler=scheduler,
+            resources=resources,
         )
     finally:
         sftp.close()

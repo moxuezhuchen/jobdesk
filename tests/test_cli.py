@@ -4,7 +4,10 @@ import tempfile
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jobdesk_app.cli import _build_parser, main
+from jobdesk_app.config.schema import ServerConfig
 
 
 @contextmanager
@@ -197,3 +200,18 @@ def test_cli_files_list_closes_ssh_with_sftp():
         assert rc == 0
         sftp.close.assert_called_once_with()
         ssh.close.assert_called_once_with()
+
+
+def test_cli_run_submit_rejects_invalid_resource_override_before_submit():
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
+        server = ServerConfig(host="h", username="u")
+        with patch("jobdesk_app.cli._get_server", return_value=server), \
+             patch("jobdesk_app.cli.create_ssh_client") as create_ssh_client, \
+             patch("jobdesk_app.cli.create_sftp_client") as create_sftp_client, \
+             patch("jobdesk_app.cli.RunService.submit_run") as submit_run:
+            with pytest.raises(ValueError):
+                main(["run", "submit", workspace, "run1", "--cpus", "0"])
+
+        create_ssh_client.assert_not_called()
+        create_sftp_client.assert_not_called()
+        submit_run.assert_not_called()

@@ -33,6 +33,14 @@ class ResourceSpec:
     extra_directives: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        if self.cpus < 1:
+            raise ValueError(f"scheduler cpus must be >= 1: {self.cpus}")
+        if self.memory_mb < 1:
+            raise ValueError(f"scheduler memory_mb must be >= 1: {self.memory_mb}")
+        if self.walltime_minutes < 1:
+            raise ValueError(f"scheduler walltime_minutes must be >= 1: {self.walltime_minutes}")
+        if self.gpus < 0:
+            raise ValueError(f"scheduler gpus must be >= 0: {self.gpus}")
         # Scheduler text fields are interpolated into Slurm/PBS script headers;
         # a newline/NUL would let a directive break out into an executable line.
         for text in (self.partition, self.account, *self.extra_directives):
