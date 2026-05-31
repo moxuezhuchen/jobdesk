@@ -865,13 +865,28 @@ class TestRunsPage:
 
         mock_os.startfile.assert_called_once_with(results_dir)
 
-    def test_shutdown_waits_for_background_worker_without_timeout(self, runs_page):
+    def test_shutdown_stops_background_worker_with_timeout(self, runs_page):
         worker = MagicMock()
         runs_page._bg_workers = [worker]
 
         runs_page.shutdown()
 
-        worker.stop_safely.assert_called_once_with()
+        worker.stop_safely.assert_called_once_with(3000)
+
+    def test_rerun_all_reports_active_task_error_without_submit(self, runs_page):
+        statuses = []
+        runs_page._status_cb = statuses.append
+        record = MagicMock(run_id="run_active")
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch.object(runs_page, "_submit_record") as submit_record:
+            svc.return_value.prepare_rerun.side_effect = ValueError("cannot rerun active remote tasks: a")
+
+            runs_page._rerun_all()
+
+        assert statuses == ["cannot rerun active remote tasks: a"]
+        submit_record.assert_not_called()
 
     def test_delete_run_uses_record_local_dir_not_current_workspace(self, runs_page, tmp_path):
         """Deleting a run must target record.local_dir, not the active workspace."""
@@ -1928,7 +1943,7 @@ class TestFileTransferPage:
             store.return_value.save.side_effect = PermissionError("read-only settings")
             file_page.shutdown()
 
-        worker.stop_safely.assert_called_once_with()
+        worker.stop_safely.assert_called_once_with(3000)
 
     def test_connect_enables_persistent_remote_session(self, file_page):
         file_page._servers = {"wsl": MagicMock()}

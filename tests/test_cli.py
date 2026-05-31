@@ -69,6 +69,31 @@ def test_cli_run_retry_no_failed(capsys):
         capsys.readouterr()
 
 
+def test_cli_run_rerun_reports_active_remote_tasks(capsys):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
+        main([
+            "run", "create", workspace,
+            "--server", "s", "--remote-dir", "/tmp/x",
+            "--command", "echo {name}", "--files", "/remote/f.txt",
+        ])
+        capsys.readouterr()
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.services.run_service import RunService
+
+        record = RunService(workspace).list_runs()[0]
+        tasks = Manifest.read(record.manifest_path)
+        tasks[0].status = TaskStatus.running
+        Manifest.write(record.manifest_path, tasks)
+
+        rc = main(["run", "rerun", workspace, record.run_id])
+        out = capsys.readouterr().out
+
+        assert rc == 2
+        assert "cannot rerun active remote tasks" in out
+
+
 def test_cli_run_delete(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         main([

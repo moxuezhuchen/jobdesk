@@ -299,7 +299,11 @@ def _cmd_run_retry(args) -> int:
 
 
 def _cmd_run_rerun(args) -> int:
-    changed = RunService(args.workspace).prepare_rerun(args.run_id)
+    try:
+        changed = RunService(args.workspace).prepare_rerun(args.run_id)
+    except ValueError as exc:
+        print(str(exc))
+        return 2
     print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
     return 0
 

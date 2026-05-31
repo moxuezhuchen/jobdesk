@@ -2,6 +2,8 @@
 
 from PySide6.QtCore import QThread, Signal
 
+DEFAULT_WORKER_STOP_TIMEOUT_MS = 3000
+
 
 class BackgroundWorker(QThread):
     """在 QThread 中执行函数，通过信号返回结果/错误。"""
@@ -33,7 +35,7 @@ class BackgroundWorker(QThread):
         BackgroundWorker._active.discard(self)
 
     @classmethod
-    def wait_all(cls, timeout_ms: int | None = None):
+    def wait_all(cls, timeout_ms: int | None = DEFAULT_WORKER_STOP_TIMEOUT_MS):
         """Block until all running workers finish (use on app shutdown)."""
         for worker in list(cls._active):
             try:
@@ -55,7 +57,7 @@ class BackgroundWorker(QThread):
             msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
             self.error.emit(msg)
 
-    def stop_safely(self, timeout_ms: int | None = None):
+    def stop_safely(self, timeout_ms: int | None = DEFAULT_WORKER_STOP_TIMEOUT_MS):
         """Request stop and wait for thread completion before destruction."""
         try:
             self.requestInterruption()

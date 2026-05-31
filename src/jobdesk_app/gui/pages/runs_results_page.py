@@ -982,7 +982,11 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        RunService(self._workspace()).prepare_rerun(record.run_id)
+        try:
+            RunService(self._workspace()).prepare_rerun(record.run_id)
+        except ValueError as exc:
+            self._status_cb(str(exc))
+            return
         self.refresh_run_list()
         self._submit_record(record.run_id)
 
@@ -1164,10 +1168,10 @@ class RunsResultsPage(QWidget):
         self._pending_task_events.clear()
         self._monitor.stop_all()
         for w in list(getattr(self, "_bg_workers", [])):
-            w.stop_safely()
+            w.stop_safely(3000)
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
-            w.stop_safely()
+            w.stop_safely(3000)
         self._close_all_sessions()
 
 

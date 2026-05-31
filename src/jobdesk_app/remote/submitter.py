@@ -7,6 +7,7 @@ tasks.tsv、batch_control.sh），通过 SSH 上传、chmod、nohup 启动后台
 所有任务信息来自 Manifest，不重新发现输入文件。
 """
 
+import re
 import shlex
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,14 @@ from pathlib import Path
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
+
+_TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _validate_task_id(task_id: str) -> str:
+    if not _TASK_ID_RE.fullmatch(task_id):
+        raise ValueError(f"task_id contains unsafe characters: {task_id!r}")
+    return task_id
 
 
 class JobSubmitter:
@@ -91,6 +100,7 @@ class JobSubmitter:
         在执行用户命令前 source 用户 shell 环境（绕过非交互 shell 不加载
         ~/.bashrc 的问题），并 source 额外的 env_init_scripts。
         """
+        task_id = _validate_task_id(task.task_id)
         rendered = task.rendered_command
         init_lines = [
             "# JobDesk: load user shell environment",
@@ -109,7 +119,7 @@ class JobSubmitter:
             *init_lines,
             "set +e",
             "echo 'running' > .jobdesk_status",
-            f"echo \"RUNNING {shlex.quote(task.task_id)}\" >> ../_batch/events.log",
+            f'printf "%s\\n" "RUNNING {task_id}" >> ../_batch/events.log',
             "(",
             f"  {rendered}",
             ") > .jobdesk_submit.log 2>&1",
@@ -120,7 +130,7 @@ class JobSubmitter:
             "else",
             "  echo 'failed' > .jobdesk_status",
             "fi",
-            f"echo \"DONE {shlex.quote(task.task_id)} $rc\" >> ../_batch/events.log",
+            f'printf "%s\\n" "DONE {task_id} $rc" >> ../_batch/events.log',
             'exit "$rc"',
             "",
         ]
@@ -148,12 +158,13 @@ class JobSubmitter:
         lines = ["task_id\tremote_job_dir\trunner_path"]
         control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
         for t in tasks:
+            task_id = _validate_task_id(t.task_id)
             if "\t" in t.task_id or "\n" in t.task_id:
                 raise ValueError(f"task_id 包含非法字符 (tab/newline): {t.task_id!r}")
             if "\t" in t.remote_job_dir or "\n" in t.remote_job_dir:
                 raise ValueError(f"remote_job_dir 包含非法字符: {t.remote_job_dir!r}")
-            launch_path = f"{control_dir}/launch_{t.task_id}.sh"
-            lines.append(f"{t.task_id}\t{t.remote_job_dir}\t{launch_path}")
+            launch_path = f"{control_dir}/launch_{task_id}.sh"
+            lines.append(f"{task_id}\t{t.remote_job_dir}\t{launch_path}")
         return "\n".join(lines) + "\n"
 
     @staticmethod
@@ -220,7 +231,8 @@ class JobSubmitter:
         from .scheduler import NohupAdapter, PBSAdapter, SlurmAdapter
         if isinstance(self._scheduler, NohupAdapter):
             return ""
-        job_name = f"jd_{task.task_id[:16]}"
+        task_id = _validate_task_id(task.task_id)
+        job_name = f"jd_{task_id[:16]}"
         if isinstance(self._scheduler, SlurmAdapter):
             header = SlurmAdapter.build_header(self._resources, job_name)
         elif isinstance(self._scheduler, PBSAdapter):

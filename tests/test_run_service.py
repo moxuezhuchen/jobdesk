@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -268,6 +269,60 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
 
     assert changed == 1
     assert Manifest.read(record.manifest_path)[0].status == TaskStatus.uploaded
+
+
+def test_prepare_rerun_rejects_active_remote_tasks(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_active")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.running
+    tasks[0].remote_job_id = "12345"
+    Manifest.write(record.manifest_path, tasks)
+
+    with pytest.raises(ValueError, match="active remote tasks"):
+        service.prepare_rerun("run_active")
+
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.running
+    assert task.remote_job_id == "12345"
+
+
+def test_prepare_rerun_clears_execution_metadata_for_terminal_tasks(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_done")
+    tasks = Manifest.read(record.manifest_path)
+    tasks[0].status = TaskStatus.failed
+    tasks[0].submitted_at = datetime(2026, 5, 31, 8, 0, 0)
+    tasks[0].completed_at = datetime(2026, 5, 31, 8, 1, 0)
+    tasks[0].scheduler_type = "slurm"
+    tasks[0].remote_job_id = "999"
+    tasks[0].error_message = "old failure"
+    Manifest.write(record.manifest_path, tasks)
+
+    changed = service.prepare_rerun("run_done")
+
+    assert changed == 1
+    task = Manifest.read(record.manifest_path)[0]
+    assert task.status == TaskStatus.uploaded
+    assert task.submitted_at is None
+    assert task.completed_at is None
+    assert task.remote_job_id is None
+    assert task.scheduler_type == "nohup"
+    assert task.error_message is None
 
 
 def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, monkeypatch):

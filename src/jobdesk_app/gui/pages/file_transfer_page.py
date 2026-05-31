@@ -1808,10 +1808,10 @@ class FileTransferPage(QWidget):
                 workers.append(worker)
             for worker in workers:
                 if hasattr(worker, "stop_safely"):
-                    worker.stop_safely()
+                    worker.stop_safely(3000)
                 elif hasattr(worker, "isRunning") and worker.isRunning():
                     worker.quit()
-                    worker.wait()
+                    worker.wait(3000)
             if self._service is not None:
                 self._service.close()
                 self._service = None

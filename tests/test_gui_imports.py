@@ -45,7 +45,7 @@ def test_worker_create():
     assert w is not None
 
 
-def test_worker_stop_safely_waits_until_thread_finishes_by_default():
+def test_worker_stop_safely_uses_default_timeout():
     from jobdesk_app.gui.workers import BackgroundWorker
 
     worker = BackgroundWorker(lambda: 42)
@@ -55,4 +55,4 @@ def test_worker_stop_safely_waits_until_thread_finishes_by_default():
     worker.stop_safely()
 
     worker.quit.assert_called_once_with()
-    worker.wait.assert_called_once_with()
+    worker.wait.assert_called_once_with(3000)

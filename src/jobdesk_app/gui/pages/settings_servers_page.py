@@ -742,7 +742,7 @@ class SettingsServersPage(QWidget):
     def shutdown(self):
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
-            w.stop_safely()
+            w.stop_safely(3000)
         elif w and w.isRunning():
             w.quit()
-            w.wait()
+            w.wait(3000)

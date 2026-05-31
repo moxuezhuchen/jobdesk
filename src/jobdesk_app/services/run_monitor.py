@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -119,14 +120,20 @@ class _Watcher:
                             for line in data.decode("utf-8", errors="replace").splitlines():
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
-                        except Exception as exc:
+                        except socket.timeout as exc:
                             logger.debug(
-                                "watcher %s/%s channel read error, will retry: %s",
+                                "watcher %s/%s channel read timeout, continuing: %s",
                                 self._server_id, self._run_id, exc,
                             )
                             if time.monotonic() - connected_at >= _WATCHER_STABLE_SECONDS:
                                 backoff = 10
                             continue
+                        except Exception as exc:
+                            logger.debug(
+                                "watcher %s/%s channel read error, reconnecting: %s",
+                                self._server_id, self._run_id, exc,
+                            )
+                            break
                 finally:
                     channel.close()
                     ssh.close()

@@ -199,13 +199,25 @@ class TestGenerateScripts:
 
     def test_tasks_tsv_task_id_with_tab_raises(self):
         tasks = [_make_task("t\t1")]
-        with pytest.raises(ValueError, match="非法字符"):
+        with pytest.raises(ValueError, match="task_id"):
             JobSubmitter.generate_tasks_tsv(tasks, "/r")
 
     def test_tasks_tsv_task_id_with_newline_raises(self):
         tasks = [_make_task("t\n1")]
-        with pytest.raises(ValueError, match="非法字符"):
+        with pytest.raises(ValueError, match="task_id"):
             JobSubmitter.generate_tasks_tsv(tasks, "/r")
+
+    def test_tasks_tsv_task_id_with_shell_substitution_raises(self):
+        tasks = [_make_task("bad$(touch pwned)")]
+        with pytest.raises(ValueError, match="task_id"):
+            JobSubmitter.generate_tasks_tsv(tasks, "/r")
+
+    def test_task_runner_quotes_whole_event_log_line(self):
+        task = _make_task("mol-1")
+        content = JobSubmitter.generate_task_runner(task)
+
+        assert 'printf "%s\\n" "RUNNING mol-1" >> ../_batch/events.log' in content
+        assert 'printf "%s\\n" "DONE mol-1 $rc" >> ../_batch/events.log' in content
 
     def test_batch_control_contains_xargs_p(self):
         content = JobSubmitter.generate_batch_control(4, "/remote/b1", 10)

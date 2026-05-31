@@ -53,6 +53,19 @@ class FakeChannel:
         pass
 
 
+class OneBrokenReadChannel(FakeChannel):
+    def __init__(self, exc):
+        super().__init__([])
+        self.exc = exc
+        self.recv_calls = 0
+
+    def recv(self, size):
+        self.recv_calls += 1
+        if self.recv_calls == 1:
+            raise self.exc
+        return b""
+
+
 class FakeTransport:
     def __init__(self, channel):
         self._channel = channel
@@ -157,6 +170,23 @@ def test_watcher_resets_backoff_after_30s_stable_silent_connection():
         ],
     )
     assert waits == [10, 20, 10, 20]
+    assert events == []
+
+
+def test_watcher_reconnects_after_non_timeout_channel_error():
+    """Broken channels must reconnect instead of spinning in recv()."""
+    channel = OneBrokenReadChannel(OSError("channel closed"))
+    w, events = _make_watcher()
+    w._stop_event = ControlledStopEvent(max_waits=1)
+
+    with patch(
+        "jobdesk_app.gui.session.create_ssh_client",
+        return_value=FakeSSHClient(channel),
+    ):
+        w._run()
+
+    assert channel.recv_calls == 1
+    assert w._stop_event.waits == [10]
     assert events == []
 
 

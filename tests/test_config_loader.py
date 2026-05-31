@@ -33,7 +33,7 @@ class TestServerConfig:
         cfg = ServerConfig(server_id="s1", host="h", username="u")
         assert cfg.port == 22
         assert cfg.auth_method == AuthMethod.key
-        assert cfg.default_shell == "bash"
+        assert not hasattr(cfg, "default_shell")
         assert cfg.wsl_distro is None
 
     def test_server_config_supports_wsl_bootstrap_distro(self):

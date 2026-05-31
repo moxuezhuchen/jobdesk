@@ -41,7 +41,6 @@ servers:
     key_path: C:/Users/me/.ssh/id_rsa
     wsl_distro: Ubuntu
     trust_on_first_use: false
-    default_shell: bash
     env_init_scripts: []
     scheduler:
       type: nohup

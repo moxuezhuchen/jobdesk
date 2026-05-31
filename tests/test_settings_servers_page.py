@@ -66,7 +66,7 @@ def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
     assert saved["env_init_scripts"] == ["/opt/g16/bsd/g16.profile"]
 
 
-def test_shutdown_waits_for_worker_without_timeout(qtbot):
+def test_shutdown_stops_worker_with_timeout(qtbot):
     with patch("jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore") as settings_store:
         settings_store.return_value.load.return_value = GuiSettings()
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
@@ -77,7 +77,7 @@ def test_shutdown_waits_for_worker_without_timeout(qtbot):
 
     page.shutdown()
 
-    worker.stop_safely.assert_called_once_with()
+    worker.stop_safely.assert_called_once_with(3000)
 
 
 def test_text_editor_setting_loads_and_saves(qtbot):
