@@ -39,3 +39,10 @@ def test_license_uses_spdx_expression_not_table():
     # Must be a plain SPDX string, not a table like {file = "LICENSE"}
     assert isinstance(license_val, str), f"license should be SPDX string, got {type(license_val)}"
     assert license_val == "Apache-2.0"
+
+
+def test_package_extra_includes_pyinstaller():
+    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    package_extra = config["project"]["optional-dependencies"]["package"]
+
+    assert any(requirement.startswith("pyinstaller") for requirement in package_extra)

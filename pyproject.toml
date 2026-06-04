@@ -22,6 +22,9 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 chem = [
     "rdkit>=2023.9",
 ]
+package = [
+    "pyinstaller>=6.0",
+]
 dev = [
     "build>=1.2",
     "mypy>=1.10",

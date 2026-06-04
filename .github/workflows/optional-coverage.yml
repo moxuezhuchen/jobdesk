@@ -1,0 +1,71 @@
+name: Optional coverage
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 20 * * 0"
+
+jobs:
+  chem-and-posix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,chem]"
+
+      - name: Run optional local tests
+        run: python -m pytest tests/test_viewer.py tests/test_remote_status.py -q --basetemp /tmp/jobdesk_pytest_optional
+
+  real-remote:
+    runs-on: windows-latest
+    env:
+      JOBDESK_TEST_SERVERS_YAML_B64: ${{ secrets.JOBDESK_TEST_SERVERS_YAML_B64 }}
+      JOBDESK_TEST_SSH_SERVER_ID: ${{ secrets.JOBDESK_TEST_SSH_SERVER_ID }}
+      JOBDESK_TEST_REMOTE_TMP_DIR: ${{ secrets.JOBDESK_TEST_REMOTE_TMP_DIR }}
+      JOBDESK_TEST_REAL_CONFFLOW: ${{ secrets.JOBDESK_TEST_REAL_CONFFLOW }}
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Skip when remote secrets are unavailable
+        if: ${{ env.JOBDESK_TEST_SERVERS_YAML_B64 == '' || env.JOBDESK_TEST_SSH_SERVER_ID == '' || env.JOBDESK_TEST_REMOTE_TMP_DIR == '' }}
+        run: echo "Remote integration secrets are not configured; skipping real remote tests."
+
+      - name: Decode servers.yaml
+        if: ${{ env.JOBDESK_TEST_SERVERS_YAML_B64 != '' && env.JOBDESK_TEST_SSH_SERVER_ID != '' && env.JOBDESK_TEST_REMOTE_TMP_DIR != '' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .ci-secrets | Out-Null
+          [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:JOBDESK_TEST_SERVERS_YAML_B64)) | Set-Content -LiteralPath .ci-secrets\servers.yaml -Encoding UTF8
+
+      - name: Run real SSH/SFTP/submitter tests
+        if: ${{ env.JOBDESK_TEST_SERVERS_YAML_B64 != '' && env.JOBDESK_TEST_SSH_SERVER_ID != '' && env.JOBDESK_TEST_REMOTE_TMP_DIR != '' }}
+        shell: pwsh
+        run: |
+          $env:JOBDESK_TEST_SERVERS_YAML = (Resolve-Path .ci-secrets\servers.yaml).Path
+          python -m pytest tests\integration\test_real_ssh.py tests\integration\test_real_sftp.py tests\integration\test_real_submitter.py -q --basetemp "$env:RUNNER_TEMP\jobdesk_pytest_real"
+
+      - name: Run real ConfFlow test when enabled
+        if: ${{ env.JOBDESK_TEST_SERVERS_YAML_B64 != '' && env.JOBDESK_TEST_SSH_SERVER_ID != '' && env.JOBDESK_TEST_REMOTE_TMP_DIR != '' && env.JOBDESK_TEST_REAL_CONFFLOW == '1' }}
+        shell: pwsh
+        run: |
+          $env:JOBDESK_TEST_SERVERS_YAML = (Resolve-Path .ci-secrets\servers.yaml).Path
+          python -m pytest tests\integration\test_real_confflow_wsl.py -q --basetemp "$env:RUNNER_TEMP\jobdesk_pytest_confflow"
