@@ -9,6 +9,7 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
@@ -1718,6 +1719,47 @@ class TestFileTransferPage:
 
         run_service_cls.assert_not_called()
         assert start_worker.call_count == 1
+
+    def test_remote_run_submit_error_preserves_created_run_state(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QMessageBox
+
+        errors: list[tuple[str, str]] = []
+        file_page.state.current_project_root = tmp_path
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._service = MagicMock()
+        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
+        file_page._connected_server_id = "wsl"
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("/remote/work")
+        record = SimpleNamespace(
+            run_id="run-001",
+            manifest_path=tmp_path / ".jobdesk" / "runs" / "run-001" / "manifest.yaml",
+        )
+
+        run_service = MagicMock()
+        run_service.create_run.return_value = record
+        run_service.submit_run.side_effect = RuntimeError("scheduler down")
+        session = MagicMock()
+        session.__enter__.return_value = (MagicMock(), MagicMock())
+
+        with patch.object(file_page, "_selected_remote_entries", return_value=(["/remote/work/a.gjf"], [])), \
+             patch.object(file_page, "_selected_local_entries", return_value=([], [])), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunService", return_value=run_service), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session", return_value=session), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._run_selected_chunks(submit=True)
+            target = start_worker.call_args.kwargs["target"]
+            on_result = start_worker.call_args.kwargs["on_result"]
+            payload = target(MagicMock())
+            on_result(payload)
+
+        assert file_page.state.current_batch_id == "run-001"
+        assert file_page.state.current_manifest_path == record.manifest_path
+        assert errors
+        assert errors[0][0] == "Run Error"
+        assert "scheduler down" in errors[0][1]
 
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""

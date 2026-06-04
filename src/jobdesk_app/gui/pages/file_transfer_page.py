@@ -1649,34 +1649,37 @@ class FileTransferPage(QWidget):
             svc = RunService(local_base)
             run_records = _create_records(svc, selected_files, selected_dirs)
             if not submit:
-                return {"records": run_records, "results": None}
+                return {"records": run_records, "results": None, "error": None}
 
             results = []
-            if use_local:
-                ssh = create_ssh_client(connected_server)
-                ssh.connect()
-                sftp = create_sftp_client(ssh)
-                try:
-                    for record in run_records:
-                        results.append(svc.submit_run(
-                            record.run_id, ssh, sftp,
-                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                            scheduler=scheduler_from_server(connected_server),
-                            resources=resources_from_server(connected_server),
-                        ))
-                finally:
-                    sftp.close()
-                    ssh.close()
-            else:
-                with sftp_session(connected_server) as (ssh, sftp):
-                    for record in run_records:
-                        results.append(svc.submit_run(
-                            record.run_id, ssh, sftp,
-                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                            scheduler=scheduler_from_server(connected_server),
-                            resources=resources_from_server(connected_server),
-                        ))
-            return {"records": run_records, "results": results}
+            try:
+                if use_local:
+                    ssh = create_ssh_client(connected_server)
+                    ssh.connect()
+                    sftp = create_sftp_client(ssh)
+                    try:
+                        for record in run_records:
+                            results.append(svc.submit_run(
+                                record.run_id, ssh, sftp,
+                                env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                                scheduler=scheduler_from_server(connected_server),
+                                resources=resources_from_server(connected_server),
+                            ))
+                    finally:
+                        sftp.close()
+                        ssh.close()
+                else:
+                    with sftp_session(connected_server) as (ssh, sftp):
+                        for record in run_records:
+                            results.append(svc.submit_run(
+                                record.run_id, ssh, sftp,
+                                env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                                scheduler=scheduler_from_server(connected_server),
+                                resources=resources_from_server(connected_server),
+                            ))
+            except Exception as exc:
+                return {"records": run_records, "results": None, "error": f"{type(exc).__name__}: {exc}"}
+            return {"records": run_records, "results": results, "error": None}
 
         def _on_run_worker_done(payload):
             run_records = payload["records"]
@@ -1688,6 +1691,10 @@ class FileTransferPage(QWidget):
                 self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
             self._save_remembered_profile()
             self._save_command_history()
+            error = payload.get("error")
+            if error:
+                self._error_cb("Run Error", error)
+                return
             results = payload["results"]
             if results is None:
                 self._status_cb(f"Created {len(run_records)} run(s)")
@@ -1704,137 +1711,6 @@ class FileTransferPage(QWidget):
         )
         self._status_cb("Submitting..." if submit else "Creating run(s)...")
         return
-
-        if use_local:
-            # Upload + create_run + submit all in background
-            local_paths_files = list(local_files)
-            local_paths_dirs = list(local_dirs)
-
-            def _run():
-                from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
-                ssh = create_ssh_client(connected_server)
-                ssh.connect()
-                sftp = create_sftp_client(ssh)
-                try:
-                    # 1. Upload
-                    worker.log.emit("上传文件中...")
-                    uploaded_files = []
-                    uploaded_dirs = []
-                    for lp in local_paths_files:
-                        target = remote_child_path(remote_dir, Path(lp).name)
-                        file_service.upload_path(Path(lp), target, OverwritePolicy.overwrite)
-                        uploaded_files.append(target)
-                    for ld in local_paths_dirs:
-                        target = remote_child_path(remote_dir, Path(ld).name)
-                        file_service.upload_path(Path(ld), target, OverwritePolicy.overwrite)
-                        uploaded_dirs.append(target)
-                    # 2. Create run
-                    all_sources = [RunSource(path=p, is_dir=False) for p in uploaded_files] + [
-                        RunSource(path=p, is_dir=True) for p in uploaded_dirs
-                    ]
-                    chunks = chunk_sources(all_sources, 0)
-                    svc = RunService(local_base)
-                    run_records = []
-                    for chunk in chunks:
-                        spec = RunSpec(
-                            server_id=server_id,
-                            remote_dir=remote_dir,
-                            command_template=command_template,
-                            max_parallel=max_parallel,
-                            mode=run_mode,
-                            sources=chunk,
-                        )
-                        run_records.append(svc.create_run(spec, local_dir=str(local_base)))
-                    # 3. Submit
-                    results = []
-                    for record in run_records:
-                        results.append(svc.submit_run(
-                            record.run_id, ssh, sftp,
-                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                            scheduler=scheduler_from_server(connected_server),
-                            resources=resources_from_server(connected_server),
-                        ))
-                    return results
-                finally:
-                    sftp.close()
-                    ssh.close()
-
-            self._status_cb("提交中...")
-            worker = BackgroundWorker(_run)
-            worker.log.connect(self._status_cb)
-            worker.result.connect(lambda results: self._on_runs_done(results))
-            worker.error.connect(lambda error: self._error_cb("Run Error", error))
-            worker.finished.connect(
-                lambda: self._background_workers.remove(worker)
-                if worker in self._background_workers else None
-            )
-            self._background_workers.append(worker)
-            worker.start()
-            self._save_remembered_profile()
-            self._save_command_history()
-            return
-
-        all_sources = [RunSource(path=p, is_dir=False) for p in files] + [
-            RunSource(path=p, is_dir=True) for p in dirs
-        ]
-        if run_mode == RunMode.current_directory:
-            all_sources = []
-        chunks = chunk_sources(all_sources, 0)
-        if run_mode == RunMode.current_directory:
-            chunks = [[]]
-        service = RunService(local_base)
-        run_records = []
-        for chunk in chunks:
-            spec = RunSpec(
-                server_id=server_id,
-                remote_dir=remote_dir,
-                command_template=command_template,
-                max_parallel=max_parallel,
-                mode=run_mode,
-                sources=chunk,
-            )
-            run_records.append(service.create_run(spec, local_dir=str(local_base)))
-        run_record = run_records[0]
-        self.state.current_project_root = Path(local_base)
-        self.state.current_batch_id = run_record.run_id
-        self.state.current_manifest_path = run_record.manifest_path
-        self._save_remembered_profile()
-        self._save_command_history()
-
-        if not submit:
-            self._status_cb(f"Created {len(run_records)} run(s)")
-            return
-
-        def _run():  # type: ignore[no-redef]
-            results = []
-            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
-            for record in run_records:
-                ssh = create_ssh_client(self._connected_server)
-                ssh.connect()
-                sftp = create_sftp_client(ssh)
-                try:
-                    results.append(RunService(local_base).submit_run(
-                        record.run_id, ssh, sftp,
-                        env_init_scripts=list(getattr(self._connected_server, "env_init_scripts", []) or []),
-                        scheduler=scheduler_from_server(self._connected_server),
-                        resources=resources_from_server(self._connected_server),
-                    ))
-                finally:
-                    sftp.close()
-                    ssh.close()
-            return results
-
-        self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
-        self._status_cb(f"Running {run_record.run_id}...")
-        worker = BackgroundWorker(_run)
-        worker.result.connect(lambda results: self._on_runs_done(results))
-        worker.error.connect(lambda error: self._error_cb("Run Error", error))
-        worker.finished.connect(
-            lambda: self._background_workers.remove(worker)
-            if worker in self._background_workers else None
-        )
-        self._background_workers.append(worker)
-        worker.start()
 
     def _on_runs_done(self, results):
         for result in results:
