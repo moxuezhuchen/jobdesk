@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from jobdesk_app.gui.worker_utils import WorkerContext, start_context_worker, start_tracked_worker
@@ -99,3 +100,8 @@ def test_start_context_worker_passes_emitters_to_target():
     result = fake_worker._target_fn()
     fake_worker.result.emit(result)
     assert captured == [("progress", 1, 3), ("result", "done")]
+
+
+def test_file_transfer_page_does_not_mutate_worker_target_function():
+    source = Path("src/jobdesk_app/gui/pages/file_transfer_page.py").read_text(encoding="utf-8")
+    assert "worker._target_fn =" not in source

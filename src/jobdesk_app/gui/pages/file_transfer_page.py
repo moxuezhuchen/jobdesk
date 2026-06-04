@@ -39,6 +39,7 @@ from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client, sftp_session
+from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_helpers import (
     choose_confflow_xyz,
@@ -681,15 +682,25 @@ class FileTransferPage(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         ) != QMessageBox.Yes:
             return
-        try:
+        def _run(_ctx: WorkerContext):
             for path in paths:
                 if path.is_dir():
                     shutil.rmtree(path)
                 elif path.exists():
                     path.unlink()
+            return len(paths)
+
+        def _on_done(count: int) -> None:
+            self._status_cb(f"Deleted {count} local item(s)")
             self._refresh_local()
-        except Exception as exc:
-            self._error_cb("Delete Local Error", str(exc))
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=_on_done,
+            on_error=lambda error: self._error_cb("Delete Local Error", error),
+        )
 
     def _selected_remote_entries(self) -> tuple[list[str], list[str]]:
         files: list[str] = []
@@ -970,11 +981,9 @@ class FileTransferPage(QWidget):
         target = Path(local_base) / Path(remote_path).name
         service = self._service
 
-        worker = BackgroundWorker(lambda: None)  # placeholder, replaced below
-
-        def _run():
+        def _run(ctx: WorkerContext):
             def _progress(done, total):
-                worker.progress.emit(int(done), int(total))
+                ctx.emit_progress(int(done), int(total))
             rec = service.download_path(
                 remote_path, target,
                 OverwritePolicy.overwrite,
@@ -982,8 +991,7 @@ class FileTransferPage(QWidget):
             )
             return rec if isinstance(rec, list) else [rec]
 
-        worker._target_fn = _run
-        self._start_transfer_worker(worker, "Download", self._refresh_local)
+        self._start_transfer_worker(_run, "Download", self._refresh_local)
 
     def _upload_selected(self):
         if self._service is None:
@@ -996,11 +1004,9 @@ class FileTransferPage(QWidget):
         remote_target = self._remote_target_for_local(local_path)
         service = self._service
 
-        worker = BackgroundWorker(lambda: None)
-
-        def _run():
+        def _run(ctx: WorkerContext):
             def _progress(done, total):
-                worker.progress.emit(int(done), int(total))
+                ctx.emit_progress(int(done), int(total))
             rec = service.upload_path(
                 local_path, remote_target,
                 OverwritePolicy.overwrite,
@@ -1008,10 +1014,9 @@ class FileTransferPage(QWidget):
             )
             return rec if isinstance(rec, list) else [rec]
 
-        worker._target_fn = _run
-        self._start_transfer_worker(worker, "Upload", self._refresh_remote)
+        self._start_transfer_worker(_run, "Upload", self._refresh_remote)
 
-    def _start_transfer_worker(self, worker, label: str, on_done_refresh):
+    def _start_transfer_worker(self, run_fn_or_worker, label: str, on_done_refresh):
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setFormat(f"{label}: %p%")
@@ -1037,12 +1042,25 @@ class FileTransferPage(QWidget):
             self.progress_bar.setMaximum(100)
             self._error_cb(f"{label} Error", msg)
 
-        worker.progress.connect(_on_progress)
-        worker.result.connect(_on_done)
-        worker.error.connect(_on_error)
-        self._keep_worker(worker)
-        worker.start()
-        self._status_cb(f"{label} started…")
+        if hasattr(run_fn_or_worker, "start"):
+            start_tracked_worker(
+                self,
+                run_fn_or_worker,
+                registry_attr="_background_workers",
+                on_progress=_on_progress,
+                on_result=_on_done,
+                on_error=_on_error,
+            )
+        else:
+            start_context_worker(
+                self,
+                target=run_fn_or_worker,
+                registry_attr="_background_workers",
+                on_progress=_on_progress,
+                on_result=_on_done,
+                on_error=_on_error,
+            )
+        self._status_cb(f"{label} started")
 
     def _upload_dropped_local_paths(self, paths: list[str]):
         if self._service is None:
@@ -1369,12 +1387,24 @@ class FileTransferPage(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         ) != QMessageBox.Yes:
             return
-        try:
+        service = self._service
+
+        def _run(_ctx: WorkerContext):
             for remote_path in valid_paths:
-                self._service.delete_remote(remote_path, recursive=True)
+                service.delete_remote(remote_path, recursive=True)
+            return len(valid_paths)
+
+        def _on_done(count: int) -> None:
+            self._status_cb(f"Deleted {count} remote item(s)")
             self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("Delete Error", str(exc))
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=_on_done,
+            on_error=lambda error: self._error_cb("Delete Error", error),
+        )
 
     def _preview_run_commands(self):
         files, dirs = self._selected_remote_entries()
@@ -1565,6 +1595,112 @@ class FileTransferPage(QWidget):
         server_id = self._connected_server_id or ""
         connected_server = self._connected_server
         file_service = self._service
+
+        local_paths_files = list(local_files)
+        local_paths_dirs = list(local_dirs)
+        remote_files_for_run = list(files)
+        remote_dirs_for_run = list(dirs)
+
+        def _create_records(svc: RunService, selected_files: list[str], selected_dirs: list[str]):
+            all_sources = [RunSource(path=p, is_dir=False) for p in selected_files] + [
+                RunSource(path=p, is_dir=True) for p in selected_dirs
+            ]
+            if run_mode == RunMode.current_directory:
+                all_sources = []
+            chunks = chunk_sources(all_sources, 0)
+            if run_mode == RunMode.current_directory:
+                chunks = [[]]
+            records = []
+            for chunk in chunks:
+                spec = RunSpec(
+                    server_id=server_id,
+                    remote_dir=remote_dir,
+                    command_template=command_template,
+                    max_parallel=max_parallel,
+                    mode=run_mode,
+                    sources=chunk,
+                )
+                records.append(svc.create_run(spec, local_dir=str(local_base)))
+            return records
+
+        def _run(ctx: WorkerContext):
+            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
+
+            selected_files = remote_files_for_run
+            selected_dirs = remote_dirs_for_run
+            if use_local:
+                ctx.emit_log("Uploading files...")
+                uploaded_files = []
+                uploaded_dirs = []
+                for local_path_text in local_paths_files:
+                    target = remote_child_path(remote_dir, Path(local_path_text).name)
+                    file_service.upload_path(Path(local_path_text), target, OverwritePolicy.overwrite)
+                    uploaded_files.append(target)
+                for local_dir_text in local_paths_dirs:
+                    target = remote_child_path(remote_dir, Path(local_dir_text).name)
+                    file_service.upload_path(Path(local_dir_text), target, OverwritePolicy.overwrite)
+                    uploaded_dirs.append(target)
+                selected_files = uploaded_files
+                selected_dirs = uploaded_dirs
+
+            svc = RunService(local_base)
+            run_records = _create_records(svc, selected_files, selected_dirs)
+            if not submit:
+                return {"records": run_records, "results": None}
+
+            results = []
+            if use_local:
+                ssh = create_ssh_client(connected_server)
+                ssh.connect()
+                sftp = create_sftp_client(ssh)
+                try:
+                    for record in run_records:
+                        results.append(svc.submit_run(
+                            record.run_id, ssh, sftp,
+                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                            scheduler=scheduler_from_server(connected_server),
+                            resources=resources_from_server(connected_server),
+                        ))
+                finally:
+                    sftp.close()
+                    ssh.close()
+            else:
+                with sftp_session(connected_server) as (ssh, sftp):
+                    for record in run_records:
+                        results.append(svc.submit_run(
+                            record.run_id, ssh, sftp,
+                            env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
+                            scheduler=scheduler_from_server(connected_server),
+                            resources=resources_from_server(connected_server),
+                        ))
+            return {"records": run_records, "results": results}
+
+        def _on_run_worker_done(payload):
+            run_records = payload["records"]
+            if run_records:
+                first = run_records[0]
+                self.state.current_project_root = Path(local_base)
+                self.state.current_batch_id = first.run_id
+                self.state.current_manifest_path = first.manifest_path
+                self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
+            self._save_remembered_profile()
+            self._save_command_history()
+            results = payload["results"]
+            if results is None:
+                self._status_cb(f"Created {len(run_records)} run(s)")
+            else:
+                self._on_runs_done(results)
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_log=self._status_cb,
+            on_result=_on_run_worker_done,
+            on_error=lambda error: self._error_cb("Run Error", error),
+        )
+        self._status_cb("Submitting..." if submit else "Creating run(s)...")
+        return
 
         if use_local:
             # Upload + create_run + submit all in background

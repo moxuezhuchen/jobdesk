@@ -28,7 +28,7 @@ from ...services.gui_settings import GuiSettingsStore
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import ssh_session
-from ..workers import BackgroundWorker
+from ..worker_utils import WorkerContext, start_context_worker
 from .settings_servers_helpers import validate_server_id_change
 
 
@@ -120,6 +120,7 @@ class SettingsServersPage(QWidget):
         self._status_cb = status_cb
         self._store = GuiSettingsStore()
         self._language = self._store.load().language
+        self._background_workers = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -405,7 +406,7 @@ class SettingsServersPage(QWidget):
 
         servers_list = sorted(cfg.servers.items())
 
-        def _run():
+        def _run(ctx: WorkerContext):
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             def _test_one(sid, srv):
@@ -420,10 +421,8 @@ class SettingsServersPage(QWidget):
                 futures = {pool.submit(_test_one, sid, srv): sid for sid, srv in servers_list}
                 for f in as_completed(futures):
                     sid, status = f.result()
-                    self._worker.log.emit(f"{sid}\t{status}")
+                    ctx.emit_log(f"{sid}\t{status}")
             return {}
-
-        self._worker = BackgroundWorker(_run)
 
         def _on_log(msg):
             sid, status = msg.split("\t", 1)
@@ -432,10 +431,13 @@ class SettingsServersPage(QWidget):
                     self.server_table.setItem(row, 4, QTableWidgetItem(status))
                     break
 
-        self._worker.log.connect(_on_log)
-        self._worker.error.connect(lambda e: self._status_cb(f"{tr('Test failed:', self._language)} {e}"))
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._worker.start()
+        self._worker = start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_log=_on_log,
+            on_error=lambda e: self._status_cb(f"{tr('Test failed:', self._language)} {e}"),
+        )
 
     @staticmethod
     def _fit_table_height(table):
@@ -750,6 +752,9 @@ class SettingsServersPage(QWidget):
         self._load_servers()
 
     def shutdown(self):
+        for worker in list(getattr(self, "_background_workers", [])):
+            if hasattr(worker, "stop_safely"):
+                worker.stop_safely(3000)
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely(3000)

@@ -30,6 +30,7 @@ from ...services.run_service import RunRecord, RunService
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..worker_utils import WorkerContext, start_context_worker
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
@@ -1097,21 +1098,36 @@ class RunsResultsPage(QWidget):
         if QMessageBox.question(self, tr("Delete", self._language), msg,
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
-        deleted = 0
-        errors: list[str] = []
-        for rid in run_ids:
-            try:
-                record = RunService(self._workspace()).load_run(rid)
-                workspace = self._result_workspace(record)
-                RunService(workspace).delete_run(rid)
-                deleted += 1
-            except Exception as exc:
-                errors.append(f"{rid}: {exc}")
-        self.refresh_run_list()
-        if errors:
-            self._status_cb(tr("Delete failed", self._language) + f": {'; '.join(errors)}")
-        else:
-            self._status_cb(tr("Deleted: {n} records", self._language, n=deleted))
+        workspace = self._workspace()
+
+        def _run(_ctx: WorkerContext):
+            deleted = 0
+            errors: list[str] = []
+            for rid in run_ids:
+                try:
+                    record = RunService(workspace).load_run(rid)
+                    record_workspace = self._result_workspace(record)
+                    RunService(record_workspace).delete_run(rid)
+                    deleted += 1
+                except Exception as exc:
+                    errors.append(f"{rid}: {exc}")
+            return deleted, errors
+
+        def _done(result):
+            deleted, errors = result
+            self.refresh_run_list()
+            if errors:
+                self._status_cb(tr("Delete failed", self._language) + f": {'; '.join(errors)}")
+            else:
+                self._status_cb(tr("Deleted: {n} records", self._language, n=deleted))
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_done,
+            on_error=lambda error: self._status_cb(tr("Delete failed", self._language) + f": {error}"),
+        )
 
     def _submit_record(self, run_id: str):
         workspace = self._workspace()

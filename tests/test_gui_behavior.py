@@ -398,7 +398,7 @@ class TestRunsPage:
         assert summary["status"] == "completed"
         assert summary["energy"] == -123.456
 
-    def test_delete_run_reports_failures_instead_of_claiming_success(self, runs_page):
+    def test_delete_run_reports_failures_instead_of_claiming_success(self, runs_page, qtbot):
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
 
         messages = []
@@ -414,6 +414,7 @@ class TestRunsPage:
                 service.return_value.delete_run.side_effect = RuntimeError("locked")
                 service.return_value.list_runs.return_value = []
                 runs_page._delete_run()
+                qtbot.waitUntil(lambda: any("locked" in message for message in messages), timeout=2000)
 
         assert any("locked" in message for message in messages)
         assert not any("Deleted: 1" in message for message in messages)
@@ -888,7 +889,7 @@ class TestRunsPage:
         assert statuses == ["cannot rerun active remote tasks: a"]
         submit_record.assert_not_called()
 
-    def test_delete_run_uses_record_local_dir_not_current_workspace(self, runs_page, tmp_path):
+    def test_delete_run_uses_record_local_dir_not_current_workspace(self, runs_page, tmp_path, qtbot):
         """Deleting a run must target record.local_dir, not the active workspace."""
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
 
@@ -912,6 +913,7 @@ class TestRunsPage:
             svc.return_value.delete_run.return_value = None
             svc.return_value.list_runs.return_value = []
             runs_page._delete_run()
+            qtbot.waitUntil(lambda: any(call.args and call.args[0] == project_a for call in svc.call_args_list), timeout=2000)
 
         # RunService for delete must be constructed with project_a, not project_b
         svc.assert_any_call(project_a)
@@ -1653,6 +1655,70 @@ class TestFileTransferPage:
         run_service_cls.assert_not_called()
         assert any("relative/path" in m for m in messages)
 
+    def test_delete_remote_runs_in_background_worker(self, file_page):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        service = MagicMock()
+        file_page._service = service
+        file_page.remote_path.setText("/remote/run")
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("result.log"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/run/result.log"))
+        file_page.remote_table.selectRow(0)
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ), patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._delete_remote()
+
+        service.delete_remote.assert_not_called()
+        target = start_worker.call_args.kwargs["target"]
+        target(MagicMock())
+        service.delete_remote.assert_called_once_with("/remote/run/result.log", recursive=True)
+
+    def test_delete_local_runs_in_background_worker(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        local_file = tmp_path / "old.log"
+        local_file.write_text("old", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("old.log"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
+        file_page.local_table.selectRow(0)
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ), patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._delete_local()
+
+        assert local_file.exists()
+        target = start_worker.call_args.kwargs["target"]
+        target(MagicMock())
+        assert not local_file.exists()
+
+    def test_remote_run_submission_creates_runs_in_background_worker(self, file_page):
+        from PySide6.QtWidgets import QMessageBox
+
+        file_page._service = MagicMock()
+        file_page._connected_server = MagicMock(env_init_scripts=[])
+        file_page._connected_server_id = "wsl"
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("/remote/work")
+
+        with patch.object(file_page, "_selected_remote_entries", return_value=(["/remote/work/a.gjf"], [])), \
+             patch.object(file_page, "_selected_local_entries", return_value=([], [])), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls, \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._run_selected_chunks(submit=True)
+
+        run_service_cls.assert_not_called()
+        assert start_worker.call_count == 1
+
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""
         from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
@@ -1872,6 +1938,7 @@ class TestFileTransferPage:
 
         with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
             file_page._delete_remote()
+            qtbot.waitUntil(lambda: service.delete_remote.called, timeout=2000)
 
         service.delete_remote.assert_called_once_with("/root/uma/file.gjf", recursive=True)
 
