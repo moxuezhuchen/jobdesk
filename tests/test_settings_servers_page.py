@@ -8,8 +8,29 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
 
 from jobdesk_app.config.servers import load_servers as load_servers_from_path
+from jobdesk_app.gui.pages.settings_servers_helpers import validate_server_id_change
 from jobdesk_app.gui.pages.settings_servers_page import SettingsServersPage, ToggleSwitch
 from jobdesk_app.services.gui_settings import GuiSettings
+
+
+def test_validate_server_id_change_allows_unchanged_id():
+    assert validate_server_id_change({"wsl", "hpc"}, old_id="wsl", new_id="wsl") is None
+
+
+def test_validate_server_id_change_allows_new_unique_id():
+    assert validate_server_id_change({"wsl"}, old_id=None, new_id="hpc") is None
+
+
+def test_validate_server_id_change_rejects_blank_id():
+    assert validate_server_id_change({"wsl"}, old_id=None, new_id="   ") == "Server ID is required"
+
+
+def test_validate_server_id_change_rejects_duplicate_add():
+    assert validate_server_id_change({"wsl"}, old_id=None, new_id="wsl") == "Server ID already exists: wsl"
+
+
+def test_validate_server_id_change_rejects_duplicate_rename():
+    assert validate_server_id_change({"wsl", "hpc"}, old_id="wsl", new_id="hpc") == "Server ID already exists: hpc"
 
 
 def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
@@ -193,3 +214,98 @@ def test_edit_server_saves_scheduler_fields_and_preserves_hidden_keys(qtbot, tmp
     assert sched["default_memory_mb"] == 32000
     assert sched["default_walltime_minutes"] == 720
     assert sched["extra_directives"] == ["#SBATCH --qos=high"]  # hidden key preserved
+
+
+def test_edit_server_rejects_duplicate_server_id(qtbot, tmp_path):
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  wsl:\n"
+        "    host: 127.0.0.1\n"
+        "    username: root\n"
+        "    auth_method: key\n"
+        "  hpc:\n"
+        "    host: cluster\n"
+        "    username: chemist\n"
+        "    auth_method: key\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+    statuses: list[str] = []
+
+    def accept_with_duplicate_id(dialog):
+        id_edit = next(edit for edit in dialog.findChildren(QLineEdit) if edit.text() == "wsl")
+        id_edit.setText("hpc")
+        return QDialog.Accepted
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id), patch(
+        "PySide6.QtWidgets.QMessageBox.warning",
+    ):
+        page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
+        qtbot.addWidget(page)
+        for row in range(page.server_table.rowCount()):
+            if page.server_table.item(row, 0).text() == "wsl":
+                page.server_table.selectRow(row)
+                break
+        page._edit_server()
+
+    saved = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]
+    assert set(saved) == {"wsl", "hpc"}
+    assert saved["hpc"]["host"] == "cluster"
+    assert statuses == ["Server ID already exists: hpc"]
+
+
+def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  wsl:\n"
+        "    host: 127.0.0.1\n"
+        "    username: root\n"
+        "    auth_method: key\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+    statuses: list[str] = []
+
+    def accept_with_duplicate_id(dialog):
+        edits = dialog.findChildren(QLineEdit)
+        id_edit = next(edit for edit in edits if "myserver" in edit.placeholderText())
+        host_edit = next(edit for edit in edits if "192.168" in edit.placeholderText())
+        user_edit = next(edit for edit in edits if "root" in edit.placeholderText())
+        id_edit.setText("wsl")
+        host_edit.setText("cluster")
+        user_edit.setText("chemist")
+        return QDialog.Accepted
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id), patch(
+        "PySide6.QtWidgets.QMessageBox.warning",
+    ):
+        page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
+        qtbot.addWidget(page)
+        page._add_server()
+
+    saved = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]
+    assert set(saved) == {"wsl"}
+    assert saved["wsl"]["host"] == "127.0.0.1"
+    assert statuses == ["Server ID already exists: wsl"]

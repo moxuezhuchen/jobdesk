@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -28,6 +29,7 @@ from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import ssh_session
 from ..workers import BackgroundWorker
+from .settings_servers_helpers import validate_server_id_change
 
 
 class ToggleSwitch(QWidget):
@@ -643,7 +645,10 @@ class SettingsServersPage(QWidget):
         if dlg.exec() != QDialog.Accepted:
             return
         new_sid = id_edit.text().strip()
-        if not new_sid:
+        server_id_error = validate_server_id_change(set(data.get("servers", {})), old_id=sid, new_id=new_sid)
+        if server_id_error:
+            self._status_cb(server_id_error)
+            QMessageBox.warning(self, tr("Edit Server:", self._language), server_id_error)
             return
         if new_sid != sid:
             data["servers"].pop(sid, None)
@@ -726,6 +731,11 @@ class SettingsServersPage(QWidget):
         if path.exists():
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         servers = data.setdefault("servers", {})
+        server_id_error = validate_server_id_change(set(servers), old_id=None, new_id=sid)
+        if server_id_error:
+            self._status_cb(server_id_error)
+            QMessageBox.warning(self, tr("Add", self._language), server_id_error)
+            return
         servers[sid] = {
             "host": host,
             "port": port_edit.value(),
