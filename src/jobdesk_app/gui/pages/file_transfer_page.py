@@ -1595,6 +1595,9 @@ class FileTransferPage(QWidget):
         server_id = self._connected_server_id or ""
         connected_server = self._connected_server
         file_service = self._service
+        if file_service is None or connected_server is None:
+            self._status_cb(tr("Connect to a server first", self._language))
+            return
 
         local_paths_files = list(local_files)
         local_paths_dirs = list(local_dirs)

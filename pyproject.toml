@@ -70,6 +70,14 @@ module = ["jobdesk_app.core.*", "jobdesk_app.remote.*", "jobdesk_app.services.*"
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
+module = [
+    "jobdesk_app.gui.worker_utils",
+    "jobdesk_app.gui.pages.settings_servers_helpers",
+    "jobdesk_app.gui.pages.file_transfer_helpers",
+]
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
 module = "PySide6.*"
 ignore_missing_imports = true
 
