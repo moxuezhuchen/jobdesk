@@ -32,6 +32,9 @@ class _FakeWorker:
     def start(self):
         self.started_count += 1
 
+    def isInterruptionRequested(self):
+        return False
+
 
 class _Owner:
     def __init__(self):

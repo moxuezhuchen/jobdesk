@@ -76,6 +76,8 @@ class RunsResultsPage(QWidget):
         self._log = log_cb
         self._status_cb = status_cb
         self._language = GuiSettingsStore().load().language
+        self._shutting_down = False
+        self._preview_request_id = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -475,7 +477,101 @@ class RunsResultsPage(QWidget):
         if record is None:
             self.result_table.setRowCount(0)
             return
-        self._load_result_preview(record)
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
+
+        def _run(_ctx: WorkerContext):
+            return self._collect_result_preview(record)
+
+        def _done(payload):
+            if request_id != self._preview_request_id:
+                return
+            self._apply_result_preview(payload)
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_done,
+            on_error=lambda error: self._status_cb(tr("Preview failed: {e}", self._language, e=error.splitlines()[0])),
+        )
+
+    def _collect_result_preview(self, record: RunRecord):
+        from ...services.gui_settings import GuiSettingsStore
+        workspace = self._result_workspace(record)
+        candidates = [workspace]
+        default_folder = GuiSettingsStore().load().default_local_folder
+        if default_folder and Path(default_folder) != workspace:
+            candidates.append(Path(default_folder))
+        gui_ws = self._workspace()
+        if gui_ws != workspace and gui_ws not in candidates:
+            candidates.append(gui_ws)
+
+        is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
+        if is_confflow:
+            best_dir = None
+            fallback_dir = None
+            for base in candidates:
+                result_dir = base / "results" / record.run_id
+                if result_dir.exists():
+                    if any(result_dir.rglob("run_summary.json")):
+                        best_dir = result_dir
+                        break
+                    if fallback_dir is None:
+                        fallback_dir = result_dir
+            return ("confflow", record, best_dir or fallback_dir or (workspace / "results" / record.run_id))
+
+        for base in candidates:
+            result_dir = base / "results" / record.run_id
+            if result_dir.exists():
+                summaries = sorted(result_dir.rglob("run_summary.json"))
+                if summaries:
+                    return ("confflow", record, result_dir)
+                rows = self._auto_analyze(result_dir)
+                if rows:
+                    return ("analysis", rows, tr("Result Preview - Auto Analysis", self._language))
+
+        for base in candidates:
+            needs_refresh = False
+
+            def _mark_needs_refresh() -> None:
+                nonlocal needs_refresh
+                needs_refresh = True
+
+            rows = self._analyze_workspace_files(record, base, on_changed=_mark_needs_refresh)
+            if rows:
+                return ("analysis", rows, tr("Result Preview - Local Files", self._language), needs_refresh)
+
+        for base in candidates:
+            result_dir = base / "results" / record.run_id
+            for name in ("final_results.tsv", "analysis_preview.tsv"):
+                tsv = result_dir / name
+                if tsv.exists() and tsv.stat().st_size > 30:
+                    return ("tsv", tsv, f"{tr('Result Preview', self._language)} - {name}")
+
+        return ("empty",)
+
+    def _apply_result_preview(self, payload) -> None:
+        kind = payload[0]
+        if kind == "confflow":
+            _kind, record, result_dir = payload
+            self._show_confflow_batch_results(record, result_dir)
+        elif kind == "analysis":
+            _kind, rows, label, *rest = payload
+            self.result_text.setVisible(False)
+            self._show_analysis_rows(rows)
+            self._set_parsed_results_label(label)
+            if rest and rest[0]:
+                self.refresh_run_list()
+        elif kind == "tsv":
+            _kind, path, label = payload
+            self._load_tsv(path)
+            self.result_text.setVisible(False)
+            self.result_label.setText(label)
+        else:
+            self.result_label.setText(tr("No results downloaded yet", self._language))
+            self.result_text.setVisible(False)
+            self.result_table.setRowCount(0)
 
     def _load_result_preview(self, record: RunRecord):
         """Load TSV results or run analysis for the selected run."""
@@ -544,7 +640,7 @@ class RunsResultsPage(QWidget):
         self.result_text.setVisible(False)
         self.result_table.setRowCount(0)
 
-    def _analyze_workspace_files(self, record: RunRecord, workspace: Path) -> list[list[str]]:
+    def _analyze_workspace_files(self, record: RunRecord, workspace: Path, *, on_changed=None) -> list[list[str]]:
         """Analyze output files directly from workspace if they exist locally."""
         from ...core.lifecycle import TaskStatus
         from ...core.manifest import Manifest
@@ -592,7 +688,10 @@ class RunsResultsPage(QWidget):
         if changed:
             Manifest.write(Path(manifest_path), tasks)
             RunService(workspace).update_run_from_manifest(record.run_id)
-            self.refresh_run_list()
+            if on_changed is None:
+                self.refresh_run_list()
+            else:
+                on_changed()
         return rows
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
@@ -1176,6 +1275,8 @@ class RunsResultsPage(QWidget):
         self.result_text.setVisible(True)
 
     def shutdown(self):
+        self._shutting_down = True
+        self._preview_request_id += 1
         self._refresh_timer.stop()
         self._preview_timer.stop()
         for timer in self._task_done_timers.values():

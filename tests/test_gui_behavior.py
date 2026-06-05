@@ -63,6 +63,7 @@ class _FakeWorker:
         self.progress = _FakeSignal()
         self.result = _FakeSignal()
         self.error = _FakeSignal()
+        self.log = _FakeSignal()
         self.finished = _FakeSignal()
         self.start = MagicMock()
         self.stop_safely = MagicMock()
@@ -291,6 +292,53 @@ class TestRunsPage:
             rows = runs_page._analyze_workspace_files(record, tmp_path)
 
         assert rows[0][1] == "water.log"
+
+    def test_async_preview_collects_workspace_root_fallback(self, runs_page, tmp_path):
+        runs_page.state.current_project_root = tmp_path
+        record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None)
+
+        with patch.object(runs_page, "_auto_analyze", return_value=[]), \
+             patch.object(runs_page, "_analyze_workspace_files", return_value=[["water", "water.log"]]):
+            payload = runs_page._collect_result_preview(record)
+
+        assert payload == ("analysis", [["water", "water.log"]], "Result Preview - Local Files", False)
+
+    def test_async_workspace_preview_defers_refresh_to_apply(self, runs_page, tmp_path):
+        runs_page.state.current_project_root = tmp_path
+        (tmp_path / "water.log").write_text("output", encoding="utf-8")
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+
+        manifest_path = tmp_path / "runs" / "preview" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(
+                task_id="water",
+                batch_id="preview",
+                remote_job_dir="/tmp/jobs/water",
+                remote_task_files=["/remote/source/water.gjf"],
+                server_id="wsl",
+                status=TaskStatus.remote_completed,
+            ),
+        ])
+        record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None, manifest_path=str(manifest_path))
+        parsed = MagicMock(final_energy_au=-76.1, gibbs_au=None, normal_termination=True)
+
+        with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed), \
+             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as run_service, \
+             patch.object(runs_page, "refresh_run_list") as refresh_run_list:
+            payload = runs_page._collect_result_preview(record)
+
+        refresh_run_list.assert_not_called()
+        run_service.return_value.update_run_from_manifest.assert_called_once_with("preview")
+        assert payload[0] == "analysis"
+        assert payload[-1] is True
+
+        with patch.object(runs_page, "refresh_run_list") as refresh_run_list:
+            runs_page._apply_result_preview(payload)
+
+        refresh_run_list.assert_called_once_with()
 
     def test_large_output_is_not_parsed_in_preview_thread(self, runs_page, tmp_path):
         result_dir = tmp_path / "results" / "large" / "water"
@@ -1464,6 +1512,16 @@ class TestFileTransferPage:
         # Should have at least the parent row
         assert file_page.local_table.rowCount() >= 0
 
+    def test_refresh_local_reports_permission_error(self, file_page, tmp_path):
+        messages = []
+        file_page._status_cb = messages.append
+        file_page.state.current_project_root = tmp_path
+
+        with patch("pathlib.Path.iterdir", side_effect=PermissionError("denied")):
+            file_page._refresh_local()
+
+        assert messages == [f"No permission to access: {tmp_path}"]
+
     def test_refresh_local_does_not_reload_settings(self, file_page):
         """_refresh_local must not call GuiSettingsStore().load() — uses cached settings."""
         with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as mock_store:
@@ -1527,16 +1585,54 @@ class TestFileTransferPage:
         assert launch.call_args.args[0][0] == "C:/Tools/editor.exe"
         assert launch.call_args.args[0][1].endswith("result.log")
 
-    def test_open_remote_file_worker_is_removed_when_finished(self, file_page):
+    def test_open_remote_file_uses_tracked_worker_helper(self, file_page):
         worker = _FakeWorker()
         file_page._service = MagicMock()
 
-        with patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker", return_value=worker):
+        with patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", return_value=worker) as start_worker:
             file_page._open_remote_file_in_editor("/remote/result.log")
 
-        assert worker in file_page._background_workers
-        worker.finished.emit()
-        assert worker not in file_page._background_workers
+        start_worker.assert_called_once()
+        assert start_worker.call_args.kwargs["registry_attr"] == "_background_workers"
+
+    def test_remote_generate_gjf_cleans_temp_xyz_when_upload_fails(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        tmp_xyz = tmp_path / "downloaded.xyz"
+        generated = tmp_path / "generated.gjf"
+        generated.write_text("%chk=water.chk\n", encoding="utf-8")
+
+        file_page._service = MagicMock()
+        file_page._service.download_path.side_effect = lambda _remote, local: Path(local).write_text("xyz", encoding="utf-8")
+        file_page._service.upload_path.side_effect = RuntimeError("upload failed")
+        file_page.remote_path.setText("/remote/work")
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/work/water.xyz"))
+        file_page.remote_table.setCurrentCell(0, 0)
+
+        temp_file = MagicMock()
+        temp_file.name = str(tmp_xyz)
+        dialog = MagicMock()
+        dialog.exec.return_value = True
+        dialog.generated_path.return_value = generated
+
+        def fake_start(_owner, *, target, on_result=None, on_error=None, **_kwargs):
+            try:
+                result = target(SimpleNamespace())
+            except Exception as exc:
+                if on_error is not None:
+                    on_error(str(exc))
+            else:
+                if on_result is not None:
+                    on_result(result)
+            return _FakeWorker()
+
+        with patch("tempfile.NamedTemporaryFile", return_value=temp_file), \
+             patch("jobdesk_app.gui.dialogs.input_builder_dialog.InputBuilderDialog", return_value=dialog), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", side_effect=fake_start):
+            file_page._remote_generate_gjf()
+
+        assert not tmp_xyz.exists()
 
     def test_new_local_file_uses_configured_text_editor(self, file_page, tmp_path):
         file_page.state.current_project_root = tmp_path
@@ -2206,3 +2302,36 @@ def test_wait_all_tolerates_deleted_worker():
     BackgroundWorker._active.add(dead)
     BackgroundWorker.wait_all()
     assert dead not in BackgroundWorker._active
+
+
+def test_tracked_worker_ignores_callbacks_after_owner_shutdown():
+    from jobdesk_app.gui.worker_utils import start_tracked_worker
+
+    owner = MagicMock()
+    owner._shutting_down = True
+    owner._workers = []
+    worker = _FakeWorker()
+    on_result = MagicMock()
+    on_error = MagicMock()
+    on_log = MagicMock()
+    on_progress = MagicMock()
+
+    start_tracked_worker(
+        owner,
+        worker,
+        registry_attr="_workers",
+        on_result=on_result,
+        on_error=on_error,
+        on_log=on_log,
+        on_progress=on_progress,
+    )
+
+    worker.result.emit(object())
+    worker.error.emit("error")
+    worker.log.emit("log")
+    worker.progress.emit(1, 2)
+
+    on_result.assert_not_called()
+    on_error.assert_not_called()
+    on_log.assert_not_called()
+    on_progress.assert_not_called()

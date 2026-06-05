@@ -51,11 +51,13 @@ class BackgroundWorker(QThread):
         self.started.emit()
         try:
             value = self._target_fn(*self._args, **self._kwargs)
-            self.result.emit(value)
+            if not self.isInterruptionRequested():
+                self.result.emit(value)
         except Exception as e:
             import traceback
             msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
-            self.error.emit(msg)
+            if not self.isInterruptionRequested():
+                self.error.emit(msg)
 
     def stop_safely(self, timeout_ms: int | None = DEFAULT_WORKER_STOP_TIMEOUT_MS):
         """Request stop and wait for thread completion before destruction."""

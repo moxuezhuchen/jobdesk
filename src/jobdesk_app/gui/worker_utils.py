@@ -11,6 +11,11 @@ from .workers import BackgroundWorker
 class WorkerContext:
     emit_log: Callable[[str], None]
     emit_progress: Callable[[int, int], None]
+    is_interruption_requested: Callable[[], bool]
+
+
+def is_owner_shutting_down(owner: object) -> bool:
+    return bool(getattr(owner, "_shutting_down", False))
 
 
 def start_tracked_worker(
@@ -35,16 +40,22 @@ def start_tracked_worker(
         if worker in current:
             current.remove(worker)
 
+    def _guarded(callback):
+        def _call(*args):
+            if not is_owner_shutting_down(owner):
+                callback(*args)
+        return _call
+
     if on_result is not None:
-        worker.result.connect(on_result)
+        worker.result.connect(_guarded(on_result))
     if on_error is not None:
-        worker.error.connect(on_error)
+        worker.error.connect(_guarded(on_error))
     if on_progress is not None:
-        worker.progress.connect(on_progress)
+        worker.progress.connect(_guarded(on_progress))
     if on_log is not None:
-        worker.log.connect(on_log)
+        worker.log.connect(_guarded(on_log))
     if on_finished is not None:
-        worker.finished.connect(on_finished)
+        worker.finished.connect(_guarded(on_finished))
     worker.finished.connect(_remove_worker)
     if delete_later and hasattr(worker, "deleteLater"):
         worker.finished.connect(worker.deleteLater)
@@ -72,6 +83,7 @@ def start_context_worker(
         ctx = WorkerContext(
             emit_log=worker.log.emit,
             emit_progress=worker.progress.emit,
+            is_interruption_requested=worker.isInterruptionRequested,
         )
         return target(ctx)
 

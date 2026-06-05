@@ -1,6 +1,6 @@
 """M7.0 测试: GUI import 级别验证 — 不启动真实 event loop。"""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -56,3 +56,16 @@ def test_worker_stop_safely_uses_default_timeout():
 
     worker.quit.assert_called_once_with()
     worker.wait.assert_called_once_with(3000)
+
+
+def test_worker_suppresses_result_after_interruption():
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    worker = BackgroundWorker(lambda: 42)
+    seen = []
+    worker.result.connect(seen.append)
+
+    with patch.object(worker, "isInterruptionRequested", return_value=True):
+        worker.run()
+
+    assert seen == []

@@ -118,6 +118,7 @@ class SettingsServersPage(QWidget):
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
+        self._shutting_down = False
         self._store = GuiSettingsStore()
         self._language = self._store.load().language
         self._background_workers = []
@@ -752,6 +753,7 @@ class SettingsServersPage(QWidget):
         self._load_servers()
 
     def shutdown(self):
+        self._shutting_down = True
         for worker in list(getattr(self, "_background_workers", [])):
             if hasattr(worker, "stop_safely"):
                 worker.stop_safely(3000)

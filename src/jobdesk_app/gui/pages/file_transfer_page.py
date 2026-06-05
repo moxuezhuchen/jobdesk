@@ -93,6 +93,9 @@ class FileTransferPage(QWidget):
         self._remote_list_fallbacks: list[str] = []
         self._server_remote_dirs: dict[str, str] = {}
         self._background_workers = []
+        self._shutting_down = False
+        self._local_refresh_request_id = 0
+        self._local_poll_running = False
         self._initialized = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -124,7 +127,7 @@ class FileTransferPage(QWidget):
             self.remote_path,
         )
 
-        self.refresh_btn = QPushButton("⟳ " + tr("Refresh", self._language))
+        self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setToolTip(tr("Refresh", self._language))
         self.refresh_btn.clicked.connect(self._refresh_all)
         self._normalize_control_heights(self.refresh_btn)
@@ -498,47 +501,99 @@ class FileTransferPage(QWidget):
         self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
 
-    def _check_local_changes(self):
-        """Poll local directory for changes (handles WSL /mnt/c writes)."""
-        base = self.state.current_project_root or Path.cwd()
-        try:
-            snapshot = {}
-            for p in base.iterdir():
-                try:
-                    st = p.stat()
-                    snapshot[str(p)] = st.st_mtime_ns if hasattr(st, 'st_mtime_ns') else st.st_mtime
-                except (PermissionError, OSError):
-                    pass
-        except (PermissionError, OSError):
-            return
-        if snapshot != self._local_poll_snapshot:
-            self._local_poll_snapshot = snapshot
-            self._refresh_local()
-
-    def _refresh_local(self):
-        base = self.state.current_project_root or Path.cwd()
-        hide_dot = self._gui_settings.hide_dotfiles
+    @staticmethod
+    def _build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:
+        snapshot: dict[str, float] = {}
         rows = []
         parent = local_parent_row(base)
         if parent is not None:
             rows.append(parent)
         try:
-            children = sorted(Path(base).iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name))
-        except PermissionError:
-            self._status_cb(f"无权限访问: {base}")
-            children = []
+            children = sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name))
+        except (PermissionError, OSError):
+            return snapshot, rows, f"No permission to access: {base}"
         for child in children:
             if hide_dot and child.name.startswith("."):
                 continue
             try:
+                st = child.stat()
+                snapshot[str(child)] = st.st_mtime_ns if hasattr(st, "st_mtime_ns") else st.st_mtime
                 is_dir = child.is_dir()
-                size = "" if is_dir else format_file_size(child.stat().st_size)
-                mtime = format_modified_time(child.stat().st_mtime)
+                size = "" if is_dir else format_file_size(st.st_size)
+                mtime = format_modified_time(st.st_mtime)
             except (PermissionError, OSError):
                 continue
             rows.append(local_table_row(child.name, is_dir, size, str(child), mtime))
+        return snapshot, rows, None
+
+    def _check_local_changes(self):
+        """Poll local directory for changes (handles WSL /mnt/c writes)."""
+        if self._local_poll_running:
+            return
+        base = Path(self.state.current_project_root or Path.cwd())
+        hide_dot = self._gui_settings.hide_dotfiles
+        self._local_poll_running = True
+
+        def _run(_ctx: WorkerContext):
+            return self._build_local_rows(base, hide_dot)
+
+        def _done(result):
+            self._local_poll_running = False
+            snapshot, rows, error = result
+            if error:
+                self._status_cb(error)
+            if snapshot != self._local_poll_snapshot:
+                self._local_poll_snapshot = snapshot
+                self._load_local_rows(rows)
+
+        def _error(_message: str):
+            self._local_poll_running = False
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=_done,
+            on_error=_error,
+        )
+
+    def _refresh_local(self):
+        base = self.state.current_project_root or Path.cwd()
+        snapshot, rows, error = self._build_local_rows(Path(base), self._gui_settings.hide_dotfiles)
+        if error:
+            self._status_cb(error)
+        self._local_poll_snapshot = snapshot
+        self._load_local_rows(rows)
+
+    def _load_local_rows(self, rows: list[list[str]]) -> None:
         _load_rows(self.local_table, rows)
         self._update_selection_summary()
+
+    def _refresh_local_async(self):
+        base = Path(self.state.current_project_root or Path.cwd())
+        hide_dot = self._gui_settings.hide_dotfiles
+        self._local_refresh_request_id += 1
+        request_id = self._local_refresh_request_id
+
+        def _run(_ctx: WorkerContext):
+            return self._build_local_rows(base, hide_dot)
+
+        def _done(result):
+            if request_id != self._local_refresh_request_id:
+                return
+            snapshot, rows, error = result
+            if error:
+                self._status_cb(error)
+            self._local_poll_snapshot = snapshot
+            self._load_local_rows(rows)
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=_done,
+            on_error=lambda error: self._status_cb(f"Local refresh failed: {error.splitlines()[0]}"),
+        )
 
     def _refresh_local_after_navigation(self):
         self._refresh_local()
@@ -546,7 +601,7 @@ class FileTransferPage(QWidget):
         self.local_table.setCurrentCell(-1, -1)
 
     def _refresh_all(self):
-        self._refresh_local()
+        self._refresh_local_async()
         self._refresh_remote()
 
     def _refresh_remote(self):
@@ -768,14 +823,14 @@ class FileTransferPage(QWidget):
     def _local_context_menu(self, pos):
         menu = QMenu(self)
         menu.addAction(tr("Upload ->", self._language), self._upload_selected)
-        menu.addAction(tr("Refresh", self._language), self._refresh_local)
+        menu.addAction(tr("Refresh", self._language), self._refresh_local_async)
         menu.addSeparator()
         menu.addAction(tr("New Folder", self._language), self._mkdir_local)
         menu.addAction(tr("New File", self._language), self._new_file_local)
         menu.addAction(tr("Rename", self._language), self._rename_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
         menu.addSeparator()
-        menu.addAction(tr("Generate GJF from XYZ…", self._language), self._local_generate_gjf)
+        menu.addAction(tr("Generate GJF from XYZ...", self._language), self._local_generate_gjf)
         self._add_viewer_submenu(menu, local=True)
         menu.exec(self.local_table.viewport().mapToGlobal(pos))
 
@@ -791,7 +846,7 @@ class FileTransferPage(QWidget):
         menu.addSeparator()
         menu.addAction(tr("Preview", self._language), self._preview_remote)
         menu.addSeparator()
-        menu.addAction(tr("Generate GJF from XYZ…", self._language), self._remote_generate_gjf)
+        menu.addAction(tr("Generate GJF from XYZ...", self._language), self._remote_generate_gjf)
         self._add_viewer_submenu(menu, local=False)
         menu.exec(self.remote_table.viewport().mapToGlobal(pos))
 
@@ -807,7 +862,7 @@ class FileTransferPage(QWidget):
             else:
                 sub.addAction(name, lambda _exe=exe: self._open_remote_in_viewer(_exe))
 
-    # ── Generate GJF ──────────────────────────────────────────────────────
+    # Generate GJF
 
     def _local_generate_gjf(self):
         row = self.local_table.currentRow()
@@ -831,29 +886,57 @@ class FileTransferPage(QWidget):
         f = tempfile.NamedTemporaryFile(suffix=".xyz", delete=False)
         f.close()
         tmp = Path(f.name)
-        try:
-            self._service.download_path(remote_path, str(tmp))
-        except Exception as exc:
-            self._status_cb(f"Download failed: {exc}")
-            return
-        from ..dialogs.input_builder_dialog import InputBuilderDialog
-        dlg = InputBuilderDialog(self, xyz_path=tmp)
-        if dlg.exec() and dlg.generated_path():
-            # Upload generated file back to remote dir
-            gen = dlg.generated_path()
-            remote_dest = f"{self.remote_path.text().rstrip('/')}/{gen.name}"
-            try:
-                self._service.upload_path(str(gen), remote_dest)
-                self._refresh_remote()
-                self._status_cb(f"Uploaded: {remote_dest}")
-            except Exception as exc:
-                self._status_cb(f"Upload failed: {exc}")
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
+        service = self._service
+        assert service is not None
 
-    # ── Open in Viewer ────────────────────────────────────────────────────
+        def _download(_ctx: WorkerContext):
+            service.download_path(remote_path, str(tmp))
+            return tmp
+
+        def _open_dialog(path: Path):
+            from ..dialogs.input_builder_dialog import InputBuilderDialog
+            dlg = InputBuilderDialog(self, xyz_path=path)
+            if not (dlg.exec() and dlg.generated_path()):
+                path.unlink(missing_ok=True)
+                return
+            gen = dlg.generated_path()
+            if gen is None:
+                path.unlink(missing_ok=True)
+                return
+            remote_dest = f"{self.remote_path.text().rstrip('/')}/{gen.name}"
+
+            def _upload(_ctx: WorkerContext):
+                try:
+                    service.upload_path(str(gen), remote_dest)
+                finally:
+                    path.unlink(missing_ok=True)
+                return remote_dest
+
+            def _uploaded(uploaded: str) -> None:
+                self._refresh_remote()
+                self._status_cb(f"Uploaded: {uploaded}")
+
+            start_context_worker(
+                self,
+                target=_upload,
+                registry_attr="_background_workers",
+                on_result=_uploaded,
+                on_error=lambda error: self._status_cb(f"Upload failed: {error.splitlines()[0]}"),
+            )
+
+        def _download_failed(error: str) -> None:
+            tmp.unlink(missing_ok=True)
+            self._status_cb(f"Download failed: {error.splitlines()[0]}")
+
+        start_context_worker(
+            self,
+            target=_download,
+            registry_attr="_background_workers",
+            on_result=_open_dialog,
+            on_error=_download_failed,
+        )
+
+    # Open in Viewer
 
     def _open_local_in_viewer(self, exe: str):
         row = self.local_table.currentRow()
@@ -875,14 +958,24 @@ class FileTransferPage(QWidget):
         f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         f.close()
         tmp = Path(f.name)
-        try:
-            self._service.download_path(remote_path, str(tmp))
-        except Exception as exc:
-            self._status_cb(f"Download failed: {exc}")
-            return
-        from ...core.viewer import open_in_viewer
-        open_in_viewer(tmp, custom_path=exe)
-        self._status_cb(f"Opened in viewer: {Path(remote_path).name}")
+        service = self._service
+
+        def _download(_ctx: WorkerContext):
+            service.download_path(remote_path, str(tmp))
+            return tmp
+
+        def _open(path: Path):
+            from ...core.viewer import open_in_viewer
+            open_in_viewer(path, custom_path=exe)
+            self._status_cb(f"Opened in viewer: {Path(remote_path).name}")
+
+        start_context_worker(
+            self,
+            target=_download,
+            registry_attr="_background_workers",
+            on_result=_open,
+            on_error=lambda error: self._status_cb(f"Download failed: {error.splitlines()[0]}"),
+        )
 
     def _create_only(self):
         """Create run record without submitting."""
@@ -943,22 +1036,26 @@ class FileTransferPage(QWidget):
         tmp_dir = Path(tempfile.gettempdir()) / "jobdesk_remote_edit"
         tmp_dir.mkdir(exist_ok=True)
         tmp_file = tmp_dir / name
+        service = self._service
+        assert service is not None
 
-        def _download():
+        def _download(_ctx: WorkerContext):
             from ...core.file_transfer import OverwritePolicy
-            self._service.download_path(remote_path, str(tmp_file), OverwritePolicy.overwrite)
+            service.download_path(remote_path, str(tmp_file), OverwritePolicy.overwrite)
             return tmp_file
 
         def _on_done(path):
             if self._open_in_text_editor(path):
                 self._status_cb(f"Opened: {name}")
 
-        worker = BackgroundWorker(_download)
-        worker.result.connect(_on_done)
-        worker.error.connect(lambda e: self._status_cb(f"Download failed: {e}"))
-        self._keep_worker(worker)
-        worker.start()
-        self._status_cb(f"Downloading {name}…")
+        start_context_worker(
+            self,
+            target=_download,
+            registry_attr="_background_workers",
+            on_result=_on_done,
+            on_error=lambda error: self._status_cb(f"Download failed: {error.splitlines()[0]}"),
+        )
+        self._status_cb(f"Downloading {name}...")
 
     def _open_in_text_editor(self, path: str | Path) -> bool:
         editor = self._gui_settings.text_editor_path or "notepad.exe"
@@ -1224,7 +1321,7 @@ class FileTransferPage(QWidget):
             return
         name = name.strip()
         if "/" in name or "\\" in name or name in (".", ".."):
-            self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
+            self._error_cb("Invalid Name", "Name cannot contain path separators or '..'")
             return
         base = self.state.current_project_root or Path.cwd()
         new_dir = Path(base) / name
@@ -1240,7 +1337,7 @@ class FileTransferPage(QWidget):
             return
         name = name.strip()
         if "/" in name or "\\" in name or name in (".", ".."):
-            self._error_cb("Invalid Name", "名称不能包含路径分隔符或 '..'")
+            self._error_cb("Invalid Name", "Name cannot contain path separators or '..'")
             return
         base = self.state.current_project_root or Path.cwd()
         new_file = Path(base) / name
@@ -1296,11 +1393,18 @@ class FileTransferPage(QWidget):
         if remote_path is None:
             self._status_cb("Select a remote file")
             return
-        try:
-            text = self._service.preview_remote_text(remote_path)
-            QMessageBox.information(self, remote_path, text[:4000])
-        except Exception as exc:
-            self._error_cb("Preview Error", str(exc))
+        service = self._service
+
+        def _run(_ctx: WorkerContext):
+            return service.preview_remote_text(remote_path)
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=lambda text: QMessageBox.information(self, remote_path, text[:4000]),
+            on_error=lambda error: self._error_cb("Preview Error", error),
+        )
 
     def _rename_name(self, name: str) -> str | None:
         name = name.strip()
@@ -1805,8 +1909,12 @@ class FileTransferPage(QWidget):
         )
 
     def shutdown(self):
+        self._shutting_down = True
         # Ignore results from remote-list workers that finish during teardown.
         self._remote_list_request_id += 1
+        self._local_refresh_request_id += 1
+        if hasattr(self, "_local_poll_timer"):
+            self._local_poll_timer.stop()
         try:
             self._remember_current_remote_dir()
             store = GuiSettingsStore()
