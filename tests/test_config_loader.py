@@ -118,3 +118,63 @@ def test_password_auth_config_loads_but_surfaces_unsupported_message():
     # key auth has no warning
     server_key = ServerConfig(host="10.0.0.1", username="user", auth_method=AuthMethod.key)
     assert server_key.auth_unsupported_message == ""
+
+
+def test_server_config_external_tools_defaults_to_windows_terminal():
+    cfg = ServerConfig(server_id="s1", host="cluster", username="chemist")
+
+    assert cfg.external_tools.terminal_provider == "windows_terminal"
+    assert cfg.external_tools.ssh_alias == ""
+    assert cfg.external_tools.putty_session == ""
+
+
+def test_server_config_external_tools_loads_explicit_values():
+    cfg = ServerConfig(
+        server_id="hpc",
+        host="cluster.example.edu",
+        username="chemist",
+        external_tools={
+            "terminal_provider": "putty",
+            "ssh_alias": "cluster-a",
+            "putty_session": "cluster-a-putty",
+        },
+    )
+
+    assert cfg.external_tools.terminal_provider == "putty"
+    assert cfg.external_tools.ssh_alias == "cluster-a"
+    assert cfg.external_tools.putty_session == "cluster-a-putty"
+
+
+def test_server_config_rejects_unknown_terminal_provider():
+    with pytest.raises(Exception):
+        ServerConfig(
+            server_id="bad",
+            host="cluster",
+            username="chemist",
+            external_tools={"terminal_provider": "unknown"},
+        )
+
+
+def test_server_config_ssh_access_defaults_are_empty():
+    cfg = ServerConfig(server_id="s1", host="cluster", username="chemist")
+
+    assert cfg.ssh_access.config_alias == ""
+    assert cfg.ssh_access.proxy_command == ""
+    assert cfg.ssh_access.proxy_jump == ""
+
+
+def test_server_config_ssh_access_loads_explicit_values():
+    cfg = ServerConfig(
+        server_id="hpc",
+        host="cluster.example.edu",
+        username="chemist",
+        ssh_access={
+            "config_alias": "cluster-a",
+            "proxy_command": "ssh -W %h:%p gateway",
+            "proxy_jump": "gateway",
+        },
+    )
+
+    assert cfg.ssh_access.config_alias == "cluster-a"
+    assert cfg.ssh_access.proxy_command == "ssh -W %h:%p gateway"
+    assert cfg.ssh_access.proxy_jump == "gateway"

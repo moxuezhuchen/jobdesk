@@ -13,6 +13,11 @@ class AuthMethod(str, Enum):
     password = "password"
 
 
+class TerminalProvider(str, Enum):
+    windows_terminal = "windows_terminal"
+    putty = "putty"
+
+
 class ExtractStrategy(str, Enum):
     first = "first"
     last = "last"
@@ -26,6 +31,40 @@ class ExtractType(str, Enum):
 
 
 # ---- 服务器配置 ----------------------------------------------------------
+
+
+class ExternalToolsConfig(BaseModel):
+    """External desktop tools associated with one server profile."""
+
+    terminal_provider: TerminalProvider = Field(
+        default=TerminalProvider.windows_terminal,
+        description="External terminal provider: windows_terminal / putty",
+    )
+    ssh_alias: str = Field(
+        default="",
+        description="OpenSSH config alias used by Windows Terminal",
+    )
+    putty_session: str = Field(
+        default="",
+        description="PuTTY saved session name",
+    )
+
+
+class SSHAccessConfig(BaseModel):
+    """Advanced SSH connection options for Paramiko and OpenSSH interop."""
+
+    config_alias: str = Field(
+        default="",
+        description="Host alias from ~/.ssh/config used for runtime SSH/SFTP",
+    )
+    proxy_command: str = Field(
+        default="",
+        description="ProxyCommand used by Paramiko, for example ssh -W %h:%p gateway",
+    )
+    proxy_jump: str = Field(
+        default="",
+        description="Documented jump-host name; runtime uses config_alias or proxy_command",
+    )
 
 
 class ServerConfig(BaseModel):
@@ -50,6 +89,14 @@ class ServerConfig(BaseModel):
     env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")
     scheduler: "SchedulerConfig" = Field(default_factory=lambda: SchedulerConfig(), description="作业调度器配置")
     trust_on_first_use: bool = Field(default=False, description="Trust and store an unknown SSH host key on first connection")
+    external_tools: ExternalToolsConfig = Field(
+        default_factory=ExternalToolsConfig,
+        description="External terminal and file-browser integration settings",
+    )
+    ssh_access: SSHAccessConfig = Field(
+        default_factory=SSHAccessConfig,
+        description="Advanced SSH connection settings",
+    )
 
 
 class SchedulerConfig(BaseModel):
