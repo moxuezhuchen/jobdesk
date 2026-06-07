@@ -590,6 +590,62 @@ class SettingsServersPage(QWidget):
         })
         return result
 
+    def _add_external_tools_fields(self, form, tools: dict) -> dict:
+        provider = QComboBox()
+        provider.addItems(["windows_terminal", "putty"])
+        current = str(tools.get("terminal_provider", "windows_terminal"))
+        idx = provider.findText(current)
+        if idx >= 0:
+            provider.setCurrentIndex(idx)
+        ssh_alias = QLineEdit(str(tools.get("ssh_alias", "")))
+        ssh_alias.setPlaceholderText("OpenSSH alias")
+        putty_session = QLineEdit(str(tools.get("putty_session", "")))
+        putty_session.setPlaceholderText("PuTTY saved session")
+        form.addRow(tr("Terminal:", self._language), provider)
+        form.addRow(tr("SSH Alias:", self._language), ssh_alias)
+        form.addRow(tr("PuTTY Session:", self._language), putty_session)
+        return {
+            "terminal_provider": provider,
+            "ssh_alias": ssh_alias,
+            "putty_session": putty_session,
+        }
+
+    @staticmethod
+    def _external_tools_dict(widgets: dict, existing: dict | None = None) -> dict:
+        result = dict(existing or {})
+        result.update({
+            "terminal_provider": widgets["terminal_provider"].currentText(),
+            "ssh_alias": widgets["ssh_alias"].text().strip(),
+            "putty_session": widgets["putty_session"].text().strip(),
+        })
+        return result
+
+    def _add_ssh_access_fields(self, form, access: dict) -> dict:
+        config_alias = QLineEdit(str(access.get("config_alias", "")))
+        config_alias.setPlaceholderText("OpenSSH config alias")
+        proxy_command = QLineEdit(str(access.get("proxy_command", "")))
+        proxy_command.setPlaceholderText("ssh -W %h:%p gateway")
+        proxy_jump = QLineEdit(str(access.get("proxy_jump", "")))
+        proxy_jump.setPlaceholderText("gateway")
+        form.addRow(tr("SSH Config Alias:", self._language), config_alias)
+        form.addRow(tr("ProxyCommand:", self._language), proxy_command)
+        form.addRow(tr("ProxyJump:", self._language), proxy_jump)
+        return {
+            "config_alias": config_alias,
+            "proxy_command": proxy_command,
+            "proxy_jump": proxy_jump,
+        }
+
+    @staticmethod
+    def _ssh_access_dict(widgets: dict, existing: dict | None = None) -> dict:
+        result = dict(existing or {})
+        result.update({
+            "config_alias": widgets["config_alias"].text().strip(),
+            "proxy_command": widgets["proxy_command"].text().strip(),
+            "proxy_jump": widgets["proxy_jump"].text().strip(),
+        })
+        return result
+
     def _edit_server(self):
         import yaml
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
@@ -639,6 +695,8 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
         sched_widgets = self._add_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {})
+        external_widgets = self._add_external_tools_fields(form, srv.get("external_tools", {}) or {})
+        ssh_access_widgets = self._add_ssh_access_fields(form, srv.get("ssh_access", {}) or {})
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -665,6 +723,14 @@ class SettingsServersPage(QWidget):
             "trust_on_first_use": tofu_toggle.isChecked(),
         })
         existing["scheduler"] = self._scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
+        existing["external_tools"] = self._external_tools_dict(
+            external_widgets,
+            srv.get("external_tools", {}) or {},
+        )
+        existing["ssh_access"] = self._ssh_access_dict(
+            ssh_access_widgets,
+            srv.get("ssh_access", {}) or {},
+        )
         if key_edit.text().strip():
             existing["key_path"] = key_edit.text().strip()
         elif "key_path" in existing and not key_edit.text().strip():
@@ -714,6 +780,8 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
         sched_widgets = self._add_scheduler_fields(form, dlg, {})
+        external_widgets = self._add_external_tools_fields(form, {})
+        ssh_access_widgets = self._add_ssh_access_fields(form, {})
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -746,6 +814,8 @@ class SettingsServersPage(QWidget):
             "auth_method": auth_combo.currentText(),
             "trust_on_first_use": tofu_toggle.isChecked(),
             "scheduler": self._scheduler_dict(sched_widgets),
+            "external_tools": self._external_tools_dict(external_widgets),
+            "ssh_access": self._ssh_access_dict(ssh_access_widgets),
         }
         if key_edit.text().strip():
             servers[sid]["key_path"] = key_edit.text().strip()

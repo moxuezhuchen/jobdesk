@@ -87,6 +87,109 @@ def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
     assert saved["env_init_scripts"] == ["/opt/g16/bsd/g16.profile"]
 
 
+def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
+    from PySide6.QtWidgets import QComboBox
+
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  hpc:\n"
+        "    host: cluster\n"
+        "    username: chemist\n"
+        "    auth_method: key\n"
+        "    external_tools:\n"
+        "      terminal_provider: windows_terminal\n"
+        "      ssh_alias: old-alias\n"
+        "      winscp_session: hidden-site\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+
+    def accept_with_external_tools(dialog):
+        provider_combo = next(
+            c for c in dialog.findChildren(QComboBox)
+            if "windows_terminal" in [c.itemText(i) for i in range(c.count())]
+            and "putty" in [c.itemText(i) for i in range(c.count())]
+        )
+        provider_combo.setCurrentText("putty")
+        edits = dialog.findChildren(QLineEdit)
+        ssh_alias = next(edit for edit in edits if edit.text() == "old-alias")
+        ssh_alias.setText("cluster-a")
+        putty_session = next(edit for edit in edits if edit.placeholderText() == "PuTTY saved session")
+        putty_session.setText("cluster-a-putty")
+        return QDialog.Accepted
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_external_tools):
+        page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
+        qtbot.addWidget(page)
+        page.server_table.selectRow(0)
+        page._edit_server()
+
+    external = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]["hpc"]["external_tools"]
+    assert external["terminal_provider"] == "putty"
+    assert external["ssh_alias"] == "cluster-a"
+    assert external["putty_session"] == "cluster-a-putty"
+    assert external["winscp_session"] == "hidden-site"
+
+
+def test_edit_server_saves_ssh_access_fields(qtbot, tmp_path):
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  hpc:\n"
+        "    host: cluster\n"
+        "    username: chemist\n"
+        "    auth_method: key\n"
+        "    ssh_access:\n"
+        "      config_alias: old-runtime-alias\n"
+        "      hidden_ssh_key: preserved\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+
+    def accept_with_ssh_access(dialog):
+        edits = dialog.findChildren(QLineEdit)
+        config_alias = next(edit for edit in edits if edit.text() == "old-runtime-alias")
+        config_alias.setText("cluster-runtime")
+        proxy_command = next(edit for edit in edits if edit.placeholderText() == "ssh -W %h:%p gateway")
+        proxy_command.setText("ssh -W %h:%p login-node")
+        proxy_jump = next(edit for edit in edits if edit.placeholderText() == "gateway")
+        proxy_jump.setText("login-node")
+        return QDialog.Accepted
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_ssh_access):
+        page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
+        qtbot.addWidget(page)
+        page.server_table.selectRow(0)
+        page._edit_server()
+
+    ssh_access = yaml.safe_load(servers_path.read_text(encoding="utf-8"))["servers"]["hpc"]["ssh_access"]
+    assert ssh_access["config_alias"] == "cluster-runtime"
+    assert ssh_access["proxy_command"] == "ssh -W %h:%p login-node"
+    assert ssh_access["proxy_jump"] == "login-node"
+    assert ssh_access["hidden_ssh_key"] == "preserved"
+
+
 def test_shutdown_stops_worker_with_timeout(qtbot):
     with patch("jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore") as settings_store:
         settings_store.return_value.load.return_value = GuiSettings()
