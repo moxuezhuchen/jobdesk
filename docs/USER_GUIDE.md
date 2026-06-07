@@ -107,3 +107,48 @@ jobdesk run retry <workspace> <run_id>
 - 网络断开：monitor 自动重连，下次连接成功时补齐状态
 - 应用关闭期间任务完成：重启后首次激活 Runs 页时自动检测
 - 下载失败：状态保持 `remote_completed`，可手动右键刷新重试
+## Open a Run in an External Terminal
+
+Runs/Results provides `Open Terminal Here` for the selected run. JobDesk opens
+an external terminal and starts the shell in the remote run directory:
+
+```text
+<remote_dir>/.jobdesk_runs/<run_id>
+```
+
+Windows Terminal uses OpenSSH. For best results, configure an alias in
+`~/.ssh/config` and set `external_tools.ssh_alias` in `servers.yaml`.
+
+PuTTY uses a saved session. Configure the session in PuTTY first, then set
+`external_tools.terminal_provider: putty` and
+`external_tools.putty_session: <session name>` in `servers.yaml`.
+
+JobDesk does not save SSH passwords and does not pass passwords on the command
+line. Use key authentication, `ssh-agent`, Pageant, or an interactive prompt.
+
+Example:
+
+```yaml
+servers:
+  hpc:
+    host: cluster.example.edu
+    port: 22
+    username: chemist
+    auth_method: key
+    ssh_access:
+      config_alias: cluster-a
+      proxy_command: ""
+      proxy_jump: ""
+    external_tools:
+      terminal_provider: windows_terminal
+      ssh_alias: cluster-a
+      putty_session: cluster-a-putty
+```
+
+`ssh_access.config_alias` is used by JobDesk's own SSH/SFTP connections.
+`external_tools.ssh_alias` is used when opening an external terminal. They can
+be the same alias, but they are separate so a user can keep runtime transfers
+on Paramiko settings while opening a terminal with a different saved profile.
+If a cluster requires a jump host, prefer OpenSSH config. For Paramiko runtime
+connections, set `ssh_access.proxy_command`, for example
+`ssh -W %h:%p login-node`.

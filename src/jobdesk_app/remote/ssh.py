@@ -140,7 +140,8 @@ class SSHClientWrapper:
         ssh_lookup = _load_ssh_config_lookup(self._server.ssh_access.config_alias)
         hostname = str(ssh_lookup.get("hostname") or self._server.host)
         username = str(ssh_lookup.get("user") or self._server.username)
-        port = int(ssh_lookup.get("port") or self._server.port)
+        lookup_port = ssh_lookup.get("port")
+        port = int(str(lookup_port)) if lookup_port is not None else self._server.port
         key_path = self._server.key_path or _first_identity_file(ssh_lookup)
         proxy_command = (
             self._server.ssh_access.proxy_command.strip()

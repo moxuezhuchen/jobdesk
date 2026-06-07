@@ -42,6 +42,14 @@ servers:
     wsl_distro: Ubuntu
     trust_on_first_use: false
     env_init_scripts: []
+    ssh_access:
+      config_alias: wsl
+      proxy_command: ""
+      proxy_jump: ""
+    external_tools:
+      terminal_provider: windows_terminal
+      ssh_alias: wsl
+      putty_session: ""
     scheduler:
       type: nohup
       default_cpus: 4
