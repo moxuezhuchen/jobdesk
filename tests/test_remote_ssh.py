@@ -381,6 +381,71 @@ class TestSSHClientWrapper:
             with pytest.raises(SSHConnectionError, match="网络错误"):
                 ssh.connect()
 
+    def test_connect_uses_ssh_config_alias_for_runtime_connection(self, tmp_path):
+        config_path = tmp_path / "config"
+        config_path.write_text(
+            "Host cluster-a\n"
+            "  HostName cluster.example.edu\n"
+            "  User chemist\n"
+            "  Port 2200\n"
+            "  IdentityFile ~/.ssh/id_cluster\n",
+            encoding="utf-8",
+        )
+        server = ServerConfig(
+            server_id="hpc",
+            host="ignored.example.edu",
+            username="ignored",
+            key_path=None,
+            ssh_access={"config_alias": "cluster-a"},
+        )
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path), \
+             patch(
+                 "jobdesk_app.remote.ssh.os.path.expanduser",
+                 side_effect=lambda value: value.replace("~", "C:/Users/me"),
+             ), \
+             patch.object(MockSSHWrapper, "_resolve_key", return_value=MagicMock(spec=paramiko.PKey)) as resolve_key:
+            mock_client_class.return_value = MagicMock()
+            MockSSHWrapper(server).connect()
+
+        connect_kwargs = mock_client_class.return_value.connect.call_args.kwargs
+        assert connect_kwargs["hostname"] == "cluster.example.edu"
+        assert connect_kwargs["username"] == "chemist"
+        assert connect_kwargs["port"] == 2200
+        resolve_key.assert_called_once_with("C:/Users/me/.ssh/id_cluster")
+
+    def test_connect_uses_proxy_command_when_configured(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            key_path=None,
+            ssh_access={"proxy_command": "ssh -W %h:%p login-node"},
+        )
+        proxy = MagicMock()
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand", return_value=proxy) as proxy_command:
+            mock_client_class.return_value = MagicMock()
+            MockSSHWrapper(server).connect()
+
+        proxy_command.assert_called_once_with("ssh -W compute.internal:22 login-node")
+        connect_kwargs = mock_client_class.return_value.connect.call_args.kwargs
+        assert connect_kwargs["sock"] is proxy
+
+    def test_connect_rejects_proxy_jump_without_runtime_proxy_command_or_alias(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            key_path=None,
+            ssh_access={"proxy_jump": "login-node"},
+        )
+
+        with pytest.raises(SSHConnectionError, match="proxy_command"):
+            MockSSHWrapper(server).connect()
+
     def test_connect_starts_configured_wsl_distro_before_ssh(self):
         server = ServerConfig(
             server_id="wsl",

@@ -28,6 +28,33 @@ _wsl_boot_last_attempt: float | None = None
 _WSL_BOOT_COOLDOWN = 10.0  # seconds
 
 
+def _ssh_config_path() -> Path:
+    return Path(os.path.expanduser("~/.ssh/config"))
+
+
+def _load_ssh_config_lookup(alias: str) -> dict[str, object]:
+    path = _ssh_config_path()
+    if not alias or not path.is_file():
+        return {}
+    config = paramiko.SSHConfig()
+    with path.open("r", encoding="utf-8") as handle:
+        config.parse(handle)
+    return config.lookup(alias)
+
+
+def _first_identity_file(lookup: dict[str, object]) -> str:
+    value = lookup.get("identityfile")
+    if isinstance(value, list) and value:
+        return str(value[0])
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _proxy_command_text(template: str, host: str, port: int) -> str:
+    return template.replace("%h", host).replace("%p", str(port))
+
+
 def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
     """Check if a local TCP port is accepting connections."""
     try:
@@ -110,16 +137,39 @@ class SSHClientWrapper:
         else:
             self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
+        ssh_lookup = _load_ssh_config_lookup(self._server.ssh_access.config_alias)
+        hostname = str(ssh_lookup.get("hostname") or self._server.host)
+        username = str(ssh_lookup.get("user") or self._server.username)
+        port = int(ssh_lookup.get("port") or self._server.port)
+        key_path = self._server.key_path or _first_identity_file(ssh_lookup)
+        proxy_command = (
+            self._server.ssh_access.proxy_command.strip()
+            or str(ssh_lookup.get("proxycommand") or "").strip()
+        )
+        if (
+            self._server.ssh_access.proxy_jump.strip()
+            and not proxy_command
+            and not self._server.ssh_access.config_alias.strip()
+        ):
+            raise SSHConnectionError(
+                "proxy_jump requires ssh_access.proxy_command or ssh_access.config_alias",
+                host=hostname,
+                port=port,
+            )
+
         connect_kwargs: dict[str, Any] = {
-            "hostname": self._server.host,
-            "port": self._server.port,
-            "username": self._server.username,
+            "hostname": hostname,
+            "port": port,
+            "username": username,
             "timeout": self._timeout,
             "banner_timeout": self._timeout,
         }
+        if proxy_command:
+            connect_kwargs["sock"] = paramiko.ProxyCommand(
+                _proxy_command_text(proxy_command, hostname, port)
+            )
 
         if self._server.auth_method == "key":
-            key_path = self._server.key_path
             if key_path:
                 expanded = os.path.expanduser(key_path)
                 pkey = self._resolve_key(expanded)
@@ -131,8 +181,8 @@ class SSHClientWrapper:
             raise SSHConnectionError(
                 f"password 认证在代码中不支持直接传入密码（服务器 {self._server.display_name!r}）。"
                 f"请使用 key 认证。",
-                host=self._server.host,
-                port=self._server.port,
+                host=hostname,
+                port=port,
             )
 
         try:
@@ -140,20 +190,20 @@ class SSHClientWrapper:
         except paramiko.SSHException as e:
             raise SSHConnectionError(
                 f"SSH 连接失败: {e}",
-                host=self._server.host,
-                port=self._server.port,
+                host=hostname,
+                port=port,
             ) from e
         except OSError as e:
             raise SSHConnectionError(
                 f"网络错误: {e}",
-                host=self._server.host,
-                port=self._server.port,
+                host=hostname,
+                port=port,
             ) from e
         except Exception as e:
             raise SSHConnectionError(
                 f"连接失败: {type(e).__name__}: {e}",
-                host=self._server.host,
-                port=self._server.port,
+                host=hostname,
+                port=port,
             ) from e
 
         # Keep reused (persistent) connections alive and detect dead peers, so
