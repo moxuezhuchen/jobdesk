@@ -200,6 +200,9 @@ class RunsResultsPage(QWidget):
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(200)
         self._preview_timer.timeout.connect(self._render_selected_preview)
+        self._activation_timer = QTimer(self)
+        self._activation_timer.setSingleShot(True)
+        self._activation_timer.timeout.connect(self._run_deferred_activation)
         # Memoized parsed rows keyed by result-dir, invalidated by file signature.
         self._analyze_cache: dict[str, tuple] = {}
         # run_ids currently being refreshed/downloaded, shared by the auto-refresh
@@ -368,10 +371,15 @@ class RunsResultsPage(QWidget):
     def on_activated(self):
         settings = GuiSettingsStore().load()
         self._language = settings.language
-        self.refresh_run_list()
         self._refresh_timer.setInterval(settings.auto_refresh_interval * 1000)
-        self._start_monitoring()
         self._refresh_timer.start()
+        self._activation_timer.start(0)
+
+    def _run_deferred_activation(self):
+        if self._shutting_down:
+            return
+        self.refresh_run_list()
+        self._start_monitoring()
 
     def apply_language(self, language: str):
         self._language = language
@@ -1338,6 +1346,7 @@ class RunsResultsPage(QWidget):
         self._preview_request_id += 1
         self._refresh_timer.stop()
         self._preview_timer.stop()
+        self._activation_timer.stop()
         for timer in self._task_done_timers.values():
             timer.stop()
         self._task_done_timers.clear()

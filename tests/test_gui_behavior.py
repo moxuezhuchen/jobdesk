@@ -161,9 +161,11 @@ class TestRunsPage:
         runs_page.table.setItem(0, 0, item)
         runs_page.table.selectRow(0)
 
-        runs_page._copy_cd_command()
+        clipboard = MagicMock()
+        with patch.object(QApplication, "clipboard", return_value=clipboard):
+            runs_page._copy_cd_command()
 
-        assert QApplication.clipboard().text() == "cd /scratch/jobs/.jobdesk_runs/260607-001"
+        clipboard.setText.assert_called_once_with("cd /scratch/jobs/.jobdesk_runs/260607-001")
 
     def test_compare_selected_renders_comparison_rows(self, runs_page, qtbot):
         """Comparing >=2 selected runs renders the comparison table from compare_runs."""
@@ -430,7 +432,7 @@ class TestRunsPage:
         parser.assert_not_called()
         assert rows[0][3] == tr("File too large for preview", runs_page._language)
 
-    def test_on_activated_ignores_legacy_disabled_automatic_refresh(self, runs_page):
+    def test_on_activated_ignores_legacy_disabled_automatic_refresh(self, runs_page, qtbot):
         from jobdesk_app.services.gui_settings import GuiSettings
 
         settings = GuiSettings()
@@ -438,9 +440,33 @@ class TestRunsPage:
             store.return_value.load.return_value = settings
             with patch.object(runs_page, "_start_monitoring") as monitor:
                 runs_page.on_activated()
+                qtbot.waitUntil(lambda: monitor.called, timeout=1000)
 
         monitor.assert_called_once_with()
         assert runs_page._refresh_timer.isActive()
+
+    def test_on_activated_defers_refresh_and_monitor_start(self, runs_page, qtbot):
+        from jobdesk_app.services.gui_settings import GuiSettings
+
+        settings = GuiSettings(auto_refresh_interval=15)
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
+             patch.object(runs_page, "refresh_run_list") as refresh, \
+             patch.object(runs_page, "_start_monitoring") as monitor:
+            store.return_value.load.return_value = settings
+
+            runs_page.on_activated()
+
+            refresh.assert_not_called()
+            monitor.assert_not_called()
+            assert runs_page._refresh_timer.isActive()
+            qtbot.waitUntil(lambda: refresh.called and monitor.called, timeout=1000)
+
+    def test_shutdown_stops_pending_activation_timer(self, runs_page):
+        runs_page._activation_timer.start(1000)
+
+        runs_page.shutdown()
+
+        assert not runs_page._activation_timer.isActive()
 
     def test_auto_refresh_ignores_legacy_disabled_automatic_download(self, runs_page, qtbot):
         from jobdesk_app.services.gui_settings import GuiSettings
