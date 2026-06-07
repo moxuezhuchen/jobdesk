@@ -90,82 +90,15 @@ class TestRunsPage:
         # First action is refresh
         assert actions[0][1] == runs_page._refresh_all
 
-    def test_context_menu_includes_terminal_actions(self, runs_page):
+    def test_context_menu_omits_terminal_actions(self, runs_page):
         from jobdesk_app.gui.i18n import tr
 
         labels = [label for label, _callback in runs_page._build_context_actions()]
 
-        assert tr("Open Terminal Here", runs_page._language) in labels
-        assert tr("Copy SSH Command", runs_page._language) in labels
-        assert tr("Copy cd Command", runs_page._language) in labels
-
-    def test_open_terminal_here_launches_selected_run_directory(self, runs_page, tmp_path):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QTableWidgetItem
-
-        from jobdesk_app.services.run_service import RunRecord
-
-        record = RunRecord(
-            run_id="260607-001",
-            server_id="hpc",
-            remote_dir="/scratch/jobs",
-            command_template="orca {name}",
-            max_parallel=1,
-            mode="selected_files",
-            created_at="now",
-            run_dir=tmp_path / "runs" / "260607-001",
-            manifest_path=tmp_path / "runs" / "260607-001" / "manifest.tsv",
-            batch_path=tmp_path / "runs" / "260607-001" / "batch.json",
-        )
-        runs_page.table.setRowCount(1)
-        item = QTableWidgetItem(record.run_id)
-        item.setData(Qt.UserRole, record)
-        runs_page.table.setItem(0, 0, item)
-        runs_page.table.selectRow(0)
-
-        server = MagicMock()
-        servers = MagicMock(servers={"hpc": server})
-        launch = MagicMock(user_visible_command="wt new-tab ...")
-
-        with patch("jobdesk_app.gui.pages.runs_results_page.load_servers", return_value=servers), \
-             patch("jobdesk_app.gui.pages.runs_results_page.build_terminal_launch", return_value=launch) as build, \
-             patch("jobdesk_app.gui.pages.runs_results_page.launch_terminal") as launcher:
-            runs_page._open_terminal_here()
-
-        build.assert_called_once()
-        assert build.call_args.args[0] is server
-        assert build.call_args.args[1] == "/scratch/jobs/.jobdesk_runs/260607-001"
-        launcher.assert_called_once_with(launch)
-
-    def test_copy_cd_command_uses_selected_run_directory(self, runs_page, tmp_path):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QTableWidgetItem
-
-        from jobdesk_app.services.run_service import RunRecord
-
-        record = RunRecord(
-            run_id="260607-001",
-            server_id="hpc",
-            remote_dir="/scratch/jobs",
-            command_template="orca {name}",
-            max_parallel=1,
-            mode="selected_files",
-            created_at="now",
-            run_dir=tmp_path / "runs" / "260607-001",
-            manifest_path=tmp_path / "runs" / "260607-001" / "manifest.tsv",
-            batch_path=tmp_path / "runs" / "260607-001" / "batch.json",
-        )
-        runs_page.table.setRowCount(1)
-        item = QTableWidgetItem(record.run_id)
-        item.setData(Qt.UserRole, record)
-        runs_page.table.setItem(0, 0, item)
-        runs_page.table.selectRow(0)
-
-        clipboard = MagicMock()
-        with patch.object(QApplication, "clipboard", return_value=clipboard):
-            runs_page._copy_cd_command()
-
-        clipboard.setText.assert_called_once_with("cd /scratch/jobs/.jobdesk_runs/260607-001")
+        assert tr("Open Terminal Here", runs_page._language) not in labels
+        assert tr("Copy SSH Command", runs_page._language) not in labels
+        assert tr("Copy cd Command", runs_page._language) not in labels
+        assert not hasattr(runs_page, "open_terminal_btn")
 
     def test_compare_selected_renders_comparison_rows(self, runs_page, qtbot):
         """Comparing >=2 selected runs renders the comparison table from compare_runs."""
@@ -1416,6 +1349,29 @@ class TestFileTransferPage:
     def test_confflow_launch_button_exists(self, file_page):
         from jobdesk_app.gui.i18n import tr
         assert file_page.confflow_btn.text() == tr("Run ConfFlow", file_page._language)
+
+    def test_open_terminal_button_exists_on_remote_header(self, file_page):
+        from jobdesk_app.gui.i18n import tr
+
+        assert file_page.open_terminal_btn.text() == tr("Open Terminal Here", file_page._language)
+        assert not file_page.open_terminal_btn.isHidden()
+
+    def test_open_terminal_uses_current_remote_directory(self, file_page):
+        server = MagicMock()
+        file_page._servers = {"hpc": server}
+        file_page.server_combo.addItem("hpc", "hpc")
+        file_page.server_combo.setCurrentIndex(file_page.server_combo.findData("hpc"))
+        file_page.remote_path.setText("/home/xianj/qhf")
+        launch = MagicMock()
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.build_terminal_launch", return_value=launch) as build, \
+             patch("jobdesk_app.gui.pages.file_transfer_page.launch_terminal") as launcher:
+            file_page._open_terminal_here()
+
+        build.assert_called_once()
+        assert build.call_args.args[0] is server
+        assert build.call_args.args[1] == "/home/xianj/qhf"
+        launcher.assert_called_once_with(launch)
 
     def test_transfer_progress_is_compact_and_in_task_action_row(self, file_page):
         assert file_page.run_options_row.indexOf(file_page.progress_bar) == (

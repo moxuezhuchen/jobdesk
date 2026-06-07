@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -44,16 +45,31 @@ def _ssh_target(server: ServerConfig) -> str:
 
 def _build_windows_terminal_launch(server: ServerConfig, remote_dir: str) -> TerminalLaunch:
     remote_command = build_remote_shell_command(remote_dir)
-    ssh_parts = ["ssh", "-t", _ssh_target(server)]
+    ssh_args = ["-t"]
     if not server.external_tools.ssh_alias.strip() and server.port != 22:
-        ssh_parts.extend(["-p", str(server.port)])
-    ssh_parts.append(remote_command)
-    args = ["new-tab", "powershell", "-NoExit", "-Command", *ssh_parts]
+        ssh_args.extend(["-p", str(server.port)])
+    ssh_args.extend([_ssh_target(server), remote_command])
+    ssh_command = _powershell_command("ssh", ssh_args)
+    args = ["new-tab", "powershell", "-Command", ssh_command]
+    executable = server.external_tools.terminal_path.strip() or "wt"
     return TerminalLaunch(
-        executable="wt",
+        executable=executable,
         args=args,
-        user_visible_command="wt " + " ".join(shlex.quote(part) for part in args),
+        user_visible_command=_powershell_command(executable, args),
     )
+
+
+_POWERSHELL_BARE_ARG = re.compile(r"^[A-Za-z0-9_./:@%+=,-]+$")
+
+
+def _powershell_quote(arg: str) -> str:
+    if arg and _POWERSHELL_BARE_ARG.fullmatch(arg):
+        return arg
+    return "'" + arg.replace("'", "''") + "'"
+
+
+def _powershell_command(executable: str, args: list[str]) -> str:
+    return " ".join(_powershell_quote(part) for part in [executable, *args])
 
 
 def _build_putty_launch(
@@ -71,11 +87,12 @@ def _build_putty_launch(
         build_cd_command(remote_dir) + "\nexec ${SHELL:-/bin/sh} -l\n",
         encoding="utf-8",
     )
+    executable = server.external_tools.terminal_path.strip() or "putty.exe"
     args = ["-load", session, "-t", "-m", str(command_file)]
     return TerminalLaunch(
-        executable="putty.exe",
+        executable=executable,
         args=args,
-        user_visible_command="putty.exe " + " ".join(shlex.quote(part) for part in args),
+        user_visible_command=_powershell_command(executable, args),
     )
 
 

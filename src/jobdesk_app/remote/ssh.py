@@ -34,11 +34,17 @@ def _ssh_config_path() -> Path:
 
 def _load_ssh_config_lookup(alias: str) -> dict[str, object]:
     path = _ssh_config_path()
-    if not alias or not path.is_file():
+    try:
+        if not alias or not path.is_file():
+            return {}
+    except OSError:
         return {}
     config = paramiko.SSHConfig()
-    with path.open("r", encoding="utf-8") as handle:
-        config.parse(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            config.parse(handle)
+    except OSError:
+        return {}
     return config.lookup(alias)
 
 
@@ -53,6 +59,30 @@ def _first_identity_file(lookup: dict[str, object]) -> str:
 
 def _proxy_command_text(template: str, host: str, port: int) -> str:
     return template.replace("%h", host).replace("%p", str(port))
+
+
+def _proxy_jump_specs(proxy_jump: str) -> list[str]:
+    proxy_jump = proxy_jump.strip()
+    if not proxy_jump or proxy_jump.lower() == "none":
+        return []
+    return [jump.strip() for jump in proxy_jump.split(",") if jump.strip()]
+
+
+def _split_jump_spec(jump: str) -> tuple[str | None, str, int | None]:
+    user: str | None = None
+    host_port = jump.strip()
+    if "@" in host_port:
+        user, host_port = host_port.split("@", 1)
+    if host_port.startswith("[") and "]" in host_port:
+        host, rest = host_port[1:].split("]", 1)
+        if rest.startswith(":") and rest[1:].isdigit():
+            return user, host, int(rest[1:])
+        return user, host, None
+    if ":" in host_port:
+        host, maybe_port = host_port.rsplit(":", 1)
+        if maybe_port.isdigit():
+            return user, host, int(maybe_port)
+    return user, host_port, None
 
 
 def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
@@ -112,6 +142,7 @@ class SSHClientWrapper:
         self._server = server
         self._timeout = timeout
         self._client: paramiko.SSHClient | None = None
+        self._jump_clients: list[paramiko.SSHClient] = []
 
     # -- 连接 ---------------------------------------------------------
 
@@ -126,16 +157,7 @@ class SSHClientWrapper:
         from ..app_paths import get_app_data_dir
 
         app_known_hosts = get_app_data_dir() / "known_hosts"
-        for kh in (Path(os.path.expanduser("~/.ssh/known_hosts")), app_known_hosts):
-            try:
-                if kh.is_file():
-                    self._client.load_host_keys(str(kh))
-            except OSError:
-                pass
-        if getattr(self._server, "trust_on_first_use", False):
-            self._client.set_missing_host_key_policy(_AutoAddAndSavePolicy(app_known_hosts))
-        else:
-            self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        self._configure_host_keys(self._client, app_known_hosts)
 
         ssh_lookup = _load_ssh_config_lookup(self._server.ssh_access.config_alias)
         hostname = str(ssh_lookup.get("hostname") or self._server.host)
@@ -147,13 +169,14 @@ class SSHClientWrapper:
             self._server.ssh_access.proxy_command.strip()
             or str(ssh_lookup.get("proxycommand") or "").strip()
         )
-        if (
+        proxy_jump = (
             self._server.ssh_access.proxy_jump.strip()
-            and not proxy_command
-            and not self._server.ssh_access.config_alias.strip()
-        ):
+            or str(ssh_lookup.get("proxyjump") or "").strip()
+        )
+        if self._server.auth_method == "password":
             raise SSHConnectionError(
-                "proxy_jump requires ssh_access.proxy_command or ssh_access.config_alias",
+                f"password 认证在代码中不支持直接传入密码（服务器 {self._server.display_name!r}）。"
+                f"请使用 key 认证。",
                 host=hostname,
                 port=port,
             )
@@ -169,6 +192,15 @@ class SSHClientWrapper:
             connect_kwargs["sock"] = paramiko.ProxyCommand(
                 _proxy_command_text(proxy_command, hostname, port)
             )
+        elif proxy_jump:
+            connect_kwargs["sock"] = self._open_proxy_jump_channel(
+                proxy_jump,
+                hostname,
+                port,
+                username,
+                key_path,
+                app_known_hosts,
+            )
 
         if self._server.auth_method == "key":
             if key_path:
@@ -178,29 +210,25 @@ class SSHClientWrapper:
             else:
                 # 无 key_path 时尝试默认 SSH agent / 默认密钥
                 pass
-        elif self._server.auth_method == "password":
-            raise SSHConnectionError(
-                f"password 认证在代码中不支持直接传入密码（服务器 {self._server.display_name!r}）。"
-                f"请使用 key 认证。",
-                host=hostname,
-                port=port,
-            )
 
         try:
             self._client.connect(**connect_kwargs)
         except paramiko.SSHException as e:
+            self.close()
             raise SSHConnectionError(
                 f"SSH 连接失败: {e}",
                 host=hostname,
                 port=port,
             ) from e
         except OSError as e:
+            self.close()
             raise SSHConnectionError(
                 f"网络错误: {e}",
                 host=hostname,
                 port=port,
             ) from e
         except Exception as e:
+            self.close()
             raise SSHConnectionError(
                 f"连接失败: {type(e).__name__}: {e}",
                 host=hostname,
@@ -219,6 +247,105 @@ class SSHClientWrapper:
             return False
         transport = self._client.get_transport()
         return transport is not None and transport.is_active()
+
+    def _configure_host_keys(self, client: paramiko.SSHClient, app_known_hosts: Path) -> None:
+        for kh in (Path(os.path.expanduser("~/.ssh/known_hosts")), app_known_hosts):
+            try:
+                if kh.is_file():
+                    client.load_host_keys(str(kh))
+            except OSError:
+                pass
+        if getattr(self._server, "trust_on_first_use", False):
+            client.set_missing_host_key_policy(_AutoAddAndSavePolicy(app_known_hosts))
+        else:
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+    def _open_proxy_jump_channel(
+        self,
+        proxy_jump: str,
+        target_host: str,
+        target_port: int,
+        fallback_username: str,
+        fallback_key_path: str,
+        app_known_hosts: Path,
+    ) -> Any:
+        previous_transport = None
+        for jump in _proxy_jump_specs(proxy_jump):
+            user, alias, explicit_port = _split_jump_spec(jump)
+            jump_lookup = _load_ssh_config_lookup(alias)
+            jump_host = str(jump_lookup.get("hostname") or alias)
+            jump_user = user or str(jump_lookup.get("user") or fallback_username)
+            lookup_port = jump_lookup.get("port")
+            jump_port = (
+                explicit_port
+                if explicit_port is not None
+                else int(str(lookup_port)) if lookup_port is not None else 22
+            )
+            jump_key_path = _first_identity_file(jump_lookup) or fallback_key_path
+
+            jump_client = paramiko.SSHClient()
+            self._configure_host_keys(jump_client, app_known_hosts)
+            jump_kwargs: dict[str, Any] = {
+                "hostname": jump_host,
+                "port": jump_port,
+                "username": jump_user,
+                "timeout": self._timeout,
+                "banner_timeout": self._timeout,
+            }
+            if previous_transport is not None:
+                try:
+                    jump_kwargs["sock"] = previous_transport.open_channel(
+                        "direct-tcpip",
+                        (jump_host, jump_port),
+                        ("", 0),
+                    )
+                except Exception as exc:
+                    jump_client.close()
+                    self.close()
+                    raise SSHConnectionError(
+                        f"ProxyJump channel to {jump_host}:{jump_port} failed: {exc}",
+                        host=jump_host,
+                        port=jump_port,
+                    ) from exc
+            if self._server.auth_method == "key" and jump_key_path:
+                jump_kwargs["pkey"] = self._resolve_key(os.path.expanduser(jump_key_path))
+
+            try:
+                jump_client.connect(**jump_kwargs)
+            except Exception as exc:
+                jump_client.close()
+                self.close()
+                raise SSHConnectionError(
+                    f"ProxyJump connection to {jump_host}:{jump_port} failed: {exc}",
+                    host=jump_host,
+                    port=jump_port,
+                ) from exc
+            self._jump_clients.append(jump_client)
+            previous_transport = jump_client.get_transport()
+            if previous_transport is None:
+                jump_client.close()
+                self.close()
+                raise SSHConnectionError(
+                    "ProxyJump connection did not create an SSH transport",
+                    host=jump_host,
+                    port=jump_port,
+                )
+
+        if previous_transport is None:
+            raise SSHConnectionError("ProxyJump is empty", host=target_host, port=target_port)
+        try:
+            return previous_transport.open_channel(
+                "direct-tcpip",
+                (target_host, target_port),
+                ("", 0),
+            )
+        except Exception as exc:
+            self.close()
+            raise SSHConnectionError(
+                f"ProxyJump channel to {target_host}:{target_port} failed: {exc}",
+                host=target_host,
+                port=target_port,
+            ) from exc
 
     def _start_wsl_if_configured(self) -> None:
         global _wsl_boot_last_attempt
@@ -263,6 +390,9 @@ class SSHClientWrapper:
         if self._client:
             self._client.close()
             self._client = None
+        while self._jump_clients:
+            jump_client = self._jump_clients.pop()
+            jump_client.close()
 
     # -- 命令执行 -------------------------------------------------------
 

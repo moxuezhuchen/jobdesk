@@ -50,6 +50,7 @@ servers:
       terminal_provider: windows_terminal
       ssh_alias: wsl
       putty_session: ""
+      terminal_path: ""
     scheduler:
       type: nohup
       default_cpus: 4

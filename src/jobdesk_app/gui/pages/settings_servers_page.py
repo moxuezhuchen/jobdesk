@@ -601,13 +601,17 @@ class SettingsServersPage(QWidget):
         ssh_alias.setPlaceholderText("OpenSSH alias")
         putty_session = QLineEdit(str(tools.get("putty_session", "")))
         putty_session.setPlaceholderText("PuTTY saved session")
+        terminal_path = QLineEdit(str(tools.get("terminal_path", "")))
+        terminal_path.setPlaceholderText("Path to terminal executable")
         form.addRow(tr("Terminal:", self._language), provider)
+        form.addRow(tr("Terminal Path:", self._language), terminal_path)
         form.addRow(tr("SSH Alias:", self._language), ssh_alias)
         form.addRow(tr("PuTTY Session:", self._language), putty_session)
         return {
             "terminal_provider": provider,
             "ssh_alias": ssh_alias,
             "putty_session": putty_session,
+            "terminal_path": terminal_path,
         }
 
     @staticmethod
@@ -617,6 +621,7 @@ class SettingsServersPage(QWidget):
             "terminal_provider": widgets["terminal_provider"].currentText(),
             "ssh_alias": widgets["ssh_alias"].text().strip(),
             "putty_session": widgets["putty_session"].text().strip(),
+            "terminal_path": widgets["terminal_path"].text().strip(),
         })
         return result
 

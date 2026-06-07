@@ -434,7 +434,50 @@ class TestSSHClientWrapper:
         connect_kwargs = mock_client_class.return_value.connect.call_args.kwargs
         assert connect_kwargs["sock"] is proxy
 
-    def test_connect_rejects_proxy_jump_without_runtime_proxy_command_or_alias(self):
+    def test_connect_translates_ssh_config_proxy_jump(self, tmp_path):
+        config_path = tmp_path / "config"
+        config_path.write_text(
+            "Host cluster-a\n"
+            "  HostName compute.internal\n"
+            "  User chemist\n"
+            "  Port 2200\n"
+            "  ProxyJump login-node\n",
+            encoding="utf-8",
+        )
+        server = ServerConfig(
+            server_id="hpc",
+            host="ignored.example.edu",
+            username="ignored",
+            key_path=None,
+            ssh_access={"config_alias": "cluster-a"},
+        )
+        target_client = MagicMock()
+        jump_client = MagicMock()
+        jump_transport = MagicMock()
+        jump_channel = MagicMock()
+        jump_client.get_transport.return_value = jump_transport
+        jump_transport.open_channel.return_value = jump_channel
+
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path), \
+             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command:
+            mock_client_class.side_effect = [target_client, jump_client]
+            MockSSHWrapper(server).connect()
+
+        proxy_command.assert_not_called()
+        jump_client.connect.assert_called_once()
+        jump_kwargs = jump_client.connect.call_args.kwargs
+        assert jump_kwargs["hostname"] == "login-node"
+        assert jump_kwargs["username"] == "chemist"
+        jump_transport.open_channel.assert_called_once_with(
+            "direct-tcpip",
+            ("compute.internal", 2200),
+            ("", 0),
+        )
+        connect_kwargs = target_client.connect.call_args.kwargs
+        assert connect_kwargs["sock"] is jump_channel
+
+    def test_connect_uses_proxy_jump_when_configured(self):
         server = ServerConfig(
             server_id="hpc",
             host="compute.internal",
@@ -442,9 +485,73 @@ class TestSSHClientWrapper:
             key_path=None,
             ssh_access={"proxy_jump": "login-node"},
         )
+        target_client = MagicMock()
+        jump_client = MagicMock()
+        jump_transport = MagicMock()
+        jump_channel = MagicMock()
+        jump_client.get_transport.return_value = jump_transport
+        jump_transport.open_channel.return_value = jump_channel
 
-        with pytest.raises(SSHConnectionError, match="proxy_command"):
+        with patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command:
+            mock_client_class.side_effect = [target_client, jump_client]
             MockSSHWrapper(server).connect()
+
+        proxy_command.assert_not_called()
+        jump_client.connect.assert_called_once()
+        jump_kwargs = jump_client.connect.call_args.kwargs
+        assert jump_kwargs["hostname"] == "login-node"
+        assert jump_kwargs["username"] == "chemist"
+        jump_transport.open_channel.assert_called_once_with(
+            "direct-tcpip",
+            ("compute.internal", 22),
+            ("", 0),
+        )
+        connect_kwargs = target_client.connect.call_args.kwargs
+        assert connect_kwargs["sock"] is jump_channel
+
+    def test_close_closes_proxy_jump_client(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            key_path=None,
+            ssh_access={"proxy_jump": "login-node"},
+        )
+        target_client = MagicMock()
+        jump_client = MagicMock()
+        jump_transport = MagicMock()
+        jump_transport.open_channel.return_value = MagicMock()
+        jump_client.get_transport.return_value = jump_transport
+
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.side_effect = [target_client, jump_client]
+            ssh = MockSSHWrapper(server)
+            ssh.connect()
+            ssh.close()
+
+        target_client.close.assert_called_once()
+        jump_client.close.assert_called_once()
+
+    def test_proxy_jump_connect_failure_closes_jump_client(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            key_path=None,
+            ssh_access={"proxy_jump": "login-node"},
+        )
+        target_client = MagicMock()
+        jump_client = MagicMock()
+        jump_client.connect.side_effect = OSError("jump refused")
+
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.side_effect = [target_client, jump_client]
+            with pytest.raises(SSHConnectionError, match="ProxyJump"):
+                MockSSHWrapper(server).connect()
+
+        jump_client.close.assert_called_once()
+        target_client.close.assert_called_once()
 
     def test_connect_starts_configured_wsl_distro_before_ssh(self):
         server = ServerConfig(
@@ -582,6 +689,40 @@ class TestSSHClientWrapper:
         ssh = MockSSHWrapper(server)
         with pytest.raises(SSHConnectionError, match="password 认证"):
             ssh.connect()
+
+    def test_password_auth_rejected_before_proxy_jump_network_setup(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            auth_method=AuthMethod.password,
+            ssh_access={"proxy_jump": "login-node"},
+        )
+        target_client = MagicMock()
+        jump_client = MagicMock()
+
+        with patch("paramiko.SSHClient") as mock_client_class:
+            mock_client_class.side_effect = [target_client, jump_client]
+            with pytest.raises(SSHConnectionError, match="password"):
+                SSHClientWrapper(server).connect()
+
+        jump_client.connect.assert_not_called()
+        target_client.connect.assert_not_called()
+
+    def test_password_auth_rejected_before_proxy_command_setup(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            auth_method=AuthMethod.password,
+            ssh_access={"proxy_command": "ssh -W %h:%p login-node"},
+        )
+
+        with patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command:
+            with pytest.raises(SSHConnectionError, match="password"):
+                SSHClientWrapper(server).connect()
+
+        proxy_command.assert_not_called()
 
     def test_utf8_output(self):
         server = _make_server()

@@ -126,6 +126,7 @@ def test_server_config_external_tools_defaults_to_windows_terminal():
     assert cfg.external_tools.terminal_provider == "windows_terminal"
     assert cfg.external_tools.ssh_alias == ""
     assert cfg.external_tools.putty_session == ""
+    assert cfg.external_tools.terminal_path == ""
 
 
 def test_server_config_external_tools_loads_explicit_values():
@@ -137,12 +138,14 @@ def test_server_config_external_tools_loads_explicit_values():
             "terminal_provider": "putty",
             "ssh_alias": "cluster-a",
             "putty_session": "cluster-a-putty",
+            "terminal_path": "C:/Tools/PuTTY/putty.exe",
         },
     )
 
     assert cfg.external_tools.terminal_provider == "putty"
     assert cfg.external_tools.ssh_alias == "cluster-a"
     assert cfg.external_tools.putty_session == "cluster-a-putty"
+    assert cfg.external_tools.terminal_path == "C:/Tools/PuTTY/putty.exe"
 
 
 def test_server_config_rejects_unknown_terminal_provider():

@@ -100,6 +100,7 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
         "    external_tools:\n"
         "      terminal_provider: windows_terminal\n"
         "      ssh_alias: old-alias\n"
+        "      terminal_path: old-path\n"
         "      winscp_session: hidden-site\n",
         encoding="utf-8",
     )
@@ -118,6 +119,8 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
         ssh_alias.setText("cluster-a")
         putty_session = next(edit for edit in edits if edit.placeholderText() == "PuTTY saved session")
         putty_session.setText("cluster-a-putty")
+        terminal_path = next(edit for edit in edits if edit.placeholderText() == "Path to terminal executable")
+        terminal_path.setText("C:/Tools/PuTTY/putty.exe")
         return QDialog.Accepted
 
     with patch(
@@ -139,6 +142,7 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
     assert external["terminal_provider"] == "putty"
     assert external["ssh_alias"] == "cluster-a"
     assert external["putty_session"] == "cluster-a-putty"
+    assert external["terminal_path"] == "C:/Tools/PuTTY/putty.exe"
     assert external["winscp_session"] == "hidden-site"
 
 

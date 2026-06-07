@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import os
-import tempfile
 import threading
 from pathlib import Path, PurePosixPath
 
@@ -26,11 +25,6 @@ from PySide6.QtWidgets import (
 
 from ...config.servers import load_servers
 from ...core.run import remote_run_dir
-from ...services.external_terminal import (
-    build_cd_command,
-    build_terminal_launch,
-    launch_terminal,
-)
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
 from ..design.components import StyledTableWidget
@@ -407,9 +401,6 @@ class RunsResultsPage(QWidget):
             (tr("Open Results", self._language), self._open_results_folder),
             (tr("Show Logs", self._language), self._show_logs),
             (tr("Show Paths", self._language), self._show_paths),
-            (tr("Open Terminal Here", self._language), self._open_terminal_here),
-            (tr("Copy SSH Command", self._language), self._copy_ssh_command),
-            (tr("Copy cd Command", self._language), self._copy_cd_command),
         ]
 
     def _context_menu(self, pos):
@@ -1290,56 +1281,6 @@ class RunsResultsPage(QWidget):
             f"Manifest: {record.manifest_path}\n"
             f"{tr('Results directory', self._language)}: {ws / 'results' / record.run_id}")
         self.result_text.setVisible(True)
-
-    def _selected_remote_run_dir(self) -> str | None:
-        record = self._selected_record()
-        if record is None:
-            self._status_cb(tr("Select one run first", self._language))
-            return None
-        return remote_run_dir(record.remote_dir, record.run_id)
-
-    def _open_terminal_here(self):
-        record = self._selected_record()
-        if record is None:
-            self._status_cb(tr("Select one run first", self._language))
-            return
-        try:
-            server = load_servers().servers[record.server_id]
-            launch = build_terminal_launch(
-                server,
-                remote_run_dir(record.remote_dir, record.run_id),
-                temp_dir=Path(tempfile.gettempdir()) / "jobdesk_terminal",
-            )
-            launch_terminal(launch)
-            self._status_cb(tr("Terminal opened", self._language))
-        except Exception as exc:
-            self._status_cb(tr("Open terminal failed: {e}", self._language, e=exc))
-
-    def _copy_ssh_command(self):
-        record = self._selected_record()
-        if record is None:
-            self._status_cb(tr("Select one run first", self._language))
-            return
-        try:
-            from PySide6.QtWidgets import QApplication
-            server = load_servers().servers[record.server_id]
-            launch = build_terminal_launch(
-                server,
-                remote_run_dir(record.remote_dir, record.run_id),
-                temp_dir=Path(tempfile.gettempdir()) / "jobdesk_terminal",
-            )
-            QApplication.clipboard().setText(launch.user_visible_command)
-            self._status_cb(tr("SSH command copied", self._language))
-        except Exception as exc:
-            self._status_cb(tr("Copy SSH command failed: {e}", self._language, e=exc))
-
-    def _copy_cd_command(self):
-        remote_dir = self._selected_remote_run_dir()
-        if remote_dir is None:
-            return
-        from PySide6.QtWidgets import QApplication
-        QApplication.clipboard().setText(build_cd_command(remote_dir))
-        self._status_cb(tr("cd command copied", self._language))
 
     def shutdown(self):
         self._shutting_down = True

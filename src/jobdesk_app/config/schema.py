@@ -48,6 +48,10 @@ class ExternalToolsConfig(BaseModel):
         default="",
         description="PuTTY saved session name",
     )
+    terminal_path: str = Field(
+        default="",
+        description="Optional path to the terminal executable, for example putty.exe",
+    )
 
 
 class SSHAccessConfig(BaseModel):
@@ -63,7 +67,7 @@ class SSHAccessConfig(BaseModel):
     )
     proxy_jump: str = Field(
         default="",
-        description="Documented jump-host name; runtime uses config_alias or proxy_command",
+        description="OpenSSH-style ProxyJump host or comma-separated jump hosts",
     )
 
 

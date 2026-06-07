@@ -24,10 +24,9 @@ def test_windows_terminal_uses_ssh_alias_when_available(tmp_path):
 
     assert isinstance(launch, TerminalLaunch)
     assert launch.executable == "wt"
-    assert "ssh" in launch.args
-    assert "cluster-a" in launch.args
-    joined = " ".join(launch.args)
-    assert "cd /tmp/jobdesk/run-a" in joined
+    command = launch.args[launch.args.index("-Command") + 1]
+    assert command.startswith("ssh -t cluster-a ")
+    assert "cd /tmp/jobdesk/run-a" in command
     assert launch.user_visible_command.startswith("wt ")
 
 
@@ -44,6 +43,50 @@ def test_windows_terminal_falls_back_to_user_host_and_port(tmp_path):
     joined = " ".join(launch.args)
     assert "chemist@cluster.example.edu" in joined
     assert "-p 2200" in joined
+
+
+def test_windows_terminal_wraps_ssh_as_single_powershell_command(tmp_path):
+    server = ServerConfig(
+        server_id="hpc",
+        host="127.0.0.1",
+        username="xianj",
+        port=10022,
+    )
+
+    launch = build_terminal_launch(
+        server,
+        "/home/xianj/qhf/.jobdesk_runs/260529-005",
+        temp_dir=tmp_path,
+    )
+
+    command_index = launch.args.index("-Command")
+    assert "-NoExit" not in launch.args
+    assert launch.args[command_index + 1:] == [
+        "ssh -t -p 10022 xianj@127.0.0.1 "
+        "'cd /home/xianj/qhf/.jobdesk_runs/260529-005 && exec ${SHELL:-/bin/sh} -l'"
+    ]
+
+
+def test_windows_terminal_visible_command_uses_powershell_quoting(tmp_path):
+    server = ServerConfig(
+        server_id="hpc",
+        host="cluster.example.edu",
+        username="chemist",
+    )
+
+    launch = build_terminal_launch(server, "/tmp/job desk/run's", temp_dir=tmp_path)
+
+    command = launch.args[launch.args.index("-Command") + 1]
+    assert "\"'\"'\"" not in launch.user_visible_command
+    assert command == (
+        "ssh -t chemist@cluster.example.edu "
+        "'cd ''/tmp/job desk/run''\"''\"''s'' && exec ${SHELL:-/bin/sh} -l'"
+    )
+    assert launch.user_visible_command == (
+        "wt new-tab powershell -Command "
+        "'ssh -t chemist@cluster.example.edu "
+        "''cd ''''/tmp/job desk/run''''\"''''\"''''s'''' && exec ${SHELL:-/bin/sh} -l'''"
+    )
 
 
 def test_putty_requires_saved_session(tmp_path):
@@ -84,3 +127,20 @@ def test_putty_uses_command_file_for_remote_cd(tmp_path):
         "cd '/tmp/job desk/run-a'\n"
         "exec ${SHELL:-/bin/sh} -l\n"
     )
+
+
+def test_putty_uses_configured_terminal_path(tmp_path):
+    server = ServerConfig(
+        server_id="hpc",
+        host="cluster.example.edu",
+        username="chemist",
+        external_tools={
+            "terminal_provider": "putty",
+            "putty_session": "cluster-a-putty",
+            "terminal_path": "C:/Tools/PuTTY/putty.exe",
+        },
+    )
+
+    launch = build_terminal_launch(server, "/tmp/run", temp_dir=tmp_path)
+
+    assert launch.executable == "C:/Tools/PuTTY/putty.exe"

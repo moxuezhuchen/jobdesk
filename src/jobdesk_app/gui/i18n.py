@@ -125,6 +125,7 @@ ZH: dict[str, str] = {
     "Auth:": "\u8ba4\u8bc1:",
     "Key Path:": "\u5bc6\u94a5\u8def\u5f84:",
     "Terminal:": "\u7ec8\u7aef:",
+    "Terminal Path:": "\u7ec8\u7aef\u8def\u5f84:",
     "SSH Alias:": "SSH \u522b\u540d:",
     "PuTTY Session:": "PuTTY \u4f1a\u8bdd:",
     "SSH Config Alias:": "SSH \u914d\u7f6e\u522b\u540d:",

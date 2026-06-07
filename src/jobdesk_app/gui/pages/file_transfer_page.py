@@ -3,6 +3,7 @@ from __future__ import annotations
 import posixpath
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -32,6 +33,7 @@ from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
 from ...core.run import RunMode, RunSource, RunSpec, chunk_sources
 from ...remote.errors import RemotePathError
+from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
 from ...services.gui_settings import GuiSettingsStore
 from ...services.program_adapters import ConfFlowAdapter
@@ -131,6 +133,9 @@ class FileTransferPage(QWidget):
         self.refresh_btn.setToolTip(tr("Refresh", self._language))
         self.refresh_btn.clicked.connect(self._refresh_all)
         self._normalize_control_heights(self.refresh_btn)
+        self.open_terminal_btn = QPushButton(tr("Open Terminal Here", self._language))
+        self.open_terminal_btn.clicked.connect(self._open_terminal_here)
+        self._normalize_control_heights(self.open_terminal_btn)
 
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.setHandleWidth(8)
@@ -216,6 +221,7 @@ class FileTransferPage(QWidget):
         remote_header.addWidget(self.server_combo, 0)
         remote_header.addWidget(self.connection_label)
         remote_header.addWidget(self.remote_path, 1)
+        remote_header.addWidget(self.open_terminal_btn, 0)
         remote_pane_layout.addWidget(remote_header_widget)
         remote_pane_layout.addWidget(self.remote_table, 1)
 
@@ -371,6 +377,7 @@ class FileTransferPage(QWidget):
     def apply_language(self, language: str):
         self._language = language
         self.refresh_btn.setText("\u27f3 " + tr("Refresh", language))
+        self.open_terminal_btn.setText(tr("Open Terminal Here", language))
         self.server_label.setText(tr("Server:", language))
         self.command_label.setText(tr("Command:", language))
         self.preview_commands_btn.setText(tr("Preview Commands", language))
@@ -603,6 +610,28 @@ class FileTransferPage(QWidget):
     def _refresh_all(self):
         self._refresh_local_async()
         self._refresh_remote()
+
+    def _open_terminal_here(self):
+        server_id = self._connected_server_id or self.server_combo.currentData()
+        if not server_id:
+            self._status_cb(tr("Select a server first", self._language))
+            return
+        server = self._connected_server if self._connected_server_id == server_id else self._servers.get(server_id)
+        if server is None:
+            self._status_cb(tr("Select a server first", self._language))
+            return
+        remote_dir = normalize_remote_path(self.remote_path.text().strip() or "/")
+        self.remote_path.setText(remote_dir)
+        try:
+            launch = build_terminal_launch(
+                server,
+                remote_dir,
+                temp_dir=Path(tempfile.gettempdir()) / "jobdesk_terminal",
+            )
+            launch_terminal(launch)
+            self._status_cb(tr("Terminal opened", self._language))
+        except Exception as exc:
+            self._status_cb(tr("Open terminal failed: {e}", self._language, e=exc))
 
     def _refresh_remote(self):
         if self._service is None:
