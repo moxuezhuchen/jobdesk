@@ -86,9 +86,84 @@ class TestRunsPage:
     def test_context_menu_has_refresh(self, runs_page, qtbot):
         """Right-click context menu should contain refresh action."""
         actions = runs_page._build_context_actions()
-        assert len(actions) == 6
+        assert len(actions) >= 6
         # First action is refresh
         assert actions[0][1] == runs_page._refresh_all
+
+    def test_context_menu_includes_terminal_actions(self, runs_page):
+        from jobdesk_app.gui.i18n import tr
+
+        labels = [label for label, _callback in runs_page._build_context_actions()]
+
+        assert tr("Open Terminal Here", runs_page._language) in labels
+        assert tr("Copy SSH Command", runs_page._language) in labels
+        assert tr("Copy cd Command", runs_page._language) in labels
+
+    def test_open_terminal_here_launches_selected_run_directory(self, runs_page, tmp_path):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="260607-001",
+            server_id="hpc",
+            remote_dir="/scratch/jobs",
+            command_template="orca {name}",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="now",
+            run_dir=tmp_path / "runs" / "260607-001",
+            manifest_path=tmp_path / "runs" / "260607-001" / "manifest.tsv",
+            batch_path=tmp_path / "runs" / "260607-001" / "batch.json",
+        )
+        runs_page.table.setRowCount(1)
+        item = QTableWidgetItem(record.run_id)
+        item.setData(Qt.UserRole, record)
+        runs_page.table.setItem(0, 0, item)
+        runs_page.table.selectRow(0)
+
+        server = MagicMock()
+        servers = MagicMock(servers={"hpc": server})
+        launch = MagicMock(user_visible_command="wt new-tab ...")
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.load_servers", return_value=servers), \
+             patch("jobdesk_app.gui.pages.runs_results_page.build_terminal_launch", return_value=launch) as build, \
+             patch("jobdesk_app.gui.pages.runs_results_page.launch_terminal") as launcher:
+            runs_page._open_terminal_here()
+
+        build.assert_called_once()
+        assert build.call_args.args[0] is server
+        assert build.call_args.args[1] == "/scratch/jobs/.jobdesk_runs/260607-001"
+        launcher.assert_called_once_with(launch)
+
+    def test_copy_cd_command_uses_selected_run_directory(self, runs_page, tmp_path):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication, QTableWidgetItem
+
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="260607-001",
+            server_id="hpc",
+            remote_dir="/scratch/jobs",
+            command_template="orca {name}",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="now",
+            run_dir=tmp_path / "runs" / "260607-001",
+            manifest_path=tmp_path / "runs" / "260607-001" / "manifest.tsv",
+            batch_path=tmp_path / "runs" / "260607-001" / "batch.json",
+        )
+        runs_page.table.setRowCount(1)
+        item = QTableWidgetItem(record.run_id)
+        item.setData(Qt.UserRole, record)
+        runs_page.table.setItem(0, 0, item)
+        runs_page.table.selectRow(0)
+
+        runs_page._copy_cd_command()
+
+        assert QApplication.clipboard().text() == "cd /scratch/jobs/.jobdesk_runs/260607-001"
 
     def test_compare_selected_renders_comparison_rows(self, runs_page, qtbot):
         """Comparing >=2 selected runs renders the comparison table from compare_runs."""
