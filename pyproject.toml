@@ -1,7 +1,7 @@
 [project]
 name = "jobdesk"
 version = "0.3.0.dev0"
-description = "Windows 11 本地的科研计算工作台：本地输入 -> 远程执行 -> 结果回传 -> 本地分析"
+description = "Windows-first scientific-computing job desk for local inputs, remote execution, result download, and local analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -92,18 +92,18 @@ ignore_missing_imports = true
 module = "rdkit.*"
 ignore_missing_imports = true
 
-# Parsers: re.search() -> Match|None pattern is safe but verbose to annotate
+# Parsers: re.search() -> Match|None pattern is safe but verbose to annotate.
 [[tool.mypy.overrides]]
 module = ["jobdesk_app.core.parsers.gaussian", "jobdesk_app.core.parsers.orca"]
 disable_error_code = "assignment"
 
-# comparison uses PySide6 enum attributes that stubs don't expose
+# comparison uses PySide6 enum attributes that stubs don't expose.
 [[tool.mypy.overrides]]
 module = "jobdesk_app.services.comparison"
 disable_error_code = ["attr-defined", "operator", "type-var"]
 
 # GUI modules use PySide6 enum attributes (e.g. Qt.AlignLeft, QHeaderView.Interactive)
-# that type stubs expose under nested enum classes; suppress attr-defined only
+# that type stubs expose under nested enum classes; suppress attr-defined only.
 [[tool.mypy.overrides]]
 module = "jobdesk_app.gui.*"
 disable_error_code = "attr-defined"
