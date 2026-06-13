@@ -32,5 +32,21 @@ def test_translate_projects_label():
 
 def test_gui_status_helpers_translate_to_chinese():
     assert connection_status_text(None, False, language="zh") == "\u672a\u9009\u62e9\u670d\u52a1\u5668"
-    assert connection_status_text("814new", True, language="zh") == "\u5df2\u8fde\u63a5: 814new"
+    assert connection_status_text("demo-server", True, language="zh") == "\u5df2\u8fde\u63a5: demo-server"
     assert format_selection_summary(1, 2, "zh") == "\u672c\u5730 1 | \u8fdc\u7a0b 2"
+
+
+def test_button_feedback_labels_translate_to_chinese():
+    for label in [
+        "Refreshing...",
+        "Refreshed",
+        "Refresh failed",
+        "Opened",
+        "Open failed",
+        "Submit failed",
+        "Create failed",
+        "Creating...",
+        "Created {n}",
+        "Submitted {n}",
+    ]:
+        assert tr(label, "zh", n=2) != label.format(n=2)

@@ -31,6 +31,7 @@ from ...core.input_builder import (
     build_inp,
     list_presets,
 )
+from ..button_feedback import ButtonRole, apply_button_role
 
 
 class InputBuilderDialog(QDialog):
@@ -53,7 +54,7 @@ class InputBuilderDialog(QDialog):
         if xyz_path:
             self.xyz_edit.setText(str(xyz_path))
         src_row.addWidget(self.xyz_edit, 1)
-        browse_btn = QPushButton("Browse…")
+        browse_btn = apply_button_role(QPushButton("Browse…"), ButtonRole.INSTANT_ACTION)
         browse_btn.clicked.connect(self._browse_xyz)
         src_row.addWidget(browse_btn)
         layout.addLayout(src_row)
@@ -127,7 +128,7 @@ class InputBuilderDialog(QDialog):
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("Leave blank to preview only")
         out_row.addWidget(self.output_edit, 1)
-        out_browse = QPushButton("Save as…")
+        out_browse = apply_button_role(QPushButton("Save as…"), ButtonRole.INSTANT_ACTION)
         out_browse.clicked.connect(self._browse_output)
         out_row.addWidget(out_browse)
         layout.addLayout(out_row)
@@ -141,15 +142,16 @@ class InputBuilderDialog(QDialog):
 
         # ── Buttons ───────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        preview_btn = QPushButton("Preview")
+        preview_btn = apply_button_role(QPushButton("Preview"), ButtonRole.INSTANT_ACTION)
         preview_btn.clicked.connect(self._do_preview)
         btn_row.addWidget(preview_btn)
         btn_row.addStretch()
         self.generate_btn = QPushButton("Generate")
         self.generate_btn.setObjectName("PrimaryBtn")
+        apply_button_role(self.generate_btn, ButtonRole.PRIMARY_ACTION)
         self.generate_btn.clicked.connect(self._do_generate)
         btn_row.addWidget(self.generate_btn)
-        close_btn = QPushButton("Close")
+        close_btn = apply_button_role(QPushButton("Close"), ButtonRole.INSTANT_ACTION)
         close_btn.clicked.connect(self.reject)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)

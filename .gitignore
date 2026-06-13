@@ -10,6 +10,7 @@ dist/
 # Test and tool caches
 .pytest_cache/
 .pytest_tmp*/
+.superpowers/
 .coverage
 htmlcov/
 

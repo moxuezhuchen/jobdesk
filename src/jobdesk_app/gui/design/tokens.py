@@ -5,46 +5,46 @@ from __future__ import annotations
 
 class Colors:
     # Surfaces
-    BG_BASE = "#f1f5f9"
-    BG_SURFACE = "#ffffff"
+    BG_BASE = "#eef3f8"
+    BG_SURFACE = "#f7f9fc"
 
     # Sidebar
-    SIDEBAR_BG = "#0f172a"
-    SIDEBAR_TEXT = "#94a3b8"
-    SIDEBAR_TEXT_ACTIVE = "#f8fafc"
-    SIDEBAR_INDICATOR = "#3b82f6"
-    SIDEBAR_HOVER = "#1e293b"
+    SIDEBAR_BG = "#243244"
+    SIDEBAR_TEXT = "#b7c3d1"
+    SIDEBAR_TEXT_ACTIVE = "#ffffff"
+    SIDEBAR_INDICATOR = "#6f91b7"
+    SIDEBAR_HOVER = "#34465d"
 
     # Primary
-    PRIMARY = "#2563eb"
-    PRIMARY_HOVER = "#1d4ed8"
-    PRIMARY_PRESSED = "#1e40af"
-    PRIMARY_TEXT = "#ffffff"
+    PRIMARY = "#315f95"
+    PRIMARY_HOVER = "#e8eef5"
+    PRIMARY_PRESSED = "#d3dce7"
+    PRIMARY_TEXT = "#111827"
 
     # Semantic
-    SUCCESS = "#16a34a"
-    SUCCESS_BG = "#f0fdf4"
-    WARNING = "#d97706"
-    WARNING_BG = "#fffbeb"
-    ERROR = "#dc2626"
-    ERROR_BG = "#fef2f2"
-    INFO = "#2563eb"
-    INFO_BG = "#eff6ff"
+    SUCCESS = "#2f6f3e"
+    SUCCESS_BG = "#edf5ee"
+    WARNING = "#7a5d1a"
+    WARNING_BG = "#faf2d8"
+    ERROR = "#9b2b2b"
+    ERROR_BG = "#f6eeee"
+    INFO = "#315f95"
+    INFO_BG = "#e7eef6"
 
     # Text
-    TEXT = "#0f172a"
-    TEXT_SECONDARY = "#475569"
-    TEXT_MUTED = "#94a3b8"
+    TEXT = "#111827"
+    TEXT_SECONDARY = "#2f3b49"
+    TEXT_MUTED = "#758293"
 
     # Borders
-    BORDER = "#e2e8f0"
-    BORDER_SUBTLE = "#f1f5f9"
-    BORDER_FOCUS = "#3b82f6"
+    BORDER = "#9aaec4"
+    BORDER_SUBTLE = "#d7e0ea"
+    BORDER_FOCUS = "#5c7fa6"
 
     # Table
-    TABLE_HEADER_BG = "#f8fafc"
-    TABLE_ALT_ROW = "#f8fafc"
-    TABLE_SELECTION = "#dbeafe"
+    TABLE_HEADER_BG = "#dfe7f0"
+    TABLE_ALT_ROW = "#eef3f8"
+    TABLE_SELECTION = "#cfe0f4"
 
 
 class Spacing:
@@ -57,9 +57,9 @@ class Spacing:
 
 
 class Radius:
-    SM = 4
-    MD = 8
-    LG = 12
+    SM = 2
+    MD = 3
+    LG = 4
 
 
 class Shadow:
@@ -77,7 +77,7 @@ class Metrics:
     SIDEBAR_WIDTH = 72
     SIDEBAR_ICON_SIZE = 28
     SIDEBAR_ITEM_HEIGHT = 56
-    CONTROL_HEIGHT = 44
-    TABLE_ROW_HEIGHT = 38
-    TABLE_HEADER_HEIGHT = 44
+    CONTROL_HEIGHT = 38
+    TABLE_ROW_HEIGHT = 32
+    TABLE_HEADER_HEIGHT = 36
     PAGE_PADDING = 20

@@ -8,9 +8,115 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
 
 from jobdesk_app.config.servers import load_servers as load_servers_from_path
+from jobdesk_app.gui.button_feedback import ButtonRole
 from jobdesk_app.gui.pages.settings_servers_helpers import validate_server_id_change
 from jobdesk_app.gui.pages.settings_servers_page import SettingsServersPage, ToggleSwitch
 from jobdesk_app.services.gui_settings import GuiSettings
+
+
+def _make_settings_page(qtbot, tmp_path):
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text(
+        "servers:\n"
+        "  wsl:\n"
+        "    host: 127.0.0.1\n"
+        "    username: root\n"
+        "    auth_method: key\n",
+        encoding="utf-8",
+    )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+    statuses: list[str] = []
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ):
+        page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
+        qtbot.addWidget(page)
+
+    return page, settings_store, statuses
+
+
+def test_settings_buttons_have_feedback_roles(qtbot, tmp_path):
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+
+    expected_roles = {
+        page.browse_btn: ButtonRole.INSTANT_ACTION,
+        page.text_editor_browse_btn: ButtonRole.INSTANT_ACTION,
+        page.test_btn: ButtonRole.TEST_ACTION,
+        page.edit_yaml_btn: ButtonRole.PRIMARY_ACTION,
+        page.edit_srv_btn: ButtonRole.PRIMARY_ACTION,
+        page.delete_srv_btn: ButtonRole.DANGER_ACTION,
+        page._add_profile_btn: ButtonRole.PRIMARY_ACTION,
+        page._del_profile_btn: ButtonRole.DANGER_ACTION,
+        page.save_btn: ButtonRole.SETTINGS_ACTION,
+        page.discard_btn: ButtonRole.SETTINGS_ACTION,
+    }
+
+    for button, role in expected_roles.items():
+        assert button.property("buttonRole") == role.value
+
+
+def test_settings_small_helper_text_uses_readable_size(qtbot, tmp_path):
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+
+    assert "font-size: 14pt" in page._card_local.lbl_desc.styleSheet()
+    assert "font-size: 14pt" in page._dl_desc.styleSheet()
+    assert "font-size: 14pt" in page._confflow_note.styleSheet()
+
+
+def test_settings_confflow_note_translates_to_chinese(qtbot, tmp_path):
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+
+    page.apply_language("zh")
+
+    assert "ConfFlow" in page._confflow_note.text()
+    assert "downloads are managed" not in page._confflow_note.text()
+    assert "\u4e0b\u8f7d" in page._confflow_note.text()
+
+
+def test_settings_test_connection_feedback_pending(qtbot, tmp_path):
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+    idle_text = page.test_btn.text()
+
+    page._test_feedback.pending("Testing...")
+
+    assert page.test_btn.text() == "Testing..."
+    assert page.test_btn.property("feedbackState") == "pending"
+    assert not page.test_btn.isEnabled()
+
+    page._test_feedback.restore()
+
+    assert page.test_btn.text() == idle_text
+    assert page.test_btn.property("feedbackState") == "idle"
+    assert page.test_btn.isEnabled()
+
+
+def test_save_settings_load_error_sets_feedback_error(qtbot, tmp_path):
+    from jobdesk_app.gui.i18n import tr
+
+    page, settings_store, _ = _make_settings_page(qtbot, tmp_path)
+    settings_store.load.side_effect = RuntimeError("broken settings")
+
+    with pytest.raises(RuntimeError, match="broken settings"):
+        page._save_settings()
+
+    assert page.save_btn.text() == tr("Save failed", page._language)
+    assert page.save_btn.property("feedbackState") == "error"
+    assert not page.save_btn.isEnabled()
+
+    page._save_feedback.restore()
+
+    assert page.save_btn.text() == tr("Save Settings", page._language)
+    assert page.save_btn.property("feedbackState") == "idle"
+    assert page.save_btn.isEnabled()
 
 
 def test_validate_server_id_change_allows_unchanged_id():

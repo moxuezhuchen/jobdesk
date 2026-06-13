@@ -39,6 +39,7 @@ from ...services.gui_settings import GuiSettingsStore
 from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
+from ..button_feedback import ButtonFeedback, ButtonRole
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client, sftp_session
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
@@ -73,7 +74,7 @@ from .file_transfer_widgets import (
     _setup_table,
 )
 
-CONTROL_HEIGHT = 44
+CONTROL_HEIGHT = 38
 
 
 class FileTransferPage(QWidget):
@@ -183,10 +184,10 @@ class FileTransferPage(QWidget):
         local_header_widget = QWidget()
         local_header_widget.setObjectName("LocalHeader")
         local_header_widget.setStyleSheet(
-            "#LocalHeader { background: #e2e8f0; border: 1px solid #cbd5e1;"
-            " border-radius: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0; }"
+            "#LocalHeader { background: #dfe7f0; border: 1px solid #9aaec4;"
+            " border-radius: 3px; border-top-right-radius: 0; border-bottom-right-radius: 0; }"
         )
-        local_header_widget.setFixedHeight(60)
+        local_header_widget.setFixedHeight(52)
         local_header = QHBoxLayout(local_header_widget)
         local_header.setContentsMargins(8, 0, 8, 0)
         local_header.setSpacing(12)
@@ -203,17 +204,14 @@ class FileTransferPage(QWidget):
         remote_header_widget = QWidget()
         remote_header_widget.setObjectName("RemoteHeader")
         remote_header_widget.setStyleSheet(
-            "#RemoteHeader { background: #e2e8f0; border: 1px solid #cbd5e1;"
-            " border-radius: 6px; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
-            " #RemoteHeader QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 8px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #RemoteHeader QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
+            "#RemoteHeader { background: #dfe7f0; border: 1px solid #9aaec4;"
+            " border-radius: 3px; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
             " #RemoteHeader QLineEdit, #RemoteHeader QComboBox {"
-            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
-            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
+            " background: #f7f9fc; border: 1px solid #9aaec4; border-radius: 3px;"
+            " padding: 0 8px; min-height: 38px; max-height: 38px; }"
             " #RemoteHeader QLabel { background: transparent; }"
         )
-        remote_header_widget.setFixedHeight(60)
+        remote_header_widget.setFixedHeight(52)
         remote_header = QHBoxLayout(remote_header_widget)
         remote_header.setContentsMargins(8, 0, 8, 0)
         remote_header.setSpacing(12)
@@ -235,13 +233,10 @@ class FileTransferPage(QWidget):
         run_panel = QWidget()
         run_panel.setObjectName("RunPanel")
         run_panel.setStyleSheet(
-            "#RunPanel { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 6px; }"
-            " #RunPanel QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #RunPanel QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
+            "#RunPanel { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
             " #RunPanel QLineEdit, #RunPanel QComboBox, #RunPanel QSpinBox {"
-            " background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px;"
-            " padding: 0 8px; min-height: 44px; max-height: 44px; }"
+            " background: #f7f9fc; border: 1px solid #9aaec4; border-radius: 3px;"
+            " padding: 0 8px; min-height: 38px; max-height: 38px; }"
             " #RunPanel QLabel { background: transparent; }"
         )
         run_panel.setMinimumHeight(110)
@@ -288,6 +283,25 @@ class FileTransferPage(QWidget):
         self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
         self.create_only_btn.clicked.connect(self._create_only)
         run_options_row.addWidget(self.create_only_btn)
+        run_button_group = [self.run_btn, self.confflow_btn, self.create_only_btn]
+        self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
+        self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)
+        self._preview_feedback = ButtonFeedback(self.preview_commands_btn, role=ButtonRole.INSTANT_ACTION)
+        self._run_feedback = ButtonFeedback(
+            self.run_btn,
+            role=ButtonRole.PRIMARY_ACTION,
+            group=run_button_group,
+        )
+        self._confflow_feedback = ButtonFeedback(
+            self.confflow_btn,
+            role=ButtonRole.PRIMARY_ACTION,
+            group=run_button_group,
+        )
+        self._create_only_feedback = ButtonFeedback(
+            self.create_only_btn,
+            role=ButtonRole.PRIMARY_ACTION,
+            group=run_button_group,
+        )
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setMinimumWidth(180)
@@ -386,6 +400,12 @@ class FileTransferPage(QWidget):
         self.run_btn.setText(tr("Run Selected", language))
         self.confflow_btn.setText(tr("Run ConfFlow", language))
         self.create_only_btn.setText(tr("Create tasks only", language))
+        self._refresh_feedback.set_idle_text(self.refresh_btn.text())
+        self._terminal_feedback.set_idle_text(self.open_terminal_btn.text())
+        self._preview_feedback.set_idle_text(self.preview_commands_btn.text())
+        self._run_feedback.set_idle_text(self.run_btn.text())
+        self._confflow_feedback.set_idle_text(self.confflow_btn.text())
+        self._create_only_feedback.set_idle_text(self.create_only_btn.text())
         self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
         self.remote_table.setHorizontalHeaderLabels(self._translated_table_headers("remote"))
         self._populate_run_mode_combo()
@@ -608,6 +628,7 @@ class FileTransferPage(QWidget):
         self.local_table.setCurrentCell(-1, -1)
 
     def _refresh_all(self):
+        self._refresh_feedback.pending(tr("Refreshing...", self._language))
         self._refresh_local_async()
         self._refresh_remote()
 
@@ -629,13 +650,17 @@ class FileTransferPage(QWidget):
                 temp_dir=Path(tempfile.gettempdir()) / "jobdesk_terminal",
             )
             launch_terminal(launch)
+            self._terminal_feedback.success(tr("Opened", self._language))
             self._status_cb(tr("Terminal opened", self._language))
         except Exception as exc:
+            self._terminal_feedback.error(tr("Open failed", self._language))
             self._status_cb(tr("Open terminal failed: {e}", self._language, e=exc))
 
     def _refresh_remote(self):
         if self._service is None:
             self._auto_connect_selected_server()
+            if self._service is None and self.refresh_btn.property("feedbackState") == "pending":
+                self._refresh_feedback.error(tr("Refresh failed", self._language))
             return
         self._remote_list_fallbacks = self._fallback_remote_dirs()
         self._refresh_remote_path(self.remote_path.text().strip() or "/")
@@ -702,6 +727,8 @@ class FileTransferPage(QWidget):
         _load_rows(self.remote_table, rows)
         self._update_selection_summary()
         self.connection_label.setText(connection_status_text(self._connected_server_id, True, language=self._language))
+        if self.refresh_btn.property("feedbackState") == "pending":
+            self._refresh_feedback.success(tr("Refreshed", self._language))
         self._status_cb(f"Remote listed: {remote_dir} ({len(rows)} entries)")
 
     def _on_remote_list_error(self, request_id: int, error: str):
@@ -713,6 +740,8 @@ class FileTransferPage(QWidget):
             self._refresh_remote_path(fallback)
             return
         self.connection_label.setText(connection_status_text(self._connected_server_id, False, error.splitlines()[0], self._language))
+        if self.refresh_btn.property("feedbackState") == "pending":
+            self._refresh_feedback.error(tr("Refresh failed", self._language))
         self._error_cb("Remote List Error", error.splitlines()[0])
 
     def _selected_local_path(self) -> Path | None:
@@ -1650,13 +1679,20 @@ class FileTransferPage(QWidget):
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
         worker = BackgroundWorker(_run)
-        worker.result.connect(self._on_confflow_done)
-        worker.error.connect(lambda error: self._error_cb("ConfFlow Run Error", error))
+        worker.result.connect(lambda payload: (
+            self._confflow_feedback.success(tr("Submitted", self._language)),
+            self._on_confflow_done(payload),
+        ))
+        worker.error.connect(lambda error: (
+            self._confflow_feedback.error(tr("Submit failed", self._language)),
+            self._error_cb("ConfFlow Run Error", error),
+        ))
         worker.finished.connect(
             lambda: self._background_workers.remove(worker)
             if worker in self._background_workers else None
         )
         self._background_workers.append(worker)
+        self._confflow_feedback.pending(tr("Submitting...", self._language))
         worker.start()
 
     def _on_confflow_done(self, payload):
@@ -1731,6 +1767,7 @@ class FileTransferPage(QWidget):
         if file_service is None or connected_server is None:
             self._status_cb(tr("Connect to a server first", self._language))
             return
+        feedback = self._run_feedback if submit else self._create_only_feedback
 
         local_paths_files = list(local_files)
         local_paths_dirs = list(local_dirs)
@@ -1826,21 +1863,29 @@ class FileTransferPage(QWidget):
             self._save_command_history()
             error = payload.get("error")
             if error:
+                feedback.error(tr("Submit failed", self._language) if submit else tr("Create failed", self._language))
                 self._error_cb("Run Error", error)
                 return
             results = payload["results"]
             if results is None:
+                feedback.success(tr("Created {n}", self._language, n=len(run_records)))
                 self._status_cb(f"Created {len(run_records)} run(s)")
             else:
+                feedback.success(tr("Submitted {n}", self._language, n=len(results)))
                 self._on_runs_done(results)
 
+        def _on_run_worker_error(error: str) -> None:
+            feedback.error(tr("Submit failed", self._language) if submit else tr("Create failed", self._language))
+            self._error_cb("Run Error", error)
+
+        feedback.pending(tr("Submitting...", self._language) if submit else tr("Creating...", self._language))
         start_context_worker(
             self,
             target=_run,
             registry_attr="_background_workers",
             on_log=self._status_cb,
             on_result=_on_run_worker_done,
-            on_error=lambda error: self._error_cb("Run Error", error),
+            on_error=_on_run_worker_error,
         )
         self._status_cb("Submitting..." if submit else "Creating run(s)...")
         return

@@ -57,8 +57,8 @@ QCheckBox::indicator:hover {{
     border-color: #93c5fd;
 }}
 QCheckBox::indicator:checked {{
-    background: #2563eb;
-    border-color: #2563eb;
+    background: {c.BORDER_FOCUS};
+    border-color: {c.BORDER_FOCUS};
 }}
 /* ─── SpinBox: hide up/down buttons ─── */
 QSpinBox::up-button, QSpinBox::down-button {{
@@ -74,20 +74,21 @@ QPushButton {{
     background: {c.BG_SURFACE};
     border: 1px solid {c.BORDER};
     border-radius: {Radius.MD}px;
-    padding: 0 14px;
+    padding: 0 10px;
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
-    font-weight: 500;
+    color: {c.TEXT};
+    font-weight: 400;
 }}
 QPushButton:hover {{
-    background: {c.INFO_BG};
-    border-color: #93c5fd;
+    background: {c.PRIMARY_HOVER};
+    border-color: {c.BORDER_FOCUS};
 }}
 QPushButton:pressed {{
-    background: #93c5fd;
-    border-color: #3b82f6;
-    padding-top: 2px;
-    padding-left: 16px;
+    background: {c.PRIMARY_PRESSED};
+    border-color: {c.BORDER_FOCUS};
+    padding-top: 1px;
+    padding-left: 11px;
 }}
 QPushButton:disabled {{
     color: {c.TEXT_MUTED};
@@ -98,14 +99,79 @@ QPushButton#PrimaryBtn {{
     background: {c.BG_SURFACE};
     color: {c.TEXT};
     border: 1px solid {c.BORDER};
-    font-weight: 600;
+    font-weight: 400;
 }}
 QPushButton#PrimaryBtn:hover {{
-    background: {c.INFO_BG};
-    border-color: #93c5fd;
+    background: {c.PRIMARY_HOVER};
+    border-color: {c.BORDER_FOCUS};
 }}
 QPushButton#PrimaryBtn:pressed {{
     background: {c.PRIMARY_PRESSED};
+}}
+
+QPushButton:focus {{
+    border-color: {c.BORDER_FOCUS};
+}}
+QPushButton[buttonRole="primary_action"],
+QPushButton[buttonRole="refresh_action"],
+QPushButton[buttonRole="transfer_action"],
+QPushButton[buttonRole="danger_action"],
+QPushButton[buttonRole="settings_action"],
+QPushButton[buttonRole="test_action"],
+QPushButton[buttonRole="instant_action"] {{
+    background: {c.BG_SURFACE};
+    color: {c.TEXT};
+    border-color: {c.BORDER};
+    font-weight: 400;
+}}
+QPushButton[buttonRole="primary_action"]:hover,
+QPushButton[buttonRole="refresh_action"]:hover {{
+    background: {c.PRIMARY_HOVER};
+    border-color: {c.BORDER_FOCUS};
+}}
+QPushButton[buttonRole="primary_action"]:pressed,
+QPushButton[buttonRole="refresh_action"]:pressed,
+QPushButton[buttonRole="transfer_action"]:pressed,
+QPushButton[buttonRole="danger_action"]:pressed,
+QPushButton[buttonRole="settings_action"]:pressed,
+QPushButton[buttonRole="test_action"]:pressed,
+QPushButton[buttonRole="instant_action"]:pressed {{
+    background: {c.PRIMARY_PRESSED};
+    border-color: {c.BORDER_FOCUS};
+}}
+QPushButton[buttonRole="instant_action"]:hover,
+QPushButton[buttonRole="transfer_action"]:hover,
+QPushButton[buttonRole="danger_action"]:hover,
+QPushButton[buttonRole="test_action"]:hover,
+QPushButton[buttonRole="settings_action"]:hover {{
+    background: {c.PRIMARY_HOVER};
+    border-color: {c.BORDER_FOCUS};
+}}
+QPushButton[feedbackState="pending"] {{
+    background: {c.WARNING_BG};
+    color: {c.WARNING};
+    border-color: #c9a849;
+}}
+QPushButton[feedbackState="success"] {{
+    background: {c.SUCCESS_BG};
+    color: {c.SUCCESS};
+    border-color: #8ab58f;
+}}
+QPushButton[feedbackState="error"] {{
+    background: {c.ERROR_BG};
+    color: {c.ERROR};
+    border-color: #c28f8f;
+}}
+QPushButton[feedbackState="blocked"] {{
+    background: {c.BORDER_SUBTLE};
+    color: {c.TEXT_MUTED};
+    border-color: {c.BORDER};
+}}
+QPushButton[buttonRole="danger_action"][feedbackState="pending"],
+QPushButton[buttonRole="danger_action"][feedbackState="error"] {{
+    background: {c.ERROR_BG};
+    color: {c.ERROR};
+    border-color: #c28f8f;
 }}
 
 /* ─── Inputs ─── */
@@ -237,27 +303,27 @@ QScrollBar::add-line, QScrollBar::sub-line {{
 
 /* ─── Card-embedded controls (shared by BtnCard / SettingCard / LocalHeader) ─── */
 #BtnCard QPushButton, #SettingCard QPushButton, #LocalHeader QPushButton {{
-    background: #cbd5e1;
-    border: 1px solid #94a3b8;
-    border-radius: 4px;
-    padding: 0 16px;
-    min-height: 44px;
-    max-height: 44px;
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
+    padding: 0 10px;
+    min-height: {m.CONTROL_HEIGHT}px;
+    max-height: {m.CONTROL_HEIGHT}px;
 }}
 #LocalHeader QPushButton {{
     padding: 0 8px;
 }}
 #BtnCard QPushButton:pressed, #SettingCard QPushButton:pressed, #LocalHeader QPushButton:pressed {{
-    background: #93c5fd;
-    border-color: #3b82f6;
+    background: {c.PRIMARY_PRESSED};
+    border-color: {c.BORDER_FOCUS};
 }}
 #BtnCard QLineEdit, #SettingCard QLineEdit, #SettingCard QSpinBox, #SettingCard QComboBox {{
-    background: #cbd5e1;
-    border: 1px solid #94a3b8;
-    border-radius: 4px;
+    background: {c.BG_SURFACE};
+    border: 1px solid {c.BORDER};
+    border-radius: {Radius.MD}px;
     padding: 0 8px;
-    min-height: 44px;
-    max-height: 44px;
+    min-height: {m.CONTROL_HEIGHT}px;
+    max-height: {m.CONTROL_HEIGHT}px;
 }}
 """
 

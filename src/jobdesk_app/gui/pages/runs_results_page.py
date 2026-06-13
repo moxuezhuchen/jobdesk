@@ -27,6 +27,7 @@ from ...config.servers import load_servers
 from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunRecord, RunService
+from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
@@ -107,7 +108,7 @@ class RunsResultsPage(QWidget):
         table_card = QWidget()
         table_card.setObjectName("RunsTableCard")
         table_card.setStyleSheet(
-            "#RunsTableCard { background: #e2e8f0; border: none; border-radius: 12px; }"
+            "#RunsTableCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
         )
         table_card_layout = QVBoxLayout(table_card)
         table_card_layout.setContentsMargins(16, 12, 16, 12)
@@ -118,9 +119,9 @@ class RunsResultsPage(QWidget):
         btn_card = QWidget()
         btn_card.setObjectName("BtnCard")
         btn_card.setStyleSheet(
-            "#BtnCard { background: #e2e8f0; border: none; border-radius: 12px; }"
+            "#BtnCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
         )
-        btn_card.setFixedHeight(60)
+        btn_card.setFixedHeight(54)
         btn_row = QHBoxLayout(btn_card)
         btn_row.setContentsMargins(16, 0, 16, 0)
         self.retry_btn = QPushButton(tr("Retry Failed", self._language))
@@ -135,6 +136,10 @@ class RunsResultsPage(QWidget):
         self.delete_btn = QPushButton(tr("Delete", self._language))
         self.delete_btn.clicked.connect(self._delete_run)
         btn_row.addWidget(self.delete_btn)
+        self._retry_feedback = ButtonFeedback(self.retry_btn, ButtonRole.PRIMARY_ACTION)
+        self._cancel_feedback = ButtonFeedback(self.cancel_btn, ButtonRole.DANGER_ACTION)
+        self._retry_download_feedback = ButtonFeedback(self.retry_dl_btn, ButtonRole.TRANSFER_ACTION)
+        self._delete_feedback = ButtonFeedback(self.delete_btn, ButtonRole.DANGER_ACTION)
         btn_row.addStretch()
         top_layout.addWidget(btn_card)
         splitter.addWidget(top)
@@ -143,7 +148,7 @@ class RunsResultsPage(QWidget):
         bottom = QWidget()
         bottom.setObjectName("ResultsCard")
         bottom.setStyleSheet(
-            "#ResultsCard { background: #e2e8f0; border: none; border-radius: 12px; }"
+            "#ResultsCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
             " #ResultsCard QLabel { background: transparent; }"
             " #ResultsCard QTextEdit { background: transparent; border: none; }"
         )
@@ -152,7 +157,7 @@ class RunsResultsPage(QWidget):
         bottom_layout.setSpacing(4)
 
         self.result_label = QLabel(tr("Result Preview", self._language))
-        self.result_label.setStyleSheet("color: #0f172a; font-weight: 600;")
+        self.result_label.setStyleSheet("color: #111827; font-weight: 600;")
         bottom_layout.addWidget(self.result_label)
 
         self.result_table = StyledTableWidget()
@@ -377,10 +382,10 @@ class RunsResultsPage(QWidget):
 
     def apply_language(self, language: str):
         self._language = language
-        self.retry_btn.setText(tr("Retry Failed", language))
-        self.cancel_btn.setText(tr("Cancel", language))
-        self.retry_dl_btn.setText(tr("Retry Download", language))
-        self.delete_btn.setText(tr("Delete", language))
+        self._retry_feedback.set_idle_text(tr("Retry Failed", language))
+        self._cancel_feedback.set_idle_text(tr("Cancel", language))
+        self._retry_download_feedback.set_idle_text(tr("Retry Download", language))
+        self._delete_feedback.set_idle_text(tr("Delete", language))
         self.result_label.setText(tr("Result Preview", language))
         self._set_headers()
         self.refresh_run_list()
@@ -1019,7 +1024,12 @@ class RunsResultsPage(QWidget):
         if changed <= 0:
             self._status_cb(tr("No failed tasks", self._language))
             return
-        self._submit_record(record.run_id)
+        self._retry_feedback.pending(tr("Retrying...", self._language))
+        try:
+            self._submit_record(record.run_id, feedback=self._retry_feedback)
+        except Exception as exc:
+            self._retry_feedback.error(tr("Retry failed", self._language))
+            self._status_cb(tr("Submit failed: {e}", self._language, e=exc))
 
     def _retry_download(self):
         """Re-attempt download for tasks still at remote_completed."""
@@ -1031,6 +1041,7 @@ class RunsResultsPage(QWidget):
             return
         workspace = self._result_workspace(record)
         self._retry_dl_running = True
+        self._retry_download_feedback.pending(tr("Downloading...", self._language))
 
         def _run():
             server = load_servers().servers[record.server_id]
@@ -1054,12 +1065,15 @@ class RunsResultsPage(QWidget):
             _recs, failures = result
             self.refresh_run_list()
             if failures:
+                self._retry_download_feedback.error(tr("Partial: {n} failed", self._language, n=len(failures)))
                 self._status_cb(tr("Download partial: {n} failed", self._language, n=len(failures)))
             else:
+                self._retry_download_feedback.success(tr("Downloaded", self._language))
                 self._status_cb(tr("Download complete", self._language))
 
         def _err(exc):
             self._retry_dl_running = False
+            self._retry_download_feedback.error(tr("Download failed", self._language))
             self._status_cb(tr("Download error: {e}", self._language, e=exc))
 
         worker.result.connect(_done)
@@ -1166,6 +1180,7 @@ class RunsResultsPage(QWidget):
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         workspace = self._workspace()
+        self._cancel_feedback.pending(tr("Cancelling...", self._language))
 
         def _run():
             server = load_servers().servers[record.server_id]
@@ -1179,15 +1194,21 @@ class RunsResultsPage(QWidget):
         from ..workers import BackgroundWorker
         self._worker = BackgroundWorker(_run)
         self._worker.result.connect(lambda result: self._on_cancel_done(record.run_id, result))
-        self._worker.error.connect(lambda e: self._status_cb(tr("Cancel failed: {e}", self._language, e=e)))
+        self._worker.error.connect(lambda e: self._on_cancel_error(e))
         self._worker.start()
+
+    def _on_cancel_error(self, exc: Exception):
+        self._cancel_feedback.error(tr("Cancel failed", self._language))
+        self._status_cb(tr("Cancel failed: {e}", self._language, e=exc))
 
     def _on_cancel_done(self, run_id: str, result: tuple[int, list[str]]):
         changed, errors = result
         self.refresh_run_list()
         if errors:
+            self._cancel_feedback.error(tr("Cancel failed", self._language))
             self._status_cb(tr("Cancel failed: {e}", self._language, e="; ".join(errors)))
         else:
+            self._cancel_feedback.success(tr("Cancelled", self._language))
             self._status_cb(tr("Cancelled: {run_id}", self._language, run_id=run_id))
 
     def _delete_run(self):
@@ -1206,6 +1227,7 @@ class RunsResultsPage(QWidget):
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         workspace = self._workspace()
+        self._delete_feedback.pending(tr("Deleting...", self._language))
 
         def _run(_ctx: WorkerContext):
             deleted = 0
@@ -1224,19 +1246,25 @@ class RunsResultsPage(QWidget):
             deleted, errors = result
             self.refresh_run_list()
             if errors:
+                self._delete_feedback.error(tr("Delete failed", self._language))
                 self._status_cb(tr("Delete failed", self._language) + f": {'; '.join(errors)}")
             else:
+                self._delete_feedback.success(tr("Deleted {n}", self._language, n=deleted))
                 self._status_cb(tr("Deleted: {n} records", self._language, n=deleted))
+
+        def _error(error: Exception):
+            self._delete_feedback.error(tr("Delete failed", self._language))
+            self._status_cb(tr("Delete failed", self._language) + f": {error}")
 
         start_context_worker(
             self,
             target=_run,
             registry_attr="_bg_workers",
             on_result=_done,
-            on_error=lambda error: self._status_cb(tr("Delete failed", self._language) + f": {error}"),
+            on_error=_error,
         )
 
-    def _submit_record(self, run_id: str):
+    def _submit_record(self, run_id: str, *, feedback: ButtonFeedback | None = None):
         workspace = self._workspace()
         record = RunService(workspace).load_run(run_id)
 
@@ -1253,12 +1281,19 @@ class RunsResultsPage(QWidget):
 
         from ..workers import BackgroundWorker
         self._worker = BackgroundWorker(_run)
-        self._worker.result.connect(lambda r: self._on_submit_done(r))
-        self._worker.error.connect(lambda e: self._status_cb(tr("Submit failed: {e}", self._language, e=e)))
+        self._worker.result.connect(lambda r: self._on_submit_done(r, feedback=feedback))
+        self._worker.error.connect(lambda e: self._on_submit_error(e, feedback=feedback))
         self._worker.start()
 
-    def _on_submit_done(self, result):
+    def _on_submit_error(self, exc: Exception, *, feedback: ButtonFeedback | None = None):
+        if feedback is not None:
+            feedback.error(tr("Retry failed", self._language))
+        self._status_cb(tr("Submit failed: {e}", self._language, e=exc))
+
+    def _on_submit_done(self, result, *, feedback: ButtonFeedback | None = None):
         self.refresh_run_list()
+        if feedback is not None:
+            feedback.success(tr("Retried", self._language))
         self._status_cb(tr("Submitted: {batch_id}", self._language, batch_id=result.batch_id))
         self._start_monitoring()
 

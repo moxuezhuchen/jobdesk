@@ -83,6 +83,63 @@ class TestRunsPage:
         assert runs_page.cancel_btn is not None
         assert runs_page.delete_btn is not None
 
+    def test_runs_results_buttons_have_feedback_roles(self, runs_page):
+        from jobdesk_app.gui.button_feedback import ButtonRole
+
+        assert runs_page.retry_btn.property("buttonRole") == ButtonRole.PRIMARY_ACTION.value
+        assert runs_page.cancel_btn.property("buttonRole") == ButtonRole.DANGER_ACTION.value
+        assert runs_page.retry_dl_btn.property("buttonRole") == ButtonRole.TRANSFER_ACTION.value
+        assert runs_page.delete_btn.property("buttonRole") == ButtonRole.DANGER_ACTION.value
+
+    def test_runs_results_delete_feedback_pending_disables_delete(self, runs_page):
+        idle_text = runs_page.delete_btn.text()
+
+        runs_page._delete_feedback.pending("Deleting...")
+
+        assert runs_page.delete_btn.text() == "Deleting..."
+        assert not runs_page.delete_btn.isEnabled()
+
+        runs_page._delete_feedback.restore()
+
+        assert runs_page.delete_btn.text() == idle_text
+        assert runs_page.delete_btn.isEnabled()
+
+    def test_retry_failed_sync_submit_error_sets_feedback_error(self, runs_page):
+        from jobdesk_app.gui.i18n import tr
+
+        record = MagicMock(run_id="run_retry")
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
+             patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_submit_record", side_effect=RuntimeError("boom")):
+            svc.return_value.prepare_retry_failed.return_value = 1
+
+            runs_page._retry_failed()
+
+        assert runs_page.retry_btn.text() == tr("Retry failed", runs_page._language)
+        assert runs_page.retry_btn.property("feedbackState") == "error"
+        assert not runs_page.retry_btn.isEnabled()
+
+        runs_page._retry_feedback.restore()
+
+        assert runs_page.retry_btn.text() == tr("Retry Failed", runs_page._language)
+        assert runs_page.retry_btn.isEnabled()
+
+    def test_runs_feedback_pending_uses_current_language(self, runs_page):
+        from jobdesk_app.gui.i18n import tr
+
+        assert tr("Retrying...", "zh") != "Retrying..."
+
+        runs_page.apply_language("zh")
+
+        runs_page._retry_feedback.pending(tr("Retrying...", runs_page._language))
+
+        assert runs_page.retry_btn.text() == tr("Retrying...", "zh")
+
+        runs_page._retry_feedback.restore()
+
+        assert runs_page.retry_btn.text() == tr("Retry Failed", "zh")
+
     def test_context_menu_has_refresh(self, runs_page, qtbot):
         """Right-click context menu should contain refresh action."""
         actions = runs_page._build_context_actions()
@@ -1341,6 +1398,76 @@ class TestTaskDoneDebounce:
 class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):
         assert file_page is not None
+
+    def test_file_transfer_buttons_have_feedback_roles(self, file_page):
+        from jobdesk_app.gui.button_feedback import ButtonRole
+
+        assert file_page.refresh_btn.property("buttonRole") == ButtonRole.REFRESH_ACTION.value
+        assert file_page.open_terminal_btn.property("buttonRole") == ButtonRole.INSTANT_ACTION.value
+        assert file_page.preview_commands_btn.property("buttonRole") == ButtonRole.INSTANT_ACTION.value
+        assert file_page.run_btn.property("buttonRole") == ButtonRole.PRIMARY_ACTION.value
+        assert file_page.confflow_btn.property("buttonRole") == ButtonRole.PRIMARY_ACTION.value
+        assert file_page.create_only_btn.property("buttonRole") == ButtonRole.PRIMARY_ACTION.value
+
+    def test_file_transfer_run_feedback_pending_disables_run_group(self, file_page):
+        idle_texts = {
+            file_page.run_btn: file_page.run_btn.text(),
+            file_page.confflow_btn: file_page.confflow_btn.text(),
+            file_page.create_only_btn: file_page.create_only_btn.text(),
+        }
+
+        file_page._run_feedback.pending("Submitting...")
+
+        assert file_page.run_btn.text() == "Submitting..."
+        assert not file_page.run_btn.isEnabled()
+        assert not file_page.confflow_btn.isEnabled()
+        assert not file_page.create_only_btn.isEnabled()
+
+        file_page._run_feedback.restore()
+
+        assert file_page.run_btn.text() == idle_texts[file_page.run_btn]
+        assert file_page.confflow_btn.text() == idle_texts[file_page.confflow_btn]
+        assert file_page.create_only_btn.text() == idle_texts[file_page.create_only_btn]
+        assert file_page.run_btn.isEnabled()
+        assert file_page.confflow_btn.isEnabled()
+        assert file_page.create_only_btn.isEnabled()
+
+    def test_file_transfer_refresh_feedback_stays_pending_until_async_completion(self, file_page):
+        from jobdesk_app.gui.i18n import tr
+
+        with patch.object(file_page, "_refresh_local_async") as refresh_local, \
+             patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page._refresh_all()
+
+        refresh_local.assert_called_once_with()
+        refresh_remote.assert_called_once_with()
+        assert file_page.refresh_btn.text() == tr("Refreshing...", file_page._language)
+        assert file_page.refresh_btn.property("feedbackState") == "pending"
+        assert not file_page.refresh_btn.isEnabled()
+
+        file_page._refresh_feedback.restore()
+
+        assert file_page.refresh_btn.property("feedbackState") == "idle"
+        assert file_page.refresh_btn.isEnabled()
+
+    def test_file_transfer_refresh_without_connection_sets_error_feedback(self, file_page):
+        from jobdesk_app.gui.i18n import tr
+
+        file_page._service = None
+        file_page._gui_settings = replace(file_page._gui_settings, auto_connect=False)
+
+        with patch.object(file_page, "_refresh_local_async") as refresh_local:
+            file_page._refresh_all()
+
+        refresh_local.assert_called_once_with()
+        assert file_page.refresh_btn.text() == tr("Refresh failed", file_page._language)
+        assert file_page.refresh_btn.property("feedbackState") == "error"
+        assert not file_page.refresh_btn.isEnabled()
+
+        file_page._refresh_feedback.restore()
+
+        assert file_page.refresh_btn.property("feedbackState") == "idle"
+        assert file_page.refresh_btn.isEnabled()
 
     def test_local_table_exists(self, file_page):
         assert file_page.local_table is not None

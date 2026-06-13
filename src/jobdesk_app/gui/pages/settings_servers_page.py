@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from ...config.servers import get_default_servers_path, load_servers
 from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
+from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import ssh_session
@@ -72,7 +73,7 @@ class ToggleSwitch(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        track_color = QColor("#3b82f6") if self._checked else QColor("#94a3b8")
+        track_color = QColor("#5c7fa6") if self._checked else QColor("#9aaec4")
         p.setBrush(track_color)
         p.setPen(Qt.NoPen)
         p.drawRoundedRect(QRectF(0, 0, 60, 32), 16, 16)
@@ -88,7 +89,7 @@ class SettingCard(QFrame):
         super().__init__()
         self.setObjectName("SettingCard")
         self.setStyleSheet(
-            "#SettingCard { background: #e2e8f0; border: none; border-radius: 12px; }"
+            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
             " #SettingCard QLabel { background: transparent; }"
         )
 
@@ -98,7 +99,7 @@ class SettingCard(QFrame):
 
         lbl_title = QLabel(title)
         lbl_desc = QLabel(description)
-        lbl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
+        lbl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
         self.lbl_title = lbl_title
         self.lbl_desc = lbl_desc
 
@@ -106,7 +107,7 @@ class SettingCard(QFrame):
         layout.addSpacing(16)
         layout.addWidget(lbl_desc)
         layout.addStretch()
-        control.setMinimumWidth(180)
+        control.setMinimumWidth(160)
         layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
 
 
@@ -138,7 +139,7 @@ class SettingsServersPage(QWidget):
 
         # Page title
         self._page_title = QLabel(tr("Settings", self._language))
-        self._page_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        self._page_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
         layout.addWidget(self._page_title)
         layout.addSpacing(8)
 
@@ -202,17 +203,14 @@ class SettingsServersPage(QWidget):
         # ─── 服务器配置 ───
         layout.addSpacing(12)
         self._srv_title = QLabel(tr("Server Profiles", self._language))
-        self._srv_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        self._srv_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
         layout.addWidget(self._srv_title)
         layout.addSpacing(4)
 
         srv_card = QFrame()
         srv_card.setObjectName("SettingCard")
         srv_card.setStyleSheet(
-            "#SettingCard { background: #e2e8f0; border: none; border-radius: 12px; }"
-            " #SettingCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #SettingCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
+            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
         )
         srv_inner = QVBoxLayout(srv_card)
         srv_inner.setContentsMargins(16, 12, 16, 12)
@@ -251,10 +249,10 @@ class SettingsServersPage(QWidget):
         layout.addSpacing(12)
         dl_header = QHBoxLayout()
         self._dl_title = QLabel(tr("Software Profiles", self._language))
-        self._dl_title.setStyleSheet("font-size: 20pt; color: #0f172a; font-weight: 600;")
+        self._dl_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
         dl_header.addWidget(self._dl_title)
         self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
-        self._dl_desc.setStyleSheet("color: #64748b; font-size: 15pt;")
+        self._dl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
         dl_header.addWidget(self._dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
@@ -286,10 +284,7 @@ class SettingsServersPage(QWidget):
         profile_card = QFrame()
         profile_card.setObjectName("ProfileCard")
         profile_card.setStyleSheet(
-            "#ProfileCard { background: #e2e8f0; border: none; border-radius: 12px; }"
-            " #ProfileCard QPushButton { background: #cbd5e1; border: 1px solid #94a3b8;"
-            " padding: 0 16px; border-radius: 4px; min-height: 44px; max-height: 44px; }"
-            " #ProfileCard QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
+            "#ProfileCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
         )
         profile_card_inner = QVBoxLayout(profile_card)
         profile_card_inner.setContentsMargins(16, 12, 16, 12)
@@ -300,7 +295,7 @@ class SettingsServersPage(QWidget):
             tr("ConfFlow downloads are managed from declared task outputs; "
                "shown patterns describe the default artifacts.", self._language)
         )
-        self._confflow_note.setStyleSheet("color: #64748b; font-size: 13pt; padding: 4px 0;")
+        self._confflow_note.setStyleSheet("color: #2f3b49; font-size: 14pt; padding: 4px 0;")
         self._confflow_note.setWordWrap(True)
         profile_card_inner.addWidget(self._confflow_note)
         layout.addWidget(profile_card)
@@ -310,27 +305,31 @@ class SettingsServersPage(QWidget):
 
         # ─── 底部按钮栏（固定） ───
         bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("border-top: 1px solid #e2e8f0;")
+        bottom_bar.setStyleSheet("border-top: 1px solid #9aaec4;")
         bar_layout = QHBoxLayout(bottom_bar)
         bar_layout.setContentsMargins(24, 10, 24, 10)
         bar_layout.addStretch()
         self.save_btn = QPushButton(tr("Save Settings", self._language))
-        self.save_btn.setStyleSheet(
-            "QPushButton { background: #3b82f6; color: white; padding: 0 16px; border-radius: 4px;"
-            " min-height: 44px; max-height: 44px; }"
-            " QPushButton:pressed { background: #1d4ed8; }"
-        )
         self.save_btn.clicked.connect(self._save_settings)
         self.discard_btn = QPushButton(tr("Discard", self._language))
-        self.discard_btn.setStyleSheet(
-            "QPushButton { background: #cbd5e1; border: 1px solid #94a3b8; padding: 0 16px; border-radius: 4px;"
-            " min-height: 44px; max-height: 44px; }"
-            " QPushButton:pressed { background: #93c5fd; border-color: #3b82f6; }"
-        )
-        self.discard_btn.clicked.connect(self._load_settings)
+        self.discard_btn.clicked.connect(lambda: self._load_settings(show_discard_feedback=True))
         bar_layout.addWidget(self.save_btn)
         bar_layout.addWidget(self.discard_btn)
         root.addWidget(bottom_bar)
+
+        self._browse_feedback = ButtonFeedback(self.browse_btn, ButtonRole.INSTANT_ACTION)
+        self._text_editor_browse_feedback = ButtonFeedback(
+            self.text_editor_browse_btn,
+            ButtonRole.INSTANT_ACTION,
+        )
+        self._test_feedback = ButtonFeedback(self.test_btn, ButtonRole.TEST_ACTION)
+        self._add_server_feedback = ButtonFeedback(self.edit_yaml_btn, ButtonRole.PRIMARY_ACTION)
+        self._edit_server_feedback = ButtonFeedback(self.edit_srv_btn, ButtonRole.PRIMARY_ACTION)
+        self._delete_server_feedback = ButtonFeedback(self.delete_srv_btn, ButtonRole.DANGER_ACTION)
+        self._add_profile_feedback = ButtonFeedback(self._add_profile_btn, ButtonRole.PRIMARY_ACTION)
+        self._delete_profile_feedback = ButtonFeedback(self._del_profile_btn, ButtonRole.DANGER_ACTION)
+        self._save_feedback = ButtonFeedback(self.save_btn, ButtonRole.SETTINGS_ACTION)
+        self._discard_feedback = ButtonFeedback(self.discard_btn, ButtonRole.SETTINGS_ACTION)
 
         self._load_servers()
         self._load_settings()
@@ -346,6 +345,10 @@ class SettingsServersPage(QWidget):
         self._page_title.setText(tr("Settings", language))
         self._dl_title.setText(tr("Software Profiles", language))
         self._dl_desc.setText(tr("{name}=filename, {basename}=name without extension", language))
+        self._confflow_note.setText(
+            tr("ConfFlow downloads are managed from declared task outputs; "
+               "shown patterns describe the default artifacts.", language)
+        )
         self._srv_title.setText(tr("Server Profiles", language))
         # Setting cards
         self._card_local.lbl_title.setText(tr("Local Directory", language))
@@ -369,6 +372,16 @@ class SettingsServersPage(QWidget):
         self.delete_srv_btn.setText(tr("Delete", language))
         self.save_btn.setText(tr("Save Settings", language))
         self.discard_btn.setText(tr("Discard", language))
+        self._browse_feedback.set_idle_text(tr("Browse", language))
+        self._text_editor_browse_feedback.set_idle_text(tr("Browse", language))
+        self._add_profile_feedback.set_idle_text(tr("Add", language))
+        self._delete_profile_feedback.set_idle_text(tr("Delete", language))
+        self._test_feedback.set_idle_text(tr("Test Connection", language))
+        self._add_server_feedback.set_idle_text(tr("Add", language))
+        self._edit_server_feedback.set_idle_text(tr("Edit", language))
+        self._delete_server_feedback.set_idle_text(tr("Delete", language))
+        self._save_feedback.set_idle_text(tr("Save Settings", language))
+        self._discard_feedback.set_idle_text(tr("Discard", language))
         self._toggle_label.setText(tr("On", language) if self.hide_dotfiles_cb.isChecked() else tr("Off", language))
         # Table headers
         self.profile_table.setHorizontalHeaderLabels([
@@ -402,10 +415,12 @@ class SettingsServersPage(QWidget):
             return
         if not cfg.servers:
             return
+        self._test_feedback.pending(tr("Testing...", self._language))
         for row in range(self.server_table.rowCount()):
             self.server_table.setItem(row, 4, QTableWidgetItem(tr("Testing...", self._language)))
 
         servers_list = sorted(cfg.servers.items())
+        failed = False
 
         def _run(ctx: WorkerContext):
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -432,12 +447,24 @@ class SettingsServersPage(QWidget):
                     self.server_table.setItem(row, 4, QTableWidgetItem(status))
                     break
 
+        def _on_error(e):
+            nonlocal failed
+            failed = True
+            self._test_feedback.error(tr("Test failed", self._language))
+            self._status_cb(f"{tr('Test failed:', self._language)} {e}")
+
+        def _on_finished():
+            if failed:
+                return
+            self._test_feedback.success(tr("Tested", self._language))
+
         self._worker = start_context_worker(
             self,
             target=_run,
             registry_attr="_background_workers",
             on_log=_on_log,
-            on_error=lambda e: self._status_cb(f"{tr('Test failed:', self._language)} {e}"),
+            on_error=_on_error,
+            on_finished=_on_finished,
         )
 
     @staticmethod
@@ -448,7 +475,7 @@ class SettingsServersPage(QWidget):
             h += table.rowHeight(i)
         table.setFixedHeight(h)
 
-    def _load_settings(self):
+    def _load_settings(self, *, show_discard_feedback: bool = False):
         s = self._store.load()
         self.local_folder_edit.setText(s.default_local_folder)
         self.text_editor_edit.setText(s.text_editor_path)
@@ -467,31 +494,39 @@ class SettingsServersPage(QWidget):
             self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
             self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
         self._fit_table_height(self.profile_table)
+        if show_discard_feedback and hasattr(self, "_discard_feedback"):
+            self._discard_feedback.success(tr("Discarded", self._language))
 
     def _save_settings(self):
         from dataclasses import replace
-        existing = self._store.load()
-        # Read profiles from table
-        profiles = {}
-        for row in range(self.profile_table.rowCount()):
-            name = (self.profile_table.item(row, 0) or QTableWidgetItem("")).text().strip()
-            if not name:
-                continue
-            profiles[name] = {
-                "input_extensions": (self.profile_table.item(row, 1) or QTableWidgetItem("")).text().strip(),
-                "command_template": (self.profile_table.item(row, 2) or QTableWidgetItem("")).text().strip(),
-                "download_patterns": (self.profile_table.item(row, 3) or QTableWidgetItem("")).text().strip(),
-            }
-        new_settings = replace(
-            existing,
-            default_local_folder=self.local_folder_edit.text().strip(),
-            text_editor_path=self.text_editor_edit.text().strip() or "notepad.exe",
-            max_parallel=self.max_parallel_spin.value(),
-            language=self.language_combo.currentData() or "zh",
-            hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
-            software_profiles=profiles,
-        )
-        self._store.save(new_settings)
+        self._save_feedback.pending(tr("Saving...", self._language))
+        try:
+            existing = self._store.load()
+            # Read profiles from table
+            profiles = {}
+            for row in range(self.profile_table.rowCount()):
+                name = (self.profile_table.item(row, 0) or QTableWidgetItem("")).text().strip()
+                if not name:
+                    continue
+                profiles[name] = {
+                    "input_extensions": (self.profile_table.item(row, 1) or QTableWidgetItem("")).text().strip(),
+                    "command_template": (self.profile_table.item(row, 2) or QTableWidgetItem("")).text().strip(),
+                    "download_patterns": (self.profile_table.item(row, 3) or QTableWidgetItem("")).text().strip(),
+                }
+            new_settings = replace(
+                existing,
+                default_local_folder=self.local_folder_edit.text().strip(),
+                text_editor_path=self.text_editor_edit.text().strip() or "notepad.exe",
+                max_parallel=self.max_parallel_spin.value(),
+                language=self.language_combo.currentData() or "zh",
+                hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
+                software_profiles=profiles,
+            )
+            self._store.save(new_settings)
+        except Exception:
+            self._save_feedback.error(tr("Save failed", self._language))
+            raise
+        self._save_feedback.success(tr("Saved", self._language))
         self._status_cb(tr("Settings saved", self._language))
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
