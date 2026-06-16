@@ -72,9 +72,14 @@ class FileTransferService:
         with self._write_sftp() as sftp:
             sftp.mkdir_p(ensure_safe_remote_path(remote_dir))
 
-    def delete_remote(self, remote_path: str, recursive: bool = False) -> None:
+    def delete_remote(
+        self,
+        remote_path: str,
+        recursive: bool = False,
+        extra_allowed_roots: list[str] | None = None,
+    ) -> None:
         remote_path = ensure_safe_remote_path(remote_path)
-        self._ensure_deletable(remote_path)
+        self._ensure_deletable(remote_path, extra_allowed_roots)
         with self._write_sftp() as sftp:
             if sftp.is_dir(remote_path):
                 if not recursive:
@@ -104,15 +109,21 @@ class FileTransferService:
         with self._write_lock:
             self._close_sftp("write")
 
-    def _ensure_deletable(self, remote_path: str) -> None:
+    def _ensure_deletable(
+        self,
+        remote_path: str,
+        extra_allowed_roots: list[str] | None = None,
+    ) -> None:
         protected_exact_paths = {"/", "/home", "/root"}
         if remote_path in protected_exact_paths:
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
         if any(_is_path_at_or_under(remote_path, root) for root in self._protected_roots):
             raise RemotePathError(f"refusing to delete protected remote path: {remote_path}")
-        if not self._allowed_delete_roots:
+        allowed_roots = set(self._allowed_delete_roots)
+        allowed_roots.update(ensure_safe_remote_path(p) for p in (extra_allowed_roots or []))
+        if not allowed_roots:
             raise RemotePathError("refusing to delete remote path: no allowed delete roots configured")
-        if not any(_is_path_at_or_under(remote_path, root) for root in self._allowed_delete_roots):
+        if not any(_is_path_at_or_under(remote_path, root) for root in allowed_roots):
             raise RemotePathError(f"refusing to delete path outside allowed roots: {remote_path}")
 
     def _read_sftp(self):

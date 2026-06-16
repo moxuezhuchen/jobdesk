@@ -1505,6 +1505,8 @@ class TestFileTransferPage:
             file_page.run_options_row.indexOf(file_page.create_only_btn) + 1
         )
         assert file_page.progress_bar.maximumWidth() <= 360
+        assert file_page.progress_bar.minimumHeight() >= 24
+        assert file_page.progress_bar.minimumHeight() > file_page.run_mode_combo.fontMetrics().height()
 
     def test_remote_table_routes_external_local_url_drop_for_upload(self, file_page, tmp_path):
         from PySide6.QtCore import QMimeData, QUrl
@@ -1959,7 +1961,11 @@ class TestFileTransferPage:
         service.delete_remote.assert_not_called()
         target = start_worker.call_args.kwargs["target"]
         target(MagicMock())
-        service.delete_remote.assert_called_once_with("/remote/run/result.log", recursive=True)
+        service.delete_remote.assert_called_once_with(
+            "/remote/run/result.log",
+            recursive=True,
+            extra_allowed_roots=["/remote/run"],
+        )
 
     def test_delete_local_runs_in_background_worker(self, file_page, tmp_path):
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
@@ -2022,6 +2028,31 @@ class TestFileTransferPage:
 
         assert file_page.command_edit.currentText() == "/opt/orca601/orca {name} > {basename}.out"
 
+    def test_saved_command_updates_matching_software_profile_template(self, file_page):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        custom_command = "/opt/orca601/orca {name} > {basename}.out"
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("calc.inp"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/work/calc.inp"))
+        file_page.remote_table.selectRow(0)
+        file_page.command_edit.setCurrentText(custom_command)
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as store_cls:
+            file_page._save_command_history()
+
+        updated_profiles = store_cls.return_value.update.call_args.kwargs["software_profiles"]
+        assert updated_profiles["ORCA"]["command_template"] == custom_command
+        assert file_page._gui_settings.software_profiles["ORCA"]["command_template"] == custom_command
+
+        file_page._command_manually_edited = False
+        file_page.command_edit.setCurrentText("orca {name} > {basename}.out")
+        file_page._auto_fill_command()
+
+        assert file_page.command_edit.currentText() == custom_command
+
     def test_apply_gui_settings_preserves_manually_edited_command(self, file_page):
         file_page._gui_settings = replace(
             file_page._gui_settings,
@@ -2078,7 +2109,7 @@ class TestFileTransferPage:
         assert errors[0][0] == "Run Error"
         assert "scheduler down" in errors[0][1]
 
-    def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, qtbot, tmp_path):
+    def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""
         from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
 
@@ -2093,16 +2124,45 @@ class TestFileTransferPage:
         )
         file_page._service = service
 
-        with patch.object(file_page, "_refresh_remote") as refresh_remote:
+        with patch.object(file_page, "_start_transfer_worker") as start_worker:
             file_page._upload_dropped_local_paths([str(local_file)])
-            qtbot.waitUntil(
-                lambda: service.upload_path.called and refresh_remote.called,
-                timeout=2000,
-            )
 
+        start_worker.assert_called_once()
+        target, label, on_done_refresh = start_worker.call_args.args
+        assert label == "Upload"
+        assert on_done_refresh == file_page._refresh_remote
+        target(MagicMock())
         call_args = service.upload_path.call_args
         from jobdesk_app.core.file_transfer import OverwritePolicy
         assert call_args[0][2] == OverwritePolicy.skip_same_size
+        assert call_args[1].get("progress_callback") is not None
+
+    def test_download_dropped_uses_transfer_progress_worker(self, file_page, tmp_path):
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        file_page.state.current_project_root = tmp_path
+        service = MagicMock()
+        service.download_path.return_value = TransferRecord(
+            TransferDirection.download,
+            "/remote/dir/mol.out",
+            str(tmp_path / "mol.out"),
+            status=TransferStatus.transferred,
+        )
+        file_page._service = service
+
+        with patch.object(file_page, "_start_transfer_worker") as start_worker:
+            file_page._download_dropped_remote_paths(["/remote/dir/mol.out"])
+
+        start_worker.assert_called_once()
+        target, label, on_done_refresh = start_worker.call_args.args
+        assert label == "Download"
+        assert on_done_refresh == file_page._refresh_local
+        target(MagicMock())
+
+        call_args = service.download_path.call_args
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+        assert call_args[0][2] == OverwritePolicy.overwrite
+        assert call_args[1].get("progress_callback") is not None
 
     def test_upload_dropped_posix_local_path_is_not_misrouted_as_download(self, file_page):
         file_page._service = MagicMock()
@@ -2293,8 +2353,8 @@ class TestFileTransferPage:
 
         file_page._service.rename_remote.assert_not_called()
 
-    def test_delete_remote_uses_service_configured_roots_only(self, file_page, qtbot):
-        """Browsing a directory must not grant deletion authority."""
+    def test_delete_remote_authorizes_current_browsing_directory(self, file_page, qtbot):
+        """Browsing a non-top-level directory grants deletion authority for selected children."""
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
 
         file_page.remote_path.setText("/root/uma")
@@ -2311,7 +2371,11 @@ class TestFileTransferPage:
             file_page._delete_remote()
             qtbot.waitUntil(lambda: service.delete_remote.called, timeout=2000)
 
-        service.delete_remote.assert_called_once_with("/root/uma/file.gjf", recursive=True)
+        service.delete_remote.assert_called_once_with(
+            "/root/uma/file.gjf",
+            recursive=True,
+            extra_allowed_roots=["/root/uma"],
+        )
 
     def test_delete_remote_in_toplevel_rejected(self, file_page, qtbot):
         """Delete at top-level (/, /root, /home) must be rejected by the GUI."""

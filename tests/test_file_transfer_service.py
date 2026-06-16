@@ -287,6 +287,28 @@ def test_delete_remote_allows_descendant_of_allowed_root():
     assert sftp.deleted == [("file", "/remote/work/batch_001/t1")]
 
 
+def test_delete_remote_allows_descendant_of_extra_allowed_root():
+    sftp = FakeSFTP()
+    service = FileTransferService(lambda: sftp)
+
+    service.delete_remote(
+        "/home/xianj/jzw/result.log",
+        extra_allowed_roots=["/home/xianj/jzw"],
+    )
+
+    assert sftp.deleted == [("file", "/home/xianj/jzw/result.log")]
+
+
+def test_delete_remote_extra_allowed_root_does_not_allow_outside_path():
+    service = FileTransferService(lambda: FakeSFTP())
+
+    with pytest.raises(RemotePathError, match="outside allowed roots"):
+        service.delete_remote(
+            "/home/xianj/other/result.log",
+            extra_allowed_roots=["/home/xianj/jzw"],
+        )
+
+
 def test_mkdir_rename_and_preview_text():
     sftp = FakeSFTP()
     service = FileTransferService(lambda: sftp)
@@ -346,8 +368,8 @@ def test_download_path_passes_progress_callback(tmp_path):
         "/root/uma/file.gjf",
     ],
 )
-def test_delete_remote_does_not_authorize_current_browsing_directory(target):
-    """Browsing a directory does not replace configured deletion roots."""
+def test_delete_remote_without_allowed_roots_still_rejects_arbitrary_paths(target):
+    """The service default remains deny-by-default without explicit roots."""
     sftp = FakeSFTP()
     service = FileTransferService(lambda: sftp)
 
@@ -355,8 +377,8 @@ def test_delete_remote_does_not_authorize_current_browsing_directory(target):
         service.delete_remote(target)
 
 
-def test_delete_remote_has_no_browsing_directory_authorization_override():
-    assert "extra_allowed_roots" not in inspect.signature(FileTransferService.delete_remote).parameters
+def test_delete_remote_accepts_explicit_extra_allowed_roots():
+    assert "extra_allowed_roots" in inspect.signature(FileTransferService.delete_remote).parameters
 
 
 

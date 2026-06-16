@@ -4,6 +4,7 @@ import posixpath
 import shutil
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -78,6 +79,7 @@ from .file_transfer_widgets import (
 CONTROL_HEIGHT = 38
 RENAME_DIALOG_MIN_WIDTH = 460
 RENAME_DIALOG_INPUT_MIN_WIDTH = 380
+TRANSFER_PROGRESS_HEIGHT = 24
 
 
 class FileTransferPage(QWidget):
@@ -94,6 +96,7 @@ class FileTransferPage(QWidget):
         self._connected_server_id: str | None = None
         self._connected_server = None
         self._gui_settings = GuiSettingsStore().load()
+        self._known_profile_command_templates = self._profile_command_templates()
         self._language = self._gui_settings.language
         self._remote_list_request_id = 0
         self._remote_list_fallbacks: list[str] = []
@@ -312,7 +315,8 @@ class FileTransferPage(QWidget):
         self.progress_bar.setVisible(False)
         self.progress_bar.setMinimumWidth(180)
         self.progress_bar.setMaximumWidth(320)
-        self.progress_bar.setMaximumHeight(18)
+        self.progress_bar.setMinimumHeight(TRANSFER_PROGRESS_HEIGHT)
+        self.progress_bar.setMaximumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setTextVisible(True)
         run_options_row.addWidget(self.progress_bar)
         run_options_row.addStretch()
@@ -363,6 +367,7 @@ class FileTransferPage(QWidget):
 
     def on_activated(self):
         self._gui_settings = GuiSettingsStore().load()
+        self._known_profile_command_templates.update(self._profile_command_templates())
         self.apply_language(self._gui_settings.language)
         self._apply_gui_settings_no_folder()
 
@@ -856,36 +861,49 @@ class FileTransferPage(QWidget):
             ))
         self._auto_fill_command()
 
+    def _selected_command_paths(self) -> list[str]:
+        paths = self._selected_remote_paths()
+        if paths:
+            return paths
+        return [str(path) for path in self._selected_local_paths()]
+
+    def _profile_command_templates(self) -> set[str]:
+        return {
+            profile.get("command_template", "")
+            for profile in (self._gui_settings.software_profiles or {}).values()
+            if profile.get("command_template", "")
+        }
+
+    def _profile_name_for_extension(self, ext: str) -> str | None:
+        profiles = self._gui_settings.software_profiles or {}
+        for name, profile in profiles.items():
+            extensions = [e.strip().lower() for e in profile.get("input_extensions", "").split(",") if e.strip()]
+            if ext in extensions:
+                return name
+        return None
+
     def _auto_fill_command(self):
         """Auto-fill command template based on selected file extensions."""
-        paths = self._selected_remote_paths()
-        if not paths:
-            # Also check local selection
-            rows = sorted({idx.row() for idx in self.local_table.selectedIndexes()})
-            for row in rows:
-                item = self.local_table.item(row, 0)
-                if item and item.text() != "..":
-                    paths.append(item.text())
+        paths = self._selected_command_paths()
         if not paths:
             return
         # Get extension of first file
-        import posixpath
         ext = posixpath.splitext(paths[0])[-1].lower()
         if not ext:
             return
         profiles = self._gui_settings.software_profiles or {}
         # Only auto-fill if command box is empty or already contains a profile template
         current_cmd = self.command_edit.currentText().strip()
-        known_templates = {p.get("command_template", "") for p in profiles.values()}
+        known_templates = self._known_profile_command_templates | self._profile_command_templates()
         if self._command_manually_edited:
             return
         if current_cmd and current_cmd not in known_templates:
             return
-        for profile in profiles.values():
-            extensions = [e.strip().lower() for e in profile.get("input_extensions", "").split(",") if e.strip()]
-            if ext in extensions:
-                self.command_edit.setCurrentText(profile["command_template"])
-                return
+        profile_name = self._profile_name_for_extension(ext)
+        if profile_name:
+            self.command_edit.setCurrentText(profiles[profile_name]["command_template"])
+            return
+
     def _connect_selection_signals(self):
         self.local_table.itemSelectionChanged.connect(self._update_selection_summary)
         self.remote_table.itemSelectionChanged.connect(self._update_selection_summary)
@@ -1236,7 +1254,10 @@ class FileTransferPage(QWidget):
         service = self._service
         remote_dir = self.remote_path.text().strip() or "/"
 
-        def _run():
+        def _run(ctx: WorkerContext):
+            def _progress(done, total):
+                ctx.emit_progress(int(done), int(total))
+
             records = []
             for path_text in paths:
                 local_path = Path(path_text)
@@ -1247,20 +1268,12 @@ class FileTransferPage(QWidget):
                     local_path,
                     target,
                     OverwritePolicy.skip_same_size,
+                    progress_callback=_progress,
                 )
                 records.extend(result if isinstance(result, list) else [result])
             return records
 
-        from ..workers import BackgroundWorker
-        w = BackgroundWorker(_run)
-        w.result.connect(lambda recs: (
-            self._status_cb(format_queue_summary([r.status for r in recs], self._language)) if recs else None,
-            self._refresh_remote()
-        ))
-        w.error.connect(lambda e: self._error_cb("Drop Upload Error", str(e)))
-        w.finished.connect(w.deleteLater)
-        self._keep_worker(w)
-        w.start()
+        self._start_transfer_worker(_run, "Upload", self._refresh_remote)
 
     def _download_dropped_remote_paths(self, paths: list[str]):
         if self._service is None:
@@ -1269,27 +1282,22 @@ class FileTransferPage(QWidget):
         service = self._service
         local_base = self.state.current_project_root or Path.cwd()
 
-        def _run():
+        def _run(ctx: WorkerContext):
+            def _progress(done, total):
+                ctx.emit_progress(int(done), int(total))
+
             records = []
             for remote_path in paths:
                 result = service.download_path(
                     remote_path,
                     Path(local_base) / Path(remote_path).name,
                     OverwritePolicy.overwrite,
+                    progress_callback=_progress,
                 )
                 records.extend(result if isinstance(result, list) else [result])
             return records
 
-        from ..workers import BackgroundWorker
-        w = BackgroundWorker(_run)
-        w.result.connect(lambda recs: (
-            self._status_cb(format_queue_summary([r.status for r in recs], self._language)) if recs else None,
-            self._refresh_local()
-        ))
-        w.error.connect(lambda e: self._error_cb("Drop Download Error", str(e)))
-        w.finished.connect(w.deleteLater)
-        self._keep_worker(w)
-        w.start()
+        self._start_transfer_worker(_run, "Download", self._refresh_local)
 
     def _copy_dropped_local_paths(self, paths: list[str]):
         local_base = Path(self.state.current_project_root or Path.cwd())
@@ -1584,7 +1592,11 @@ class FileTransferPage(QWidget):
 
         def _run(_ctx: WorkerContext):
             for remote_path in valid_paths:
-                service.delete_remote(remote_path, recursive=True)
+                service.delete_remote(
+                    remote_path,
+                    recursive=True,
+                    extra_allowed_roots=[current_dir],
+                )
             return len(valid_paths)
 
         def _on_done(count: int) -> None:
@@ -1953,6 +1965,32 @@ class FileTransferPage(QWidget):
         # Persist via RunProfileStore (limited to 20 entries)
         items = [self.command_edit.itemText(i) for i in range(min(self.command_edit.count(), 20))]
         RunProfileStore().save_command_history(items)
+        self._save_command_profile_template(cmd)
+
+    def _save_command_profile_template(self, cmd: str):
+        paths = self._selected_command_paths()
+        if not paths:
+            return
+        ext = posixpath.splitext(paths[0])[-1].lower()
+        if not ext:
+            return
+        profile_name = self._profile_name_for_extension(ext)
+        if not profile_name:
+            return
+        profiles = {
+            name: dict(profile)
+            for name, profile in (self._gui_settings.software_profiles or {}).items()
+        }
+        profile = profiles.get(profile_name)
+        if not profile or profile.get("command_template") == cmd:
+            return
+        previous_template = profile.get("command_template", "")
+        profile["command_template"] = cmd
+        GuiSettingsStore().update(software_profiles=profiles)
+        self._gui_settings = replace(self._gui_settings, software_profiles=profiles)
+        self._known_profile_command_templates.update(
+            template for template in (previous_template, cmd) if template
+        )
 
     def _load_command_history(self):
         history = RunProfileStore().load_command_history()
