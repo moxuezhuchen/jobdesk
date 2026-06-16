@@ -33,6 +33,10 @@ def _validate_remote_path(remote_path: str) -> str:
     return remote_path
 
 
+def _is_missing_remote_path_error(exc: OSError) -> bool:
+    return isinstance(exc, FileNotFoundError) or getattr(exc, "errno", None) in {errno.ENOENT, errno.ENOTDIR}
+
+
 class SFTPClientWrapper:
     """基于 paramiko SFTPClient 的文件传输封装。
 
@@ -61,16 +65,24 @@ class SFTPClientWrapper:
         try:
             self._sftp.stat(remote_path)
             return True
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
             return False
+        except OSError as exc:
+            if _is_missing_remote_path_error(exc):
+                return False
+            raise
 
     def stat(self, remote_path: str) -> Any | None:
         """获取远程路径的 stat 信息，不存在时返回 None。"""
         _validate_remote_path(remote_path)
         try:
             return self._sftp.stat(remote_path)
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
             return None
+        except OSError as exc:
+            if _is_missing_remote_path_error(exc):
+                return None
+            raise
 
     def mkdir_p(self, remote_dir: str) -> None:
         """递归创建远程目录。"""
@@ -83,19 +95,24 @@ class SFTPClientWrapper:
             current = f"{current}/{part}" if current else f"/{part}"
             try:
                 self._sftp.stat(current)
-            except (FileNotFoundError, OSError):
+            except FileNotFoundError:
                 self._sftp.mkdir(current)
+            except OSError as exc:
+                if _is_missing_remote_path_error(exc):
+                    self._sftp.mkdir(current)
+                    continue
+                raise
 
     def list_dir_info(self, remote_dir: str) -> list:
         """列出远程目录内容，返回包含名称/大小/时间/权限的条目列表。"""
         _validate_remote_path(remote_dir)
         try:
             attrs_list = self._sftp.listdir_attr(remote_dir)
-        except FileNotFoundError:
-            return []
+        except FileNotFoundError as exc:
+            raise RemotePathError(f"remote path not found or not a directory: {remote_dir}") from exc
         except OSError as exc:
-            if getattr(exc, "errno", None) in {errno.ENOENT, errno.ENOTDIR}:
-                return []
+            if _is_missing_remote_path_error(exc):
+                raise RemotePathError(f"remote path not found or not a directory: {remote_dir}") from exc
             raise
         entries = []
         for attr in sorted(attrs_list, key=lambda a: (not stat.S_ISDIR(a.st_mode or 0), (a.filename or "").lower())):

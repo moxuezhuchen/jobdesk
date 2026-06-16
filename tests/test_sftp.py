@@ -145,6 +145,26 @@ class ListDirErrorClient:
         raise self._exc
 
 
+class StatErrorClient:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def stat(self, remote_path):
+        raise self._exc
+
+
+class MkdirErrorClient:
+    def __init__(self, stat_exc):
+        self._stat_exc = stat_exc
+        self.mkdir_calls = []
+
+    def stat(self, remote_path):
+        raise self._stat_exc
+
+    def mkdir(self, remote_path):
+        self.mkdir_calls.append(remote_path)
+
+
 # ---- helpers -----------------------------------------------------------
 
 
@@ -169,16 +189,46 @@ class TestRemotePathValidation:
             _validate_remote_path("/home/user\\file.txt")
 
 
+class TestSFTPPathErrorClassification:
+    def test_stat_missing_path_returns_none(self):
+        sftp = SFTPClientWrapper(StatErrorClient(FileNotFoundError("missing")))
+
+        assert sftp.stat("/missing") is None
+
+    def test_stat_connection_oserror_propagates(self):
+        sftp = SFTPClientWrapper(StatErrorClient(OSError("Socket is closed")))
+
+        with pytest.raises(OSError, match="Socket is closed"):
+            sftp.stat("/remote/out.log")
+
+    def test_exists_connection_oserror_propagates(self):
+        sftp = SFTPClientWrapper(StatErrorClient(OSError("Socket is closed")))
+
+        with pytest.raises(OSError, match="Socket is closed"):
+            sftp.exists("/remote/out.log")
+
+    def test_mkdir_p_connection_oserror_does_not_try_mkdir(self):
+        client = MkdirErrorClient(OSError("Socket is closed"))
+        sftp = SFTPClientWrapper(client)
+
+        with pytest.raises(OSError, match="Socket is closed"):
+            sftp.mkdir_p("/remote/new")
+
+        assert client.mkdir_calls == []
+
+
 class TestListDirInfoErrors:
-    def test_missing_directory_returns_empty(self):
+    def test_missing_directory_raises_remote_path_error(self):
         sftp = SFTPClientWrapper(ListDirErrorClient(FileNotFoundError("missing")))
 
-        assert sftp.list_dir_info("/missing") == []
+        with pytest.raises(RemotePathError, match="remote path not found"):
+            sftp.list_dir_info("/missing")
 
-    def test_missing_directory_oserror_returns_empty(self):
+    def test_missing_directory_oserror_raises_remote_path_error(self):
         sftp = SFTPClientWrapper(ListDirErrorClient(OSError(errno.ENOENT, "No such file")))
 
-        assert sftp.list_dir_info("/missing") == []
+        with pytest.raises(RemotePathError, match="remote path not found"):
+            sftp.list_dir_info("/missing")
 
     def test_connection_oserror_propagates(self):
         sftp = SFTPClientWrapper(ListDirErrorClient(OSError("Socket is closed")))

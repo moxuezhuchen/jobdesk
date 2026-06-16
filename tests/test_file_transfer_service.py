@@ -178,6 +178,52 @@ def test_persistent_list_remote_retries_once_after_connection_oserror():
     assert sessions[1].closed is False
 
 
+def test_persistent_download_connection_error_discards_write_session(tmp_path):
+    class ClosedDownloadSFTP(FakeSFTP):
+        def is_dir(self, remote_path):
+            raise OSError("Socket is closed")
+
+    sessions = []
+
+    def factory():
+        sftp = ClosedDownloadSFTP() if not sessions else FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    with pytest.raises(OSError, match="Socket is closed"):
+        service.download_path("/remote/out.log", tmp_path / "out.log")
+
+    assert sessions[0].closed is True
+
+    service.download_path("/remote/out.log", tmp_path / "out.log")
+
+    assert len(sessions) == 2
+    assert sessions[1].closed is False
+
+
+def test_persistent_list_missing_remote_path_preserves_read_session():
+    class MissingPathSFTP(FakeSFTP):
+        def list_dir_info(self, remote_dir):
+            raise RemotePathError(f"remote path not found or not a directory: {remote_dir}")
+
+    sessions = []
+
+    def factory():
+        sftp = MissingPathSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    with pytest.raises(RemotePathError, match="remote path not found"):
+        service.list_remote("/missing")
+
+    assert len(sessions) == 1
+    assert sessions[0].closed is False
+
+
 def test_persistent_session_survives_rename_destination_conflict():
     sessions = []
 

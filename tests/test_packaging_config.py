@@ -46,3 +46,19 @@ def test_package_extra_includes_pyinstaller():
     package_extra = config["project"]["optional-dependencies"]["package"]
 
     assert any(requirement.startswith("pyinstaller") for requirement in package_extra)
+
+
+def test_source_distribution_manifest_includes_public_support_files():
+    manifest = Path("MANIFEST.in").read_text(encoding="utf-8")
+
+    required_lines = {
+        "include CHANGELOG.md",
+        "include CONTRIBUTING.md",
+        "include SECURITY.md",
+        "recursive-include docs *.md",
+        "recursive-include examples *.md *.gjf *.inp",
+        "recursive-include scripts *.ps1",
+        "recursive-include packaging *.md *.spec *.py *.manifest",
+    }
+
+    assert required_lines <= set(manifest.splitlines())

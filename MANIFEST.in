@@ -1,0 +1,7 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include SECURITY.md
+recursive-include docs *.md
+recursive-include examples *.md *.gjf *.inp
+recursive-include scripts *.ps1
+recursive-include packaging *.md *.spec *.py *.manifest

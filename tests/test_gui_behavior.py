@@ -2396,6 +2396,38 @@ class TestFileTransferPage:
 
         refresh_path.assert_called_once_with("/tmp")
 
+    def test_remote_list_missing_remote_path_error_uses_path_fallback(self, file_page):
+        file_page._remote_list_fallbacks = ["/tmp"]
+        request_id = file_page._remote_list_request_id
+
+        with patch.object(file_page, "_refresh_remote_path") as refresh_path:
+            file_page._on_remote_list_error(
+                request_id,
+                "RemotePathError: remote path not found or not a directory: /missing",
+            )
+
+        refresh_path.assert_called_once_with("/tmp")
+
+    def test_remote_list_invalid_remote_path_error_does_not_fallback(self, file_page):
+        errors = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._remote_list_fallbacks = ["/tmp"]
+        request_id = file_page._remote_list_request_id
+
+        with patch.object(file_page, "_refresh_remote_path") as refresh_path:
+            file_page._on_remote_list_error(
+                request_id,
+                "RemotePathError: remote path must not contain '..': '/tmp/../secret'",
+            )
+
+        refresh_path.assert_not_called()
+        assert errors == [
+            (
+                "Remote List Error",
+                "RemotePathError: remote path must not contain '..': '/tmp/../secret'",
+            )
+        ]
+
     def test_shutdown_stops_worker_when_settings_save_fails(self, file_page):
         worker = MagicMock()
         file_page._background_workers = [worker]
