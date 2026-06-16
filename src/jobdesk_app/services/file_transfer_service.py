@@ -41,8 +41,15 @@ class FileTransferService:
         }
 
     def list_remote(self, remote_dir: str):
-        with self._read_sftp() as sftp:
-            return sftp.list_dir_info(ensure_safe_remote_path(remote_dir))
+        remote_dir = ensure_safe_remote_path(remote_dir)
+        try:
+            with self._read_sftp() as sftp:
+                return sftp.list_dir_info(remote_dir)
+        except OSError:
+            if not self._persistent_session:
+                raise
+            with self._read_sftp() as sftp:
+                return sftp.list_dir_info(remote_dir)
 
     def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
         overwrite, skip_same = policy_to_transfer_flags(policy)

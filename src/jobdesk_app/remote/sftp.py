@@ -4,6 +4,7 @@
 远程路径按 POSIX 处理，本地路径使用 pathlib.Path。
 """
 
+import errno
 import posixpath
 import stat
 import tempfile
@@ -90,8 +91,12 @@ class SFTPClientWrapper:
         _validate_remote_path(remote_dir)
         try:
             attrs_list = self._sftp.listdir_attr(remote_dir)
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
             return []
+        except OSError as exc:
+            if getattr(exc, "errno", None) in {errno.ENOENT, errno.ENOTDIR}:
+                return []
+            raise
         entries = []
         for attr in sorted(attrs_list, key=lambda a: (not stat.S_ISDIR(a.st_mode or 0), (a.filename or "").lower())):
             is_dir = stat.S_ISDIR(attr.st_mode or 0)

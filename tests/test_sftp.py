@@ -3,6 +3,7 @@
 使用 fake SFTP client（Flask-like dict store），不连接真实服务器。
 """
 
+import errno
 import io
 import stat as statlib
 import tempfile
@@ -136,6 +137,14 @@ class FakeStat:
         return cls(st_size=len(data))
 
 
+class ListDirErrorClient:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def listdir_attr(self, remote_dir):
+        raise self._exc
+
+
 # ---- helpers -----------------------------------------------------------
 
 
@@ -158,6 +167,24 @@ class TestRemotePathValidation:
     def test_reject_mixed(self):
         with pytest.raises(RemotePathError):
             _validate_remote_path("/home/user\\file.txt")
+
+
+class TestListDirInfoErrors:
+    def test_missing_directory_returns_empty(self):
+        sftp = SFTPClientWrapper(ListDirErrorClient(FileNotFoundError("missing")))
+
+        assert sftp.list_dir_info("/missing") == []
+
+    def test_missing_directory_oserror_returns_empty(self):
+        sftp = SFTPClientWrapper(ListDirErrorClient(OSError(errno.ENOENT, "No such file")))
+
+        assert sftp.list_dir_info("/missing") == []
+
+    def test_connection_oserror_propagates(self):
+        sftp = SFTPClientWrapper(ListDirErrorClient(OSError("Socket is closed")))
+
+        with pytest.raises(OSError, match="Socket is closed"):
+            sftp.list_dir_info("/remote")
 
 
 # ---- upload ------------------------------------------------------------

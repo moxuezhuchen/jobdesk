@@ -1667,6 +1667,8 @@ class TestFileTransferPage:
 
         assert service.download_path.call_args.args[0] == "/remote/result.log"
         assert Path(service.download_path.call_args.args[1]) == tmp_path / "result.log"
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+        assert service.download_path.call_args.args[2] == OverwritePolicy.overwrite
 
     def test_confflow_invalid_input_reports_visible_error(self, file_page):
         errors = []
@@ -2000,6 +2002,41 @@ class TestFileTransferPage:
         run_service_cls.assert_not_called()
         assert start_worker.call_count == 1
 
+    def test_auto_fill_preserves_manually_edited_command_for_next_selection(self, file_page):
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.command_edit.setCurrentText("orca {name} > {basename}.out")
+        file_page.command_edit.lineEdit().textEdited.emit(
+            "/opt/orca601/orca {name} > {basename}.out"
+        )
+        file_page.command_edit.setCurrentText("/opt/orca601/orca {name} > {basename}.out")
+        with patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"):
+            file_page._save_command_history()
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("second.inp"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/work/second.inp"))
+        file_page.remote_table.selectRow(0)
+        file_page._update_selection_summary()
+
+        assert file_page.command_edit.currentText() == "/opt/orca601/orca {name} > {basename}.out"
+
+    def test_apply_gui_settings_preserves_manually_edited_command(self, file_page):
+        file_page._gui_settings = replace(
+            file_page._gui_settings,
+            command_template="orca {name} > {basename}.out",
+        )
+        file_page.command_edit.setCurrentText("orca {name} > {basename}.out")
+        file_page.command_edit.lineEdit().textEdited.emit(
+            "/opt/orca601/orca {name} > {basename}.out"
+        )
+        file_page.command_edit.setCurrentText("/opt/orca601/orca {name} > {basename}.out")
+
+        file_page._apply_gui_settings_no_folder()
+
+        assert file_page.command_edit.currentText() == "/opt/orca601/orca {name} > {basename}.out"
+
     def test_remote_run_submit_error_preserves_created_run_state(self, file_page, tmp_path):
         from PySide6.QtWidgets import QMessageBox
 
@@ -2195,13 +2232,25 @@ class TestFileTransferPage:
         file_page.local_table.selectRow(0)
 
         with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            "jobdesk_app.gui.pages.file_transfer_page.FileTransferPage._prompt_rename_name",
             return_value=("after.txt", True),
         ):
             file_page._rename_local()
 
         assert not original.exists()
         assert (tmp_path / "after.txt").read_text(encoding="utf-8") == "contents"
+
+    def test_rename_dialog_is_wide_enough_for_long_names(self, file_page):
+        from PySide6.QtWidgets import QLineEdit
+
+        dialog = file_page._build_rename_dialog(
+            "Rename Local Path",
+            "New name:",
+            "tbu-zr-s-ml-rpdd-site2-sp.inp",
+        )
+
+        assert dialog.minimumWidth() >= 460
+        assert dialog.findChild(QLineEdit).minimumWidth() >= 380
 
     @pytest.mark.parametrize("invalid_name", ["nested/new.txt", r"nested\new.txt"])
     def test_rename_local_rejects_path_separator(self, file_page, tmp_path, invalid_name):
@@ -2218,7 +2267,7 @@ class TestFileTransferPage:
         file_page.local_table.selectRow(0)
 
         with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            "jobdesk_app.gui.pages.file_transfer_page.FileTransferPage._prompt_rename_name",
             return_value=(invalid_name, True),
         ):
             file_page._rename_local()
@@ -2237,7 +2286,7 @@ class TestFileTransferPage:
         file_page._service = MagicMock()
 
         with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+            "jobdesk_app.gui.pages.file_transfer_page.FileTransferPage._prompt_rename_name",
             return_value=("nested/after.txt", True),
         ):
             file_page._rename_remote()
@@ -2322,6 +2371,30 @@ class TestFileTransferPage:
         file_page._on_remote_list_error(request_id, "late remote error")
 
         assert errors == []
+
+    def test_remote_list_connection_error_does_not_try_path_fallback(self, file_page):
+        errors = []
+        statuses = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._status_cb = statuses.append
+        file_page._remote_list_fallbacks = ["/tmp"]
+        request_id = file_page._remote_list_request_id
+
+        with patch.object(file_page, "_refresh_remote_path") as refresh_path:
+            file_page._on_remote_list_error(request_id, "OSError: Socket is closed")
+
+        refresh_path.assert_not_called()
+        assert errors == [("Remote List Error", "OSError: Socket is closed")]
+        assert statuses == []
+
+    def test_remote_list_missing_path_uses_path_fallback(self, file_page):
+        file_page._remote_list_fallbacks = ["/tmp"]
+        request_id = file_page._remote_list_request_id
+
+        with patch.object(file_page, "_refresh_remote_path") as refresh_path:
+            file_page._on_remote_list_error(request_id, "FileNotFoundError: /missing")
+
+        refresh_path.assert_called_once_with("/tmp")
 
     def test_shutdown_stops_worker_when_settings_save_fails(self, file_page):
         worker = MagicMock()

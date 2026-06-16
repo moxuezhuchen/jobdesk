@@ -158,6 +158,26 @@ def test_persistent_session_is_discarded_after_operation_error():
     assert len(sessions) == 2
 
 
+def test_persistent_list_remote_retries_once_after_connection_oserror():
+    class StaleSFTP(FakeSFTP):
+        def list_dir_info(self, remote_dir):
+            raise OSError("Socket is closed")
+
+    sessions = []
+
+    def factory():
+        sftp = StaleSFTP() if not sessions else FakeSFTP()
+        sessions.append(sftp)
+        return sftp
+
+    service = FileTransferService(factory, persistent_session=True)
+
+    assert service.list_remote("/remote") == ["/remote"]
+    assert len(sessions) == 2
+    assert sessions[0].closed is True
+    assert sessions[1].closed is False
+
+
 def test_persistent_session_survives_rename_destination_conflict():
     sessions = []
 

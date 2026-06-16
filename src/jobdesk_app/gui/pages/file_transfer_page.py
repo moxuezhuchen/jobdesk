@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -75,6 +76,8 @@ from .file_transfer_widgets import (
 )
 
 CONTROL_HEIGHT = 38
+RENAME_DIALOG_MIN_WIDTH = 460
+RENAME_DIALOG_INPUT_MIN_WIDTH = 380
 
 
 class FileTransferPage(QWidget):
@@ -100,6 +103,7 @@ class FileTransferPage(QWidget):
         self._local_refresh_request_id = 0
         self._local_poll_running = False
         self._initialized = False
+        self._command_manually_edited = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -253,6 +257,8 @@ class FileTransferPage(QWidget):
         self.command_edit.setInsertPolicy(QComboBox.NoInsert)
         self._load_command_history()
         self.command_edit.setCurrentText(self._gui_settings.command_template)
+        if self.command_edit.lineEdit() is not None:
+            self.command_edit.lineEdit().textEdited.connect(self._mark_command_manually_edited)
         command_row.addWidget(self.command_edit, 1)
         self.preview_commands_btn = QPushButton(tr("Preview Commands", self._language))
         self.preview_commands_btn.clicked.connect(self._preview_run_commands)
@@ -525,8 +531,12 @@ class FileTransferPage(QWidget):
 
     def _apply_gui_settings_no_folder(self):
         """Apply settings that don't touch the local folder or remote path."""
-        self.command_edit.setCurrentText(self._gui_settings.command_template)
+        if not self._command_manually_edited:
+            self.command_edit.setCurrentText(self._gui_settings.command_template)
         self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
+
+    def _mark_command_manually_edited(self, _text: str = "") -> None:
+        self._command_manually_edited = True
 
     @staticmethod
     def _build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:
@@ -734,7 +744,7 @@ class FileTransferPage(QWidget):
     def _on_remote_list_error(self, request_id: int, error: str):
         if request_id != self._remote_list_request_id:
             return
-        if self._remote_list_fallbacks:
+        if self._remote_list_fallbacks and _remote_list_error_allows_fallback(error):
             fallback = self._remote_list_fallbacks.pop(0)
             self._status_cb(f"Remote path missing, trying: {fallback}")
             self._refresh_remote_path(fallback)
@@ -867,6 +877,8 @@ class FileTransferPage(QWidget):
         # Only auto-fill if command box is empty or already contains a profile template
         current_cmd = self.command_edit.currentText().strip()
         known_templates = {p.get("command_template", "") for p in profiles.values()}
+        if self._command_manually_edited:
+            return
         if current_cmd and current_cmd not in known_templates:
             return
         for profile in profiles.values():
@@ -1263,7 +1275,7 @@ class FileTransferPage(QWidget):
                 result = service.download_path(
                     remote_path,
                     Path(local_base) / Path(remote_path).name,
-                    OverwritePolicy.skip_same_size,
+                    OverwritePolicy.overwrite,
                 )
                 records.extend(result if isinstance(result, list) else [result])
             return records
@@ -1471,12 +1483,31 @@ class FileTransferPage(QWidget):
             return None
         return name
 
+    def _build_rename_dialog(self, title: str, label: str, text: str) -> QInputDialog:
+        dialog = QInputDialog(self)
+        dialog.setInputMode(QInputDialog.TextInput)
+        dialog.setWindowTitle(title)
+        dialog.setLabelText(label)
+        dialog.setTextValue(text)
+        dialog.setMinimumWidth(RENAME_DIALOG_MIN_WIDTH)
+        input_field = dialog.findChild(QLineEdit)
+        if input_field is not None:
+            input_field.setMinimumWidth(RENAME_DIALOG_INPUT_MIN_WIDTH)
+            input_field.selectAll()
+        dialog.resize(RENAME_DIALOG_MIN_WIDTH, dialog.sizeHint().height())
+        return dialog
+
+    def _prompt_rename_name(self, title: str, label: str, text: str) -> tuple[str, bool]:
+        dialog = self._build_rename_dialog(title, label, text)
+        ok = dialog.exec() == QDialog.Accepted
+        return dialog.textValue(), ok
+
     def _rename_local(self):
         local_path = self._selected_local_path()
         if local_path is None:
             self._status_cb("Select a local file or folder")
             return
-        new_name, ok = QInputDialog.getText(self, "Rename Local Path", "New name:", text=local_path.name)
+        new_name, ok = self._prompt_rename_name("Rename Local Path", "New name:", local_path.name)
         if not ok:
             return
         new_name = self._rename_name(new_name)
@@ -1502,7 +1533,7 @@ class FileTransferPage(QWidget):
         if remote_path is None:
             self._status_cb("Select a remote file or folder")
             return
-        new_name, ok = QInputDialog.getText(self, "Rename Remote Path", "New name:", text=Path(remote_path).name)
+        new_name, ok = self._prompt_rename_name("Rename Remote Path", "New name:", Path(remote_path).name)
         if not ok:
             return
         new_name = self._rename_name(new_name)
@@ -2018,3 +2049,15 @@ class FileTransferPage(QWidget):
         worker.finished.connect(lambda: self._background_workers.remove(worker) if worker in self._background_workers else None)
         if hasattr(worker, "deleteLater"):
             worker.finished.connect(worker.deleteLater)
+
+
+def _remote_list_error_allows_fallback(error: str) -> bool:
+    first_line = (error.splitlines()[0] if error else "").lower()
+    return (
+        "filenotfounderror" in first_line
+        or "errno 2" in first_line
+        or "errno 20" in first_line
+        or "no such file" in first_line
+        or "no such directory" in first_line
+        or "not a directory" in first_line
+    )
