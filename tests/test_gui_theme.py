@@ -52,6 +52,17 @@ def test_button_feedback_styles_are_global_not_page_only():
     assert 'QPushButton[buttonRole="danger_action"]' in css
 
 
+def test_scrollbar_styles_are_thick_enough_for_file_lists():
+    from jobdesk_app.gui.theme import ThemeMetrics, build_app_stylesheet
+
+    css = build_app_stylesheet()
+
+    assert ThemeMetrics.SCROLLBAR_THICKNESS == 14
+    assert "width: 14px;" in css
+    assert "height: 14px;" in css
+    assert "border-radius: 7px;" in css
+
+
 def test_button_role_styles_are_winscp_neutral_not_type_colored():
     from jobdesk_app.gui.design.tokens import Colors
     from jobdesk_app.gui.theme import build_app_stylesheet

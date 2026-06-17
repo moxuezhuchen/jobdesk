@@ -182,8 +182,7 @@ class RunService:
         tasks = Manifest.read(record.manifest_path)
         records = []
         failures = []
-        # Download destination uses task_id subdirs to match analyze_tasks expectations
-        results_base = self.workspace_dir / "results" / run_id
+        download_base = Path(record.local_dir).resolve() if record.local_dir else self.workspace_dir
         for task in tasks:
             if task.status != TaskStatus.remote_completed:
                 continue
@@ -192,16 +191,15 @@ class RunService:
             requested_outputs: list[str] = []
             task_ok = False
             try:
-                task_dir = results_base / task.task_id
-                task_dir.mkdir(parents=True, exist_ok=True)
+                download_base.mkdir(parents=True, exist_ok=True)
                 work_dir = task.remote_work_dir or task.remote_job_dir
                 requested_outputs = _declared_outputs(task, patterns)
                 for relative_output in requested_outputs:
                     safe_path = _safe_declared_result_path(relative_output)
                     remote_file = f"{work_dir.rstrip('/')}/{safe_path.as_posix()}"
-                    local_file = task_dir.joinpath(*safe_path.parts)
-                    if not local_file.resolve().is_relative_to(task_dir.resolve()):
-                        raise ValueError(f"declared result path escapes task dir: {relative_output}")
+                    local_file = download_base.joinpath(*safe_path.parts)
+                    if not local_file.resolve().is_relative_to(download_base):
+                        raise ValueError(f"declared result path escapes local dir: {relative_output}")
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)

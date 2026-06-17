@@ -1,9 +1,13 @@
 """File-table widgets and table helpers for the Files page."""
 
-from PySide6.QtCore import QMimeData, Qt, QUrl, Signal
+import re
+from datetime import datetime
+
+from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl, Signal
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHeaderView,
     QTableWidget,
     QTableWidgetItem,
@@ -18,6 +22,7 @@ class _FileTable(StyledTableWidget):
     copy_local_files = Signal(list)
     move_local_files = Signal(list, str)
     move_remote_files = Signal(list, str)
+    selected_item_clicked = Signal(QTableWidgetItem)
     key_delete = Signal()
     key_enter = Signal()
 
@@ -28,6 +33,8 @@ class _FileTable(StyledTableWidget):
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDrop)
+        self._selected_click_candidate: QTableWidgetItem | None = None
+        self._selected_click_press_pos = QPoint()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Delete:
@@ -36,6 +43,41 @@ class _FileTable(StyledTableWidget):
             self.key_enter.emit()
         else:
             super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):  # noqa: N802
+        self._selected_click_candidate = None
+        if event.button() == Qt.LeftButton:
+            pos = self._event_pos(event)
+            item = self.itemAt(pos)
+            if item is not None and item.column() == 0 and item.isSelected():
+                self._selected_click_candidate = item
+                self._selected_click_press_pos = pos
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        if self._selected_click_candidate is not None:
+            delta = self._event_pos(event) - self._selected_click_press_pos
+            if delta.manhattanLength() >= QApplication.startDragDistance():
+                self._selected_click_candidate = None
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        candidate = self._selected_click_candidate
+        self._selected_click_candidate = None
+        pos = self._event_pos(event)
+        super().mouseReleaseEvent(event)
+        if candidate is None or event.button() != Qt.LeftButton:
+            return
+        released_item = self.itemAt(pos)
+        if released_item is candidate and candidate.isSelected():
+            self.selected_item_clicked.emit(candidate)
+
+    @staticmethod
+    def _event_pos(event) -> QPoint:
+        try:
+            return event.position().toPoint()
+        except AttributeError:
+            return event.pos()
 
     def startDrag(self, supported_actions):
         rows = sorted({idx.row() for idx in self.selectedIndexes()})
@@ -142,6 +184,8 @@ def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[i
     table.setIconSize(QSize(24, 24))
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     table.horizontalHeader().setStretchLastSection(False)
+    table.horizontalHeader().setSectionsClickable(True)
+    table.horizontalHeader().setSortIndicatorShown(True)
     table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
     for column in hidden_columns or []:
         table.setColumnHidden(column, True)
@@ -163,7 +207,7 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
         # Sort rank: ".." = 0, dir = 1, file = 2
         sort_rank = 0 if is_parent else (1 if kind == "dir" else 2)
         for c, value in enumerate(row):
-            item = _SortableItem(str(value), sort_rank)
+            item = _SortableItem(str(value), sort_rank, _sort_key_for_column(c, str(value)))
             if c == 0:
                 if is_parent:
                     item.setIcon(up_icon)
@@ -178,14 +222,61 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
 class _SortableItem(QTableWidgetItem):
     """Table item that sorts directories before files."""
 
-    def __init__(self, text: str, sort_rank: int):
+    def __init__(self, text: str, sort_rank: int, sort_key):
         super().__init__(text)
         self._sort_rank = sort_rank
+        self._sort_key = sort_key
 
     def __lt__(self, other):
         if isinstance(other, _SortableItem) and self._sort_rank != other._sort_rank:
             return self._sort_rank < other._sort_rank
+        if isinstance(other, _SortableItem):
+            return self._sort_key < other._sort_key
         return self.text().lower() < other.text().lower()
+
+
+def _sort_key_for_column(column: int, text: str):
+    if column == 1:
+        size = _parse_size_bytes(text)
+        if size is not None:
+            return (0, size)
+    elif column == 2:
+        timestamp = _parse_timestamp(text)
+        if timestamp is not None:
+            return (0, timestamp)
+    return (1, text.lower())
+
+
+def _parse_size_bytes(text: str) -> float | None:
+    match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)?\s*", text)
+    if match is None:
+        return None
+    value = float(match.group(1))
+    unit = (match.group(2) or "B").upper()
+    factors = {
+        "B": 1,
+        "BYTE": 1,
+        "BYTES": 1,
+        "KB": 1024,
+        "KIB": 1024,
+        "MB": 1024 ** 2,
+        "MIB": 1024 ** 2,
+        "GB": 1024 ** 3,
+        "GIB": 1024 ** 3,
+        "TB": 1024 ** 4,
+        "TIB": 1024 ** 4,
+    }
+    factor = factors.get(unit)
+    if factor is None:
+        return None
+    return value * factor
+
+
+def _parse_timestamp(text: str) -> float | None:
+    try:
+        return datetime.fromisoformat(text.strip()).timestamp()
+    except ValueError:
+        return None
 
 
 def _default_column_widths(key: str) -> list[int]:

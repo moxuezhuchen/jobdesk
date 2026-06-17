@@ -11,11 +11,14 @@ class ThemeMetrics:
     CONTROL_HEIGHT = Metrics.CONTROL_HEIGHT
     TABLE_ROW_HEIGHT = Metrics.TABLE_ROW_HEIGHT
     TABLE_HEADER_HEIGHT = Metrics.TABLE_HEADER_HEIGHT
+    SCROLLBAR_THICKNESS = 14
 
 
 def build_app_stylesheet() -> str:
     c = Colors
     m = Metrics
+    scrollbar_thickness = ThemeMetrics.SCROLLBAR_THICKNESS
+    scrollbar_radius = scrollbar_thickness // 2
     from pathlib import Path
     arrow_path = str(Path(__file__).parent / "resources" / "chevron-down.svg").replace("\\", "/")
     return f"""
@@ -278,19 +281,19 @@ QSplitter::handle:hover {{
 /* ─── Scrollbar ─── */
 QScrollBar:vertical {{
     background: transparent;
-    width: 8px;
+    width: {scrollbar_thickness}px;
     border: 0;
     margin: 0;
 }}
 QScrollBar:horizontal {{
     background: transparent;
-    height: 8px;
+    height: {scrollbar_thickness}px;
     border: 0;
     margin: 0;
 }}
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
     background: {c.BORDER};
-    border-radius: 4px;
+    border-radius: {scrollbar_radius}px;
     min-height: 24px;
     min-width: 24px;
 }}

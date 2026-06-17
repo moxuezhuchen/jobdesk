@@ -360,6 +360,33 @@ class TestRunsPage:
 
         assert rows[0][1] == "water.log"
 
+    def test_workspace_preview_ignores_stale_output_for_remote_completed_task(self, runs_page, tmp_path):
+        runs_page.state.current_project_root = tmp_path
+        (tmp_path / "water.log").write_text("stale previous run output", encoding="utf-8")
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+
+        manifest_path = tmp_path / "runs" / "preview_stale" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(
+                task_id="water",
+                batch_id="preview_stale",
+                remote_job_dir="/tmp/jobs/water",
+                remote_task_files=["/remote/source/water.gjf"],
+                server_id="wsl",
+                status=TaskStatus.remote_completed,
+                error_message="download failed",
+            ),
+        ])
+        record = MagicMock(run_id="preview_stale", manifest_path=str(manifest_path))
+
+        rows = runs_page._analyze_workspace_files(record, tmp_path)
+
+        assert rows == []
+        assert Manifest.read(manifest_path)[0].status == TaskStatus.remote_completed
+
     def test_async_preview_collects_workspace_root_fallback(self, runs_page, tmp_path):
         runs_page.state.current_project_root = tmp_path
         record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None)
@@ -370,7 +397,7 @@ class TestRunsPage:
 
         assert payload == ("analysis", [["water", "water.log"]], "Result Preview - Local Files", False)
 
-    def test_async_workspace_preview_defers_refresh_to_apply(self, runs_page, tmp_path):
+    def test_async_workspace_preview_does_not_promote_remote_completed_from_local_file(self, runs_page, tmp_path):
         runs_page.state.current_project_root = tmp_path
         (tmp_path / "water.log").write_text("output", encoding="utf-8")
         from jobdesk_app.core.lifecycle import TaskStatus
@@ -398,14 +425,13 @@ class TestRunsPage:
             payload = runs_page._collect_result_preview(record)
 
         refresh_run_list.assert_not_called()
-        run_service.return_value.update_run_from_manifest.assert_called_once_with("preview")
-        assert payload[0] == "analysis"
-        assert payload[-1] is True
+        run_service.return_value.update_run_from_manifest.assert_not_called()
+        assert payload == ("empty",)
 
         with patch.object(runs_page, "refresh_run_list") as refresh_run_list:
             runs_page._apply_result_preview(payload)
 
-        refresh_run_list.assert_called_once_with()
+        refresh_run_list.assert_not_called()
 
     def test_large_output_is_not_parsed_in_preview_thread(self, runs_page, tmp_path):
         result_dir = tmp_path / "results" / "large" / "water"
@@ -559,6 +585,26 @@ class TestRunsPage:
         assert any("locked" in message for message in messages)
         assert not any("Deleted: 1" in message for message in messages)
 
+    def test_delete_run_confirmation_does_not_claim_direct_outputs_are_deleted(self, runs_page):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        questions = []
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run_direct"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+
+        def fake_question(_parent, _title, message, _buttons):
+            questions.append(message)
+            return QMessageBox.No
+
+        with patch.object(QMessageBox, "question", side_effect=fake_question):
+            runs_page._delete_run()
+
+        assert questions
+        assert "results" not in questions[0].lower()
+
     def test_load_result_preview_renders_multi_molecule_batch(self, runs_page, tmp_path):
         """A batch with multiple molecules shows per-molecule status table."""
         runs_page.state.current_project_root = tmp_path
@@ -692,6 +738,117 @@ class TestRunsPage:
         assert runs_page.result_table.item(0, 0).text() == "mol1"
         assert "Done" in runs_page.result_table.item(0, 1).text()
 
+    def test_confflow_results_found_directly_in_local_folder(self, runs_page, tmp_path):
+        """Auto-download now stores ConfFlow outputs directly in local_dir."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        runs_page.state.current_project_root = workspace
+
+        d = workspace / "mol1_confflow_work"
+        d.mkdir(parents=True)
+        (d / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 5, "final_conformers": 3,
+            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
+        }), encoding="utf-8")
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+        manifest_path = workspace / "runs" / "run_direct" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(task_id="mol1", batch_id="run_direct", remote_job_dir="/tmp/.jobdesk_runs/run_direct/mol1",
+               server_id="wsl", status=TaskStatus.downloaded),
+        ])
+        record = MagicMock(
+            run_id="run_direct",
+            command_template="confflow {name}",
+            manifest_path=str(manifest_path),
+            local_dir=str(workspace),
+        )
+
+        runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() == 1
+        assert runs_page.result_table.item(0, 0).text() == "mol1"
+        assert "Done" in runs_page.result_table.item(0, 1).text()
+
+    def test_confflow_stale_direct_summary_does_not_override_remote_completed(self, runs_page, tmp_path):
+        """A stale direct summary must not mark the current task done before download succeeds."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        runs_page.state.current_project_root = workspace
+
+        d = workspace / "mol1_confflow_work"
+        d.mkdir(parents=True)
+        (d / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 5, "final_conformers": 3,
+            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
+        }), encoding="utf-8")
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+        manifest_path = workspace / "runs" / "run_direct_stale" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(task_id="mol1", batch_id="run_direct_stale", remote_job_dir="/tmp/.jobdesk_runs/run_direct_stale/mol1",
+               server_id="wsl", status=TaskStatus.remote_completed, error_message="download failed"),
+        ])
+        record = MagicMock(
+            run_id="run_direct_stale",
+            command_template="confflow {name}",
+            manifest_path=str(manifest_path),
+            local_dir=str(workspace),
+        )
+
+        runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() == 1
+        assert runs_page.result_table.item(0, 0).text() == "mol1"
+        assert "Download Failed" in runs_page.result_table.item(0, 1).text()
+        assert "Done" not in runs_page.result_table.item(0, 1).text()
+
+    def test_confflow_legacy_run_results_preferred_over_stale_direct_summary(self, runs_page, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        runs_page.state.current_project_root = workspace
+
+        stale = workspace / "mol1_confflow_work"
+        stale.mkdir(parents=True)
+        (stale / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 99, "final_conformers": 88,
+            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
+        }), encoding="utf-8")
+
+        current = workspace / "results" / "run_legacy" / "mol1" / "mol1_confflow_work"
+        current.mkdir(parents=True)
+        (current / "run_summary.json").write_text(json.dumps({
+            "initial_conformers": 5, "final_conformers": 3,
+            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
+        }), encoding="utf-8")
+
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest
+        from jobdesk_app.core.manifest import TaskRecord as TR
+        manifest_path = workspace / "runs" / "run_legacy" / "manifest.tsv"
+        manifest_path.parent.mkdir(parents=True)
+        Manifest.write(manifest_path, [
+            TR(task_id="mol1", batch_id="run_legacy", remote_job_dir="/tmp/.jobdesk_runs/run_legacy/mol1",
+               server_id="wsl", status=TaskStatus.downloaded),
+        ])
+        record = MagicMock(
+            run_id="run_legacy",
+            command_template="confflow {name}",
+            manifest_path=str(manifest_path),
+            local_dir=str(workspace),
+        )
+
+        runs_page._load_result_preview(record)
+
+        assert runs_page.result_table.rowCount() == 1
+        assert runs_page.result_table.item(0, 2).text() == "5→3"
+
     def test_confflow_prefers_candidate_with_summary_over_empty_dir(self, runs_page, tmp_path):
         """Empty workspace result dir should not shadow valid default_local_folder results."""
         workspace = tmp_path / "workspace"
@@ -807,10 +964,8 @@ class TestRunsPage:
         svc.return_value.download_completed.assert_called_once()
 
     def test_open_results_folder_calls_startfile(self, runs_page, tmp_path):
-        """Open Results action uses os.startfile on the results directory."""
+        """Open Results action opens the local download directory directly."""
         record = MagicMock(run_id="run_open", local_dir="")
-        results_dir = tmp_path / "results" / "run_open"
-        results_dir.mkdir(parents=True)
 
         with patch.object(runs_page, "_selected_record", return_value=record), \
              patch.object(runs_page, "_workspace", return_value=tmp_path), \
@@ -818,14 +973,14 @@ class TestRunsPage:
             mock_os.startfile = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(results_dir)
+        mock_os.startfile.assert_called_once_with(tmp_path)
 
     def test_open_results_folder_missing_dir_shows_error(self, runs_page, tmp_path):
         """If results dir doesn't exist, show status message instead of crashing."""
         record = MagicMock(run_id="run_missing", local_dir="")
 
         with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path):
+             patch.object(runs_page, "_workspace", return_value=tmp_path / "missing"):
             runs_page._open_results_folder()
 
     def test_old_record_missing_new_fields_displays_normally(self, runs_page):
@@ -963,8 +1118,7 @@ class TestRunsPage:
     def test_open_results_uses_record_local_dir(self, runs_page, tmp_path):
         """Open Results must use record.local_dir path."""
         local_a = tmp_path / "project_a"
-        results_dir = local_a / "results" / "run_ld2"
-        results_dir.mkdir(parents=True)
+        local_a.mkdir()
         record = MagicMock(run_id="run_ld2", local_dir=str(local_a))
 
         with patch.object(runs_page, "_selected_record", return_value=record), \
@@ -974,7 +1128,7 @@ class TestRunsPage:
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(results_dir)
+        mock_os.startfile.assert_called_once_with(local_a)
 
     def test_show_paths_uses_record_local_dir(self, runs_page, tmp_path):
         local_a = tmp_path / "project_a"
@@ -989,12 +1143,11 @@ class TestRunsPage:
              patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"):
             runs_page._show_paths()
 
-        assert str(local_a / "results" / "run_paths") in runs_page.result_text.toPlainText()
+        assert str(local_a) in runs_page.result_text.toPlainText()
+        assert str(local_a / "results" / "run_paths") not in runs_page.result_text.toPlainText()
 
     def test_empty_local_dir_falls_back_to_workspace(self, runs_page, tmp_path):
         """Old records with empty local_dir should use current workspace."""
-        results_dir = tmp_path / "results" / "run_old"
-        results_dir.mkdir(parents=True)
         record = MagicMock(run_id="run_old", local_dir="")
 
         with patch.object(runs_page, "_selected_record", return_value=record), \
@@ -1004,7 +1157,7 @@ class TestRunsPage:
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(results_dir)
+        mock_os.startfile.assert_called_once_with(tmp_path)
 
     def test_shutdown_stops_background_worker_with_timeout(self, runs_page):
         worker = MagicMock()
@@ -1507,6 +1660,54 @@ class TestFileTransferPage:
         assert file_page.progress_bar.maximumWidth() <= 360
         assert file_page.progress_bar.minimumHeight() >= 24
         assert file_page.progress_bar.minimumHeight() > file_page.run_mode_combo.fontMetrics().height()
+
+    def test_file_table_header_click_sorts_rows(self, file_page, qtbot):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        from jobdesk_app.gui.pages.file_transfer_widgets import _load_rows
+
+        _load_rows(
+            file_page.local_table,
+            [
+                ["b.txt", "2 KB", "2026-01-02", "file", "C:/work/b.txt"],
+                ["a.txt", "1 KB", "2026-01-01", "file", "C:/work/a.txt"],
+            ],
+        )
+        header = file_page.local_table.horizontalHeader()
+        assert header.sectionsClickable()
+
+        x = header.sectionViewportPosition(0) + header.sectionSize(0) // 2
+        QTest.mouseClick(header.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(x, header.height() // 2))
+        qtbot.wait(10)
+
+        assert [file_page.local_table.item(row, 0).text() for row in range(2)] == ["a.txt", "b.txt"]
+
+    def test_file_table_size_header_sorts_by_bytes(self, file_page, qtbot):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        from jobdesk_app.gui.pages.file_transfer_widgets import _load_rows
+
+        _load_rows(
+            file_page.local_table,
+            [
+                ["big.out", "109.2 MB", "2026-01-03", "file", "C:/work/big.out"],
+                ["small.out", "6.9 KB", "2026-01-01", "file", "C:/work/small.out"],
+                ["mid.out", "548.8 KB", "2026-01-02", "file", "C:/work/mid.out"],
+            ],
+        )
+        header = file_page.local_table.horizontalHeader()
+
+        x = header.sectionViewportPosition(1) + header.sectionSize(1) // 2
+        QTest.mouseClick(header.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(x, header.height() // 2))
+        qtbot.wait(10)
+
+        assert [file_page.local_table.item(row, 0).text() for row in range(3)] == [
+            "small.out",
+            "mid.out",
+            "big.out",
+        ]
 
     def test_remote_table_routes_external_local_url_drop_for_upload(self, file_page, tmp_path):
         from PySide6.QtCore import QMimeData, QUrl
@@ -2311,6 +2512,133 @@ class TestFileTransferPage:
 
         assert dialog.minimumWidth() >= 460
         assert dialog.findChild(QLineEdit).minimumWidth() >= 380
+
+    def test_second_click_on_selected_local_item_starts_delayed_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                rect.center() if rect.isValid() else QPoint(4, 4),
+            )
+            qtbot.waitUntil(lambda: rename_local.called, timeout=1000)
+
+        rename_local.assert_called_once_with()
+
+    def test_second_click_on_selected_remote_item_starts_delayed_rename(self, file_page, qtbot):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("before.out"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/before.out"))
+        file_page.remote_table.selectRow(0)
+        file_page.remote_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_remote") as rename_remote:
+            rect = file_page.remote_table.visualItemRect(file_page.remote_table.item(0, 0))
+            QTest.mouseClick(
+                file_page.remote_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                rect.center() if rect.isValid() else QPoint(4, 4),
+            )
+            qtbot.waitUntil(lambda: rename_remote.called, timeout=1000)
+
+        rename_remote.assert_called_once_with()
+
+    def test_first_click_on_unselected_item_does_not_start_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                rect.center() if rect.isValid() else QPoint(4, 4),
+            )
+            qtbot.wait(600)
+
+        rename_local.assert_not_called()
+
+    def test_click_selected_non_name_column_does_not_start_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 1, QTableWidgetItem("1 KB"))
+        file_page.local_table.setItem(0, 2, QTableWidgetItem("2026-06-17 10:00:00"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 2))
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                rect.center() if rect.isValid() else QPoint(120, 4),
+            )
+            qtbot.wait(600)
+
+        rename_local.assert_not_called()
+
+    def test_double_click_cancels_delayed_local_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local, \
+             patch.object(file_page, "_open_in_text_editor") as open_editor:
+            rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
+            point = rect.center() if rect.isValid() else QPoint(4, 4)
+            QTest.mouseClick(file_page.local_table.viewport(), Qt.LeftButton, Qt.NoModifier, point)
+            file_page._open_local_item(file_page.local_table.item(0, 0))
+            qtbot.wait(600)
+
+        rename_local.assert_not_called()
+        open_editor.assert_called_once_with(original)
 
     @pytest.mark.parametrize("invalid_name", ["nested/new.txt", r"nested\new.txt"])
     def test_rename_local_rejects_path_separator(self, file_page, tmp_path, invalid_name):

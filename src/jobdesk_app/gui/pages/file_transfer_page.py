@@ -80,6 +80,7 @@ CONTROL_HEIGHT = 38
 RENAME_DIALOG_MIN_WIDTH = 460
 RENAME_DIALOG_INPUT_MIN_WIDTH = 380
 TRANSFER_PROGRESS_HEIGHT = 24
+RENAME_ON_SELECTED_CLICK_DELAY_MS = 450
 
 
 class FileTransferPage(QWidget):
@@ -107,6 +108,7 @@ class FileTransferPage(QWidget):
         self._local_poll_running = False
         self._initialized = False
         self._command_manually_edited = False
+        self._pending_click_rename: tuple[str, int] | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -167,6 +169,12 @@ class FileTransferPage(QWidget):
         self.local_table.move_local_files.connect(self._move_local_paths_into_directory)
         self.remote_table.drop_files.connect(self._upload_dropped_local_paths)
         self.remote_table.move_remote_files.connect(self._move_remote_paths_into_directory)
+        self.local_table.selected_item_clicked.connect(
+            lambda item: self._schedule_selected_click_rename("local", item)
+        )
+        self.remote_table.selected_item_clicked.connect(
+            lambda item: self._schedule_selected_click_rename("remote", item)
+        )
         _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
         _setup_table(self.remote_table, self._translated_table_headers("remote"), hidden_columns=[4, 5])
         self.local_table.bind_column_widths("files.local", _clamp_column_widths("files.local", _default_column_widths("files.local")))
@@ -183,6 +191,10 @@ class FileTransferPage(QWidget):
         self.local_table.key_enter.connect(self._enter_local)
         self.remote_table.key_delete.connect(self._delete_remote)
         self.remote_table.key_enter.connect(self._enter_remote)
+        self._click_rename_timer = QTimer(self)
+        self._click_rename_timer.setSingleShot(True)
+        self._click_rename_timer.setInterval(RENAME_ON_SELECTED_CLICK_DELAY_MS)
+        self._click_rename_timer.timeout.connect(self._trigger_selected_click_rename)
         local_pane = QWidget()
         local_pane.setMinimumWidth(160)
         local_pane_layout = QVBoxLayout(local_pane)
@@ -1073,6 +1085,7 @@ class FileTransferPage(QWidget):
         return remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
 
     def _open_local_item(self, item):
+        self._cancel_selected_click_rename()
         row = item.row()
         kind_item = self.local_table.item(row, 3)
         path_item = self.local_table.item(row, 4)
@@ -1089,6 +1102,7 @@ class FileTransferPage(QWidget):
         self._open_in_text_editor(path)
 
     def _open_remote_item(self, item):
+        self._cancel_selected_click_rename()
         row = item.row()
         kind_item = self.remote_table.item(row, 4)
         path_item = self.remote_table.item(row, 5)
@@ -1112,6 +1126,34 @@ class FileTransferPage(QWidget):
         item = self.remote_table.currentItem()
         if item:
             self._open_remote_item(item)
+
+    def _schedule_selected_click_rename(self, role: str, item) -> None:
+        name_item = item.tableWidget().item(item.row(), 0)
+        if name_item is None or name_item.text() == "..":
+            self._cancel_selected_click_rename()
+            return
+        self._pending_click_rename = (role, item.row())
+        self._click_rename_timer.start()
+
+    def _cancel_selected_click_rename(self) -> None:
+        self._click_rename_timer.stop()
+        self._pending_click_rename = None
+
+    def _trigger_selected_click_rename(self) -> None:
+        pending = self._pending_click_rename
+        self._pending_click_rename = None
+        if pending is None:
+            return
+        role, row = pending
+        table = self.local_table if role == "local" else self.remote_table
+        item = table.item(row, 0)
+        if item is None or item.text() == ".." or not item.isSelected():
+            return
+        table.setCurrentCell(row, 0)
+        if role == "local":
+            self._rename_local()
+        else:
+            self._rename_remote()
 
     def _open_remote_file_in_editor(self, remote_path: str):
         """Download a remote file to a temp directory and open it in the configured editor."""

@@ -468,6 +468,21 @@ class RunsResultsPage(QWidget):
             return Path(record.local_dir)
         return self._workspace()
 
+    def _download_directory(self, record: RunRecord) -> Path:
+        return self._result_workspace(record)
+
+    def _legacy_results_directory(self, record: RunRecord, base: Path | None = None) -> Path:
+        root = base if base is not None else self._result_workspace(record)
+        return root / "results" / record.run_id
+
+    def _result_search_directories(self, record: RunRecord, bases: list[Path]) -> list[Path]:
+        directories: list[Path] = []
+        for base in bases:
+            for candidate in (self._legacy_results_directory(record, base), base):
+                if candidate not in directories:
+                    directories.append(candidate)
+        return directories
+
     def _selected_record(self) -> RunRecord | None:
         row = self.table.currentRow()
         if row < 0:
@@ -524,18 +539,17 @@ class RunsResultsPage(QWidget):
         if is_confflow:
             best_dir = None
             fallback_dir = None
-            for base in candidates:
-                result_dir = base / "results" / record.run_id
+            for result_dir in self._result_search_directories(record, candidates):
                 if result_dir.exists():
-                    if any(result_dir.rglob("run_summary.json")):
+                    if _confflow_result_dir_has_summary(record, result_dir):
                         best_dir = result_dir
                         break
                     if fallback_dir is None:
                         fallback_dir = result_dir
-            return ("confflow", record, best_dir or fallback_dir or (workspace / "results" / record.run_id))
+            return ("confflow", record, best_dir or fallback_dir or self._download_directory(record))
 
         for base in candidates:
-            result_dir = base / "results" / record.run_id
+            result_dir = self._legacy_results_directory(record, base)
             if result_dir.exists():
                 summaries = sorted(result_dir.rglob("run_summary.json"))
                 if summaries:
@@ -556,7 +570,7 @@ class RunsResultsPage(QWidget):
                 return ("analysis", rows, tr("Result Preview - Local Files", self._language), needs_refresh)
 
         for base in candidates:
-            result_dir = base / "results" / record.run_id
+            result_dir = self._legacy_results_directory(record, base)
             for name in ("final_results.tsv", "analysis_preview.tsv"):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
@@ -603,21 +617,20 @@ class RunsResultsPage(QWidget):
         if is_confflow:
             best_dir = None
             fallback_dir = None
-            for base in candidates:
-                result_dir = base / "results" / record.run_id
+            for result_dir in self._result_search_directories(record, candidates):
                 if result_dir.exists():
-                    if any(result_dir.rglob("run_summary.json")):
+                    if _confflow_result_dir_has_summary(record, result_dir):
                         best_dir = result_dir
                         break
                     if fallback_dir is None:
                         fallback_dir = result_dir
-            chosen = best_dir or fallback_dir or (workspace / "results" / record.run_id)
+            chosen = best_dir or fallback_dir or self._download_directory(record)
             self._show_confflow_batch_results(record, chosen)
             return
 
         # Prefer auto-analysis on downloaded files
         for base in candidates:
-            result_dir = base / "results" / record.run_id
+            result_dir = self._legacy_results_directory(record, base)
             if result_dir.exists():
                 summaries = sorted(result_dir.rglob("run_summary.json"))
                 if summaries:
@@ -640,7 +653,7 @@ class RunsResultsPage(QWidget):
 
         # Last resort: read existing TSV
         for base in candidates:
-            result_dir = base / "results" / record.run_id
+            result_dir = self._legacy_results_directory(record, base)
             for name in ("final_results.tsv", "analysis_preview.tsv"):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
@@ -664,17 +677,16 @@ class RunsResultsPage(QWidget):
             return []
         tasks = list(Manifest.read(Path(manifest_path)))
         rows: list[list[str]] = []
-        changed = False
         for task in tasks:
+            if task.status not in (TaskStatus.downloaded, TaskStatus.analyzed):
+                continue
             if not task.remote_task_files:
                 continue
             source = task.remote_task_files[0]
             stem = PurePosixPath(source).stem
-            found = False
             # Check .log (Gaussian)
             log_file = workspace / f"{stem}.log"
             if log_file.is_file():
-                found = True
                 if _too_large_for_preview(log_file):
                     rows.append([task.task_id, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
@@ -686,7 +698,6 @@ class RunsResultsPage(QWidget):
             # Check .out (ORCA)
             out_file = workspace / f"{stem}.out"
             if out_file.is_file():
-                found = True
                 if _too_large_for_preview(out_file):
                     rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", "", "", ""])
                 else:
@@ -695,16 +706,6 @@ class RunsResultsPage(QWidget):
                         rows.append(_analysis_row(task.task_id, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
                         rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
-            if found and task.status == TaskStatus.remote_completed:
-                task.status = TaskStatus.downloaded
-                changed = True
-        if changed:
-            Manifest.write(Path(manifest_path), tasks)
-            RunService(workspace).update_run_from_manifest(record.run_id)
-            if on_changed is None:
-                self.refresh_run_list()
-            else:
-                on_changed()
         return rows
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
@@ -766,8 +767,8 @@ class RunsResultsPage(QWidget):
         if tasks:
             for task in tasks:
                 mol_name = task.task_id
-                summary_file = result_dir / mol_name / f"{mol_name}_confflow_work" / "run_summary.json"
-                if summary_file.exists():
+                summary_file = _confflow_summary_file(result_dir, mol_name)
+                if task.status in (TaskStatus.downloaded, TaskStatus.analyzed) and summary_file.exists():
                     try:
                         s = load_summary(summary_file)
                         steps = ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items()) if s.step_status_counts else ""
@@ -789,8 +790,12 @@ class RunsResultsPage(QWidget):
             # Fallback: scan local directories if no manifest
             if result_dir.exists():
                 for task_dir in sorted(d for d in result_dir.iterdir() if d.is_dir()):
-                    mol_name = task_dir.name
-                    summary_file = task_dir / f"{mol_name}_confflow_work" / "run_summary.json"
+                    mol_name = (
+                        task_dir.name.removesuffix("_confflow_work")
+                        if task_dir.name.endswith("_confflow_work")
+                        else task_dir.name
+                    )
+                    summary_file = _confflow_summary_file(result_dir, mol_name)
                     if summary_file.exists():
                         try:
                             s = load_summary(summary_file)
@@ -1090,7 +1095,7 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        results_dir = self._result_workspace(record) / "results" / record.run_id
+        results_dir = self._download_directory(record)
         if not results_dir.exists():
             self._status_cb(tr("Results directory not found", self._language))
             return
@@ -1222,7 +1227,7 @@ class RunsResultsPage(QWidget):
                 run_ids.append(item.text())
         if not run_ids:
             return
-        msg = tr("Delete {n} run records?", self._language, n=len(run_ids)) if len(run_ids) > 1 else tr("Delete run {run_id} and results?", self._language, run_id=run_ids[0])
+        msg = tr("Delete {n} run records?", self._language, n=len(run_ids)) if len(run_ids) > 1 else tr("Delete run {run_id} record?", self._language, run_id=run_ids[0])
         if QMessageBox.question(self, tr("Delete", self._language), msg,
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
@@ -1314,7 +1319,7 @@ class RunsResultsPage(QWidget):
         self.result_text.setPlainText(
             f"{tr('Run directory', self._language)}: {record.run_dir}\n"
             f"Manifest: {record.manifest_path}\n"
-            f"{tr('Results directory', self._language)}: {ws / 'results' / record.run_id}")
+            f"{tr('Results directory', self._language)}: {ws}")
         self.result_text.setVisible(True)
 
     def shutdown(self):
@@ -1338,6 +1343,31 @@ class RunsResultsPage(QWidget):
 
 def _too_large_for_preview(path: Path) -> bool:
     return path.stat().st_size > MAX_PREVIEW_FILE_BYTES
+
+
+def _confflow_summary_file(result_dir: Path, mol_name: str) -> Path:
+    candidates = [
+        result_dir / f"{mol_name}_confflow_work" / "run_summary.json",
+        result_dir / mol_name / f"{mol_name}_confflow_work" / "run_summary.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _confflow_result_dir_has_summary(record, result_dir: Path) -> bool:
+    from ...core.lifecycle import TaskStatus
+    from ...core.manifest import Manifest
+
+    manifest_path = getattr(record, "manifest_path", None)
+    if manifest_path and Path(str(manifest_path)).exists():
+        return any(
+            task.status in (TaskStatus.downloaded, TaskStatus.analyzed)
+            and _confflow_summary_file(result_dir, task.task_id).exists()
+            for task in Manifest.read(Path(str(manifest_path)))
+        )
+    return any(result_dir.rglob("run_summary.json")) if result_dir.exists() else False
 
 
 def _command_executable(command: str) -> str:
