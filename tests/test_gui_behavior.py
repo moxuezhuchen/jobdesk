@@ -1984,6 +1984,98 @@ class TestFileTransferPage:
         start_worker.assert_called_once()
         assert start_worker.call_args.kwargs["registry_attr"] == "_background_workers"
 
+    def test_open_remote_files_with_same_name_use_distinct_temp_paths(self, file_page, tmp_path):
+        service = MagicMock()
+        downloaded: list[tuple[str, Path]] = []
+
+        def download_path(remote_path, local_path, _policy):
+            local = Path(local_path)
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_text(remote_path, encoding="utf-8")
+            downloaded.append((remote_path, local))
+
+        service.download_path.side_effect = download_path
+        file_page._service = service
+        file_page._connected_server_id = "wsl"
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.tempfile.gettempdir", return_value=str(tmp_path)), \
+             patch.object(file_page, "_open_in_text_editor", return_value=True), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._open_remote_file_in_editor("/remote/work1/a.gjf")
+            first_call = start_worker.call_args
+            first_result = first_call.kwargs["target"](MagicMock())
+            first_call.kwargs["on_result"](first_result)
+
+            file_page._open_remote_file_in_editor("/remote/work2/a.gjf")
+            second_call = start_worker.call_args
+            second_result = second_call.kwargs["target"](MagicMock())
+            second_call.kwargs["on_result"](second_result)
+
+        assert downloaded[0][1] != downloaded[1][1]
+        assert downloaded[0][1].name == "a.gjf"
+        assert downloaded[1][1].name == "a.gjf"
+        assert {session.remote_path for session in file_page._remote_edit_sessions.values()} == {
+            "/remote/work1/a.gjf",
+            "/remote/work2/a.gjf",
+        }
+
+    def test_remote_edit_uploads_saved_temp_file_to_original_remote_path(self, file_page, tmp_path):
+        temp_file = tmp_path / "result.gjf"
+        temp_file.write_text("before\n", encoding="utf-8")
+        service = MagicMock()
+        file_page._service = service
+
+        file_page._register_remote_edit_session("/remote/work/result.gjf", temp_file)
+        temp_file.write_text("after\n\n", encoding="utf-8")
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question") as question, \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._check_remote_edit_sessions()
+            target = start_worker.call_args.kwargs["target"]
+            result = target(MagicMock())
+            start_worker.call_args.kwargs["on_result"](result)
+
+        question.assert_not_called()
+        service.upload_path.assert_called_once()
+        call_args = service.upload_path.call_args
+        assert Path(call_args.args[0]) == temp_file
+        assert call_args.args[1] == "/remote/work/result.gjf"
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+        assert call_args.args[2] == OverwritePolicy.overwrite
+        assert not file_page._dirty_remote_edit_sessions()
+
+    def test_remote_edit_upload_failure_keeps_session_dirty(self, file_page, tmp_path):
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        temp_file = tmp_path / "result.gjf"
+        temp_file.write_text("before\n", encoding="utf-8")
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload,
+            str(temp_file),
+            "/remote/work/result.gjf",
+            status=TransferStatus.failed,
+            reason="permission denied",
+        )
+        file_page._service = service
+        errors: list[tuple[str, str]] = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._register_remote_edit_session("/remote/work/result.gjf", temp_file)
+        temp_file.write_text("after\n\n", encoding="utf-8")
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._check_remote_edit_sessions()
+            target = start_worker.call_args.kwargs["target"]
+            try:
+                target(MagicMock())
+            except RuntimeError as exc:
+                start_worker.call_args.kwargs["on_error"](str(exc))
+
+        assert errors
+        assert "permission denied" in errors[0][1]
+        assert file_page._dirty_remote_edit_sessions()
+
     def test_remote_generate_gjf_cleans_temp_xyz_when_upload_fails(self, file_page, tmp_path):
         from PySide6.QtWidgets import QTableWidgetItem
 
@@ -2208,6 +2300,115 @@ class TestFileTransferPage:
 
         run_service_cls.assert_not_called()
         assert start_worker.call_count == 1
+
+    def test_local_run_submission_uses_local_selection_even_when_remote_selection_remains(
+        self, file_page, tmp_path
+    ):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        local_file = tmp_path / "a.gjf"
+        local_file.write_text("%chk=a.chk\n\n", encoding="utf-8")
+        service = MagicMock()
+        file_page._service = service
+        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
+        file_page._connected_server_id = "wsl"
+        file_page.state.current_project_root = tmp_path
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("/remote/work")
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("a.gjf"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/work/a.gjf"))
+        file_page.remote_table.selectRow(0)
+
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("a.gjf"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
+        file_page.local_table.selectRow(0)
+        file_page._last_file_selection_side = "remote"
+        file_page._schedule_selected_click_rename("local", file_page.local_table.item(0, 0))
+        file_page._cancel_selected_click_rename()
+
+        record = SimpleNamespace(run_id="run-local", manifest_path=tmp_path / "manifest.tsv")
+        run_service = MagicMock()
+        run_service.create_run.return_value = record
+        run_service.submit_run.return_value = SimpleNamespace(batch_id="run-local", submitted_task_count=1, errors=[])
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ), patch(
+            "jobdesk_app.gui.pages.file_transfer_page.RunService",
+            return_value=run_service,
+        ), patch(
+            "jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"
+        ), patch(
+            "jobdesk_app.gui.pages.file_transfer_page.create_ssh_client"
+        ) as create_ssh, patch(
+            "jobdesk_app.gui.pages.file_transfer_page.create_sftp_client"
+        ) as create_sftp, patch(
+            "jobdesk_app.gui.pages.file_transfer_page.start_context_worker",
+            create=True,
+        ) as start_worker:
+            create_ssh.return_value = MagicMock()
+            create_sftp.return_value = MagicMock()
+            file_page._run_selected_chunks(submit=True)
+            payload = start_worker.call_args.kwargs["target"](MagicMock())
+
+        from jobdesk_app.core.file_transfer import OverwritePolicy
+
+        service.upload_path.assert_called_once_with(
+            local_file,
+            "/remote/work/a.gjf",
+            OverwritePolicy.overwrite,
+        )
+        created_spec = run_service.create_run.call_args.args[0]
+        assert created_spec.sources[0].path == "/remote/work/a.gjf"
+        assert payload["error"] is None
+
+    def test_local_run_submission_stops_when_upload_fails(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        local_file = tmp_path / "a.gjf"
+        local_file.write_text("%chk=a.chk\n\n", encoding="utf-8")
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload,
+            str(local_file),
+            "/remote/work/a.gjf",
+            status=TransferStatus.failed,
+            reason="permission denied",
+        )
+        file_page._service = service
+        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
+        file_page._connected_server_id = "wsl"
+        file_page.state.current_project_root = tmp_path
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("/remote/work")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("a.gjf"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
+        file_page.local_table.selectRow(0)
+
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ), patch(
+            "jobdesk_app.gui.pages.file_transfer_page.RunService"
+        ) as run_service_cls, patch(
+            "jobdesk_app.gui.pages.file_transfer_page.start_context_worker",
+            create=True,
+        ) as start_worker:
+            file_page._run_selected_chunks(submit=True)
+            payload = start_worker.call_args.kwargs["target"](MagicMock())
+
+        run_service_cls.assert_not_called()
+        assert "permission denied" in payload["error"]
 
     def test_auto_fill_preserves_manually_edited_command_for_next_selection(self, file_page):
         from PySide6.QtWidgets import QTableWidgetItem

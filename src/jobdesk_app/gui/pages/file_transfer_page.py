@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import posixpath
 import shutil
 import subprocess
 import tempfile
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
 from ...core.run import RunMode, RunSource, RunSpec, chunk_sources
+from ...core.transfer import TransferStatus
 from ...remote.errors import RemotePathError
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
@@ -81,6 +83,15 @@ RENAME_DIALOG_MIN_WIDTH = 460
 RENAME_DIALOG_INPUT_MIN_WIDTH = 380
 TRANSFER_PROGRESS_HEIGHT = 24
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 450
+REMOTE_EDIT_POLL_INTERVAL_MS = 1500
+
+
+@dataclass
+class _RemoteEditSession:
+    remote_path: str
+    local_path: Path
+    uploaded_signature: str
+    uploading_signature: str | None = None
 
 
 class FileTransferPage(QWidget):
@@ -109,6 +120,8 @@ class FileTransferPage(QWidget):
         self._initialized = False
         self._command_manually_edited = False
         self._pending_click_rename: tuple[str, int] | None = None
+        self._last_file_selection_side: str | None = None
+        self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -195,6 +208,9 @@ class FileTransferPage(QWidget):
         self._click_rename_timer.setSingleShot(True)
         self._click_rename_timer.setInterval(RENAME_ON_SELECTED_CLICK_DELAY_MS)
         self._click_rename_timer.timeout.connect(self._trigger_selected_click_rename)
+        self._remote_edit_timer = QTimer(self)
+        self._remote_edit_timer.setInterval(REMOTE_EDIT_POLL_INTERVAL_MS)
+        self._remote_edit_timer.timeout.connect(self._check_remote_edit_sessions)
         local_pane = QWidget()
         local_pane.setMinimumWidth(160)
         local_pane_layout = QVBoxLayout(local_pane)
@@ -917,8 +933,18 @@ class FileTransferPage(QWidget):
             return
 
     def _connect_selection_signals(self):
-        self.local_table.itemSelectionChanged.connect(self._update_selection_summary)
-        self.remote_table.itemSelectionChanged.connect(self._update_selection_summary)
+        self.local_table.itemSelectionChanged.connect(self._on_local_selection_changed)
+        self.remote_table.itemSelectionChanged.connect(self._on_remote_selection_changed)
+
+    def _on_local_selection_changed(self):
+        if self._selected_row_count(self.local_table):
+            self._last_file_selection_side = "local"
+        self._update_selection_summary()
+
+    def _on_remote_selection_changed(self):
+        if self._selected_row_count(self.remote_table):
+            self._last_file_selection_side = "remote"
+        self._update_selection_summary()
 
     def _local_context_menu(self, pos):
         menu = QMenu(self)
@@ -1128,6 +1154,7 @@ class FileTransferPage(QWidget):
             self._open_remote_item(item)
 
     def _schedule_selected_click_rename(self, role: str, item) -> None:
+        self._last_file_selection_side = role
         name_item = item.tableWidget().item(item.row(), 0)
         if name_item is None or name_item.text() == "..":
             self._cancel_selected_click_rename()
@@ -1160,12 +1187,9 @@ class FileTransferPage(QWidget):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        import tempfile
         name = Path(remote_path).name
-        # Use a stable temp dir per session so re-opening the same file reuses the path
-        tmp_dir = Path(tempfile.gettempdir()) / "jobdesk_remote_edit"
-        tmp_dir.mkdir(exist_ok=True)
-        tmp_file = tmp_dir / name
+        tmp_file = _remote_edit_temp_path(remote_path, self._connected_server_id)
+        tmp_file.parent.mkdir(parents=True, exist_ok=True)
         service = self._service
         assert service is not None
 
@@ -1176,6 +1200,7 @@ class FileTransferPage(QWidget):
 
         def _on_done(path):
             if self._open_in_text_editor(path):
+                self._register_remote_edit_session(remote_path, Path(path))
                 self._status_cb(f"Opened: {name}")
 
         start_context_worker(
@@ -1195,6 +1220,74 @@ class FileTransferPage(QWidget):
             self._error_cb("Open File Error", str(exc))
             return False
         return True
+
+    def _register_remote_edit_session(self, remote_path: str, local_path: Path) -> None:
+        local_path = Path(local_path)
+        self._remote_edit_sessions[str(local_path)] = _RemoteEditSession(
+            remote_path=remote_path,
+            local_path=local_path,
+            uploaded_signature=_file_signature(local_path),
+        )
+        if not self._remote_edit_timer.isActive():
+            self._remote_edit_timer.start()
+
+    def _check_remote_edit_sessions(self) -> None:
+        if not self._remote_edit_sessions:
+            self._remote_edit_timer.stop()
+            return
+        for key, session in list(self._remote_edit_sessions.items()):
+            if not session.local_path.exists():
+                self._remote_edit_sessions.pop(key, None)
+                continue
+            signature = _file_signature(session.local_path)
+            if signature == session.uploaded_signature:
+                continue
+            if signature == session.uploading_signature:
+                continue
+            self._upload_remote_edit_session(session, signature)
+        if not self._remote_edit_sessions:
+            self._remote_edit_timer.stop()
+
+    def _upload_remote_edit_session(self, session: _RemoteEditSession, signature: str | None = None) -> None:
+        if self._service is None:
+            self._error_cb("Upload Remote Edit Error", "Connect to a server first")
+            return
+        upload_signature = signature or _file_signature(session.local_path)
+        session.uploading_signature = upload_signature
+        service = self._service
+        local_path = session.local_path
+        remote_path = session.remote_path
+        session_key = str(local_path)
+
+        def _run(_ctx: WorkerContext):
+            records = service.upload_path(local_path, remote_path, OverwritePolicy.overwrite)
+            _raise_if_upload_failed(records, remote_path)
+            return session_key, upload_signature, remote_path
+
+        def _done(result):
+            key, completed_signature, completed_remote_path = result
+            current = self._remote_edit_sessions.get(key)
+            if current is None:
+                return
+            if current.uploading_signature == completed_signature:
+                current.uploaded_signature = completed_signature
+                current.uploading_signature = None
+            self._status_cb(f"Uploaded remote edit: {completed_remote_path}")
+            self._refresh_remote()
+
+        def _error(error: str):
+            current = self._remote_edit_sessions.get(session_key)
+            if current is not None and current.uploading_signature == upload_signature:
+                current.uploading_signature = None
+            self._error_cb("Upload Remote Edit Error", error.splitlines()[0])
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_background_workers",
+            on_result=_done,
+            on_error=_error,
+        )
 
     def _download_selected(self):
         if self._service is None:
@@ -1810,7 +1903,11 @@ class FileTransferPage(QWidget):
         # Detect whether selection is local or remote
         remote_files, remote_dirs = self._selected_remote_entries()
         local_files, local_dirs = self._selected_local_entries()
-        use_local = (not remote_files and not remote_dirs) and (local_files or local_dirs)
+        has_remote_selection = bool(remote_files or remote_dirs)
+        has_local_selection = bool(local_files or local_dirs)
+        use_local = has_local_selection and (
+            not has_remote_selection or self._last_file_selection_side == "local"
+        )
 
         if use_local:
             if self._service is None or self._connected_server is None:
@@ -1819,6 +1916,9 @@ class FileTransferPage(QWidget):
             files = []  # will be populated after upload in bg worker
             dirs = []
         else:
+            if has_remote_selection and has_local_selection and self._last_file_selection_side == "remote":
+                local_files = []
+                local_dirs = []
             files = remote_files
             dirs = remote_dirs
 
@@ -1884,25 +1984,31 @@ class FileTransferPage(QWidget):
         def _run(ctx: WorkerContext):
             from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
 
-            selected_files = remote_files_for_run
-            selected_dirs = remote_dirs_for_run
-            if use_local:
-                ctx.emit_log("Uploading files...")
-                uploaded_files = []
-                uploaded_dirs = []
-                for local_path_text in local_paths_files:
-                    target = remote_child_path(remote_dir, Path(local_path_text).name)
-                    file_service.upload_path(Path(local_path_text), target, OverwritePolicy.overwrite)
-                    uploaded_files.append(target)
-                for local_dir_text in local_paths_dirs:
-                    target = remote_child_path(remote_dir, Path(local_dir_text).name)
-                    file_service.upload_path(Path(local_dir_text), target, OverwritePolicy.overwrite)
-                    uploaded_dirs.append(target)
-                selected_files = uploaded_files
-                selected_dirs = uploaded_dirs
+            run_records = []
+            try:
+                selected_files = remote_files_for_run
+                selected_dirs = remote_dirs_for_run
+                if use_local:
+                    ctx.emit_log("Uploading files...")
+                    uploaded_files = []
+                    uploaded_dirs = []
+                    for local_path_text in local_paths_files:
+                        target = remote_child_path(remote_dir, Path(local_path_text).name)
+                        rec = file_service.upload_path(Path(local_path_text), target, OverwritePolicy.overwrite)
+                        _raise_if_upload_failed(rec, target)
+                        uploaded_files.append(target)
+                    for local_dir_text in local_paths_dirs:
+                        target = remote_child_path(remote_dir, Path(local_dir_text).name)
+                        rec = file_service.upload_path(Path(local_dir_text), target, OverwritePolicy.overwrite)
+                        _raise_if_upload_failed(rec, target)
+                        uploaded_dirs.append(target)
+                    selected_files = uploaded_files
+                    selected_dirs = uploaded_dirs
 
-            svc = RunService(local_base)
-            run_records = _create_records(svc, selected_files, selected_dirs)
+                svc = RunService(local_base)
+                run_records = _create_records(svc, selected_files, selected_dirs)
+            except Exception as exc:
+                return {"records": run_records, "results": None, "error": f"{type(exc).__name__}: {exc}"}
             if not submit:
                 return {"records": run_records, "results": None, "error": None}
 
@@ -2100,6 +2206,20 @@ class FileTransferPage(QWidget):
         self._local_refresh_request_id += 1
         if hasattr(self, "_local_poll_timer"):
             self._local_poll_timer.stop()
+        if hasattr(self, "_remote_edit_timer"):
+            self._remote_edit_timer.stop()
+        dirty_remote_edits = self._dirty_remote_edit_sessions()
+        if dirty_remote_edits:
+            details = "\n".join(
+                f"{session.local_path} -> {session.remote_path}"
+                for session in dirty_remote_edits[:10]
+            )
+            if len(dirty_remote_edits) > 10:
+                details += f"\n... {len(dirty_remote_edits) - 10} more"
+            self._error_cb(
+                "Unsaved Remote Edits",
+                "Remote edit temporary files have changes that were not uploaded:\n" + details,
+            )
         try:
             self._remember_current_remote_dir()
             store = GuiSettingsStore()
@@ -2130,6 +2250,13 @@ class FileTransferPage(QWidget):
         if hasattr(worker, "deleteLater"):
             worker.finished.connect(worker.deleteLater)
 
+    def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
+        dirty = []
+        for session in self._remote_edit_sessions.values():
+            if session.local_path.exists() and _file_signature(session.local_path) != session.uploaded_signature:
+                dirty.append(session)
+        return dirty
+
 
 def _remote_list_error_allows_fallback(error: str) -> bool:
     first_line = (error.splitlines()[0] if error else "").lower()
@@ -2141,3 +2268,26 @@ def _remote_list_error_allows_fallback(error: str) -> bool:
         or "no such directory" in first_line
         or "not a directory" in first_line
     )
+
+
+def _file_signature(path: Path) -> str:
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return "missing"
+    return hashlib.sha256(data).hexdigest()
+
+
+def _remote_edit_temp_path(remote_path: str, server_id: str | None) -> Path:
+    name = Path(remote_path).name or "remote-file"
+    key = f"{server_id or ''}\0{remote_path}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "jobdesk_remote_edit" / digest / name
+
+
+def _raise_if_upload_failed(records, remote_path: str) -> None:
+    items = records if isinstance(records, list) else [records]
+    for item in items:
+        if getattr(item, "status", None) == TransferStatus.failed:
+            reason = getattr(item, "reason", "") or "upload failed"
+            raise RuntimeError(f"upload failed for {remote_path}: {reason}")
