@@ -6,6 +6,7 @@
 
 import os
 import select
+import shlex
 import socket
 import subprocess
 import sys
@@ -26,6 +27,104 @@ _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _wsl_boot_lock = threading.Lock()
 _wsl_boot_last_attempt: float | None = None
 _WSL_BOOT_COOLDOWN = 10.0  # seconds
+
+
+def _split_proxy_command(command_line: str) -> list[str]:
+    def _strip_outer_quotes(value: str) -> str:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            return value[1:-1]
+        return value
+
+    return [_strip_outer_quotes(part) for part in shlex.split(command_line, posix=False)]
+
+
+class _PipeProxyCommand:
+    """Socket-like proxy command for Windows, where select() cannot wait on pipes."""
+
+    def __init__(self, command_line: str):
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        self.cmd = _split_proxy_command(command_line)
+        self._is_closed = False
+        self.process = subprocess.Popen(
+            self.cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        self._socket, self._bridge_socket = socket.socketpair()
+        self._stdout_reader = threading.Thread(target=self._copy_stdout_to_socket, daemon=True)
+        self._stdin_writer = threading.Thread(target=self._copy_socket_to_stdin, daemon=True)
+        self._stdout_reader.start()
+        self._stdin_writer.start()
+
+    def _copy_stdout_to_socket(self) -> None:
+        try:
+            assert self.process.stdout is not None
+            while True:
+                chunk = os.read(self.process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                self._bridge_socket.sendall(chunk)
+        finally:
+            try:
+                self._bridge_socket.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+    def _copy_socket_to_stdin(self) -> None:
+        try:
+            assert self.process.stdin is not None
+            while True:
+                chunk = self._bridge_socket.recv(65536)
+                if not chunk:
+                    break
+                self.process.stdin.write(chunk)
+                self.process.stdin.flush()
+        except OSError:
+            pass
+        finally:
+            try:
+                if self.process.stdin is not None:
+                    self.process.stdin.close()
+            except OSError:
+                pass
+
+    def settimeout(self, timeout: float | None) -> None:
+        self._socket.settimeout(timeout)
+
+    def recv(self, size: int) -> bytes:
+        return self._socket.recv(size)
+
+    def send(self, content: bytes) -> int:
+        return self._socket.send(content)
+
+    def close(self) -> None:
+        self._is_closed = True
+        for sock in (self._socket, self._bridge_socket):
+            try:
+                sock.close()
+            except OSError:
+                pass
+        for stream in (self.process.stdin, self.process.stdout):
+            try:
+                if stream is not None:
+                    stream.close()
+            except OSError:
+                pass
+        if self.process.poll() is None:
+            try:
+                self.process.terminate()
+            except OSError:
+                pass
+
+    @property
+    def closed(self) -> bool:
+        return self._is_closed
+
+    @property
+    def _closed(self) -> bool:
+        return self.closed
 
 
 def _ssh_config_path() -> Path:
@@ -189,9 +288,11 @@ class SSHClientWrapper:
             "banner_timeout": self._timeout,
         }
         if proxy_command:
-            connect_kwargs["sock"] = paramiko.ProxyCommand(
-                _proxy_command_text(proxy_command, hostname, port)
-            )
+            proxy_text = _proxy_command_text(proxy_command, hostname, port)
+            if sys.platform == "win32":
+                connect_kwargs["sock"] = _PipeProxyCommand(proxy_text)
+            else:
+                connect_kwargs["sock"] = paramiko.ProxyCommand(proxy_text)
         elif proxy_jump:
             connect_kwargs["sock"] = self._open_proxy_jump_channel(
                 proxy_jump,

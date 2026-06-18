@@ -1653,13 +1653,24 @@ class TestFileTransferPage:
         assert build.call_args.args[1] == "/home/xianj/qhf"
         launcher.assert_called_once_with(launch)
 
-    def test_transfer_progress_is_compact_and_in_task_action_row(self, file_page):
+    def test_transfer_progress_is_prominent_and_in_task_action_row(self, file_page):
         assert file_page.run_options_row.indexOf(file_page.progress_bar) == (
             file_page.run_options_row.indexOf(file_page.create_only_btn) + 1
         )
-        assert file_page.progress_bar.maximumWidth() <= 360
-        assert file_page.progress_bar.minimumHeight() >= 24
+        assert file_page.progress_bar.minimumWidth() >= 320
+        assert file_page.progress_bar.maximumWidth() >= 520
+        assert file_page.progress_bar.minimumHeight() >= 30
         assert file_page.progress_bar.minimumHeight() > file_page.run_mode_combo.fontMetrics().height()
+
+    def test_transfer_progress_shows_download_speed(self, file_page):
+        worker = _FakeWorker()
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.time.monotonic", side_effect=[100.0, 104.0]):
+            file_page._start_transfer_worker(worker, "Download", lambda: None)
+            worker.progress.emit(4 * 1024 * 1024, 8 * 1024 * 1024)
+
+        assert file_page.progress_bar.value() == 50
+        assert file_page.progress_bar.format() == "Download: 4096K / 8192K @ 1.0 MB/s"
 
     def test_file_table_header_click_sorts_rows(self, file_page, qtbot):
         from PySide6.QtCore import QPoint, Qt

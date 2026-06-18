@@ -5,6 +5,7 @@ import posixpath
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -81,7 +82,9 @@ from .file_transfer_widgets import (
 CONTROL_HEIGHT = 38
 RENAME_DIALOG_MIN_WIDTH = 460
 RENAME_DIALOG_INPUT_MIN_WIDTH = 380
-TRANSFER_PROGRESS_HEIGHT = 24
+TRANSFER_PROGRESS_HEIGHT = 30
+TRANSFER_PROGRESS_MIN_WIDTH = 320
+TRANSFER_PROGRESS_MAX_WIDTH = 560
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 450
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
 
@@ -92,6 +95,14 @@ class _RemoteEditSession:
     local_path: Path
     uploaded_signature: str
     uploading_signature: str | None = None
+
+
+def _format_transfer_speed(bytes_per_second: float) -> str:
+    if bytes_per_second >= 1024 * 1024:
+        return f"{bytes_per_second / 1024 / 1024:.1f} MB/s"
+    if bytes_per_second >= 1024:
+        return f"{bytes_per_second / 1024:.0f} KB/s"
+    return f"{bytes_per_second:.0f} B/s"
 
 
 class FileTransferPage(QWidget):
@@ -341,8 +352,8 @@ class FileTransferPage(QWidget):
         )
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setMinimumWidth(180)
-        self.progress_bar.setMaximumWidth(320)
+        self.progress_bar.setMinimumWidth(TRANSFER_PROGRESS_MIN_WIDTH)
+        self.progress_bar.setMaximumWidth(TRANSFER_PROGRESS_MAX_WIDTH)
         self.progress_bar.setMinimumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setMaximumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setTextVisible(True)
@@ -1337,17 +1348,23 @@ class FileTransferPage(QWidget):
         self._start_transfer_worker(_run, "Upload", self._refresh_remote)
 
     def _start_transfer_worker(self, run_fn_or_worker, label: str, on_done_refresh):
+        started_at = time.monotonic()
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setFormat(f"{label}: %p%")
         self.progress_bar.setVisible(True)
 
         def _on_progress(done, total):
+            elapsed = max(time.monotonic() - started_at, 0.001)
+            speed = _format_transfer_speed(done / elapsed)
             if total > 0:
                 self.progress_bar.setValue(int(done * 100 / total))
-                self.progress_bar.setFormat(f"{label}: {done // 1024}K / {total // 1024}K")
+                self.progress_bar.setFormat(
+                    f"{label}: {done // 1024}K / {total // 1024}K @ {speed}"
+                )
             else:
                 self.progress_bar.setMaximum(0)  # indeterminate
+                self.progress_bar.setFormat(f"{label}: {done // 1024}K @ {speed}")
 
         def _on_done(records):
             self.progress_bar.setVisible(False)

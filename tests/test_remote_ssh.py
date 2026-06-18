@@ -12,7 +12,12 @@ import pytest
 import jobdesk_app.remote.ssh as ssh_mod
 from jobdesk_app.config.schema import AuthMethod, ServerConfig
 from jobdesk_app.remote.errors import SSHCommandError, SSHConnectionError
-from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult, _AutoAddAndSavePolicy
+from jobdesk_app.remote.ssh import (
+    SSHClientWrapper,
+    SSHResult,
+    _AutoAddAndSavePolicy,
+    _split_proxy_command,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +107,37 @@ class TestSSHResult:
 
 
 class TestSSHClientWrapper:
+    def test_windows_proxy_command_split_removes_executable_quotes(self):
+        command = '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -W compute.internal:22 jump'
+
+        assert _split_proxy_command(command) == [
+            "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+            "-W",
+            "compute.internal:22",
+            "jump",
+        ]
+
+    def test_pipe_proxy_command_exposes_paramiko_closed_contract(self):
+        process = MagicMock()
+        process.stdin = MagicMock()
+        process.stdout = MagicMock()
+        process.poll.return_value = None
+        sock = MagicMock()
+        bridge = MagicMock()
+
+        with patch("jobdesk_app.remote.ssh.subprocess.Popen", return_value=process), \
+             patch("jobdesk_app.remote.ssh.socket.socketpair", return_value=(sock, bridge)), \
+             patch("jobdesk_app.remote.ssh.threading.Thread"):
+            proxy = ssh_mod._PipeProxyCommand("wsl.exe -- nc compute.internal 22")
+
+        assert proxy.closed is False
+        assert proxy._closed is False
+
+        proxy.close()
+
+        assert proxy.closed is True
+        assert proxy._closed is True
+
     def test_context_manager(self):
         server = _make_server()
         with patch("paramiko.SSHClient") as mock_client_class:
@@ -425,12 +461,35 @@ class TestSSHClientWrapper:
         )
         proxy = MagicMock()
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
+        with patch("jobdesk_app.remote.ssh.sys.platform", "linux"), \
+             patch("paramiko.SSHClient") as mock_client_class, \
              patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand", return_value=proxy) as proxy_command:
             mock_client_class.return_value = MagicMock()
             MockSSHWrapper(server).connect()
 
         proxy_command.assert_called_once_with("ssh -W compute.internal:22 login-node")
+        connect_kwargs = mock_client_class.return_value.connect.call_args.kwargs
+        assert connect_kwargs["sock"] is proxy
+
+    def test_connect_uses_windows_safe_proxy_command_on_windows(self):
+        server = ServerConfig(
+            server_id="hpc",
+            host="compute.internal",
+            username="chemist",
+            key_path=None,
+            ssh_access={"proxy_command": "wsl.exe -- nc %h %p"},
+        )
+        proxy = MagicMock()
+
+        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
+             patch("paramiko.SSHClient") as mock_client_class, \
+             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command, \
+             patch("jobdesk_app.remote.ssh._PipeProxyCommand", return_value=proxy) as pipe_proxy:
+            mock_client_class.return_value = MagicMock()
+            MockSSHWrapper(server).connect()
+
+        proxy_command.assert_not_called()
+        pipe_proxy.assert_called_once_with("wsl.exe -- nc compute.internal 22")
         connect_kwargs = mock_client_class.return_value.connect.call_args.kwargs
         assert connect_kwargs["sock"] is proxy
 

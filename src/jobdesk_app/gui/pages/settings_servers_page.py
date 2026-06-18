@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
 from PySide6.QtCore import Property, QPropertyAnimation, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
@@ -31,6 +34,56 @@ from ..i18n import tr
 from ..session import ssh_session
 from ..worker_utils import WorkerContext, start_context_worker
 from .settings_servers_helpers import validate_server_id_change
+
+SERVER_TEST_TIMEOUT_SECONDS = 20.0
+
+
+def _test_server_connections(
+    servers_list,
+    *,
+    language: str,
+    emit_log,
+    tester=None,
+    timeout_seconds: float = SERVER_TEST_TIMEOUT_SECONDS,
+    poll_seconds: float = 0.1,
+) -> None:
+    def _default_tester(_sid, srv):
+        with ssh_session(srv) as ssh:
+            ok = ssh.test_connection()
+        return "connected" if ok else "no-response"
+
+    test_one = tester or _default_tester
+    pool = ThreadPoolExecutor(max_workers=max(1, len(servers_list)))
+    futures = {}
+    try:
+        for sid, srv in servers_list:
+            futures[pool.submit(test_one, sid, srv)] = sid
+
+        pending = set(futures)
+        deadline = time.monotonic() + timeout_seconds
+        while pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            done, pending = wait(
+                pending,
+                timeout=min(poll_seconds, remaining),
+                return_when=FIRST_COMPLETED,
+            )
+            for future in done:
+                sid = futures[future]
+                try:
+                    status = future.result()
+                except Exception as exc:
+                    status = f"{tr('Error:', language)} {exc}"
+                emit_log(f"{sid}\t{status}")
+
+        for future in pending:
+            sid = futures[future]
+            future.cancel()
+            emit_log(f"{sid}\t{tr('Error:', language)} timed out after {timeout_seconds:g}s")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 class ToggleSwitch(QWidget):
@@ -423,21 +476,11 @@ class SettingsServersPage(QWidget):
         failed = False
 
         def _run(ctx: WorkerContext):
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-
-            def _test_one(sid, srv):
-                try:
-                    with ssh_session(srv) as ssh:
-                        ok = ssh.test_connection()
-                    return sid, "connected" if ok else "no-response"
-                except Exception as e:
-                    return sid, f"{tr('Error:', self._language)} {e}"
-
-            with ThreadPoolExecutor(max_workers=len(servers_list)) as pool:
-                futures = {pool.submit(_test_one, sid, srv): sid for sid, srv in servers_list}
-                for f in as_completed(futures):
-                    sid, status = f.result()
-                    ctx.emit_log(f"{sid}\t{status}")
+            _test_server_connections(
+                servers_list,
+                language=self._language,
+                emit_log=ctx.emit_log,
+            )
             return {}
 
         def _on_log(msg):

@@ -1,3 +1,5 @@
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +12,11 @@ from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
 from jobdesk_app.config.servers import load_servers as load_servers_from_path
 from jobdesk_app.gui.button_feedback import ButtonRole
 from jobdesk_app.gui.pages.settings_servers_helpers import validate_server_id_change
-from jobdesk_app.gui.pages.settings_servers_page import SettingsServersPage, ToggleSwitch
+from jobdesk_app.gui.pages.settings_servers_page import (
+    SettingsServersPage,
+    ToggleSwitch,
+    _test_server_connections,
+)
 from jobdesk_app.services.gui_settings import GuiSettings
 
 
@@ -97,6 +103,40 @@ def test_settings_test_connection_feedback_pending(qtbot, tmp_path):
     assert page.test_btn.text() == idle_text
     assert page.test_btn.property("feedbackState") == "idle"
     assert page.test_btn.isEnabled()
+
+
+def test_server_connection_test_reports_timed_out_server_without_waiting():
+    release = threading.Event()
+    calls: list[str] = []
+
+    servers = [
+        ("fast", object()),
+        ("hung", object()),
+    ]
+
+    def tester(sid, _server):
+        if sid == "hung":
+            release.wait(5)
+            return "connected"
+        return "connected"
+
+    t0 = time.monotonic()
+    try:
+        _test_server_connections(
+            servers,
+            language="en",
+            emit_log=calls.append,
+            tester=tester,
+            timeout_seconds=0.2,
+            poll_seconds=0.01,
+        )
+    finally:
+        release.set()
+
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0
+    assert "fast\tconnected" in calls
+    assert any(call.startswith("hung\tError: timed out after") for call in calls)
 
 
 def test_save_settings_load_error_sets_feedback_error(qtbot, tmp_path):
