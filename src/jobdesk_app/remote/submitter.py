@@ -308,7 +308,7 @@ class JobSubmitter:
             submitted_task_count=task_count,
             remote_batch_dir=self._remote_batch_dir,
             control_script_path=f"{control_dir}/batch_control.sh",
-            control_log_path=f"{control_dir}/batch_control.log",
+            control_log_path=f"{control_dir}/batch_control.nohup.log",
             control_nohup_log_path=f"{control_dir}/batch_control.nohup.log",
         )
 

@@ -47,7 +47,9 @@ class TestManifestLock:
             for _ in range(iterations):
                 with manifest_lock(p):
                     tasks = Manifest.read(p)
-                    tasks[index].error_message = str(int(tasks[index].error_message) + 1)
+                    current = tasks[index].error_message
+                    assert current is not None
+                    tasks[index].error_message = str(int(current) + 1)
                     time.sleep(0.0005)
                     Manifest.write(p, tasks)
 

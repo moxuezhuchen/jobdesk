@@ -372,6 +372,25 @@ class TestRefreshBatchStatus:
                 refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
                 assert mock_batch.call_count == 1
 
+    def test_refresh_reads_batch_control_nohup_log(self):
+        """nohup submission redirects batch_control output to batch_control.nohup.log."""
+        tasks = [_make_task("t1", TaskStatus.submitted, "/r/t1")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp = Path(tmpdir) / "manifest.tsv"
+            Manifest.write(mp, tasks)
+
+            with patch(
+                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                return_value={
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False),
+                },
+            ) as mock_batch:
+                refresh_batch_status(MagicMock(), mp, "/r", "b1", write=False)
+
+        extra_files = mock_batch.call_args.kwargs["extra_files"]
+        assert ("BC:L", "/r/_batch/batch_control.nohup.log", 20) in extra_files
+        assert ("BC:L", "/r/_batch/batch_control.log", 20) not in extra_files
+
 
 # ---- batch_control ------------------------------------------------
 

@@ -440,5 +440,6 @@ class TestSubmitResult:
             submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
             result = submitter.submit_batch(SubmitMode.all)
             assert result.control_script_path == "/remote/b1/_batch/batch_control.sh"
+            assert result.control_log_path == "/remote/b1/_batch/batch_control.nohup.log"
             assert result.control_nohup_log_path == "/remote/b1/_batch/batch_control.nohup.log"
             assert "nohup" in result.nohup_command

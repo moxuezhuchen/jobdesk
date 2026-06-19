@@ -1297,6 +1297,12 @@ class RunsResultsPage(QWidget):
 
     def _on_submit_done(self, result, *, feedback: ButtonFeedback | None = None):
         self.refresh_run_list()
+        errors = list(getattr(result, "errors", []) or [])
+        if errors:
+            if feedback is not None:
+                feedback.error(tr("Retry failed", self._language))
+            self._status_cb(tr("Submit failed: {e}", self._language, e="; ".join(errors)))
+            return
         if feedback is not None:
             feedback.success(tr("Retried", self._language))
         self._status_cb(tr("Submitted: {batch_id}", self._language, batch_id=result.batch_id))

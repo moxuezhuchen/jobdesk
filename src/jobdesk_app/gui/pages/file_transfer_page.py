@@ -1851,9 +1851,11 @@ class FileTransferPage(QWidget):
             from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             if origin == "local":
                 for local_p, remote_t in zip(xyz_paths, xyz_targets):
-                    file_service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
+                    records = file_service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
+                    _raise_if_upload_failed(records, remote_t)
             if local_yaml_path:
-                file_service.upload_path(Path(local_yaml_path), config_target, OverwritePolicy.overwrite)
+                records = file_service.upload_path(Path(local_yaml_path), config_target, OverwritePolicy.overwrite)
+                _raise_if_upload_failed(records, config_target)
             spec = ConfFlowAdapter.build_spec(
                 server_id=server_id,
                 remote_dir=remote_dir,
@@ -1874,10 +1876,7 @@ class FileTransferPage(QWidget):
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
         worker = BackgroundWorker(_run)
-        worker.result.connect(lambda payload: (
-            self._confflow_feedback.success(tr("Submitted", self._language)),
-            self._on_confflow_done(payload),
-        ))
+        worker.result.connect(self._on_confflow_done)
         worker.error.connect(lambda error: (
             self._confflow_feedback.error(tr("Submit failed", self._language)),
             self._error_cb("ConfFlow Run Error", error),
@@ -1895,6 +1894,12 @@ class FileTransferPage(QWidget):
         self.state.current_project_root = Path(record.local_dir) if record.local_dir else self.state.current_project_root
         self.state.current_batch_id = record.run_id
         self.state.current_manifest_path = record.manifest_path
+        errors = _submit_result_errors([result])
+        if errors:
+            self._confflow_feedback.error(tr("Submit failed", self._language))
+            self._error_cb("ConfFlow Run Error", "\n".join(errors))
+            return
+        self._confflow_feedback.success(tr("Submitted", self._language))
         self._on_runs_done([result])
 
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
@@ -2079,6 +2084,11 @@ class FileTransferPage(QWidget):
                 feedback.success(tr("Created {n}", self._language, n=len(run_records)))
                 self._status_cb(f"Created {len(run_records)} run(s)")
             else:
+                errors = _submit_result_errors(results)
+                if errors:
+                    feedback.error(tr("Submit failed", self._language))
+                    self._error_cb("Run Error", "\n".join(errors))
+                    return
                 feedback.success(tr("Submitted {n}", self._language, n=len(results)))
                 self._on_runs_done(results)
 
@@ -2308,3 +2318,12 @@ def _raise_if_upload_failed(records, remote_path: str) -> None:
         if getattr(item, "status", None) == TransferStatus.failed:
             reason = getattr(item, "reason", "") or "upload failed"
             raise RuntimeError(f"upload failed for {remote_path}: {reason}")
+
+
+def _submit_result_errors(results) -> list[str]:
+    errors: list[str] = []
+    for result in results or []:
+        batch_id = getattr(result, "batch_id", "run")
+        for error in getattr(result, "errors", []) or []:
+            errors.append(f"{batch_id}: {error}")
+    return errors

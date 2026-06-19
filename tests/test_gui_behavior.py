@@ -125,6 +125,20 @@ class TestRunsPage:
         assert runs_page.retry_btn.text() == tr("Retry Failed", runs_page._language)
         assert runs_page.retry_btn.isEnabled()
 
+    def test_retry_submit_result_errors_set_feedback_error(self, runs_page):
+        from jobdesk_app.gui.i18n import tr
+
+        statuses = []
+        feedback = MagicMock()
+        runs_page._status_cb = statuses.append
+        result = SimpleNamespace(batch_id="run_retry", errors=["chmod failed"])
+
+        runs_page._on_submit_done(result, feedback=feedback)
+
+        feedback.error.assert_called_once_with(tr("Retry failed", runs_page._language))
+        feedback.success.assert_not_called()
+        assert any("chmod failed" in status for status in statuses)
+
     def test_runs_feedback_pending_uses_current_language(self, runs_page):
         from jobdesk_app.gui.i18n import tr
 
@@ -2521,6 +2535,95 @@ class TestFileTransferPage:
         assert errors
         assert errors[0][0] == "Run Error"
         assert "scheduler down" in errors[0][1]
+
+    def test_remote_run_submit_result_errors_are_reported_as_failure(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QMessageBox
+
+        errors: list[tuple[str, str]] = []
+        file_page.state.current_project_root = tmp_path
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._service = MagicMock()
+        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
+        file_page._connected_server_id = "wsl"
+        file_page.command_edit.setCurrentText("g16 {name}")
+        file_page.remote_path.setText("/remote/work")
+        record = SimpleNamespace(
+            run_id="run-err",
+            manifest_path=tmp_path / ".jobdesk" / "runs" / "run-err" / "manifest.yaml",
+        )
+
+        run_service = MagicMock()
+        run_service.create_run.return_value = record
+        run_service.submit_run.return_value = SimpleNamespace(
+            batch_id="run-err",
+            submitted_task_count=1,
+            errors=["chmod failed"],
+        )
+        session = MagicMock()
+        session.__enter__.return_value = (MagicMock(), MagicMock())
+
+        with patch.object(file_page, "_selected_remote_entries", return_value=(["/remote/work/a.gjf"], [])), \
+             patch.object(file_page, "_selected_local_entries", return_value=([], [])), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunService", return_value=run_service), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session", return_value=session), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+            file_page._run_selected_chunks(submit=True)
+            payload = start_worker.call_args.kwargs["target"](MagicMock())
+            start_worker.call_args.kwargs["on_result"](payload)
+
+        assert file_page.state.current_batch_id == "run-err"
+        assert errors
+        assert errors[0][0] == "Run Error"
+        assert "chmod failed" in errors[0][1]
+
+    def test_confflow_stops_when_local_upload_returns_failed_record(self, file_page, tmp_path):
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+
+        xyz_file = tmp_path / "mol.xyz"
+        xyz_file.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+        yaml_file = tmp_path / "conf.yaml"
+        yaml_file.write_text("steps: []", encoding="utf-8")
+        service = MagicMock()
+        service.upload_path.return_value = TransferRecord(
+            TransferDirection.upload,
+            str(xyz_file),
+            "/tmp/jobs/mol.xyz",
+            status=TransferStatus.failed,
+            reason="permission denied",
+        )
+        file_page._service = service
+        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
+        file_page._connected_server_id = "wsl"
+        file_page.state.current_project_root = tmp_path
+        file_page.remote_path.setText("/tmp/jobs")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("mol.xyz"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(xyz_file)))
+        file_page.local_table.selectRow(0)
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.QFileDialog.getOpenFileName", return_value=(str(yaml_file), "")), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
+             patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls, \
+             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session") as sftp_session, \
+             patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls:
+            worker = MagicMock()
+            worker.result.connect = MagicMock()
+            worker.error.connect = MagicMock()
+            worker.finished.connect = MagicMock()
+            worker_cls.return_value = worker
+            run_service_cls.return_value.create_run.return_value = SimpleNamespace(run_id="cf-run", local_dir=str(tmp_path))
+            run_service_cls.return_value.submit_run.return_value = SimpleNamespace(batch_id="cf-run", errors=[])
+            sftp_session.return_value.__enter__.return_value = (MagicMock(), MagicMock())
+            file_page._run_confflow()
+            with pytest.raises(RuntimeError, match="permission denied"):
+                worker_cls.call_args.args[0]()
+
+        run_service_cls.assert_not_called()
 
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""

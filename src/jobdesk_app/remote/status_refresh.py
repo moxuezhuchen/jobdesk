@@ -68,7 +68,7 @@ def _refresh_batch_status(
     control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
     extra_files = [
         ("BC:E", f"{control_dir}/batch_control_exit_code", 0),
-        ("BC:L", f"{control_dir}/batch_control.log", 20),
+        ("BC:L", f"{control_dir}/batch_control.nohup.log", 20),
     ]
     extra_out: dict[str, bytes | None] = {}
 
