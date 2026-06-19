@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from pathlib import Path
+
+_REPLACE_RETRY_DELAYS = (0.01, 0.05, 0.1)
 
 
 def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8", newline: str | None = None) -> None:
@@ -23,7 +26,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8", newl
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        tmp_path.replace(path)
+        _replace_with_permission_retries(tmp_path, path)
         try:
             dir_fd = os.open(path.parent, os.O_RDONLY)
             try:
@@ -36,3 +39,13 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8", newl
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _replace_with_permission_retries(tmp_path: Path, path: Path) -> None:
+    for delay in _REPLACE_RETRY_DELAYS:
+        try:
+            tmp_path.replace(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    tmp_path.replace(path)
