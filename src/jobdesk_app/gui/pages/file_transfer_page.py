@@ -85,7 +85,7 @@ RENAME_DIALOG_INPUT_MIN_WIDTH = 380
 TRANSFER_PROGRESS_HEIGHT = 30
 TRANSFER_PROGRESS_MIN_WIDTH = 320
 TRANSFER_PROGRESS_MAX_WIDTH = 560
-RENAME_ON_SELECTED_CLICK_DELAY_MS = 450
+RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
 
 
@@ -213,8 +213,10 @@ class FileTransferPage(QWidget):
         self.remote_table.itemDoubleClicked.connect(self._open_remote_item)
         self.local_table.key_delete.connect(self._delete_local)
         self.local_table.key_enter.connect(self._enter_local)
+        self.local_table.key_rename.connect(lambda: self._rename_from_key("local"))
         self.remote_table.key_delete.connect(self._delete_remote)
         self.remote_table.key_enter.connect(self._enter_remote)
+        self.remote_table.key_rename.connect(lambda: self._rename_from_key("remote"))
         self._click_rename_timer = QTimer(self)
         self._click_rename_timer.setSingleShot(True)
         self._click_rename_timer.setInterval(RENAME_ON_SELECTED_CLICK_DELAY_MS)
@@ -1164,6 +1166,18 @@ class FileTransferPage(QWidget):
         if item:
             self._open_remote_item(item)
 
+    def _rename_from_key(self, role: str) -> None:
+        self._cancel_selected_click_rename()
+        self._last_file_selection_side = role
+        table = self.local_table if role == "local" else self.remote_table
+        if self._selected_row_count(table) != 1:
+            self._status_cb("Select exactly one file or folder to rename")
+            return
+        if role == "local":
+            self._rename_local()
+        else:
+            self._rename_remote()
+
     def _schedule_selected_click_rename(self, role: str, item) -> None:
         self._last_file_selection_side = role
         name_item = item.tableWidget().item(item.row(), 0)
@@ -1185,7 +1199,13 @@ class FileTransferPage(QWidget):
         role, row = pending
         table = self.local_table if role == "local" else self.remote_table
         item = table.item(row, 0)
-        if item is None or item.text() == ".." or not item.isSelected():
+        if (
+            item is None
+            or item.text() == ".."
+            or not item.isSelected()
+            or row != table.currentRow()
+            or self._selected_row_count(table) != 1
+        ):
             return
         table.setCurrentCell(row, 0)
         if role == "local":

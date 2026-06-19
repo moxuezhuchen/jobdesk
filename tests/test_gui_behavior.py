@@ -1563,6 +1563,24 @@ class TestTaskDoneDebounce:
 
 
 class TestFileTransferPage:
+    @staticmethod
+    def _name_label_point(table, row: int):
+        from PySide6.QtCore import QPoint
+
+        rect = table.visualItemRect(table.item(row, 0))
+        if not rect.isValid():
+            return QPoint(8, 8)
+        return QPoint(rect.left() + 18, rect.center().y())
+
+    @staticmethod
+    def _name_column_blank_point(table, row: int):
+        from PySide6.QtCore import QPoint
+
+        rect = table.visualItemRect(table.item(row, 0))
+        if not rect.isValid():
+            return QPoint(120, 8)
+        return QPoint(rect.right() - 6, rect.center().y())
+
     def test_page_creates_without_crash(self, file_page):
         assert file_page is not None
 
@@ -2884,7 +2902,7 @@ class TestFileTransferPage:
         refresh_remote.assert_called_once_with()
 
     def test_second_click_on_selected_local_item_starts_delayed_rename(self, file_page, qtbot, tmp_path):
-        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QTableWidgetItem
 
@@ -2898,19 +2916,18 @@ class TestFileTransferPage:
         file_page.local_table.setCurrentCell(0, 0)
 
         with patch.object(file_page, "_rename_local") as rename_local:
-            rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
             QTest.mouseClick(
                 file_page.local_table.viewport(),
                 Qt.LeftButton,
                 Qt.NoModifier,
-                rect.center() if rect.isValid() else QPoint(4, 4),
+                self._name_label_point(file_page.local_table, 0),
             )
-            qtbot.waitUntil(lambda: rename_local.called, timeout=1000)
+            qtbot.waitUntil(lambda: rename_local.called, timeout=1500)
 
         rename_local.assert_called_once_with()
 
     def test_second_click_on_selected_remote_item_starts_delayed_rename(self, file_page, qtbot):
-        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QTableWidgetItem
 
@@ -2922,14 +2939,13 @@ class TestFileTransferPage:
         file_page.remote_table.setCurrentCell(0, 0)
 
         with patch.object(file_page, "_rename_remote") as rename_remote:
-            rect = file_page.remote_table.visualItemRect(file_page.remote_table.item(0, 0))
             QTest.mouseClick(
                 file_page.remote_table.viewport(),
                 Qt.LeftButton,
                 Qt.NoModifier,
-                rect.center() if rect.isValid() else QPoint(4, 4),
+                self._name_label_point(file_page.remote_table, 0),
             )
-            qtbot.waitUntil(lambda: rename_remote.called, timeout=1000)
+            qtbot.waitUntil(lambda: rename_remote.called, timeout=1500)
 
         rename_remote.assert_called_once_with()
 
@@ -2953,7 +2969,7 @@ class TestFileTransferPage:
                 Qt.NoModifier,
                 rect.center() if rect.isValid() else QPoint(4, 4),
             )
-            qtbot.wait(600)
+            qtbot.wait(900)
 
         rename_local.assert_not_called()
 
@@ -2981,9 +2997,218 @@ class TestFileTransferPage:
                 Qt.NoModifier,
                 rect.center() if rect.isValid() else QPoint(120, 4),
             )
-            qtbot.wait(600)
+            qtbot.wait(900)
 
         rename_local.assert_not_called()
+
+    def test_click_selected_name_column_blank_area_does_not_start_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                self._name_column_blank_point(file_page.local_table, 0),
+            )
+            qtbot.wait(900)
+
+        rename_local.assert_not_called()
+
+    @pytest.mark.parametrize("modifier_name", ["ControlModifier", "ShiftModifier"])
+    def test_modified_click_on_selected_name_does_not_start_rename(self, file_page, qtbot, tmp_path, modifier_name):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                getattr(Qt, modifier_name),
+                self._name_label_point(file_page.local_table, 0),
+            )
+            qtbot.wait(900)
+
+        rename_local.assert_not_called()
+
+    def test_click_selected_name_with_multiple_rows_selected_does_not_start_rename(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QItemSelectionModel, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        first = tmp_path / "first.txt"
+        second = tmp_path / "second.txt"
+        first.write_text("one", encoding="utf-8")
+        second.write_text("two", encoding="utf-8")
+        file_page.local_table.setRowCount(2)
+        for row, path in enumerate([first, second]):
+            file_page.local_table.setItem(row, 0, QTableWidgetItem(path.name))
+            file_page.local_table.setItem(row, 3, QTableWidgetItem("file"))
+            file_page.local_table.setItem(row, 4, QTableWidgetItem(str(path)))
+        file_page.local_table.setCurrentCell(0, 0)
+        selection = file_page.local_table.selectionModel()
+        for row in (0, 1):
+            index = file_page.local_table.model().index(row, 0)
+            selection.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                self._name_label_point(file_page.local_table, 0),
+            )
+            qtbot.wait(900)
+
+        rename_local.assert_not_called()
+
+    def test_pending_selected_click_rename_cancels_when_selection_becomes_multiple(
+        self,
+        file_page,
+        qtbot,
+        tmp_path,
+    ):
+        from PySide6.QtCore import QItemSelectionModel, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        first = tmp_path / "first.txt"
+        second = tmp_path / "second.txt"
+        first.write_text("one", encoding="utf-8")
+        second.write_text("two", encoding="utf-8")
+        file_page.local_table.setRowCount(2)
+        for row, path in enumerate([first, second]):
+            file_page.local_table.setItem(row, 0, QTableWidgetItem(path.name))
+            file_page.local_table.setItem(row, 3, QTableWidgetItem("file"))
+            file_page.local_table.setItem(row, 4, QTableWidgetItem(str(path)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.mouseClick(
+                file_page.local_table.viewport(),
+                Qt.LeftButton,
+                Qt.NoModifier,
+                self._name_label_point(file_page.local_table, 0),
+            )
+            file_page.local_table.selectionModel().select(
+                file_page.local_table.model().index(1, 0),
+                QItemSelectionModel.Select | QItemSelectionModel.Rows,
+            )
+            qtbot.wait(900)
+
+        rename_local.assert_not_called()
+
+    def test_f2_renames_selected_local_item(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        original = tmp_path / "before.txt"
+        original.write_text("contents", encoding="utf-8")
+        file_page.local_table.setRowCount(1)
+        file_page.local_table.setItem(0, 0, QTableWidgetItem("before.txt"))
+        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
+        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(original)))
+        file_page.local_table.selectRow(0)
+        file_page.local_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.keyClick(file_page.local_table, Qt.Key_F2)
+            qtbot.wait(50)
+
+        rename_local.assert_called_once_with()
+
+    def test_f2_does_not_rename_multiple_selected_local_items(self, file_page, qtbot, tmp_path):
+        from PySide6.QtCore import QItemSelectionModel, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        first = tmp_path / "first.txt"
+        second = tmp_path / "second.txt"
+        first.write_text("one", encoding="utf-8")
+        second.write_text("two", encoding="utf-8")
+        file_page.local_table.setRowCount(2)
+        for row, path in enumerate([first, second]):
+            file_page.local_table.setItem(row, 0, QTableWidgetItem(path.name))
+            file_page.local_table.setItem(row, 3, QTableWidgetItem("file"))
+            file_page.local_table.setItem(row, 4, QTableWidgetItem(str(path)))
+        file_page.local_table.setCurrentCell(0, 0)
+        selection = file_page.local_table.selectionModel()
+        for row in (0, 1):
+            selection.select(
+                file_page.local_table.model().index(row, 0),
+                QItemSelectionModel.Select | QItemSelectionModel.Rows,
+            )
+
+        with patch.object(file_page, "_rename_local") as rename_local:
+            QTest.keyClick(file_page.local_table, Qt.Key_F2)
+            qtbot.wait(50)
+
+        rename_local.assert_not_called()
+
+    def test_f2_renames_selected_remote_item(self, file_page, qtbot):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 0, QTableWidgetItem("before.out"))
+        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/before.out"))
+        file_page.remote_table.selectRow(0)
+        file_page.remote_table.setCurrentCell(0, 0)
+
+        with patch.object(file_page, "_rename_remote") as rename_remote:
+            QTest.keyClick(file_page.remote_table, Qt.Key_F2)
+            qtbot.wait(50)
+
+        rename_remote.assert_called_once_with()
+
+    def test_f2_does_not_rename_multiple_selected_remote_items(self, file_page, qtbot):
+        from PySide6.QtCore import QItemSelectionModel, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        file_page.remote_table.setRowCount(2)
+        for row, name in enumerate(["first.out", "second.out"]):
+            file_page.remote_table.setItem(row, 0, QTableWidgetItem(name))
+            file_page.remote_table.setItem(row, 4, QTableWidgetItem("file"))
+            file_page.remote_table.setItem(row, 5, QTableWidgetItem(f"/remote/{name}"))
+        file_page.remote_table.setCurrentCell(0, 0)
+        selection = file_page.remote_table.selectionModel()
+        for row in (0, 1):
+            selection.select(
+                file_page.remote_table.model().index(row, 0),
+                QItemSelectionModel.Select | QItemSelectionModel.Rows,
+            )
+
+        with patch.object(file_page, "_rename_remote") as rename_remote:
+            QTest.keyClick(file_page.remote_table, Qt.Key_F2)
+            qtbot.wait(50)
+
+        rename_remote.assert_not_called()
 
     def test_double_click_cancels_delayed_local_rename(self, file_page, qtbot, tmp_path):
         from PySide6.QtCore import QPoint, Qt
@@ -3002,10 +3227,10 @@ class TestFileTransferPage:
         with patch.object(file_page, "_rename_local") as rename_local, \
              patch.object(file_page, "_open_in_text_editor") as open_editor:
             rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
-            point = rect.center() if rect.isValid() else QPoint(4, 4)
+            point = self._name_label_point(file_page.local_table, 0) if rect.isValid() else QPoint(4, 4)
             QTest.mouseClick(file_page.local_table.viewport(), Qt.LeftButton, Qt.NoModifier, point)
             file_page._open_local_item(file_page.local_table.item(0, 0))
-            qtbot.wait(600)
+            qtbot.wait(900)
 
         rename_local.assert_not_called()
         open_editor.assert_called_once_with(original)

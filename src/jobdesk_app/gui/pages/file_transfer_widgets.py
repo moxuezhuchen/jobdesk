@@ -25,6 +25,7 @@ class _FileTable(StyledTableWidget):
     selected_item_clicked = Signal(QTableWidgetItem)
     key_delete = Signal()
     key_enter = Signal()
+    key_rename = Signal()
 
     def __init__(self, role: str):
         super().__init__()
@@ -41,6 +42,8 @@ class _FileTable(StyledTableWidget):
             self.key_delete.emit()
         elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.key_enter.emit()
+        elif event.key() == Qt.Key_F2:
+            self.key_rename.emit()
         else:
             super().keyPressEvent(event)
 
@@ -49,7 +52,7 @@ class _FileTable(StyledTableWidget):
         if event.button() == Qt.LeftButton:
             pos = self._event_pos(event)
             item = self.itemAt(pos)
-            if item is not None and item.column() == 0 and item.isSelected():
+            if self._can_start_selected_click_rename(item, pos, event.modifiers()):
                 self._selected_click_candidate = item
                 self._selected_click_press_pos = pos
         super().mousePressEvent(event)
@@ -69,7 +72,10 @@ class _FileTable(StyledTableWidget):
         if candidate is None or event.button() != Qt.LeftButton:
             return
         released_item = self.itemAt(pos)
-        if released_item is candidate and candidate.isSelected():
+        if (
+            released_item is candidate
+            and self._can_start_selected_click_rename(candidate, pos, event.modifiers())
+        ):
             self.selected_item_clicked.emit(candidate)
 
     @staticmethod
@@ -78,6 +84,29 @@ class _FileTable(StyledTableWidget):
             return event.position().toPoint()
         except AttributeError:
             return event.pos()
+
+    def _can_start_selected_click_rename(self, item, pos: QPoint, modifiers) -> bool:
+        return (
+            item is not None
+            and item.column() == 0
+            and item.isSelected()
+            and item.row() == self.currentRow()
+            and self._selected_row_count() == 1
+            and modifiers == Qt.NoModifier
+            and self._is_name_label_pos(item, pos)
+        )
+
+    def _selected_row_count(self) -> int:
+        return len({idx.row() for idx in self.selectedIndexes()})
+
+    def _is_name_label_pos(self, item: QTableWidgetItem, pos: QPoint) -> bool:
+        rect = self.visualItemRect(item)
+        if not rect.isValid() or not rect.contains(pos):
+            return False
+        icon_width = self.iconSize().width() if not item.icon().isNull() else 0
+        icon_gap = 6 if icon_width else 0
+        label_width = 6 + icon_width + icon_gap + self.fontMetrics().horizontalAdvance(item.text()) + 8
+        return pos.x() <= min(rect.left() + label_width, rect.right())
 
     def startDrag(self, supported_actions):
         rows = sorted({idx.row() for idx in self.selectedIndexes()})
