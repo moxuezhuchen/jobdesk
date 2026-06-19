@@ -2828,6 +2828,61 @@ class TestFileTransferPage:
         assert dialog.minimumWidth() >= 460
         assert dialog.findChild(QLineEdit).minimumWidth() >= 380
 
+    def test_new_folder_dialog_matches_rename_dialog_size(self, file_page):
+        from PySide6.QtWidgets import QLineEdit
+
+        rename_dialog = file_page._build_rename_dialog(
+            "Rename Remote Path",
+            "New name:",
+            "tbu-zr-s-ml-rpdd-site2-sp.inp",
+        )
+        folder_dialog = file_page._build_name_input_dialog(
+            "New Remote Folder",
+            "Folder name:",
+            "",
+        )
+
+        assert folder_dialog.minimumWidth() == rename_dialog.minimumWidth()
+        assert folder_dialog.findChild(QLineEdit).minimumWidth() == (
+            rename_dialog.findChild(QLineEdit).minimumWidth()
+        )
+
+    def test_mkdir_local_uses_wide_new_folder_prompt(self, file_page, tmp_path):
+        from jobdesk_app.gui.i18n import tr
+
+        file_page.state.current_project_root = tmp_path
+
+        with patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt, \
+             patch(
+                 "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+                 side_effect=AssertionError("default QInputDialog.getText should not be used"),
+             ), \
+             patch.object(file_page, "_refresh_local") as refresh_local:
+            file_page._mkdir_local()
+
+        prompt.assert_called_once_with(
+            tr("New Folder", file_page._language),
+            tr("Folder name:", file_page._language),
+        )
+        assert (tmp_path / "created").is_dir()
+        refresh_local.assert_called_once_with()
+
+    def test_mkdir_remote_uses_wide_new_folder_prompt(self, file_page):
+        file_page._service = MagicMock()
+        file_page.remote_path.setText("/remote/jobs")
+
+        with patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt, \
+             patch(
+                 "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+                 side_effect=AssertionError("default QInputDialog.getText should not be used"),
+             ), \
+             patch.object(file_page, "_refresh_remote") as refresh_remote:
+            file_page._mkdir_remote()
+
+        prompt.assert_called_once_with("New Remote Folder", "Folder name:")
+        file_page._service.mkdir_remote.assert_called_once_with("/remote/jobs/created")
+        refresh_remote.assert_called_once_with()
+
     def test_second_click_on_selected_local_item_starts_delayed_rename(self, file_page, qtbot, tmp_path):
         from PySide6.QtCore import QPoint, Qt
         from PySide6.QtTest import QTest

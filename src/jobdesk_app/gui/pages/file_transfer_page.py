@@ -1546,7 +1546,10 @@ class FileTransferPage(QWidget):
             self._error_cb("Move Error", "\n".join(failures))
 
     def _mkdir_local(self):
-        name, ok = QInputDialog.getText(self, tr("New Folder", self._language), tr("Folder name:", self._language))
+        name, ok = self._prompt_new_folder_name(
+            tr("New Folder", self._language),
+            tr("Folder name:", self._language),
+        )
         if not ok or not name.strip():
             return
         name = name.strip()
@@ -1604,7 +1607,7 @@ class FileTransferPage(QWidget):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        name, ok = QInputDialog.getText(self, "New Remote Folder", "Folder name:")
+        name, ok = self._prompt_new_folder_name("New Remote Folder", "Folder name:")
         if not ok or not name.strip():
             return
         base = self.remote_path.text().strip().rstrip("/") or "/"
@@ -1643,7 +1646,7 @@ class FileTransferPage(QWidget):
             return None
         return name
 
-    def _build_rename_dialog(self, title: str, label: str, text: str) -> QInputDialog:
+    def _build_name_input_dialog(self, title: str, label: str, text: str) -> QInputDialog:
         dialog = QInputDialog(self)
         dialog.setInputMode(QInputDialog.TextInput)
         dialog.setWindowTitle(title)
@@ -1657,8 +1660,16 @@ class FileTransferPage(QWidget):
         dialog.resize(RENAME_DIALOG_MIN_WIDTH, dialog.sizeHint().height())
         return dialog
 
+    def _build_rename_dialog(self, title: str, label: str, text: str) -> QInputDialog:
+        return self._build_name_input_dialog(title, label, text)
+
     def _prompt_rename_name(self, title: str, label: str, text: str) -> tuple[str, bool]:
         dialog = self._build_rename_dialog(title, label, text)
+        ok = dialog.exec() == QDialog.Accepted
+        return dialog.textValue(), ok
+
+    def _prompt_new_folder_name(self, title: str, label: str) -> tuple[str, bool]:
+        dialog = self._build_name_input_dialog(title, label, "")
         ok = dialog.exec() == QDialog.Accepted
         return dialog.textValue(), ok
 
