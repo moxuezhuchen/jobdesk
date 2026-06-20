@@ -50,7 +50,7 @@ def _build_windows_terminal_launch(server: ServerConfig, remote_dir: str) -> Ter
         ssh_args.extend(["-p", str(server.port)])
     ssh_args.extend([_ssh_target(server), remote_command])
     ssh_command = _powershell_command("ssh", ssh_args)
-    args = ["new-tab", "powershell", "-Command", ssh_command]
+    args = ["-w", "0", "new-tab", "powershell", "-Command", ssh_command]
     executable = server.external_tools.terminal_path.strip() or "wt"
     return TerminalLaunch(
         executable=executable,

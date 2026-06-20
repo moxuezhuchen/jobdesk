@@ -30,6 +30,18 @@ def test_windows_terminal_uses_ssh_alias_when_available(tmp_path):
     assert launch.user_visible_command.startswith("wt ")
 
 
+def test_windows_terminal_adds_tab_to_most_recent_window(tmp_path):
+    server = ServerConfig(
+        server_id="hpc",
+        host="cluster.example.edu",
+        username="chemist",
+    )
+
+    launch = build_terminal_launch(server, "/tmp/run", temp_dir=tmp_path)
+
+    assert launch.args[:3] == ["-w", "0", "new-tab"]
+
+
 def test_windows_terminal_falls_back_to_user_host_and_port(tmp_path):
     server = ServerConfig(
         server_id="hpc",
@@ -83,7 +95,7 @@ def test_windows_terminal_visible_command_uses_powershell_quoting(tmp_path):
         "'cd ''/tmp/job desk/run''\"''\"''s'' && exec ${SHELL:-/bin/sh} -l'"
     )
     assert launch.user_visible_command == (
-        "wt new-tab powershell -Command "
+        "wt -w 0 new-tab powershell -Command "
         "'ssh -t chemist@cluster.example.edu "
         "''cd ''''/tmp/job desk/run''''\"''''\"''''s'''' && exec ${SHELL:-/bin/sh} -l'''"
     )

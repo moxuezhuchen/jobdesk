@@ -117,8 +117,10 @@ the remote path field:
 <current remote directory>
 ```
 
-Windows Terminal uses OpenSSH. For best results, configure an alias in
-`~/.ssh/config` and set `external_tools.ssh_alias` in `servers.yaml`.
+Windows Terminal uses OpenSSH. JobDesk opens a new tab in the most recently
+used Windows Terminal window, or opens a new window if no Terminal window is
+available. For best results, configure an alias in `~/.ssh/config` and set
+`external_tools.ssh_alias` in `servers.yaml`.
 
 PuTTY uses a saved session. Configure the session in PuTTY first, then set
 `external_tools.terminal_provider: putty` and
