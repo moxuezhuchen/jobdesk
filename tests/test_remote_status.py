@@ -732,24 +732,40 @@ class TestBatchScriptRealShell:
     def test_permission_denied_file_emits_E(self):
         """A file that exists but is not readable (chmod 000) must produce E.
 
-        Runs the encode_block as user 'nobody' via su to bypass root's
-        permission override in WSL.
+        Non-root shells cannot read chmod 000 files directly. Root shells can,
+        so they fall back to running encode_block as user 'nobody' via su.
         """
         inner_script = _build_batch_script([(0, "t1", "/tmp/_jd_test_batch_perm")], log_tail_lines=50)
-        # Escape single quotes for embedding in su -c '...'
-        escaped = inner_script.replace("'", "'\\''")
         setup = (
             "rm -rf /tmp/_jd_test_batch_perm\n"
             "mkdir -p /tmp/_jd_test_batch_perm\n"
             "printf 'content' > /tmp/_jd_test_batch_perm/.jobdesk_status\n"
             "chmod 000 /tmp/_jd_test_batch_perm/.jobdesk_status\n"
         )
-        # Run the batch script as nobody (non-root) so cat truly fails
-        run_as_nobody = f"su nobody -s /bin/sh -c '\n{escaped}\n'\n"
         teardown = "chmod 644 /tmp/_jd_test_batch_perm/.jobdesk_status 2>/dev/null\nrm -rf /tmp/_jd_test_batch_perm\n"
-        stdout = self._run_script(setup + run_as_nobody + teardown)
+        stdout = self._run_script(setup + inner_script + teardown)
 
         blocks = _parse_batch_output(stdout)
+        kind, data = blocks.get("T0:S", (None, None))
+
+        if kind == "F":
+            # The current shell can read chmod 000 files, usually because tests
+            # are running as root. Retry as nobody when the platform permits it.
+            escaped = inner_script.replace("'", "'\\''")
+            run_as_nobody = (
+                "if su nobody -s /bin/sh -c 'printf JD_SU_OK' >/dev/null 2>&1; then\n"
+                f"su nobody -s /bin/sh -c '\n{escaped}\n'\n"
+                "else\n"
+                "printf '##JD-SU-NOBODY-UNAVAILABLE\\n'\n"
+                "fi\n"
+            )
+            stdout = self._run_script(setup + run_as_nobody + teardown)
+            if "##JD-SU-NOBODY-UNAVAILABLE" in stdout:
+                pytest.skip(
+                    "current user can read chmod 000 files and su nobody is unavailable"
+                )
+            blocks = _parse_batch_output(stdout)
+
         assert "T0:S" in blocks, f"stdout={stdout!r}"
         kind, data = blocks["T0:S"]
         assert kind == "E", f"Expected E for unreadable file, got {kind}"
