@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -15,25 +15,7 @@ from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
 from .file_transfer_service import ensure_safe_remote_path
-
-
-@dataclass
-class RunRecord:
-    run_id: str
-    server_id: str
-    remote_dir: str
-    command_template: str
-    max_parallel: int
-    mode: str
-    created_at: str
-    run_dir: Path
-    manifest_path: Path
-    batch_path: Path
-    local_dir: str = ""
-    status_summary: dict[str, int] = field(default_factory=dict)
-    env_init_scripts: list[str] = field(default_factory=list)
-    scheduler_type: str = "nohup"
-    resources: dict[str, object] = field(default_factory=dict)
+from .run_repository import RunRecord
 
 
 class RunService:
