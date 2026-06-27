@@ -179,7 +179,7 @@ class RunsResultsPage(QWidget):
         layout.addWidget(splitter)
 
         # Real-time task completion monitor
-        from ...services.run_monitor import RunMonitor
+        from ..run_monitor_qt import RunMonitor
         self._monitor = RunMonitor(self)
         self._monitor.task_done.connect(self._on_task_done)
         self._bg_workers: list = []

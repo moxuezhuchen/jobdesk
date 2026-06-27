@@ -11,8 +11,9 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
+from typing import Callable
 
-from PySide6.QtCore import QObject, Signal
+from .protocols import SSHClientProtocol
 
 _WATCHER_STABLE_SECONDS = 30.0
 logger = logging.getLogger(__name__)
@@ -26,13 +27,16 @@ class DoneEvent:
     exit_code: int | None  # None for RUNNING events
 
 
-class RunMonitor(QObject):
-    """Monitors remote events.log via SSH tail -f, emits task_done on completion."""
+class RunMonitor:
+    """Framework-neutral manager for remote event watchers."""
 
-    task_done = Signal(object)  # DoneEvent
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(
+        self,
+        ssh_factory: Callable[[object], SSHClientProtocol],
+        callback: Callable[[DoneEvent], None],
+    ) -> None:
+        self._ssh_factory = ssh_factory
+        self._callback = callback
         self._watchers: dict[str, _Watcher] = {}  # key: "server_id:run_id"
         self._lock = threading.Lock()
 
@@ -42,7 +46,14 @@ class RunMonitor(QObject):
         with self._lock:
             if key in self._watchers:
                 return
-            w = _Watcher(run_id, server_id, remote_batch_dir, server_config, self._dispatch)
+            w = _Watcher(
+                run_id,
+                server_id,
+                remote_batch_dir,
+                server_config,
+                self._dispatch,
+                self._ssh_factory,
+            )
             self._watchers[key] = w
             w.start()
 
@@ -71,7 +82,7 @@ class RunMonitor(QObject):
                     rc = int(parts[2])
                 except ValueError:
                     rc = -1
-            self.task_done.emit(DoneEvent(
+            self._callback(DoneEvent(
                 run_id=run_id, server_id=server_id, task_id=task_id,
                 exit_code=rc if parts[0] == "DONE" else None,
             ))
@@ -80,12 +91,21 @@ class RunMonitor(QObject):
 class _Watcher:
     """Background thread that SSH tail -f's events.log for one run."""
 
-    def __init__(self, run_id, server_id, remote_batch_dir, server_config, callback):
+    def __init__(
+        self,
+        run_id,
+        server_id,
+        remote_batch_dir,
+        server_config,
+        callback,
+        ssh_factory: Callable[[object], SSHClientProtocol],
+    ):
         self._run_id = run_id
         self._server_id = server_id
         self._events_path = f"{remote_batch_dir.rstrip('/')}/_batch/events.log"
         self._server_config = server_config
         self._callback = callback
+        self._ssh_factory = ssh_factory
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -97,13 +117,12 @@ class _Watcher:
         self._stop_event.set()
 
     def _run(self):
-        from ..gui.session import create_ssh_client
         quoted = shlex.quote(self._events_path)
         backoff = 10
         while not self._stop_event.is_set():
             ssh = None
             try:
-                ssh = create_ssh_client(self._server_config)
+                ssh = self._ssh_factory(self._server_config)
                 ssh.connect()
                 ssh.run(f"mkdir -p $(dirname {quoted}) && touch {quoted}", timeout=10)
                 channel = ssh.open_session()

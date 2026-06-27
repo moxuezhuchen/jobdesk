@@ -92,39 +92,43 @@ class FakeSSHClient:
         pass
 
 
-def _make_watcher():
+def _make_watcher(ssh_factory=None):
     events = []
-    w = _Watcher("run1", "wsl", "/tmp/batch", object(), lambda *a: events.append(a))
+    if ssh_factory is None:
+        ssh_factory = MagicMock()
+    w = _Watcher(
+        "run1",
+        "wsl",
+        "/tmp/batch",
+        object(),
+        lambda *a: events.append(a),
+        ssh_factory,
+    )
     return w, events
 
 
 def _run_watcher_sessions(session_actions, max_waits, monotonic_values=None):
     """Run watcher with controlled sessions and return (waits, events)."""
-    w, events = _make_watcher()
-    w._stop_event = ControlledStopEvent(max_waits=max_waits)
-
     sessions = []
     for actions in session_actions:
         ch = FakeChannel(actions)
         sessions.append(FakeSSHClient(ch))
     session_iter = iter(sessions)
+    w, events = _make_watcher(lambda _config: next(session_iter))
+    w._stop_event = ControlledStopEvent(max_waits=max_waits)
 
-    patches = [
-        patch("jobdesk_app.gui.session.create_ssh_client",
-              side_effect=lambda config: next(session_iter)),
-    ]
+    patches = []
     if monotonic_values is not None:
         patches.append(
             patch("jobdesk_app.services.run_monitor.time.monotonic",
                   side_effect=monotonic_values)
         )
 
-    with patches[0]:
-        if len(patches) > 1:
-            with patches[1]:
-                w._run()
-        else:
+    if patches:
+        with patches[0]:
             w._run()
+    else:
+        w._run()
 
     return w._stop_event.waits, events
 
@@ -176,14 +180,10 @@ def test_watcher_resets_backoff_after_30s_stable_silent_connection():
 def test_watcher_reconnects_after_non_timeout_channel_error():
     """Broken channels must reconnect instead of spinning in recv()."""
     channel = OneBrokenReadChannel(OSError("channel closed"))
-    w, events = _make_watcher()
+    w, events = _make_watcher(lambda _config: FakeSSHClient(channel))
     w._stop_event = ControlledStopEvent(max_waits=1)
 
-    with patch(
-        "jobdesk_app.gui.session.create_ssh_client",
-        return_value=FakeSSHClient(channel),
-    ):
-        w._run()
+    w._run()
 
     assert channel.recv_calls == 1
     assert w._stop_event.waits == [10]
@@ -195,13 +195,36 @@ def test_watcher_logs_connection_failure(caplog):
     """Connection exceptions are logged at WARNING level."""
     import logging
 
-    w, events = _make_watcher()
+    def _raise_connection_error(_config):
+        raise OSError("connection refused")
+
+    w, events = _make_watcher(_raise_connection_error)
     w._stop_event = ControlledStopEvent(max_waits=1)
 
-    with patch(
-        "jobdesk_app.gui.session.create_ssh_client",
-        side_effect=OSError("connection refused"),
-    ), caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
+    with caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
         w._run()
 
     assert any("connection refused" in r.message for r in caplog.records)
+
+
+def test_watcher_uses_injected_ssh_factory():
+    """The service watcher must not reach into the GUI session module."""
+    channel = FakeChannel([])
+    ssh = FakeSSHClient(channel)
+    factory = MagicMock(return_value=ssh)
+    events = []
+    watcher = _Watcher(
+        "run1",
+        "wsl",
+        "/tmp/batch",
+        object(),
+        lambda *event: events.append(event),
+        factory,
+    )
+    watcher._stop_event = ControlledStopEvent(max_waits=1)
+
+    watcher._run()
+
+    factory.assert_called_once_with(watcher._server_config)
+    assert watcher._stop_event.waits == [10]
+    assert events == []
