@@ -10,6 +10,7 @@ from .core.file_transfer import OverwritePolicy
 from .core.run import RunMode, RunSource, RunSpec
 from .core.transfer import TransferStatus
 from .services.file_transfer_service import FileTransferService
+from .services.run_coordinator import RunCoordinator
 from .services.run_service import RunService
 from .services.ssh_session import ConnectedSFTP, create_sftp_client, create_ssh_client
 
@@ -185,7 +186,11 @@ def _cmd_run_create(args) -> int:
         mode=RunMode(args.mode),
         sources=sources,
     )
-    record = RunService(args.workspace).create_run(spec)
+    outcome = _run_coordinator(args, args.workspace).create_run(spec)
+    if outcome.errors:
+        print(outcome.errors[0])
+        return 2
+    record = outcome.records[0]
     print(f"created run {record.run_id}: {record.status_summary}")
     return 0
 
@@ -207,8 +212,6 @@ def _cmd_run_list(args) -> int:
 
 
 def _cmd_run_submit(args) -> int:
-    server = _get_server(args)
-    from .services.scheduler_helpers import resources_from_server, scheduler_from_server
     overrides = {}
     if getattr(args, "cpus", None) is not None:
         overrides["cpus"] = args.cpus
@@ -218,21 +221,18 @@ def _cmd_run_submit(args) -> int:
         overrides["walltime_minutes"] = args.walltime
     if getattr(args, "partition", None) is not None:
         overrides["partition"] = args.partition
-    scheduler = scheduler_from_server(server)
-    resources = resources_from_server(server, overrides or None)
-    ssh = create_ssh_client(server)
-    ssh.connect()
-    sftp = create_sftp_client(ssh)
-    try:
-        result = RunService(args.workspace).submit_run(
-            args.run_id, ssh, sftp,
-            env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
-            scheduler=scheduler,
-            resources=resources,
-        )
-    finally:
-        sftp.close()
-        ssh.close()
+    for key in ("cpus", "memory_mb", "walltime_minutes"):
+        if key in overrides and int(overrides[key]) < 1:
+            raise ValueError(f"scheduler {key} must be >= 1: {overrides[key]}")
+    outcome = _run_coordinator(args, args.workspace).submit(
+        args.run_id,
+        resource_overrides=overrides or None,
+    )
+    if not outcome.submit_results:
+        for error in outcome.errors:
+            print(f"  ERROR: {error}")
+        return 2
+    result = outcome.submit_results[0]
     print(f"submitted={result.submitted_task_count}, errors={len(result.errors)}")
     for e in result.errors:
         print(f"  ERROR: {e}")
@@ -240,46 +240,30 @@ def _cmd_run_submit(args) -> int:
 
 
 def _cmd_run_refresh(args) -> int:
-    service = RunService(args.workspace)
-    record = service.load_run(args.run_id)
-    server = _get_server_by_id(args, record.server_id)
-    ssh = create_ssh_client(server)
-    ssh.connect()
-    try:
-        result = service.refresh_run(args.run_id, ssh)
-    finally:
-        ssh.close()
+    outcome = _run_coordinator(args, args.workspace).refresh(args.run_id)
+    if outcome.refresh_result is None:
+        for error in outcome.errors:
+            print(f"  ERROR: {error}")
+        return 2
+    result = outcome.refresh_result
     print(f"changed={result.changed_count}, warnings={len(result.warnings)}")
     return 0
 
 
 def _cmd_run_download(args) -> int:
-    record = RunService(args.workspace).load_run(args.run_id)
-    server = _get_server_by_id(args, record.server_id)
-    ssh = create_ssh_client(server)
-    ssh.connect()
-    sftp = create_sftp_client(ssh)
-    try:
-        patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
-        records, failures = RunService(args.workspace).download_completed(args.run_id, sftp, patterns)
-    finally:
-        sftp.close()
-        ssh.close()
+    patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
+    outcome = _run_coordinator(args, args.workspace).download(args.run_id, patterns)
+    records = outcome.transfer_records
+    failures = outcome.failures
     transferred = sum(1 for r in records if r.status == TransferStatus.transferred)
     print(f"downloaded={transferred}, failures={len(failures)}")
     return 0 if not failures else 2
 
 
 def _cmd_run_cancel(args) -> int:
-    svc = RunService(args.workspace)
-    record = svc.load_run(args.run_id)
-    server = _get_server_by_id(args, record.server_id)
-    ssh = create_ssh_client(server)
-    ssh.connect()
-    try:
-        changed, errors = svc.cancel_run(args.run_id, ssh)
-    finally:
-        ssh.close()
+    outcome = _run_coordinator(args, args.workspace).cancel(args.run_id)
+    changed = outcome.changed_count
+    errors = outcome.errors
     print(f"cancelled {changed} task(s)")
     for error in errors:
         print(f"  ERROR: {error}")
@@ -287,14 +271,20 @@ def _cmd_run_cancel(args) -> int:
 
 
 def _cmd_run_delete(args) -> int:
-    svc = RunService(args.workspace)
-    svc.delete_run(args.run_id)
+    outcome = _run_coordinator(args, args.workspace).delete(args.run_id)
+    if outcome.errors:
+        print(outcome.errors[0])
+        return 2
     print(f"deleted run {args.run_id}")
     return 0
 
 
 def _cmd_run_retry(args) -> int:
-    changed = RunService(args.workspace).prepare_retry_failed(args.run_id)
+    outcome = _run_coordinator(args, args.workspace).retry_failed(args.run_id)
+    if outcome.errors:
+        print(outcome.errors[0])
+        return 2
+    changed = outcome.changed_count
     if changed == 0:
         print("No failed tasks to retry")
         return 0
@@ -303,11 +293,11 @@ def _cmd_run_retry(args) -> int:
 
 
 def _cmd_run_rerun(args) -> int:
-    try:
-        changed = RunService(args.workspace).prepare_rerun(args.run_id)
-    except ValueError as exc:
-        print(str(exc))
+    outcome = _run_coordinator(args, args.workspace).rerun(args.run_id)
+    if outcome.errors:
+        print(outcome.errors[0])
         return 2
+    changed = outcome.changed_count
     print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
     return 0
 
@@ -491,6 +481,15 @@ def _get_server(args):
     """Get server config for the run being operated on."""
     record = RunService(args.workspace).load_run(args.run_id)
     return _get_server_by_id(args, record.server_id)
+
+
+def _run_coordinator(args, workspace: Path) -> RunCoordinator:
+    return RunCoordinator(
+        RunService(workspace),
+        server_lookup=lambda server_id: _get_server_by_id(args, server_id),
+        ssh_factory=create_ssh_client,
+        sftp_factory=create_sftp_client,
+    )
 
 
 def _get_server_by_id(args, server_id: str):
