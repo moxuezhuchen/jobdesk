@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +41,35 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path, runs_dir):
     assert [task.task_id for task in tasks] == ["a", "b"]
     assert all(task.status == TaskStatus.uploaded for task in tasks)
     assert all(task.server_id == "s1" for task in tasks)
+
+
+def test_create_run_is_immediately_queryable_from_sqlite(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="sqlite-run")
+
+    with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
+        assert connection.execute(
+            "SELECT run_id FROM runs WHERE run_id = 'sqlite-run'"
+        ).fetchone() == ("sqlite-run",)
+
+
+def test_run_service_exposes_legacy_migration_errors(tmp_path, runs_dir):
+    broken = runs_dir / "broken"
+    broken.mkdir()
+    (broken / "run.json").write_text("{broken", encoding="utf-8")
+
+    service = RunService(tmp_path, runs_dir=runs_dir)
+
+    errors = service.migration_errors()
+    assert len(errors) == 1
+    assert errors[0].legacy_path == broken
 
 
 def test_create_run_rejects_duplicate_explicit_run_id(tmp_path, runs_dir):

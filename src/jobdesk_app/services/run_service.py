@@ -15,7 +15,7 @@ from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
 from .file_transfer_service import ensure_safe_remote_path
-from .run_repository import RunRecord
+from .run_repository import MigrationError, RunRecord, RunRepository
 
 
 class RunService:
@@ -26,6 +26,7 @@ class RunService:
             from ..app_paths import get_app_data_dir
             self.runs_dir = get_app_data_dir() / "runs"
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
+        self.repository = RunRepository(self.runs_dir)
 
     def _next_run_id(self) -> str:
         prefix = datetime.now().strftime("%y%m%d")
@@ -72,46 +73,25 @@ class RunService:
         write_batch_json(batch, batch_path)
         Manifest.write(manifest_path, tasks)
         record = self._record_from_parts(plan, run_dir, manifest_path, batch_path, _status_summary(tasks), local_dir=local_dir)
+        self.repository.create_run(record, tasks)
         self._write_run_json(record)
-        return record
+        return self.repository.load_run(record.run_id)
 
     def list_runs(self) -> list[RunRecord]:
-        if not self.runs_dir.exists():
-            return []
-        records: list[RunRecord] = []
-        for run_dir in sorted(self.runs_dir.iterdir(), reverse=True):
-            if run_dir.is_dir() and (run_dir / "run.json").exists():
-                try:
-                    records.append(self.load_run(run_dir.name))
-                except Exception:
-                    continue
-        return records
+        return self.repository.list_runs()
 
     def load_run(self, run_id: str) -> RunRecord:
-        run_dir = self._run_dir(run_id)
-        data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-        return RunRecord(
-            run_id=data["run_id"],
-            server_id=data["server_id"],
-            remote_dir=data["remote_dir"],
-            command_template=data["command_template"],
-            max_parallel=int(data["max_parallel"]),
-            mode=data["mode"],
-            created_at=data["created_at"],
-            run_dir=run_dir,
-            manifest_path=run_dir / "manifest.tsv",
-            batch_path=run_dir / "batch.json",
-            local_dir=data.get("local_dir", ""),
-            status_summary=data.get("status_summary", {}),
-            env_init_scripts=list(data.get("env_init_scripts", [])),
-            scheduler_type=data.get("scheduler_type", "nohup") or "nohup",
-            resources=dict(data.get("resources", {})),
-        )
+        self._run_dir(run_id)
+        return self.repository.load_run(run_id)
+
+    def migration_errors(self) -> list[MigrationError]:
+        return self.repository.list_migration_errors()
 
     def update_run_from_manifest(self, run_id: str) -> RunRecord:
         record = self.load_run(run_id)
         tasks = Manifest.read(record.manifest_path)
-        record.status_summary = _status_summary(tasks)
+        self.repository.replace_tasks(run_id, tasks)
+        record = self.repository.load_run(run_id)
         self._write_run_json(record)
         return record
 
@@ -304,6 +284,7 @@ class RunService:
                 ) from exc
         if run_dir.exists():
             shutil.rmtree(run_dir)
+        self.repository.delete_run(run_id)
 
     def _run_dir(self, run_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
@@ -359,6 +340,7 @@ class RunService:
             record.run_dir / "run.json",
             json.dumps(data, indent=2, ensure_ascii=False),
         )
+        self.repository.update_run(record)
 
 
 def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:

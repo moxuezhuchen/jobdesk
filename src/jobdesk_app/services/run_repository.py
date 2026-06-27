@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..core.manifest import TaskRecord
+from ..core.manifest import Manifest, TaskRecord
 
 SCHEMA_VERSION = 1
 
@@ -32,6 +33,12 @@ class RunRecord:
     resources: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MigrationError:
+    legacy_path: Path
+    message: str
+
+
 class RunRepository:
     """Own all writable local run state in one SQLite database."""
 
@@ -49,8 +56,17 @@ class RunRepository:
         connection.execute("PRAGMA journal_mode = WAL")
         return connection
 
+    @contextmanager
+    def _connection(self):
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS schema_metadata (
@@ -81,6 +97,10 @@ class RunRepository:
                 );
                 CREATE INDEX IF NOT EXISTS tasks_run_status_idx
                     ON tasks(run_id, status);
+                CREATE TABLE IF NOT EXISTS migration_errors (
+                    legacy_path TEXT PRIMARY KEY,
+                    message TEXT NOT NULL
+                );
                 """
             )
             connection.execute(
@@ -90,16 +110,17 @@ class RunRepository:
                 """,
                 (str(SCHEMA_VERSION),),
             )
+            self._import_legacy_runs(connection)
 
     def create_run(self, record: RunRecord, tasks: list[TaskRecord]) -> RunRecord:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._insert_run(connection, record)
             self._replace_tasks(connection, record.run_id, tasks)
         return self.load_run(record.run_id)
 
     def load_run(self, run_id: str) -> RunRecord:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT * FROM runs WHERE run_id = ?",
                 (run_id,),
@@ -109,20 +130,20 @@ class RunRepository:
             return self._row_to_record(connection, row)
 
     def list_runs(self) -> list[RunRecord]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT * FROM runs ORDER BY created_at DESC, run_id DESC"
             ).fetchall()
             return [self._row_to_record(connection, row) for row in rows]
 
     def load_tasks(self, run_id: str) -> list[TaskRecord]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             if not self._run_exists(connection, run_id):
                 raise KeyError(f"run not found: {run_id}")
             return self._load_tasks(connection, run_id)
 
     def replace_tasks(self, run_id: str, tasks: list[TaskRecord]) -> list[TaskRecord]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if not self._run_exists(connection, run_id):
                 raise KeyError(f"run not found: {run_id}")
@@ -134,7 +155,7 @@ class RunRepository:
         run_id: str,
         mutation: Callable[[list[TaskRecord]], list[TaskRecord]],
     ) -> list[TaskRecord]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if not self._run_exists(connection, run_id):
                 raise KeyError(f"run not found: {run_id}")
@@ -144,7 +165,7 @@ class RunRepository:
         return updated
 
     def update_run(self, record: RunRecord) -> RunRecord:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 """
@@ -161,11 +182,89 @@ class RunRepository:
         return self.load_run(record.run_id)
 
     def delete_run(self, run_id: str) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             if cursor.rowcount == 0:
                 raise KeyError(f"run not found: {run_id}")
+
+    def list_migration_errors(self) -> list[MigrationError]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT legacy_path, message FROM migration_errors ORDER BY legacy_path"
+            ).fetchall()
+        return [
+            MigrationError(legacy_path=Path(row["legacy_path"]), message=str(row["message"]))
+            for row in rows
+        ]
+
+    def _import_legacy_runs(self, connection: sqlite3.Connection) -> None:
+        marker = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
+        ).fetchone()
+        if marker is not None and marker["value"] == "1":
+            return
+        for run_dir in sorted(self.runs_dir.iterdir()):
+            if not run_dir.is_dir():
+                continue
+            run_path = run_dir / "run.json"
+            manifest_path = run_dir / "manifest.tsv"
+            if not run_path.exists() and not manifest_path.exists():
+                continue
+            connection.execute("SAVEPOINT legacy_run")
+            try:
+                record = self._load_legacy_record(run_dir)
+                tasks = self._load_legacy_tasks(manifest_path)
+                if not self._run_exists(connection, record.run_id):
+                    self._insert_run(connection, record)
+                    self._replace_tasks(connection, record.run_id, tasks)
+                connection.execute("RELEASE SAVEPOINT legacy_run")
+            except Exception as exc:
+                connection.execute("ROLLBACK TO SAVEPOINT legacy_run")
+                connection.execute("RELEASE SAVEPOINT legacy_run")
+                connection.execute(
+                    """
+                    INSERT INTO migration_errors(legacy_path, message) VALUES(?, ?)
+                    ON CONFLICT(legacy_path) DO UPDATE SET message = excluded.message
+                    """,
+                    (str(run_dir), f"legacy JSON/TSV import failed: {exc}"),
+                )
+        connection.execute(
+            """
+            INSERT INTO schema_metadata(key, value) VALUES('legacy_import_complete', '1')
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """
+        )
+
+    def _load_legacy_record(self, run_dir: Path) -> RunRecord:
+        data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        run_id = str(data["run_id"])
+        if run_id != run_dir.name:
+            raise ValueError(
+                f"legacy run_id {run_id!r} does not match directory {run_dir.name!r}"
+            )
+        return RunRecord(
+            run_id=run_id,
+            server_id=str(data["server_id"]),
+            remote_dir=str(data["remote_dir"]),
+            command_template=str(data["command_template"]),
+            max_parallel=int(data["max_parallel"]),
+            mode=str(data["mode"]),
+            created_at=str(data["created_at"]),
+            run_dir=run_dir,
+            manifest_path=run_dir / "manifest.tsv",
+            batch_path=run_dir / "batch.json",
+            local_dir=str(data.get("local_dir", "")),
+            env_init_scripts=[str(value) for value in data.get("env_init_scripts", [])],
+            scheduler_type=str(data.get("scheduler_type", "nohup") or "nohup"),
+            resources=dict(data.get("resources", {})),
+        )
+
+    @staticmethod
+    def _load_legacy_tasks(manifest_path: Path) -> list[TaskRecord]:
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"legacy manifest not found: {manifest_path}")
+        return Manifest.read(manifest_path)
 
     def _insert_run(self, connection: sqlite3.Connection, record: RunRecord) -> None:
         connection.execute(

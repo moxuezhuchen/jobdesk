@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import sqlite3
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import TaskRecord
+from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.services.run_repository import RunRecord, RunRepository
 
 
@@ -53,6 +54,31 @@ def _set_status_in_process(runs_dir: str, task_id: str, status: str) -> None:
         ]
 
     repository.mutate_tasks("run-1", mutation)
+
+
+def _write_legacy_run(runs_dir: Path, run_id: str = "legacy-1") -> dict[str, bytes]:
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    record = _record(runs_dir, run_id)
+    data = {
+        "run_id": record.run_id,
+        "server_id": record.server_id,
+        "remote_dir": record.remote_dir,
+        "command_template": record.command_template,
+        "max_parallel": record.max_parallel,
+        "mode": record.mode,
+        "created_at": record.created_at,
+        "local_dir": record.local_dir,
+        "status_summary": {"submitted": 1},
+        "env_init_scripts": record.env_init_scripts,
+        "scheduler_type": record.scheduler_type,
+        "resources": record.resources,
+    }
+    (run_dir / "run.json").write_text(json.dumps(data), encoding="utf-8")
+    task = _task("a", TaskStatus.submitted).model_copy(update={"batch_id": run_id})
+    Manifest.write(run_dir / "manifest.tsv", [task])
+    (run_dir / "batch.json").write_text("{}", encoding="utf-8")
+    return {path.name: path.read_bytes() for path in run_dir.iterdir() if path.is_file()}
 
 
 def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
@@ -137,3 +163,51 @@ def test_list_and_delete_runs(tmp_path: Path) -> None:
     assert [record.run_id for record in repository.list_runs()] == ["run-2"]
     with pytest.raises(KeyError, match="run-1"):
         repository.load_run("run-1")
+
+
+def test_imports_legacy_run_without_modifying_legacy_files(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    before = _write_legacy_run(runs_dir)
+
+    repository = RunRepository(runs_dir)
+
+    assert repository.load_run("legacy-1").status_summary == {"submitted": 1}
+    assert repository.load_tasks("legacy-1")[0].batch_id == "legacy-1"
+    after = {
+        path.name: path.read_bytes()
+        for path in (runs_dir / "legacy-1").iterdir()
+        if path.is_file()
+    }
+    assert after == before
+
+
+def test_malformed_legacy_run_is_reported_while_valid_run_imports(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    _write_legacy_run(runs_dir, "valid")
+    invalid_dir = runs_dir / "invalid"
+    invalid_dir.mkdir(parents=True)
+    (invalid_dir / "run.json").write_text("{broken", encoding="utf-8")
+    (invalid_dir / "manifest.tsv").write_text("task_id\n", encoding="utf-8")
+
+    repository = RunRepository(runs_dir)
+
+    assert [record.run_id for record in repository.list_runs()] == ["valid"]
+    errors = repository.list_migration_errors()
+    assert len(errors) == 1
+    assert errors[0].legacy_path == invalid_dir
+    assert "invalid" in errors[0].message.lower() or "json" in errors[0].message.lower()
+
+
+def test_legacy_import_is_idempotent(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    _write_legacy_run(runs_dir)
+
+    RunRepository(runs_dir)
+    RunRepository(runs_dir)
+
+    with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
+        ).fetchone()[0] == "1"

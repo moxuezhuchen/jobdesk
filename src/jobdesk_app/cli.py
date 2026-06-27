@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .config.servers import load_servers
@@ -191,7 +192,13 @@ def _cmd_run_create(args) -> int:
 
 
 def _cmd_run_list(args) -> int:
-    runs = RunService(args.workspace).list_runs()
+    service = RunService(args.workspace)
+    runs = service.list_runs()
+    for error in service.migration_errors():
+        print(
+            f"WARNING: legacy run import failed: {error.legacy_path}: {error.message}",
+            file=sys.stderr,
+        )
     if not runs:
         print("No runs")
         return 0

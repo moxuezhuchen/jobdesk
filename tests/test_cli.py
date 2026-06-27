@@ -2,6 +2,7 @@
 import os
 import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,6 +68,20 @@ def test_cli_run_list_empty(capsys):
         assert rc == 0
         out = capsys.readouterr().out
         assert "No runs" in out
+
+
+def test_cli_run_list_reports_legacy_migration_errors(capsys):
+    with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
+        broken = Path(workspace) / "JobDesk" / "runs" / "broken"
+        broken.mkdir(parents=True)
+        (broken / "run.json").write_text("{broken", encoding="utf-8")
+
+        rc = main(["run", "list", workspace])
+
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "legacy run import failed" in captured.err.lower()
+        assert str(broken) in captured.err
 
 
 def test_cli_run_retry_no_failed(capsys):
