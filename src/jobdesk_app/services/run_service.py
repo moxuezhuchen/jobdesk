@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-from ..core.atomic_write import atomic_write_text
-from ..core.batch import create_batch, write_batch_json
 from ..core.lifecycle import TaskStatus
-from ..core.manifest import Manifest, TaskRecord, manifest_lock
-from ..core.models import BatchMeta
+from ..core.manifest import Manifest, TaskRecord
 from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
@@ -61,20 +57,13 @@ class RunService:
         plan = build_run_plan(spec, run_id)
         manifest_path = run_dir / "manifest.tsv"
         batch_path = run_dir / "batch.json"
-        batch = create_batch(
-            project_name=self.workspace_dir.name,
-            max_parallel=spec.max_parallel,
-            remote_batch_dir=remote_run_dir(spec.remote_dir, plan.run_id),
-            task_count=len(plan.tasks),
-            manifest_path=str(manifest_path),
-        )
-        batch.batch_id = plan.run_id
-        tasks = _tasks_from_plan(plan, batch)
-        write_batch_json(batch, batch_path)
-        Manifest.write(manifest_path, tasks)
+        tasks = _tasks_from_plan(plan)
         record = self._record_from_parts(plan, run_dir, manifest_path, batch_path, _status_summary(tasks), local_dir=local_dir)
-        self.repository.create_run(record, tasks)
-        self._write_run_json(record)
+        try:
+            self.repository.create_run(record, tasks)
+        except Exception:
+            run_dir.rmdir()
+            raise
         return self.repository.load_run(record.run_id)
 
     def list_runs(self) -> list[RunRecord]:
@@ -89,11 +78,11 @@ class RunService:
 
     def update_run_from_manifest(self, run_id: str) -> RunRecord:
         record = self.load_run(run_id)
+        if not record.manifest_path.exists():
+            return record
         tasks = Manifest.read(record.manifest_path)
         self.repository.replace_tasks(run_id, tasks)
-        record = self.repository.load_run(run_id)
-        self._write_run_json(record)
-        return record
+        return self.repository.load_run(run_id)
 
     def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None,
                    scheduler=None, resources=None):
@@ -112,9 +101,11 @@ class RunService:
             resources = ResourceSpec.from_dict(record.resources)
         else:
             record.resources = asdict(resources)
-        self._write_run_json(record)
+        self.repository.update_run(record)
+        tasks = self.repository.load_tasks(run_id)
+        expected = {task.task_id: task.status for task in tasks}
         submitter = JobSubmitter(
-            manifest_path=record.manifest_path,
+            tasks=tasks,
             ssh=ssh,
             sftp=sftp,
             max_parallel=record.max_parallel,
@@ -124,9 +115,28 @@ class RunService:
             scheduler=scheduler,
             resources=resources,
         )
-        with manifest_lock(record.manifest_path):
-            result = submitter.submit_batch()
-            self.update_run_from_manifest(run_id)
+        result = submitter.submit_batch()
+        if result.updated_tasks:
+            self.repository.merge_tasks(
+                run_id,
+                result.updated_tasks,
+                expected_statuses=expected,
+            )
+        return result
+
+    def refresh_run(self, run_id: str, ssh):
+        from ..remote.status_refresh import refresh_task_statuses
+
+        record = self.load_run(run_id)
+        tasks = self.repository.load_tasks(run_id)
+        expected = {task.task_id: task.status for task in tasks}
+        result, updated = refresh_task_statuses(
+            ssh,
+            tasks,
+            remote_run_dir(record.remote_dir, record.run_id),
+            record.run_id,
+        )
+        self.repository.merge_tasks(run_id, updated, expected_statuses=expected)
         return result
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
@@ -137,11 +147,11 @@ class RunService:
         output is missing/fails, the task keeps its status and records the error.
         """
         record = self.load_run(run_id)
-        with manifest_lock(record.manifest_path):
-            return self._download_completed_locked(record, run_id, sftp, patterns)
+        return self._download_completed_locked(record, run_id, sftp, patterns)
 
     def _download_completed_locked(self, record: RunRecord, run_id: str, sftp, patterns: list[str]):
-        tasks = Manifest.read(record.manifest_path)
+        tasks = self.repository.load_tasks(run_id)
+        expected = {task.task_id: task.status for task in tasks}
         records = []
         failures = []
         download_base = Path(record.local_dir).resolve() if record.local_dir else self.workspace_dir
@@ -198,36 +208,57 @@ class RunService:
                     error_parts = ["无匹配输出文件"]
                 if error_parts:
                     task.error_message = "download: " + "; ".join(error_parts)
-        Manifest.write(record.manifest_path, tasks)
-        self.update_run_from_manifest(run_id)
+        self.repository.merge_tasks(run_id, tasks, expected_statuses=expected)
         return records, failures
 
     def prepare_retry_failed(self, run_id: str) -> int:
-        record = self.load_run(run_id)
-        from ..core.manifest_ops import reset_failed_to_uploaded
-        with manifest_lock(record.manifest_path):
-            changed = reset_failed_to_uploaded(record.manifest_path)
-            self.update_run_from_manifest(run_id)
+        changed = 0
+
+        def mutation(tasks: list[TaskRecord]) -> list[TaskRecord]:
+            nonlocal changed
+            for task in tasks:
+                if task.status == TaskStatus.failed:
+                    task.status = TaskStatus.uploaded
+                    task.error_message = None
+                    changed += 1
+            return tasks
+
+        self.repository.mutate_tasks(run_id, mutation)
         return changed
 
     def prepare_rerun(self, run_id: str) -> int:
-        record = self.load_run(run_id)
-        from ..core.manifest_ops import reset_all_to_uploaded
-        with manifest_lock(record.manifest_path):
-            changed = reset_all_to_uploaded(record.manifest_path)
-            self.update_run_from_manifest(run_id)
-        return changed
+        def mutation(tasks: list[TaskRecord]) -> list[TaskRecord]:
+            active = [
+                task.task_id
+                for task in tasks
+                if task.status in {TaskStatus.submitted, TaskStatus.running}
+            ]
+            if active:
+                raise ValueError(f"cannot rerun active remote tasks: {', '.join(active)}")
+            for task in tasks:
+                task.status = TaskStatus.uploaded
+                task.submitted_at = None
+                task.started_at = None
+                task.completed_at = None
+                task.downloaded_at = None
+                task.analyzed_at = None
+                task.remote_job_id = None
+                task.scheduler_type = "nohup"
+                task.error_message = None
+            return tasks
+
+        return len(self.repository.mutate_tasks(run_id, mutation))
 
     def cancel_run(self, run_id: str, ssh) -> tuple[int, list[str]]:
         """Cancel remote jobs, recording cancellation only after the remote action succeeds."""
         record = self.load_run(run_id)
-        with manifest_lock(record.manifest_path):
-            return self._cancel_run_locked(record, run_id, ssh)
+        return self._cancel_run_locked(record, run_id, ssh)
 
     def _cancel_run_locked(self, record: RunRecord, run_id: str, ssh) -> tuple[int, list[str]]:
         from ..remote.scheduler import make_adapter
 
-        tasks = list(Manifest.read(record.manifest_path))
+        tasks = self.repository.load_tasks(run_id)
+        expected = {task.task_id: task.status for task in tasks}
         changed = 0
         errors: list[str] = []
         terminal = {
@@ -260,10 +291,17 @@ class RunService:
             task.status = TaskStatus.cancelled
             task.error_message = "cancelled after remote termination request"
             changed += 1
-        if changed:
-            Manifest.write(record.manifest_path, tasks)
-            self.update_run_from_manifest(run_id)
-        return changed, errors
+        if not changed:
+            return 0, errors
+        merged = self.repository.merge_tasks(run_id, tasks, expected_statuses=expected)
+        merged_by_id = {task.task_id: task for task in merged}
+        confirmed = sum(
+            1
+            for task in tasks
+            if task.status == TaskStatus.cancelled
+            and merged_by_id[task.task_id].status == TaskStatus.cancelled
+        )
+        return confirmed, errors
 
     def delete_run(self, run_id: str) -> None:
         """Delete run directory, results, and analysis profile."""
@@ -321,28 +359,6 @@ class RunService:
             resources={},
         )
 
-    def _write_run_json(self, record: RunRecord) -> None:
-        data = {
-            "run_id": record.run_id,
-            "server_id": record.server_id,
-            "remote_dir": record.remote_dir,
-            "command_template": record.command_template,
-            "max_parallel": record.max_parallel,
-            "mode": record.mode,
-            "created_at": record.created_at,
-            "local_dir": record.local_dir,
-            "status_summary": record.status_summary,
-            "env_init_scripts": record.env_init_scripts,
-            "scheduler_type": record.scheduler_type,
-            "resources": record.resources,
-        }
-        atomic_write_text(
-            record.run_dir / "run.json",
-            json.dumps(data, indent=2, ensure_ascii=False),
-        )
-        self.repository.update_run(record)
-
-
 def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
     if task.remote_result_files:
         return list(task.remote_result_files)
@@ -371,7 +387,7 @@ def _safe_declared_result_path(value: str) -> PurePosixPath:
     return path
 
 
-def _tasks_from_plan(plan: RunPlan, batch: BatchMeta) -> list[TaskRecord]:
+def _tasks_from_plan(plan: RunPlan) -> list[TaskRecord]:
     return [
         TaskRecord(
             task_id=task.task_id,

@@ -13,6 +13,7 @@ from jobdesk_app.remote.status_refresh import (
     _parse_batch_control,
     _recover_status,
     refresh_batch_status,
+    refresh_task_statuses,
 )
 
 
@@ -184,6 +185,23 @@ class TestRecoveryRules:
 
 
 class TestRefreshBatchStatus:
+    def test_refreshes_object_tasks_without_manifest(self):
+        tasks = [_make_task("t1", TaskStatus.running, "/r/t1")]
+        mock_ssh = MagicMock()
+        with patch(
+            "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+            return_value={
+                "t1": RemoteTaskStatusSnapshot(
+                    "t1", "/r/t1", "completed", 0, "", True, True, False
+                )
+            },
+        ):
+            result, updated = refresh_task_statuses(mock_ssh, tasks, "/r", "b1")
+
+        assert result.changed_count == 1
+        assert updated[0].status == TaskStatus.remote_completed
+        assert tasks[0].status == TaskStatus.running
+
     def test_refresh_with_mock(self):
         tasks = [
             _make_task("t1", TaskStatus.submitted, "/r/t1"),

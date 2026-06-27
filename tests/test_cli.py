@@ -111,13 +111,13 @@ def test_cli_run_rerun_reports_active_remote_tasks(capsys):
         capsys.readouterr()
 
         from jobdesk_app.core.lifecycle import TaskStatus
-        from jobdesk_app.core.manifest import Manifest
         from jobdesk_app.services.run_service import RunService
 
-        record = RunService(workspace).list_runs()[0]
-        tasks = Manifest.read(record.manifest_path)
+        service = RunService(workspace)
+        record = service.list_runs()[0]
+        tasks = service.repository.load_tasks(record.run_id)
         tasks[0].status = TaskStatus.running
-        Manifest.write(record.manifest_path, tasks)
+        service.repository.replace_tasks(record.run_id, tasks)
 
         rc = main(["run", "rerun", workspace, record.run_id])
         out = capsys.readouterr().out
@@ -184,7 +184,6 @@ class TestDownloadPatterns:
     def _setup_downloadable_run(self, workspace):
         """Create a run with remote_completed task."""
         from jobdesk_app.core.lifecycle import TaskStatus
-        from jobdesk_app.core.manifest import Manifest
         main([
             "run", "create", workspace,
             "--server", "srv", "--remote-dir", "/tmp/x",
@@ -194,10 +193,10 @@ class TestDownloadPatterns:
         svc = RunService(workspace)
         run_id = svc.list_runs()[0].run_id
         record = svc.load_run(run_id)
-        tasks = Manifest.read(record.manifest_path)
+        tasks = svc.repository.load_tasks(record.run_id)
         for t in tasks:
             t.status = TaskStatus.remote_completed
-        Manifest.write(record.manifest_path, tasks)
+        svc.repository.replace_tasks(record.run_id, tasks)
         return run_id
 
     def test_patterns_comma_separated(self):

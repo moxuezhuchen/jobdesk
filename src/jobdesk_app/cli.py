@@ -7,9 +7,8 @@ from pathlib import Path
 
 from .config.servers import load_servers
 from .core.file_transfer import OverwritePolicy
-from .core.run import RunMode, RunSource, RunSpec, remote_run_dir
+from .core.run import RunMode, RunSource, RunSpec
 from .core.transfer import TransferStatus
-from .remote.status_refresh import refresh_batch_status
 from .services.file_transfer_service import FileTransferService
 from .services.run_service import RunService
 from .services.ssh_session import ConnectedSFTP, create_sftp_client, create_ssh_client
@@ -241,21 +240,15 @@ def _cmd_run_submit(args) -> int:
 
 
 def _cmd_run_refresh(args) -> int:
-    record = RunService(args.workspace).load_run(args.run_id)
+    service = RunService(args.workspace)
+    record = service.load_run(args.run_id)
     server = _get_server_by_id(args, record.server_id)
     ssh = create_ssh_client(server)
     ssh.connect()
     try:
-        result = refresh_batch_status(
-            ssh=ssh,
-            manifest_path=record.manifest_path,
-            remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
-            batch_id=record.run_id,
-            write=True,
-        )
+        result = service.refresh_run(args.run_id, ssh)
     finally:
         ssh.close()
-    RunService(args.workspace).update_run_from_manifest(args.run_id)
     print(f"changed={result.changed_count}, warnings={len(result.warnings)}")
     return 0
 

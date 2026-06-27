@@ -332,6 +332,24 @@ class TestSubmit:
             assert t1.scheduler_type == "nohup"
             assert t1.remote_job_id == "4321"
 
+    def test_submit_updates_object_tasks_without_manifest(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=ssh,
+            sftp=FakeSFTPWrapper(),
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == []
+        assert result.updated_tasks[0].status == TaskStatus.submitted
+        assert result.updated_tasks[0].remote_job_id == "4321"
+
     def test_submit_uses_control_subdir_for_all_remote_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
         with tempfile.TemporaryDirectory() as tmpdir:

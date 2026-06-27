@@ -148,6 +148,34 @@ def test_two_processes_do_not_lose_distinct_task_updates(tmp_path: Path) -> None
     assert repository.load_run("run-1").status_summary == {"failed": 1, "running": 1}
 
 
+def test_merge_tasks_preserves_unrelated_updates_and_rejects_stale_status(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    repository = RunRepository(runs_dir)
+    repository.create_run(_record(runs_dir), [_task("a"), _task("b")])
+    stale_tasks = repository.load_tasks("run-1")
+    repository.mutate_tasks(
+        "run-1",
+        lambda tasks: [
+            task.model_copy(update={"status": TaskStatus.running}) if task.task_id == "a" else task
+            for task in tasks
+        ],
+    )
+    proposed = [
+        task.model_copy(update={"status": TaskStatus.failed})
+        for task in stale_tasks
+    ]
+
+    merged = repository.merge_tasks(
+        "run-1",
+        proposed,
+        expected_statuses={task.task_id: task.status for task in stale_tasks},
+    )
+
+    by_id = {task.task_id: task for task in merged}
+    assert by_id["a"].status == TaskStatus.running
+    assert by_id["b"].status == TaskStatus.failed
+
+
 def test_list_and_delete_runs(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)

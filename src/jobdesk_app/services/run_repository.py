@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 
 SCHEMA_VERSION = 1
@@ -163,6 +164,31 @@ class RunRepository:
             updated = mutation(tasks)
             self._replace_tasks(connection, run_id, updated)
         return updated
+
+    def merge_tasks(
+        self,
+        run_id: str,
+        updates: list[TaskRecord],
+        *,
+        expected_statuses: dict[str, TaskStatus] | None = None,
+    ) -> list[TaskRecord]:
+        """Merge task updates without overwriting unrelated or stale state."""
+        update_by_id = {task.task_id: task for task in updates}
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if not self._run_exists(connection, run_id):
+                raise KeyError(f"run not found: {run_id}")
+            current = self._load_tasks(connection, run_id)
+            merged: list[TaskRecord] = []
+            for task in current:
+                update = update_by_id.get(task.task_id)
+                expected = (expected_statuses or {}).get(task.task_id)
+                if update is not None and (expected is None or task.status == expected):
+                    merged.append(update.model_copy(deep=True))
+                else:
+                    merged.append(task)
+            self._replace_tasks(connection, run_id, merged)
+        return merged
 
     def update_run(self, record: RunRecord) -> RunRecord:
         with self._connection() as connection:

@@ -40,6 +40,9 @@ def compare_runs(
     Returns:
         RunComparison with rows sorted by energy.
     """
+    if not run_ids:
+        return RunComparison()
+
     from ..core.analyzer import analyze_tasks
     from .analysis_profiles import AnalysisProfileStore
     from .run_service import RunService
@@ -56,8 +59,7 @@ def compare_runs(
             record = svc.load_run(run_id)
         except Exception:
             continue
-        from ..core.manifest import Manifest
-        tasks = Manifest.read(record.manifest_path)
+        tasks = svc.repository.load_tasks(run_id)
         result_workspace = Path(record.local_dir) if record.local_dir else workspace
         results, _ = analyze_tasks(profile.extract_rules, tasks, result_workspace / "results", run_id)
         # Group by task_id, collect all fields

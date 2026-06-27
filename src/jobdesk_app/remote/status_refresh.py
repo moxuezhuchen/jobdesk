@@ -61,6 +61,55 @@ def _refresh_batch_status(
         StatusRefreshResult。
     """
     tasks = Manifest.read(manifest_path)
+    result, updated_tasks = _refresh_tasks(
+        ssh,
+        tasks,
+        remote_batch_dir,
+        batch_id,
+        apply_updates=write,
+        log_tail_lines=log_tail_lines,
+        control_subdir=control_subdir,
+        stale_timeout_seconds=stale_timeout_seconds,
+    )
+    if write and tasks:
+        Manifest.write(manifest_path, updated_tasks)
+    return result
+
+
+def refresh_task_statuses(
+    ssh,
+    tasks: list[TaskRecord],
+    remote_batch_dir: str,
+    batch_id: str,
+    log_tail_lines: int = 50,
+    control_subdir: str = "_batch",
+    stale_timeout_seconds: int | None = DEFAULT_STALE_TIMEOUT_SECONDS,
+) -> tuple[StatusRefreshResult, list[TaskRecord]]:
+    """Refresh detached task records without touching legacy manifest files."""
+    copies = [task.model_copy(deep=True) for task in tasks]
+    return _refresh_tasks(
+        ssh,
+        copies,
+        remote_batch_dir,
+        batch_id,
+        apply_updates=True,
+        log_tail_lines=log_tail_lines,
+        control_subdir=control_subdir,
+        stale_timeout_seconds=stale_timeout_seconds,
+    )
+
+
+def _refresh_tasks(
+    ssh,
+    tasks: list[TaskRecord],
+    remote_batch_dir: str,
+    batch_id: str,
+    *,
+    apply_updates: bool,
+    log_tail_lines: int,
+    control_subdir: str,
+    stale_timeout_seconds: int | None,
+) -> tuple[StatusRefreshResult, list[TaskRecord]]:
     result = StatusRefreshResult(batch_id=batch_id, task_count=len(tasks))
 
     # 把 batch_control 文件与所有 task 的状态文件合并为「一条」SSH 命令读取，
@@ -84,7 +133,6 @@ def _refresh_batch_status(
     result.batch_control = _parse_batch_control(extra_out)
 
     # 遍历每个任务
-    changed_tasks: dict[str, TaskRecord] = {}
     for task in tasks:
         old_status = task.status
         if task.remote_job_dir:
@@ -117,21 +165,16 @@ def _refresh_batch_status(
             ))
 
         # 准备写回
-        if write:
+        if apply_updates:
             task.status = new_status
             if new_status == TaskStatus.remote_completed and task.completed_at is None:
                 task.completed_at = datetime.now()
             if new_status == TaskStatus.failed and task.error_message is None:
                 task.error_message = snap.failure_reason
-            changed_tasks[task.task_id] = task
 
     result.warnings.extend(result.batch_control.warnings)
 
-    # 写回 Manifest
-    if write and changed_tasks:
-        Manifest.write(manifest_path, tasks)
-
-    return result
+    return result, tasks
 
 
 def _recover_status(

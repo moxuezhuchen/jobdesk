@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferStatus
@@ -20,7 +19,7 @@ def runs_dir(tmp_path):
     return d
 
 
-def test_create_run_persists_manifest_batch_and_run_json(tmp_path, runs_dir):
+def test_create_run_persists_only_to_sqlite(tmp_path, runs_dir):
     spec = RunSpec(
         server_id="s1",
         remote_dir="/remote/jobs",
@@ -34,10 +33,10 @@ def test_create_run_persists_manifest_batch_and_run_json(tmp_path, runs_dir):
 
     assert record.run_id == "run001"
     assert record.run_dir.exists()
-    assert (record.run_dir / "run.json").exists()
-    assert (record.run_dir / "batch.json").exists()
-    assert (record.run_dir / "manifest.tsv").exists()
-    tasks = Manifest.read(record.manifest_path)
+    assert not (record.run_dir / "run.json").exists()
+    assert not (record.run_dir / "batch.json").exists()
+    assert not (record.run_dir / "manifest.tsv").exists()
+    tasks = RunService(tmp_path, runs_dir=runs_dir).repository.load_tasks(record.run_id)
     assert [task.task_id for task in tasks] == ["a", "b"]
     assert all(task.status == TaskStatus.uploaded for task in tasks)
     assert all(task.server_id == "s1" for task in tasks)
@@ -110,7 +109,7 @@ def test_load_run_rejects_path_traversal(tmp_path, runs_dir):
         service.load_run("../outside")
 
 
-def test_run_json_replace_failure_keeps_existing_record(tmp_path, runs_dir, monkeypatch):
+def test_update_from_missing_legacy_manifest_is_noop(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
         server_id="s1",
@@ -120,16 +119,10 @@ def test_run_json_replace_failure_keeps_existing_record(tmp_path, runs_dir, monk
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_atomic")
-    original = (record.run_dir / "run.json").read_text(encoding="utf-8")
+    updated = service.update_run_from_manifest("run_atomic")
 
-    def fail_replace(self, target):
-        raise RuntimeError("replace failed")
-
-    monkeypatch.setattr(Path, "replace", fail_replace)
-    with pytest.raises(RuntimeError, match="replace failed"):
-        service.update_run_from_manifest("run_atomic")
-
-    assert (record.run_dir / "run.json").read_text(encoding="utf-8") == original
+    assert updated == record
+    assert not record.manifest_path.exists()
 
 
 def test_list_runs_returns_latest_first(tmp_path, runs_dir):
@@ -159,9 +152,9 @@ def test_update_run_from_manifest_counts_statuses(tmp_path, runs_dir):
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run001")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.submitted
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     updated = service.update_run_from_manifest("run001")
 
@@ -178,9 +171,9 @@ def test_download_completed_run_outputs(tmp_path, runs_dir):
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run001")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     class FakeSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
@@ -196,7 +189,7 @@ def test_download_completed_run_outputs(tmp_path, runs_dir):
     assert len(records) == 1
     assert (tmp_path / "a.log").read_text(encoding="utf-8") == "ok"
     assert not (tmp_path / "results").exists()
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.downloaded
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.downloaded
 
 
 def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
@@ -211,9 +204,9 @@ def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
         supporting_sources=[RunSource("/remote/jobs/settings.yaml")],
         result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
     ), run_id="run004")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
     requested = []
 
     class FakeSFTP:
@@ -247,9 +240,9 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path, run
         sources=[RunSource("/remote/jobs/water.xyz")],
         result_templates=["../outside.json"],
     ), run_id="run005")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     class FakeSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
@@ -260,7 +253,7 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path, run
     assert records == []
     assert failures == [("water", "unsafe declared result path: ../outside.json")]
     assert not (tmp_path / "results" / "outside.json").exists()
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.remote_completed
     assert task.error_message == "download: unsafe declared result path: ../outside.json"
 
@@ -293,14 +286,14 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run001")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.failed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     changed = service.prepare_retry_failed("run001")
 
     assert changed == 1
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.uploaded
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.uploaded
 
 
 def test_prepare_rerun_rejects_active_remote_tasks(tmp_path, runs_dir):
@@ -313,15 +306,15 @@ def test_prepare_rerun_rejects_active_remote_tasks(tmp_path, runs_dir):
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_active")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].remote_job_id = "12345"
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     with pytest.raises(ValueError, match="active remote tasks"):
         service.prepare_rerun("run_active")
 
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.running
     assert task.remote_job_id == "12345"
 
@@ -336,19 +329,19 @@ def test_prepare_rerun_clears_execution_metadata_for_terminal_tasks(tmp_path, ru
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_done")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.failed
     tasks[0].submitted_at = datetime(2026, 5, 31, 8, 0, 0)
     tasks[0].completed_at = datetime(2026, 5, 31, 8, 1, 0)
     tasks[0].scheduler_type = "slurm"
     tasks[0].remote_job_id = "999"
     tasks[0].error_message = "old failure"
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     changed = service.prepare_rerun("run_done")
 
     assert changed == 1
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.uploaded
     assert task.submitted_at is None
     assert task.completed_at is None
@@ -406,11 +399,11 @@ def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path,
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_cancel")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "slurm"
     tasks[0].remote_job_id = "12345"
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
     adapter = pytest.importorskip("unittest.mock").MagicMock()
     monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
     ssh = object()
@@ -420,7 +413,7 @@ def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path,
     adapter.cancel.assert_called_once_with(ssh, "12345")
     assert changed == 1
     assert errors == []
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.cancelled
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.cancelled
 
 
 def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, runs_dir, monkeypatch):
@@ -433,11 +426,11 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, run
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_cancel_fail")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "pbs"
     tasks[0].remote_job_id = "99"
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
     adapter = pytest.importorskip("unittest.mock").MagicMock()
     adapter.cancel.side_effect = RuntimeError("qdel rejected")
     monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
@@ -446,7 +439,7 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, run
 
     assert changed == 0
     assert "qdel rejected" in errors[0]
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.running
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.running
 
 
 def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir):
@@ -460,9 +453,9 @@ def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir)
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_err")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     class FailSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
@@ -471,7 +464,7 @@ def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir)
     _records, failures = service.download_completed("run_err", FailSFTP(), [".log"])
 
     assert failures
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.remote_completed
     assert "download:" in task.error_message
     assert "sftp timeout" in task.error_message
@@ -488,10 +481,10 @@ def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/b.sh")],
     ), run_id="run_retry")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     tasks[0].error_message = "download: b.log: old error"
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     class OkSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
@@ -504,7 +497,7 @@ def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
     _records, failures = service.download_completed("run_retry", OkSFTP(), [".log"])
 
     assert not failures
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.downloaded
     assert task.error_message is None or "download:" not in task.error_message
 
@@ -520,9 +513,9 @@ def test_download_directory_creation_failure_persists_error_message(tmp_path, ru
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/c.sh")],
     ), run_id="run_mkdir_fail")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     original_mkdir = Path.mkdir
 
@@ -536,7 +529,7 @@ def test_download_directory_creation_failure_persists_error_message(tmp_path, ru
     _records, failures = service.download_completed("run_mkdir_fail", object(), [".log"])
 
     assert failures == [("c", "download directory denied")]
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.remote_completed
     assert task.error_message == "download: download directory denied"
 
@@ -553,9 +546,9 @@ def test_download_completed_persists_transfer_record_failed_reason(tmp_path, run
         mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     ), run_id="run_failed_rec")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    service.repository.replace_tasks(record.run_id, tasks)
 
     class FailedRecordSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
@@ -569,7 +562,7 @@ def test_download_completed_persists_transfer_record_failed_reason(tmp_path, run
     _records, failures = service.download_completed("run_failed_rec", FailedRecordSFTP(), [".log"])
 
     assert failures
-    task = Manifest.read(record.manifest_path)[0]
+    task = service.repository.load_tasks(record.run_id)[0]
     assert task.status == TaskStatus.remote_completed
     assert "remote file not found" in task.error_message
     assert task.error_message.startswith("download:")
@@ -593,9 +586,8 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "output.log").write_text("data", encoding="utf-8")
 
-    # Confirm metadata exists
-    assert (record.run_dir / "run.json").exists()
-    assert record.manifest_path.exists()
+    # Confirm SQLite metadata exists.
+    assert service.load_run(record.run_id).run_id == record.run_id
 
     import shutil
     original_rmtree = shutil.rmtree
@@ -610,9 +602,8 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
     with pytest.raises(OSError, match="Failed to delete results"):
         service.delete_run("run_locked")
 
-    # Metadata must survive
-    assert (record.run_dir / "run.json").exists()
-    assert record.manifest_path.exists()
+    # SQLite metadata must survive.
+    assert service.load_run(record.run_id).run_id == record.run_id
 
 
 
@@ -647,14 +638,14 @@ def test_download_completed_rejects_backslash_result_traversal(tmp_path, runs_di
     )
     svc = RunService(tmp_path, runs_dir=runs_dir)
     record = svc.create_run(spec, run_id="bsrun")
-    tasks = Manifest.read(record.manifest_path)
+    tasks = svc.repository.load_tasks(record.run_id)
     for t in tasks:
         t.status = TaskStatus.remote_completed
-    Manifest.write(record.manifest_path, tasks)
+    svc.repository.replace_tasks(record.run_id, tasks)
 
     sftp = MagicMock()
     _, failures = svc.download_completed("bsrun", sftp, patterns=["*.log"])
 
     sftp.download_file.assert_not_called()
     assert failures
-    assert Manifest.read(record.manifest_path)[0].status == TaskStatus.remote_completed
+    assert svc.repository.load_tasks(record.run_id)[0].status == TaskStatus.remote_completed

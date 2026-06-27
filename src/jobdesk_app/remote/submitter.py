@@ -43,20 +43,23 @@ class JobSubmitter:
 
     def __init__(
         self,
-        manifest_path: Path,
-        ssh,     # SSHClientWrapper
-        sftp,    # SFTPClientWrapper
-        max_parallel: int,
-        remote_batch_dir: str,
-        batch_id: str,
+        manifest_path: Path | None = None,
+        ssh=None,     # SSHClientWrapper
+        sftp=None,    # SFTPClientWrapper
+        max_parallel: int = 1,
+        remote_batch_dir: str = "",
+        batch_id: str = "",
         control_subdir: str = "_batch",
         env_init_scripts: list[str] | None = None,
         scheduler=None,   # SchedulerAdapter | None
         resources=None,   # ResourceSpec | None
+        *,
+        tasks: list[TaskRecord] | None = None,
     ):
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
         self._manifest_path = manifest_path
+        self._tasks = [task.model_copy(deep=True) for task in tasks] if tasks is not None else None
         self._ssh = ssh
         self._sftp = sftp
         self._max_parallel = max_parallel
@@ -76,7 +79,7 @@ class JobSubmitter:
         selected_ids: list[str] | None = None,
     ) -> list[TaskRecord]:
         """从 Manifest 中选择可提交的任务（仅 uploaded）。"""
-        all_tasks = Manifest.read(self._manifest_path)
+        all_tasks = self._all_tasks()
         uploaded = [t for t in all_tasks if t.status == TaskStatus.uploaded]
 
         if mode == SubmitMode.all:
@@ -388,7 +391,7 @@ class JobSubmitter:
             import tempfile
             updated_ids: list[str] = []
             now = datetime.now()
-            all_tasks = Manifest.read(self._manifest_path)
+            all_tasks = self._all_tasks()
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
                 runner = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
@@ -417,9 +420,9 @@ class JobSubmitter:
                         mt.remote_job_id = job_id
                         mt.error_message = None
                 updated_ids.append(t.task_id)
-            Manifest.write(self._manifest_path, all_tasks)
             result.updated_task_ids = updated_ids
             result.submitted_task_count = len(updated_ids)
+            self._persist_tasks(all_tasks, result)
         except Exception as e:
             result.errors.append(f"提交异常: {e}")
         return result
@@ -427,7 +430,7 @@ class JobSubmitter:
     def _mark_submitted(self, tasks, result, scheduler_type: str = "nohup", remote_job_id: str | None = None):
         now = datetime.now()
         updated_ids: list[str] = []
-        all_tasks = Manifest.read(self._manifest_path)
+        all_tasks = self._all_tasks()
         tid_map = {t.task_id: t for t in all_tasks}
         for t in tasks:
             if t.task_id in tid_map:
@@ -437,9 +440,22 @@ class JobSubmitter:
                 tid_map[t.task_id].remote_job_id = remote_job_id
                 tid_map[t.task_id].error_message = None
                 updated_ids.append(t.task_id)
-        Manifest.write(self._manifest_path, all_tasks)
         result.updated_task_ids = updated_ids
+        self._persist_tasks(all_tasks, result)
         return result
+
+    def _all_tasks(self) -> list[TaskRecord]:
+        if self._tasks is not None:
+            return [task.model_copy(deep=True) for task in self._tasks]
+        if self._manifest_path is None:
+            raise ValueError("manifest_path or tasks is required")
+        return Manifest.read(self._manifest_path)
+
+    def _persist_tasks(self, tasks: list[TaskRecord], result: SubmitResult) -> None:
+        self._tasks = [task.model_copy(deep=True) for task in tasks]
+        result.updated_tasks = [task.model_copy(deep=True) for task in tasks]
+        if self._manifest_path is not None:
+            Manifest.write(self._manifest_path, tasks)
 
 
 def _scheduler_type(scheduler) -> str:
