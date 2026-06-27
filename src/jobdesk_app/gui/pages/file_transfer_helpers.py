@@ -64,11 +64,18 @@ def build_file_button_reasons(local_selected: bool, remote_selected: bool, conne
     }
 
 
-def collect_remote_delete_roots(manifest_path: Path | None) -> list[str]:
-    if manifest_path is None or not Path(manifest_path).exists():
+def collect_remote_delete_roots(tasks_or_manifest) -> list[str]:
+    if tasks_or_manifest is None:
         return []
+    if isinstance(tasks_or_manifest, (str, Path)):
+        manifest_path = Path(tasks_or_manifest)
+        if not manifest_path.exists():
+            return []
+        tasks = Manifest.read(manifest_path)
+    else:
+        tasks = list(tasks_or_manifest)
     roots: set[str] = set()
-    for task in Manifest.read(Path(manifest_path)):
+    for task in tasks:
         if task.remote_work_dir and task.batch_id:
             roots.add(f"{task.remote_work_dir.rstrip('/')}/.jobdesk_runs/{task.batch_id}")
     return sorted(roots)

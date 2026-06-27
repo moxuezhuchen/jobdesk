@@ -59,9 +59,7 @@ class RunCoordinator:
         created = self.create_run(spec, local_dir=local_dir)
         if created.errors or not created.records:
             return created
-        submitted = self.submit(created.records[0].run_id)
-        submitted.records = [self.service.load_run(created.records[0].run_id)]
-        return submitted
+        return self._submit_record(created.records[0])
 
     def submit(
         self,
@@ -70,6 +68,15 @@ class RunCoordinator:
         resource_overrides: dict[str, object] | None = None,
     ) -> RunOperationOutcome:
         record = self.service.load_run(run_id)
+        return self._submit_record(record, resource_overrides=resource_overrides)
+
+    def _submit_record(
+        self,
+        record: RunRecord,
+        *,
+        resource_overrides: dict[str, object] | None = None,
+    ) -> RunOperationOutcome:
+        run_id = record.run_id
         ssh = None
         sftp = None
         try:
@@ -87,8 +94,12 @@ class RunCoordinator:
                 scheduler=scheduler,
                 resources=resources,
             )
+            try:
+                durable_record = self.service.load_run(run_id)
+            except (KeyError, TypeError):
+                durable_record = record
             return RunOperationOutcome(
-                records=[self.service.load_run(run_id)],
+                records=[durable_record],
                 submit_results=[result],
                 errors=list(result.errors),
             )
