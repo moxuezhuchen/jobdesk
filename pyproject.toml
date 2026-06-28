@@ -74,6 +74,16 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
+    "jobdesk_app.services.run_repository",
+    "jobdesk_app.services.run_coordinator",
+    "jobdesk_app.services.run_monitor",
+    "jobdesk_app.gui.run_monitor_qt",
+]
+check_untyped_defs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
     "jobdesk_app.gui.worker_utils",
     "jobdesk_app.gui.pages.settings_servers_helpers",
     "jobdesk_app.gui.pages.file_transfer_helpers",

@@ -10,6 +10,7 @@ class TaskStatus(str, Enum):
 
     local_ready = "local_ready"
     uploaded = "uploaded"
+    submitting = "submitting"
     submitted = "submitted"
     running = "running"
     remote_completed = "remote_completed"

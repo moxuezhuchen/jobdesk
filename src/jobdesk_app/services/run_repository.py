@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from ..core.lifecycle import TaskStatus
@@ -47,7 +48,28 @@ class RunRepository:
         self.runs_dir = Path(runs_dir)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.database_path = self.runs_dir / "jobdesk.db"
+        self._validate_existing_schema()
         self._initialize()
+
+    def _validate_existing_schema(self) -> None:
+        """Reject future schemas before applying connection pragmas or DDL."""
+        connection = sqlite3.connect(self.database_path, timeout=5.0)
+        try:
+            metadata_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_metadata'"
+            ).fetchone()
+            if not metadata_exists:
+                return
+            row = connection.execute(
+                "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
+            ).fetchone()
+            if row is not None and int(row[0]) > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"database uses newer schema version {row[0]} "
+                    f"(supported={SCHEMA_VERSION})"
+                )
+        finally:
+            connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=5.0)
@@ -58,7 +80,7 @@ class RunRepository:
         return connection
 
     @contextmanager
-    def _connection(self):
+    def _connection(self) -> Iterator[sqlite3.Connection]:
         connection = self._connect()
         try:
             with connection:
@@ -151,6 +173,38 @@ class RunRepository:
             self._replace_tasks(connection, run_id, tasks)
         return self.load_tasks(run_id)
 
+    def claim_uploaded_tasks(self, run_id: str) -> list[TaskRecord]:
+        """Atomically claim uploaded tasks before performing remote submission.
+
+        Claimed tasks are persisted as submitting so a second process cannot
+        perform the same remote side effect.  Returned copies retain uploaded
+        status because JobSubmitter selects that state.
+        """
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if not self._run_exists(connection, run_id):
+                raise KeyError(f"run not found: {run_id}")
+            tasks = self._load_tasks(connection, run_id)
+            claimed = [
+                task.model_copy(deep=True)
+                for task in tasks
+                if task.status == TaskStatus.uploaded
+            ]
+            if claimed:
+                claimed_ids = {task.task_id for task in claimed}
+                claimed_at = datetime.now()
+                persisted = [
+                    task.model_copy(
+                        update={"status": TaskStatus.submitting, "submitted_at": claimed_at},
+                        deep=True,
+                    )
+                    if task.task_id in claimed_ids
+                    else task
+                    for task in tasks
+                ]
+                self._replace_tasks(connection, run_id, persisted)
+        return claimed
+
     def mutate_tasks(
         self,
         run_id: str,
@@ -228,7 +282,11 @@ class RunRepository:
         marker = connection.execute(
             "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
         ).fetchone()
-        if marker is not None and marker["value"] == "1":
+        failed_paths = {
+            str(row["legacy_path"])
+            for row in connection.execute("SELECT legacy_path FROM migration_errors").fetchall()
+        }
+        if marker is not None and marker["value"] == "1" and not failed_paths:
             return
         for run_dir in sorted(self.runs_dir.iterdir()):
             if not run_dir.is_dir():
@@ -237,6 +295,8 @@ class RunRepository:
             manifest_path = run_dir / "manifest.tsv"
             if not run_path.exists() and not manifest_path.exists():
                 continue
+            if marker is not None and marker["value"] == "1" and str(run_dir) not in failed_paths:
+                continue
             connection.execute("SAVEPOINT legacy_run")
             try:
                 record = self._load_legacy_record(run_dir)
@@ -244,6 +304,10 @@ class RunRepository:
                 if not self._run_exists(connection, record.run_id):
                     self._insert_run(connection, record)
                     self._replace_tasks(connection, record.run_id, tasks)
+                connection.execute(
+                    "DELETE FROM migration_errors WHERE legacy_path = ?",
+                    (str(run_dir),),
+                )
                 connection.execute("RELEASE SAVEPOINT legacy_run")
             except Exception as exc:
                 connection.execute("ROLLBACK TO SAVEPOINT legacy_run")

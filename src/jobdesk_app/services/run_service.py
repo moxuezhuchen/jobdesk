@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
+from ..core.submit import SubmitResult
 from ..core.transfer import TransferStatus
 from ..remote.submitter import JobSubmitter
 from .file_transfer_service import ensure_safe_remote_path
@@ -27,14 +28,26 @@ class RunService:
     def _next_run_id(self) -> str:
         prefix = datetime.now().strftime("%y%m%d")
         self.runs_dir.mkdir(parents=True, exist_ok=True)
-        existing = [d.name for d in self.runs_dir.iterdir() if d.is_dir() and d.name.startswith(prefix + "-")]
+        existing = {
+            d.name
+            for d in self.runs_dir.iterdir()
+            if d.is_dir() and d.name.startswith(prefix + "-")
+        }
+        existing.update(
+            record.run_id
+            for record in self.repository.list_runs()
+            if record.run_id.startswith(prefix + "-")
+        )
         max_num = 0
         for name in existing:
             parts = name.split("-", 1)
             if len(parts) == 2 and parts[1].isdigit():
                 max_num = max(max_num, int(parts[1]))
         candidate = max_num + 1
-        while (self.runs_dir / f"{prefix}-{candidate:03d}").exists():
+        while (
+            f"{prefix}-{candidate:03d}" in existing
+            or (self.runs_dir / f"{prefix}-{candidate:03d}").exists()
+        ):
             candidate += 1
         return f"{prefix}-{candidate:03d}"
 
@@ -101,27 +114,45 @@ class RunService:
             resources = ResourceSpec.from_dict(record.resources)
         else:
             record.resources = asdict(resources)
-        self.repository.update_run(record)
-        tasks = self.repository.load_tasks(run_id)
-        expected = {task.task_id: task.status for task in tasks}
-        submitter = JobSubmitter(
-            tasks=tasks,
-            ssh=ssh,
-            sftp=sftp,
-            max_parallel=record.max_parallel,
-            remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
-            batch_id=record.run_id,
-            env_init_scripts=list(env_init_scripts),
-            scheduler=scheduler,
-            resources=resources,
-        )
-        result = submitter.submit_batch()
-        if result.updated_tasks:
+        tasks = self.repository.claim_uploaded_tasks(run_id)
+        if not tasks:
+            return SubmitResult(record.run_id, 0, remote_run_dir(record.remote_dir, record.run_id))
+        expected = {task.task_id: TaskStatus.submitting for task in tasks}
+
+        def checkpoint_task_updates(updates: list[TaskRecord]) -> None:
             self.repository.merge_tasks(
                 run_id,
-                result.updated_tasks,
+                updates,
                 expected_statuses=expected,
             )
+
+        try:
+            self.repository.update_run(record)
+            submitter = JobSubmitter(
+                tasks=tasks,
+                ssh=ssh,
+                sftp=sftp,
+                max_parallel=record.max_parallel,
+                remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
+                batch_id=record.run_id,
+                env_init_scripts=list(env_init_scripts),
+                scheduler=scheduler,
+                resources=resources,
+                task_update_callback=checkpoint_task_updates,
+            )
+            result = submitter.submit_batch()
+        except Exception:
+            self.repository.merge_tasks(
+                run_id,
+                tasks,
+                expected_statuses=expected,
+            )
+            raise
+        self.repository.merge_tasks(
+            run_id,
+            result.updated_tasks or tasks,
+            expected_statuses=expected,
+        )
         return result
 
     def refresh_run(self, run_id: str, ssh):
@@ -136,7 +167,16 @@ class RunService:
             remote_run_dir(record.remote_dir, record.run_id),
             record.run_id,
         )
-        self.repository.merge_tasks(run_id, updated, expected_statuses=expected)
+        merged = self.repository.merge_tasks(run_id, updated, expected_statuses=expected)
+        merged_by_id = {task.task_id: task for task in merged}
+        original_by_id = {task.task_id: task for task in tasks}
+        result.changed_count = sum(
+            1
+            for task in updated
+            if task.task_id in original_by_id
+            and original_by_id[task.task_id].status != task.status
+            and merged_by_id.get(task.task_id) == task
+        )
         return result
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
@@ -231,7 +271,7 @@ class RunService:
             active = [
                 task.task_id
                 for task in tasks
-                if task.status in {TaskStatus.submitted, TaskStatus.running}
+                if task.status in {TaskStatus.submitting, TaskStatus.submitted, TaskStatus.running}
             ]
             if active:
                 raise ValueError(f"cannot rerun active remote tasks: {', '.join(active)}")
@@ -311,18 +351,23 @@ class RunService:
         results_dir = (self.workspace_dir / "results" / run_id).resolve()
         if not results_dir.is_relative_to((self.workspace_dir / "results").resolve()):
             raise ValueError(f"run_id escapes results dir: {run_id}")
-        # Delete results first; if this fails, metadata is preserved for recovery.
-        if results_dir.exists():
-            try:
-                shutil.rmtree(results_dir)
-            except OSError as exc:
-                raise OSError(
-                    f"Failed to delete results for run {run_id} "
-                    f"(metadata preserved at {run_dir}): {exc}"
-                ) from exc
-        if run_dir.exists():
-            shutil.rmtree(run_dir)
+        record = self.repository.load_run(run_id)
+        tasks = self.repository.load_tasks(run_id)
         self.repository.delete_run(run_id)
+        try:
+            if results_dir.exists():
+                try:
+                    shutil.rmtree(results_dir)
+                except OSError as exc:
+                    raise OSError(
+                        f"Failed to delete results for run {run_id} "
+                        f"(metadata restored at {run_dir}): {exc}"
+                    ) from exc
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+        except Exception:
+            self.repository.create_run(record, tasks)
+            raise
 
     def _run_dir(self, run_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):

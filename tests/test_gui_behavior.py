@@ -1020,6 +1020,14 @@ class TestRunsPage:
         assert _format_status({"running": 1}) != ""
         assert _format_status({}) == ""
 
+    def test_submitting_status_uses_user_facing_label(self, runs_page):
+        from jobdesk_app.gui.i18n import tr
+        from jobdesk_app.gui.pages.runs_results_page import _format_status
+
+        assert _format_status({"submitting": 1}, runs_page._language) == tr(
+            "Submitting", runs_page._language
+        )
+
     def test_gaussian_auto_analysis_on_downloaded(self, runs_page, tmp_path):
         """Downloaded Gaussian .log triggers auto-analysis in result preview."""
         result_dir = tmp_path / "results" / "gauss_run" / "task1"
@@ -1124,6 +1132,41 @@ class TestRunsPage:
         assert worker in runs_page._bg_workers
         worker.start.assert_called_once_with()
 
+    def test_submit_worker_serializes_shared_session(self, runs_page):
+        lock = MagicMock()
+        lock.__enter__.return_value = None
+        runs_page._refresh_lock = lock
+        outcome = SimpleNamespace(errors=[], submit_results=[MagicMock()])
+
+        with patch.object(runs_page, "_coordinator_for") as coordinator_factory, \
+             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+            coordinator_factory.return_value.submit.return_value = outcome
+            runs_page._submit_record("run-1")
+            worker.call_args.args[0]()
+
+        lock.__enter__.assert_called_once_with()
+        lock.__exit__.assert_called_once()
+
+    def test_cancel_worker_serializes_shared_session(self, runs_page):
+        from PySide6.QtWidgets import QMessageBox
+
+        lock = MagicMock()
+        lock.__enter__.return_value = None
+        runs_page._refresh_lock = lock
+        record = MagicMock(run_id="run-1", local_dir="")
+        outcome = SimpleNamespace(changed_count=1, errors=[])
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
+             patch.object(runs_page, "_coordinator_for") as coordinator_factory, \
+             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+            coordinator_factory.return_value.cancel.return_value = outcome
+            runs_page._cancel_run()
+            worker.call_args.args[0]()
+
+        lock.__enter__.assert_called_once_with()
+        lock.__exit__.assert_called_once()
+
     def test_retry_download_worker_is_removed_when_finished(self, runs_page):
         worker = _FakeWorker()
         record = MagicMock(
@@ -1141,6 +1184,25 @@ class TestRunsPage:
         assert worker in runs_page._bg_workers
         worker.finished.emit()
         assert worker not in runs_page._bg_workers
+
+    def test_retry_download_serializes_shared_session(self, runs_page):
+        lock = MagicMock()
+        lock.__enter__.return_value = None
+        runs_page._refresh_lock = lock
+        record = MagicMock(
+            run_id="run_refresh",
+            status_summary={"remote_completed": 1},
+        )
+        outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
+
+        with patch.object(runs_page, "_selected_record", return_value=record), \
+             patch.object(runs_page, "_execute_download_use_case", return_value=outcome), \
+             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+            runs_page._retry_download()
+            worker.call_args.args[0]()
+
+        lock.__enter__.assert_called_once_with()
+        lock.__exit__.assert_called_once()
 
     def test_open_results_uses_record_local_dir(self, runs_page, tmp_path):
         """Open Results must use record.local_dir path."""
@@ -1193,6 +1255,20 @@ class TestRunsPage:
         runs_page.shutdown()
 
         worker.stop_safely.assert_called_once_with(3000)
+
+    def test_close_all_sessions_does_not_wait_forever_for_busy_refresh(self, runs_page):
+        lock = threading.Lock()
+        lock.acquire()
+        runs_page._refresh_lock = lock
+        closer = threading.Thread(target=runs_page._close_all_sessions)
+
+        closer.start()
+        closer.join(0.2)
+        blocked = closer.is_alive()
+        lock.release()
+        closer.join(1)
+
+        assert not blocked
 
     def test_rerun_all_reports_active_task_error_without_submit(self, runs_page):
         statuses = []
@@ -1269,6 +1345,22 @@ class TestRunsPage:
 
 
 class TestAutoRefreshCoordinatorDelegation:
+    def test_runs_coordinator_reuses_page_owned_session(self, runs_page, tmp_path):
+        server = SimpleNamespace(server_id="wsl")
+        ssh = MagicMock()
+        sftp = MagicMock()
+        with patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
+             patch.object(runs_page, "_persistent_session", return_value=(ssh, sftp)) as session:
+            servers.return_value.servers = {"wsl": server}
+            coordinator = runs_page._coordinator_for(tmp_path)
+
+            assert coordinator._ssh_factory(server) is ssh
+            assert coordinator._sftp_factory(ssh) is sftp
+            assert coordinator._close_clients is False
+            assert coordinator._connect_clients is False
+
+        session.assert_called_once_with("wsl", server)
+
     def test_active_and_completed_runs_delegate_to_distinct_use_cases(self, runs_page, qtbot):
         active = MagicMock(run_id="active", status_summary={"running": 1})
         completed = MagicMock(run_id="completed", status_summary={"remote_completed": 1})
@@ -1284,6 +1376,19 @@ class TestAutoRefreshCoordinatorDelegation:
 
         refresh.assert_called_once()
         download.assert_called_once()
+
+    def test_stale_submission_claim_is_included_in_auto_refresh(self, runs_page, qtbot):
+        claimed = MagicMock(run_id="claimed", status_summary={"submitting": 1})
+        outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
+        runs_page._auto_refresh_running = False
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh, \
+             patch.object(runs_page, "refresh_run_list"):
+            service.return_value.list_runs.return_value = [claimed]
+            runs_page._auto_refresh_active()
+            qtbot.waitUntil(lambda: not runs_page._auto_refresh_running, timeout=2000)
+
+        refresh.assert_called_once()
 
     def test_failure_for_one_run_does_not_skip_later_runs(self, runs_page, qtbot):
         records = [MagicMock(run_id=name, status_summary={"running": 1}) for name in ("bad", "ok")]
@@ -1311,6 +1416,24 @@ class TestTaskDoneDebounce:
         evt.server_id = server_id
         evt.exit_code = exit_code
         return evt
+
+    def test_monitor_flush_serializes_shared_session(self, runs_page):
+        lock = MagicMock()
+        lock.__enter__.return_value = None
+        runs_page._refresh_lock = lock
+        runs_page._pending_task_events["run_1"] = {"server_id": "wsl", "has_done": False}
+        record = MagicMock(run_id="run_1")
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
+             patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome), \
+             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+            service.return_value.load_run.return_value = record
+            runs_page._flush_task_done("run_1")
+            worker.call_args.args[0]()
+
+        lock.__enter__.assert_called_once_with()
+        lock.__exit__.assert_called_once()
 
     def test_multiple_running_events_single_refresh(self, runs_page, qtbot):
         """3 RUNNING events for same run_id within 1s → only 1 refresh_batch_status call."""
@@ -2430,7 +2553,6 @@ class TestFileTransferPage:
              patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
              patch.object(file_page, "_execute_run_use_case", execute), \
              patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"), \
-             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session", return_value=session), \
              patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
             file_page._run_selected_chunks(submit=True)
             target = start_worker.call_args.kwargs["target"]
@@ -2471,7 +2593,6 @@ class TestFileTransferPage:
              patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
              patch.object(file_page, "_execute_run_use_case", execute), \
              patch("jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"), \
-             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session", return_value=session), \
              patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
             file_page._run_selected_chunks(submit=True)
             payload = start_worker.call_args.kwargs["target"](MagicMock())
@@ -2513,7 +2634,6 @@ class TestFileTransferPage:
         with patch("jobdesk_app.gui.pages.file_transfer_page.QFileDialog.getOpenFileName", return_value=(str(yaml_file), "")), \
              patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
              patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls, \
-             patch("jobdesk_app.gui.pages.file_transfer_page.sftp_session") as sftp_session, \
              patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls:
             worker = MagicMock()
             worker.result.connect = MagicMock()
@@ -2522,7 +2642,6 @@ class TestFileTransferPage:
             worker_cls.return_value = worker
             run_service_cls.return_value.create_run.return_value = SimpleNamespace(run_id="cf-run", local_dir=str(tmp_path))
             run_service_cls.return_value.submit_run.return_value = SimpleNamespace(batch_id="cf-run", errors=[])
-            sftp_session.return_value.__enter__.return_value = (MagicMock(), MagicMock())
             file_page._run_confflow()
             with pytest.raises(RuntimeError, match="permission denied"):
                 worker_cls.call_args.args[0]()

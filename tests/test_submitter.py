@@ -14,6 +14,7 @@ from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.core.submit import SubmitMode
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord
 from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
+from jobdesk_app.remote.scheduler import SlurmAdapter
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.remote.submitter import JobSubmitter
 
@@ -349,6 +350,52 @@ class TestSubmit:
         assert result.errors == []
         assert result.updated_tasks[0].status == TaskStatus.submitted
         assert result.updated_tasks[0].remote_job_id == "4321"
+
+    def test_nohup_without_pid_keeps_tasks_submitting_for_reconciliation(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        ssh = self._make_mock_ssh(exit_code=0, stdout="")
+        checkpoints = []
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=ssh,
+            sftp=FakeSFTPWrapper(),
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            task_update_callback=lambda updates: checkpoints.extend(updates),
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == ["nohup start did not return a remote process id"]
+        assert result.updated_tasks[0].status == TaskStatus.submitting
+        assert result.updated_tasks[0].submitted_at is not None
+        assert result.updated_tasks[0].remote_job_id is None
+        assert checkpoints[0].status == TaskStatus.submitting
+        assert checkpoints[0].submitted_at is not None
+
+    def test_scheduler_submit_exception_keeps_task_submitting_for_reconciliation(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(side_effect=RuntimeError("response lost"))
+        checkpoints = []
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            scheduler=scheduler,
+            task_update_callback=lambda updates: checkpoints.extend(updates),
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == ["task t1: submit failed: response lost"]
+        assert result.updated_tasks[0].status == TaskStatus.submitting
+        assert result.updated_tasks[0].submitted_at is not None
+        assert checkpoints[0].status == TaskStatus.submitting
 
     def test_submit_uses_control_subdir_for_all_remote_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]

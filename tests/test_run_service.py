@@ -1,6 +1,8 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -85,6 +87,22 @@ def test_create_run_rejects_duplicate_explicit_run_id(tmp_path, runs_dir):
 
     with pytest.raises(FileExistsError):
         service.create_run(spec, run_id="duplicate")
+
+
+def test_next_run_id_considers_database_rows_without_directories(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    prefix = datetime.now().strftime("%y%m%d")
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id=f"{prefix}-001")
+    record.run_dir.rmdir()
+
+    assert service._next_run_id() == f"{prefix}-002"
 
 
 def test_create_run_rejects_unsafe_explicit_run_id(tmp_path, runs_dir):
@@ -389,6 +407,90 @@ def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, m
     assert captured[1]["resources"].memory_mb == 4096
 
 
+def test_submit_run_skips_tasks_claimed_by_another_process(tmp_path, runs_dir, monkeypatch):
+    first = RunService(tmp_path, runs_dir=runs_dir)
+    first.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_claimed")
+    assert first.repository.claim_uploaded_tasks("run_claimed")
+    submitter = MagicMock()
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", submitter)
+
+    result = RunService(tmp_path, runs_dir=runs_dir).submit_run(
+        "run_claimed", object(), object()
+    )
+
+    assert result.submitted_task_count == 0
+    submitter.assert_not_called()
+
+
+def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(
+    tmp_path, runs_dir, monkeypatch
+):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+    ), run_id="run_partial_submit")
+
+    class CrashingSubmitter:
+        def __init__(self, **kwargs):
+            self.tasks = kwargs["tasks"]
+            self.checkpoint = kwargs["task_update_callback"]
+
+        def submit_batch(self):
+            submitted = self.tasks[0].model_copy(update={
+                "status": TaskStatus.submitted,
+                "scheduler_type": "slurm",
+                "remote_job_id": "12345",
+            })
+            self.checkpoint([submitted])
+            raise RuntimeError("process crashed after first remote submission")
+
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", CrashingSubmitter)
+
+    with pytest.raises(RuntimeError, match="process crashed"):
+        service.submit_run(
+            "run_partial_submit", object(), object(), scheduler=SlurmAdapter()
+        )
+
+    tasks = service.repository.load_tasks("run_partial_submit")
+    assert tasks[0].status == TaskStatus.submitted
+    assert tasks[0].remote_job_id == "12345"
+    assert tasks[1].status == TaskStatus.uploaded
+
+
+def test_losing_submitter_does_not_overwrite_execution_resources(tmp_path, runs_dir):
+    first = RunService(tmp_path, runs_dir=runs_dir)
+    first.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_claimed_resources")
+    assert first.repository.claim_uploaded_tasks("run_claimed_resources")
+
+    RunService(tmp_path, runs_dir=runs_dir).submit_run(
+        "run_claimed_resources",
+        object(),
+        object(),
+        resources=ResourceSpec(cpus=99),
+    )
+
+    assert first.load_run("run_claimed_resources").resources == {}
+
+
 def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
     record = service.create_run(RunSpec(
@@ -604,6 +706,56 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
 
     # SQLite metadata must survive.
     assert service.load_run(record.run_id).run_id == record.run_id
+
+
+def test_delete_run_restores_directory_when_database_delete_fails(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_db_locked")
+    monkeypatch.setattr(
+        service.repository,
+        "delete_run",
+        MagicMock(side_effect=sqlite3.OperationalError("database is locked")),
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        service.delete_run(record.run_id)
+
+    assert record.run_dir.is_dir()
+
+
+def test_refresh_run_reports_only_changes_committed_by_compare_and_swap(
+    tmp_path, runs_dir, monkeypatch
+):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(RunSpec(
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="run_refresh_race")
+    original = service.repository.load_tasks(record.run_id)
+    refreshed = [
+        original[0].model_copy(update={"status": TaskStatus.running}, deep=True)
+    ]
+    refresh_result = SimpleNamespace(changed_count=1)
+    monkeypatch.setattr(
+        "jobdesk_app.remote.status_refresh.refresh_task_statuses",
+        lambda *_args, **_kwargs: (refresh_result, refreshed),
+    )
+    monkeypatch.setattr(service.repository, "merge_tasks", lambda *_args, **_kwargs: original)
+
+    result = service.refresh_run(record.run_id, object())
+
+    assert result.changed_count == 0
 
 
 

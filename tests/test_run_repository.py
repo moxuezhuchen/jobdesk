@@ -176,6 +176,23 @@ def test_merge_tasks_preserves_unrelated_updates_and_rejects_stale_status(tmp_pa
     assert by_id["b"].status == TaskStatus.failed
 
 
+def test_claim_uploaded_tasks_is_atomic_across_repositories(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    first = RunRepository(runs_dir)
+    first.create_run(_record(runs_dir), [_task("a", TaskStatus.uploaded)])
+    second = RunRepository(runs_dir)
+
+    claimed_first = first.claim_uploaded_tasks("run-1")
+    claimed_second = second.claim_uploaded_tasks("run-1")
+
+    assert [task.task_id for task in claimed_first] == ["a"]
+    assert claimed_first[0].status == TaskStatus.uploaded
+    assert claimed_second == []
+    persisted = first.load_tasks("run-1")[0]
+    assert persisted.status == TaskStatus.submitting
+    assert persisted.submitted_at is not None
+
+
 def test_list_and_delete_runs(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
@@ -226,6 +243,22 @@ def test_malformed_legacy_run_is_reported_while_valid_run_imports(tmp_path: Path
     assert "invalid" in errors[0].message.lower() or "json" in errors[0].message.lower()
 
 
+def test_malformed_legacy_run_is_retried_after_repair(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    broken_dir = runs_dir / "repaired"
+    broken_dir.mkdir(parents=True)
+    (broken_dir / "run.json").write_text("not json", encoding="utf-8")
+    RunRepository(runs_dir)
+
+    (broken_dir / "run.json").unlink()
+    broken_dir.rmdir()
+    _write_legacy_run(runs_dir, "repaired")
+    repository = RunRepository(runs_dir)
+
+    assert repository.load_run("repaired").run_id == "repaired"
+    assert repository.list_migration_errors() == []
+
+
 def test_legacy_import_is_idempotent(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     _write_legacy_run(runs_dir)
@@ -239,3 +272,29 @@ def test_legacy_import_is_idempotent(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
         ).fetchone()[0] == "1"
+
+
+def test_newer_schema_version_is_rejected_without_relabeling(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    database = runs_dir / "jobdesk.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute("INSERT INTO schema_metadata VALUES ('schema_version', '999')")
+
+    with pytest.raises(RuntimeError, match="newer schema version"):
+        RunRepository(runs_dir)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
+        ).fetchone()[0] == "999"
+        assert {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        } == {"schema_metadata"}
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    assert not database.with_name("jobdesk.db-wal").exists()
+    assert not database.with_name("jobdesk.db-shm").exists()

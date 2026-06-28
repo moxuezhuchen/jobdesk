@@ -69,6 +69,63 @@ def test_submit_returns_result_and_closes_both_clients(tmp_path, monkeypatch) ->
     ssh.close.assert_called_once_with()
 
 
+def test_submit_preserves_success_when_client_close_fails(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    record = service.create_run(_spec(), run_id="run-1")
+    ssh = MagicMock()
+    sftp = MagicMock()
+    sftp.close.side_effect = OSError("close failed")
+    result = SubmitResult("run-1", 1, "/remote/project")
+    monkeypatch.setattr(service, "submit_run", MagicMock(return_value=result))
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=_server,
+        ssh_factory=lambda _config: ssh,
+        sftp_factory=lambda _ssh: sftp,
+    )
+
+    outcome = coordinator.submit(record.run_id)
+
+    assert outcome.submit_results == [result]
+    assert outcome.errors == []
+    ssh.close.assert_called_once_with()
+
+
+def test_missing_run_is_returned_as_outcome_error(tmp_path) -> None:
+    coordinator = RunCoordinator(
+        RunService(tmp_path, runs_dir=tmp_path / "runs"),
+        server_lookup=_server,
+        ssh_factory=MagicMock(),
+        sftp_factory=MagicMock(),
+    )
+
+    outcome = coordinator.download("missing", ["*.out"])
+
+    assert outcome.records == []
+    assert outcome.errors == ["KeyError: 'run not found: missing'"]
+
+
+def test_non_owning_coordinator_does_not_close_shared_clients(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    record = service.create_run(_spec(), run_id="run-1")
+    ssh = MagicMock()
+    sftp = MagicMock()
+    result = SubmitResult("run-1", 1, "/remote/project")
+    monkeypatch.setattr(service, "submit_run", MagicMock(return_value=result))
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=_server,
+        ssh_factory=lambda _config: ssh,
+        sftp_factory=lambda _ssh: sftp,
+        close_clients=False,
+    )
+
+    coordinator.submit(record.run_id)
+
+    sftp.close.assert_not_called()
+    ssh.close.assert_not_called()
+
+
 def test_refresh_and_download_share_one_session(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-1")

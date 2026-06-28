@@ -44,6 +44,7 @@ def _format_status(summary: dict[str, int], language: str = "en") -> str:
     _LABELS = {
         "local_ready": tr("Preparing", language),
         "uploaded": tr("Uploaded", language),
+        "submitting": tr("Submitting", language),
         "submitted": tr("Submitted", language),
         "running": tr("Running", language),
         "remote_completed": tr("Completed", language),
@@ -251,9 +252,13 @@ class RunsResultsPage(QWidget):
                 pass
 
     def _close_all_sessions(self) -> None:
-        with self._refresh_lock:
+        if not self._refresh_lock.acquire(timeout=0.1):
+            return
+        try:
             for server_id in list(self._refresh_sessions):
                 self._close_session(server_id)
+        finally:
+            self._refresh_lock.release()
 
     def _drop_dead_session(self, server_id: str) -> None:
         """Drop a cached session only if its connection actually died, so a
@@ -268,7 +273,11 @@ class RunsResultsPage(QWidget):
             runs = RunService(self._workspace()).list_runs()
             cfg = load_servers()
             for record in runs:
-                if record.status_summary.get("running", 0) > 0 or record.status_summary.get("submitted", 0) > 0:
+                if (
+                    record.status_summary.get("submitting", 0) > 0
+                    or record.status_summary.get("running", 0) > 0
+                    or record.status_summary.get("submitted", 0) > 0
+                ):
                     srv = cfg.servers.get(record.server_id)
                     if srv:
                         batch_dir = remote_run_dir(record.remote_dir, record.run_id)
@@ -312,9 +321,10 @@ class RunsResultsPage(QWidget):
         fallback_ws = self._workspace()
 
         def _run():
-            record = RunService(fallback_ws).load_run(run_id)
-            patterns = self._get_download_patterns(record)
-            outcome = self._execute_refresh_use_case(record, patterns, download=has_done)
+            with self._refresh_lock:
+                record = RunService(fallback_ws).load_run(run_id)
+                patterns = self._get_download_patterns(record)
+                outcome = self._execute_refresh_use_case(record, patterns, download=has_done)
             if outcome.errors:
                 return "Automatic refresh failed: " + "; ".join(outcome.errors)
             if has_done and outcome.transfer_records:
@@ -342,7 +352,11 @@ class RunsResultsPage(QWidget):
         self.refresh_run_list()
         try:
             updated = RunService(self._workspace()).load_run(event.run_id)
-            if updated.status_summary.get("running", 0) == 0 and updated.status_summary.get("submitted", 0) == 0:
+            if (
+                updated.status_summary.get("submitting", 0) == 0
+                and updated.status_summary.get("running", 0) == 0
+                and updated.status_summary.get("submitted", 0) == 0
+            ):
                 self._monitor.unwatch(event.run_id, event.server_id)
         except Exception:
             pass
@@ -413,7 +427,7 @@ class RunsResultsPage(QWidget):
             for col, value in enumerate(_format_row(record, self._language)):
                 item = QTableWidgetItem(value)
                 if col == 0:
-                    item.setData(Qt.UserRole, record)  # cache to avoid re-reading run.json on selection
+                    item.setData(Qt.UserRole, record)  # cache to avoid another database lookup on selection
                 self.table.setItem(row, col, item)
             if record.run_id == prev_selected:
                 manual_row = row
@@ -445,11 +459,23 @@ class RunsResultsPage(QWidget):
     def _coordinator_for(self, workspace: Path) -> RunCoordinator:
         if self._coordinator_factory is not None:
             return self._coordinator_factory(workspace)
+        sftp_by_ssh: dict[int, object] = {}
+
+        def _shared_ssh(server):
+            ssh, sftp = self._persistent_session(server.server_id, server)
+            sftp_by_ssh[id(ssh)] = sftp
+            return ssh
+
+        def _shared_sftp(ssh):
+            return sftp_by_ssh[id(ssh)]
+
         return RunCoordinator(
             RunService(workspace),
             server_lookup=lambda server_id: load_servers().servers[server_id],
-            ssh_factory=create_ssh_client,
-            sftp_factory=create_sftp_client,
+            ssh_factory=_shared_ssh,
+            sftp_factory=_shared_sftp,
+            close_clients=False,
+            connect_clients=False,
         )
 
     def _execute_refresh_use_case(self, record, patterns: list[str], *, download: bool):
@@ -794,7 +820,7 @@ class RunsResultsPage(QWidget):
                 elif task.status == TaskStatus.remote_completed:
                     reason = f" ({task.error_message})" if task.error_message else ""
                     rows.append([mol_name, f"⚠ Download Failed{reason}", "", "", ""])
-                elif task.status in (TaskStatus.submitted, TaskStatus.running):
+                elif task.status in (TaskStatus.submitting, TaskStatus.submitted, TaskStatus.running):
                     label = "Running" if task.status == TaskStatus.running else "Pending"
                     rows.append([mol_name, f"⏳ {label}", "", "", ""])
                 else:
@@ -873,7 +899,12 @@ class RunsResultsPage(QWidget):
             return
         workspace = self._workspace()
         runs = RunService(workspace).list_runs()
-        active = [r for r in runs if r.status_summary.get("submitted", 0) > 0 or r.status_summary.get("running", 0) > 0]
+        active = [
+            r for r in runs
+            if r.status_summary.get("submitting", 0) > 0
+            or r.status_summary.get("submitted", 0) > 0
+            or r.status_summary.get("running", 0) > 0
+        ]
         # Include remote_completed runs that haven't permanently failed download
         needs_download = [
             r for r in runs
@@ -1030,10 +1061,11 @@ class RunsResultsPage(QWidget):
         self._retry_download_feedback.pending(tr("Downloading...", self._language))
 
         def _run():
-            outcome = self._execute_download_use_case(
-                record,
-                self._get_download_patterns(record),
-            )
+            with self._refresh_lock:
+                outcome = self._execute_download_use_case(
+                    record,
+                    self._get_download_patterns(record),
+                )
             if outcome.errors and not outcome.failures:
                 raise RuntimeError("; ".join(outcome.errors))
             return outcome.transfer_records, outcome.failures
@@ -1162,7 +1194,8 @@ class RunsResultsPage(QWidget):
         self._cancel_feedback.pending(tr("Cancelling...", self._language))
 
         def _run():
-            outcome = self._coordinator_for(self._result_workspace(record)).cancel(record.run_id)
+            with self._refresh_lock:
+                outcome = self._coordinator_for(self._result_workspace(record)).cancel(record.run_id)
             return outcome.changed_count, outcome.errors
 
         from ..workers import BackgroundWorker
@@ -1245,7 +1278,8 @@ class RunsResultsPage(QWidget):
         workspace = self._workspace()
 
         def _run():
-            outcome = self._coordinator_for(workspace).submit(run_id)
+            with self._refresh_lock:
+                outcome = self._coordinator_for(workspace).submit(run_id)
             if outcome.errors or not outcome.submit_results:
                 raise RuntimeError("; ".join(outcome.errors) or "submit returned no result")
             return outcome.submit_results[0]
@@ -1290,7 +1324,7 @@ class RunsResultsPage(QWidget):
         ws = self._result_workspace(record)
         self.result_text.setPlainText(
             f"{tr('Run directory', self._language)}: {record.run_dir}\n"
-            f"Manifest: {record.manifest_path}\n"
+            f"Database: {record.run_dir.parent / 'jobdesk.db'}\n"
             f"{tr('Results directory', self._language)}: {ws}")
         self.result_text.setVisible(True)
 

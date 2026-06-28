@@ -223,6 +223,32 @@ def _recover_status(
                 snap.failure_reason = "远程状态标记为 failed"
                 snap.warnings.append("uploaded 任务在远程已标记为 failed")
 
+    elif current == TaskStatus.submitting:
+        if _remote_read_incomplete(remote_snap):
+            snap.warnings.append("submission claim retained because remote status read was incomplete")
+        elif stale_timeout_seconds and task.submitted_at:
+            elapsed = (datetime.now() - task.submitted_at).total_seconds()
+            if elapsed > stale_timeout_seconds:
+                marker = remote_snap.status_marker.strip() if remote_snap and remote_snap.marker_exists else ""
+                if marker == "running":
+                    new_status = TaskStatus.running
+                elif marker == "completed":
+                    result = _check_exit_code(remote_snap, snap)
+                    if result is not None:
+                        new_status = result
+                elif marker == "failed":
+                    new_status = TaskStatus.failed
+                    snap.failure_reason = "remote status marker is failed"
+                else:
+                    snap.warnings.append(
+                        f"submission remains ambiguous after {int(elapsed)}s; "
+                        "manual reconciliation is required before retry"
+                    )
+            else:
+                snap.warnings.append("submission is still being finalized")
+        else:
+            snap.warnings.append("submission is still being finalized")
+
     elif current == TaskStatus.submitted:
         if remote_snap and remote_snap.marker_exists:
             marker = remote_snap.status_marker.strip()

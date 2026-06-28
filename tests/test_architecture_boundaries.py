@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 _SRC_ROOT = Path(__file__).parents[1] / "src" / "jobdesk_app"
@@ -52,3 +53,19 @@ def test_pyside6_is_confined_to_gui() -> None:
             if imported.startswith("PySide6"):
                 failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
     assert failures == []
+
+
+def test_new_architecture_modules_require_typed_definitions() -> None:
+    config = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    strict_modules: set[str] = set()
+    for override in config["tool"]["mypy"]["overrides"]:
+        if not override.get("disallow_untyped_defs"):
+            continue
+        modules = override["module"]
+        strict_modules.update([modules] if isinstance(modules, str) else modules)
+    assert {
+        "jobdesk_app.services.run_repository",
+        "jobdesk_app.services.run_coordinator",
+        "jobdesk_app.services.run_monitor",
+        "jobdesk_app.gui.run_monitor_qt",
+    } <= strict_modules

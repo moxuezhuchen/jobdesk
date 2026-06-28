@@ -1,5 +1,15 @@
 # JobDesk Troubleshooting
 
+## SQLite run database
+
+Run state is stored in `%APPDATA%/JobDesk/runs/jobdesk.db` by default. The sibling `jobdesk.db-wal` and `jobdesk.db-shm` files are normal while JobDesk is open.
+
+- Back up or restore the database only while the GUI and CLI are closed. Copy or replace all three files as one set when WAL/SHM files exist.
+- Do not edit the database with a SQLite browser while JobDesk is running.
+- Legacy `<runs-dir>/<run_id>/run.json` and `manifest.tsv` files are imported once and retained. They are recovery inputs, not writable state for new runs.
+- If a legacy record is absent after migration, inspect the `migration_errors` table: `sqlite3 "%APPDATA%/JobDesk/runs/jobdesk.db" "select legacy_path, message from migration_errors;"`.
+- Before manual repair, make a complete database backup. Removing `jobdesk.db` creates a new empty database on next launch; it is not a repair operation.
+
 ## SSH 连接失败
 
 检查：

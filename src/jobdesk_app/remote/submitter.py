@@ -11,6 +11,7 @@ import re
 import shlex
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
@@ -55,6 +56,7 @@ class JobSubmitter:
         resources=None,   # ResourceSpec | None
         *,
         tasks: list[TaskRecord] | None = None,
+        task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
     ):
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
@@ -70,6 +72,7 @@ class JobSubmitter:
         from .scheduler import NohupAdapter, ResourceSpec
         self._scheduler = scheduler if scheduler is not None else NohupAdapter()
         self._resources = resources if resources is not None else ResourceSpec()
+        self._task_update_callback = task_update_callback
 
     # -- 任务选择 ---------------------------------------------------------
 
@@ -379,6 +382,20 @@ class JobSubmitter:
             job_id = ssh_result.stdout.strip().splitlines()[-1] if ssh_result.stdout.strip() else ""
             if not job_id:
                 result.errors.append("nohup start did not return a remote process id")
+                all_tasks = self._all_tasks()
+                selected_ids = {task.task_id for task in tasks}
+                ambiguous: list[TaskRecord] = []
+                claimed_at = datetime.now()
+                for task in all_tasks:
+                    if task.task_id in selected_ids:
+                        task.status = TaskStatus.submitting
+                        task.submitted_at = claimed_at
+                        task.scheduler_type = "nohup"
+                        task.remote_job_id = None
+                        task.error_message = None
+                        ambiguous.append(task.model_copy(deep=True))
+                self._notify_task_updates(ambiguous)
+                self._persist_tasks(all_tasks, result)
                 return result
             return self._mark_submitted(tasks, result, scheduler_type="nohup", remote_job_id=job_id)
         except Exception as e:
@@ -411,6 +428,14 @@ class JobSubmitter:
                     job_id = self._scheduler.submit(self._ssh, sched_remote, self._resources)
                 except Exception as e:
                     result.errors.append(f"task {t.task_id}: submit failed: {e}")
+                    for mt in all_tasks:
+                        if mt.task_id == t.task_id:
+                            mt.status = TaskStatus.submitting
+                            mt.submitted_at = now
+                            mt.scheduler_type = _scheduler_type(self._scheduler)
+                            mt.remote_job_id = None
+                            mt.error_message = None
+                            self._notify_task_updates([mt])
                     continue
                 for mt in all_tasks:
                     if mt.task_id == t.task_id:
@@ -419,6 +444,7 @@ class JobSubmitter:
                         mt.scheduler_type = _scheduler_type(self._scheduler)
                         mt.remote_job_id = job_id
                         mt.error_message = None
+                        self._notify_task_updates([mt])
                 updated_ids.append(t.task_id)
             result.updated_task_ids = updated_ids
             result.submitted_task_count = len(updated_ids)
@@ -441,8 +467,13 @@ class JobSubmitter:
                 tid_map[t.task_id].error_message = None
                 updated_ids.append(t.task_id)
         result.updated_task_ids = updated_ids
+        self._notify_task_updates([tid_map[task_id] for task_id in updated_ids])
         self._persist_tasks(all_tasks, result)
         return result
+
+    def _notify_task_updates(self, tasks: list[TaskRecord]) -> None:
+        if self._task_update_callback is not None and tasks:
+            self._task_update_callback([task.model_copy(deep=True) for task in tasks])
 
     def _all_tasks(self) -> list[TaskRecord]:
         if self._tasks is not None:

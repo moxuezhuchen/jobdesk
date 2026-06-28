@@ -59,6 +59,60 @@ class TestRecoveryRules:
         new, snap = _recover_status(TaskStatus.submitted, rs, task)
         assert new == TaskStatus.running
 
+    def test_submitting_claim_is_not_advanced_by_remote_marker(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False)
+
+        new, _snap = _recover_status(TaskStatus.submitting, rs, task)
+
+        assert new == TaskStatus.submitting
+
+    def test_stale_submitting_claim_recovers_completed_remote_task(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)
+
+        new, _snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.remote_completed
+
+    def test_stale_submitting_claim_survives_incomplete_remote_read(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot(
+            "t1", "/r/t1", warnings=["batch read failed"], marker_exists=False
+        )
+
+        new, snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.submitting
+        assert any("incomplete" in warning for warning in snap.warnings)
+
+    def test_stale_ambiguous_submission_without_marker_requires_manual_reconciliation(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", marker_exists=False)
+
+        new, snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.submitting
+        assert any("manual reconciliation" in warning for warning in snap.warnings)
+
     def test_running_plus_completed_plus_exit_0(self):
         task = _make_task("t1", TaskStatus.running)
         rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)

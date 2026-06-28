@@ -79,6 +79,14 @@ jobdesk run cancel <workspace> <run_id>
 jobdesk run retry <workspace> <run_id>
 ```
 
+## Run Database
+
+JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share state without rewriting manifest files.
+
+On first access, legacy `run.json` and `manifest.tsv` files under the runs directory are imported once. Legacy files are retained as read-only recovery inputs; new runs do not create them. Import failures are recorded in the database and do not prevent valid runs from loading.
+
+For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wal` and `jobdesk.db-shm` files that are present. To restore, replace that complete set while JobDesk is closed. Do not copy only the main database while the application is running.
+
 ## Development
 
 ```powershell

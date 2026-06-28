@@ -16,6 +16,7 @@ class TestTaskStatus:
         expected = {
             "local_ready",
             "uploaded",
+            "submitting",
             "submitted",
             "running",
             "remote_completed",

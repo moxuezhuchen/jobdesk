@@ -18,7 +18,7 @@ class RunMonitor(QObject):
         super().__init__(parent)
         self._service = ServiceRunMonitor(create_ssh_client, self._emit_task_done)
 
-    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config) -> None:
+    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config: object) -> None:
         self._service.watch(run_id, server_id, remote_batch_dir, server_config)
 
     def unwatch(self, run_id: str, server_id: str) -> None:

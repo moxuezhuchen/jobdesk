@@ -40,7 +40,7 @@ class RunMonitor:
         self._watchers: dict[str, _Watcher] = {}  # key: "server_id:run_id"
         self._lock = threading.Lock()
 
-    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config):
+    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config: object) -> None:
         """Start watching a run's events.log. Idempotent."""
         key = f"{server_id}:{run_id}"
         with self._lock:
@@ -57,21 +57,21 @@ class RunMonitor:
             self._watchers[key] = w
             w.start()
 
-    def unwatch(self, run_id: str, server_id: str):
+    def unwatch(self, run_id: str, server_id: str) -> None:
         key = f"{server_id}:{run_id}"
         with self._lock:
             w = self._watchers.pop(key, None)
         if w:
             w.stop()
 
-    def stop_all(self):
+    def stop_all(self) -> None:
         with self._lock:
             watchers = list(self._watchers.values())
             self._watchers.clear()
         for w in watchers:
             w.stop()
 
-    def _dispatch(self, run_id: str, server_id: str, line: str):
+    def _dispatch(self, run_id: str, server_id: str, line: str) -> None:
         """Called from background thread — emit signal (thread-safe via AutoConnection)."""
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0] in ("DONE", "RUNNING"):
@@ -93,13 +93,13 @@ class _Watcher:
 
     def __init__(
         self,
-        run_id,
-        server_id,
-        remote_batch_dir,
-        server_config,
-        callback,
+        run_id: str,
+        server_id: str,
+        remote_batch_dir: str,
+        server_config: object,
+        callback: Callable[[str, str, str], None],
         ssh_factory: Callable[[object], SSHClientProtocol],
-    ):
+    ) -> None:
         self._run_id = run_id
         self._server_id = server_id
         self._events_path = f"{remote_batch_dir.rstrip('/')}/_batch/events.log"
@@ -109,14 +109,14 @@ class _Watcher:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def start(self):
+    def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
 
-    def _run(self):
+    def _run(self) -> None:
         quoted = shlex.quote(self._events_path)
         backoff = 10
         while not self._stop_event.is_set():

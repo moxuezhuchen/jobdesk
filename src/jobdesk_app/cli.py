@@ -223,7 +223,11 @@ def _cmd_run_submit(args) -> int:
         overrides["partition"] = args.partition
     for key in ("cpus", "memory_mb", "walltime_minutes"):
         if key in overrides and int(overrides[key]) < 1:
-            raise ValueError(f"scheduler {key} must be >= 1: {overrides[key]}")
+            print(
+                f"scheduler {key} must be >= 1: {overrides[key]}",
+                file=sys.stderr,
+            )
+            return 2
     outcome = _run_coordinator(args, args.workspace).submit(
         args.run_id,
         resource_overrides=overrides or None,
@@ -253,6 +257,10 @@ def _cmd_run_refresh(args) -> int:
 def _cmd_run_download(args) -> int:
     patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
     outcome = _run_coordinator(args, args.workspace).download(args.run_id, patterns)
+    if outcome.errors and not outcome.failures:
+        for error in outcome.errors:
+            print(f"  ERROR: {error}")
+        return 2
     records = outcome.transfer_records
     failures = outcome.failures
     transferred = sum(1 for r in records if r.status == TransferStatus.transferred)
