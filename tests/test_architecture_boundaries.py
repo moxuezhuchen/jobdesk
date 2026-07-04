@@ -152,3 +152,27 @@ def test_schema_documentation_describes_v2_to_v4_migration_chain() -> None:
         )
         for feature, pattern in required_associations.items():
             assert re.search(pattern, normalized), f"{name} omits associated {feature} wording"
+
+
+def test_services_only_import_core_public_api() -> None:
+    """services must not import core internal submodules like parsers directly."""
+    forbidden = {
+        "jobdesk_app.core.parsers.gaussian",
+        "jobdesk_app.core.parsers.orca",
+        "jobdesk_app.core.manifest_ops",
+    }
+    failures: list[str] = []
+    for path, imported in _imports_under("services"):
+        for forbid in forbidden:
+            if imported == forbid or imported.startswith(forbid + "."):
+                failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
+    assert failures == [], f"services must use core's public re-exports: {failures}"
+
+
+def test_gui_does_not_import_paramiko_directly() -> None:
+    """GUI must go through SessionPool; direct paramiko use is a layering leak."""
+    failures: list[str] = []
+    for path, imported in _imports_under("gui"):
+        if imported == "paramiko" or imported.startswith("paramiko."):
+            failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
+    assert failures == [], f"GUI must not import paramiko directly; use SessionPool: {failures}"

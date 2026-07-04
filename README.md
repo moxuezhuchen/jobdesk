@@ -102,7 +102,7 @@ must match that live anchor; legacy rows without one require manual cleanup.
 
 On first access, legacy `run.json` and `manifest.tsv` files under the runs directory are imported once. Legacy files are retained as read-only recovery inputs; new runs do not create them. Import failures are recorded in the database and do not prevent valid runs from loading.
 
-For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wal` and `jobdesk.db-shm` files that are present. To restore, replace that complete set while JobDesk is closed. Do not copy only the main database while the application is running.
+For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wal` and `jobdesk.db-shm` files that are present. To restore, replace that complete set while JobDesk is closed. Do not copy only the main database while the application is running. See [TROUBLESHOOTING.md § Rolling back a failed schema upgrade] for upgrade recovery.
 
 An `uncertain` task means a remote submit command may have started but JobDesk cannot prove whether it was accepted. Inspect the scheduler or remote process before resolving it. Use `confirm-submitted` (and `--job-id <task_id>=<job_id>` when known) only after confirming the remote job exists. `abandon-submit` makes the task eligible for submission again and can create a duplicate remote job if the original actually started.
 

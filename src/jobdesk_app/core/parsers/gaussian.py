@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .registry import ParserRegistry
+
 
 @dataclass
 class GaussianResult:
@@ -237,3 +239,6 @@ def diagnose_gaussian_result(result: GaussianResult) -> str | None:
 def diagnose_gaussian(path: Path | str) -> str | None:
     """Return a human-readable error diagnosis for a Gaussian log, or None if clean."""
     return diagnose_gaussian_result(parse_gaussian_log(path))
+
+
+ParserRegistry.register("gaussian", parse_gaussian_log)

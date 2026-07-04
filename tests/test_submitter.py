@@ -226,7 +226,7 @@ class TestGenerateScripts:
 
     def test_batch_control_finished_comment(self):
         content = JobSubmitter.generate_batch_control(4, "/remote/b1", 10)
-        assert ".jobdesk_status" in content or "以 .jobdesk_status" in content
+        assert ".jobdesk_status" in content or "actual success/failure" in content
 
     def test_batch_control_does_not_use_ls(self):
         content = JobSubmitter.generate_batch_control(4, "/remote/b1", 10)

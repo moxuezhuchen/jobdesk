@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from ._operations_types import OperationRecord
+from ._path_compare import paths_equal
 from ._paths import _lexical_absolute, _reject_reparse_chain
-from ._tasks_helpers import _load_tasks, _replace_tasks
-from ._workspaces import delete_operation_workspace, register_workspace
+from ._tasks_helpers import _load_tasks
+from ._workspaces import register_workspace
 
 if TYPE_CHECKING:
     pass
@@ -45,7 +45,7 @@ def prepare_delete_run(
     runs_root = _lexical_absolute(runs_dir)
     expected_run_dir = _lexical_absolute(runs_dir / run_id)
     if (
-        _lexical_absolute(run_dir) != expected_run_dir
+        not paths_equal(_lexical_absolute(run_dir), expected_run_dir)
         or not expected_run_dir.is_relative_to(runs_root)
     ):
         raise ValueError(f"unsafe run directory for deletion: {run_dir}")
@@ -54,10 +54,10 @@ def prepare_delete_run(
     if not Path(results_root).is_absolute() or resolved_results_root.name != "results":
         raise ValueError(f"unsafe results root for deletion: {results_root}")
     trusted_workspace = _lexical_absolute(resolved_results_root.parent)
-    if resolved_results_root != trusted_workspace / "results":
+    if not paths_equal(resolved_results_root, trusted_workspace / "results"):
         raise ValueError(f"unsafe results root for deletion: {results_root}")
     expected_results_dir = _lexical_absolute(resolved_results_root / run_id)
-    if _lexical_absolute(results_dir) != expected_results_dir:
+    if not paths_equal(_lexical_absolute(results_dir), expected_results_dir):
         raise ValueError(f"unsafe results directory for deletion: {results_dir}")
     _reject_reparse_chain(resolved_results_root, expected_results_dir)
     operation_id = str(uuid.uuid4())
@@ -81,7 +81,7 @@ def prepare_delete_run(
     if not recorded_workspace_path.is_absolute():
         raise ValueError(f"run {run_id!r} has no absolute local_dir workspace anchor")
     recorded_workspace = _lexical_absolute(recorded_workspace_path)
-    if recorded_workspace != trusted_workspace:
+    if not paths_equal(recorded_workspace, trusted_workspace):
         raise ValueError(
             f"run local_dir does not match deletion workspace: "
             f"{recorded_workspace} != {trusted_workspace}"
@@ -335,7 +335,7 @@ def _validate_operation_paths(operation: OperationRecord, runs_dir: Path) -> Non
     results_root = _lexical_absolute(Path(results_root_str))
     runs_root = _lexical_absolute(runs_dir)
     expected_run_dir = _lexical_absolute(runs_dir / operation.run_id)
-    if run_dir != expected_run_dir:
+    if not paths_equal(run_dir, expected_run_dir):
         raise ValueError(f"unsafe delete run path: {run_dir}")
     _reject_reparse_chain(runs_root, run_dir)
     results_dir_str = str(payload.get("results_dir", ""))
@@ -355,8 +355,8 @@ def _validate_operation_paths(operation: OperationRecord, runs_dir: Path) -> Non
     run_trash_root = runs_root / ".jobdesk-trash" / operation.operation_id
     results_trash_root = results_root / ".jobdesk-trash" / operation.operation_id
     if (
-        trash_run_dir != _lexical_absolute(run_trash_root / "run")
-        or trash_results_dir != _lexical_absolute(results_trash_root / "results")
+        not paths_equal(trash_run_dir, _lexical_absolute(run_trash_root / "run"))
+        or not paths_equal(trash_results_dir, _lexical_absolute(results_trash_root / "results"))
         or not trash_run_dir.is_relative_to(runs_root)
         or not trash_results_dir.is_relative_to(results_root)
     ):

@@ -38,6 +38,37 @@ JobDesk version, close all JobDesk processes and copy `jobdesk.db`,
 are retained for seven days during recovery cleanup; incomplete operations are
 retained until successfully replayed.
 
+### Rolling back a failed schema upgrade
+
+JobDesk upgrades the database in place from schema v3 to v4 on first open.
+If a migration fails (e.g. disk full, antivirus lock, schema corruption),
+JobDesk aborts startup and leaves the database untouched. To roll back:
+
+1. Close all JobDesk processes.
+2. Restore the backup set: `jobdesk.db`, `jobdesk.db-wal`, `jobdesk.db-shm`
+   (all three if present, into `%APPDATA%/JobDesk/runs/`).
+3. Reinstall the previous JobDesk version.
+4. Verify with:
+
+```powershell
+jobdesk run list <workspace>
+```
+
+It should return runs from before the upgrade.
+
+Do not manually edit schema columns. If the backup set is incomplete
+(only `jobdesk.db` without `-wal`/`-shm`), the database may be inconsistent
+and the rollback will fail; in that case the v2/v3 legacy import path
+(`run.json` + `manifest.tsv`) still contains the source-of-truth and
+JobDesk can reimport it into a fresh database.
+
+To capture a snapshot before a forced migration:
+
+1. Stop the GUI.
+2. Run `jobdesk run list <workspace>` on a separate process; this opens the
+   DB read-only and forces a clean checkpoint.
+3. Copy the three-file set to a dated backup directory.
+
 SSH and SFTP clients are owned by `SessionPool`, not by GUI pages. Each per-server lease is serialized and must be released; shutdown prevents new leases and closes sessions after active work returns.
 
 ## SSH 连接失败

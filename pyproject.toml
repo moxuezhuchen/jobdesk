@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 jobdesk = "jobdesk_app.cli:main"
+jobdesk-prep = "jobdesk_app.cli_prep:main"
 
 [project.gui-scripts]
 jobdesk-gui = "jobdesk_app.gui.app:main"
@@ -48,6 +49,10 @@ jobdesk_app = ["gui/resources/*.svg"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 tmp_path_retention_policy = "none"
+addopts = "-m 'not integration'"
+markers = [
+    "integration: opt-in tests that require real SSH/SFTP/ConfFlow endpoints",
+]
 
 [tool.ruff]
 target-version = "py311"

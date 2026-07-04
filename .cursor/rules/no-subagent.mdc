@@ -1,0 +1,20 @@
+---
+description: 禁止使用 subagent
+alwaysApply: true
+---
+
+# 禁止使用 Subagent
+
+本项目严禁使用 `Task` 工具创建 subagent 子代理。所有任务必须在当前会话中直接完成，不得委托给子代理执行。
+
+**禁止的操作：**
+- 使用 `Task` 工具启动任何类型的子代理
+- 调用 `Task` 工具并设置 `subagent_type` 参数
+- 启动 `generalPurpose`、`explore`、`shell`、`browser-use` 等任何 subagent
+
+**正确做法：**
+- 使用 `Read`、`Write`、`EditNotebook`、`Grep`、`Glob` 等工具直接操作文件
+- 使用 `Shell` 工具执行终端命令
+- 所有代码修改和调试都在当前会话中完成
+
+违反此规则将导致任务不被接受。

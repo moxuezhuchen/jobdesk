@@ -7,9 +7,23 @@ exact same public API.
 
 from __future__ import annotations
 
-# Public re-exports (same names as original single-file module).
-from ._schema import SCHEMA_VERSION
-from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
+import sqlite3
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+
+from jobdesk_app.core.manifest import TaskRecord
+
+from ._delete import (
+    _record_delete_error,
+    complete_delete_isolated,
+    delete_run_metadata,
+    ensure_delete_trash_paths,
+    execute_delete_isolation,
+    prepare_delete_run,
+)
+from ._legacy import _import_legacy_runs, list_migration_errors, retry_legacy_imports
 from ._operations import (
     advance_operation,
     create_operation,
@@ -17,6 +31,25 @@ from ._operations import (
     prune_completed_operations,
     recover_legacy_orphan_submit_tasks,
 )
+from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
+from ._runs import (
+    create_run as _create_run,
+    incomplete_delete_run_ids,
+    list_runs as _list_runs,
+    load_run as _load_run,
+    load_tasks as _load_tasks,
+    update_run as _update_run,
+)
+
+# Public re-exports (same names as original single-file module).
+from ._schema import (
+    SCHEMA_VERSION,
+    _create_tables,
+    _migrate_v1_to_v2,
+    _migrate_v2_to_v3,
+    _migrate_v3_to_v4,
+)
+from ._schema import SCHEMA_VERSION as _SCHEMA_VERSION
 from ._submit import (
     acquire_submit_recovery,
     claim_submit_tasks,
@@ -29,45 +62,8 @@ from ._submit import (
     resolve_uncertain_tasks,
     start_submit_operation,
 )
-from ._delete import (
-    _record_delete_error,
-    complete_delete_isolated,
-    delete_run_metadata,
-    ensure_delete_trash_paths,
-    execute_delete_isolation,
-    prepare_delete_run,
-)
 from ._tasks import merge_tasks, mutate_tasks
-from ._runs import (
-    create_run as _create_run,
-    incomplete_delete_run_ids,
-    list_runs as _list_runs,
-    load_run as _load_run,
-    load_tasks as _load_tasks,
-    update_run as _update_run,
-)
-from ._legacy import list_migration_errors, retry_legacy_imports
 from ._workspaces import delete_operation_workspace, list_workspace_roots
-from ._paths import _lexical_absolute, _reject_reparse_chain
-
-import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from datetime import datetime
-from pathlib import Path
-from uuid import uuid4
-
-from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest, TaskRecord
-from ._schema import (
-    SCHEMA_VERSION as _SCHEMA_VERSION,
-    _create_tables,
-    _migrate_v1_to_v2,
-    _migrate_v2_to_v3,
-    _migrate_v3_to_v4,
-    validate_future_schema,
-)
-from ._legacy import _import_legacy_runs
 
 
 class RunRepository:

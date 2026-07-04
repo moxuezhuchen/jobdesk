@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, cast
 from jobdesk_app.core.lifecycle import TaskStatus
 
 if TYPE_CHECKING:
-    from jobdesk_app.core.manifest import TaskRecord
     from ._operations_types import OperationRecord
 
 

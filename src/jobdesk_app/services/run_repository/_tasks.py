@@ -10,7 +10,7 @@ from ._operations_types import MergeResult
 from ._tasks_helpers import _load_tasks, _replace_tasks
 
 if TYPE_CHECKING:
-    from ..core.manifest import TaskRecord
+    pass
 
 
 def mutate_tasks(

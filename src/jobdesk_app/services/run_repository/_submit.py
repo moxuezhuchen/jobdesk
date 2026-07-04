@@ -15,7 +15,7 @@ from ._operations_types import OperationRecord
 from ._tasks_helpers import _load_tasks, _replace_tasks, _validated_operation_task_ids
 
 if TYPE_CHECKING:
-    from ..core.manifest import TaskRecord
+    pass
 
 
 def claim_submit_tasks(

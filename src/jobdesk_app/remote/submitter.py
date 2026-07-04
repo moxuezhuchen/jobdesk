@@ -1,10 +1,12 @@
-"""任务提交与并行控制模块。
+"""Task submission and parallel-control module.
 
-基于 Manifest 生成 JobDesk 内部运行脚本（.jobdesk_run.sh、launch 脚本、
-tasks.tsv、batch_control.sh），通过 SSH 上传、chmod、nohup 启动后台批次。
+Generates JobDesk internal run scripts (.jobdesk_run.sh, launch scripts,
+tasks.tsv, batch_control.sh) from a Manifest, uploads them via SSH,
+sets permissions, and starts the batch in the background with nohup.
 
-方案 B：整批提交 + batch_control.sh 用 xargs -P N 并行执行 launch 脚本。
-所有任务信息来自 Manifest，不重新发现输入文件。
+Scheme B: whole-batch submission + batch_control.sh uses xargs -P N
+to execute launch scripts in parallel. All task information comes from
+the Manifest; input files are not re-discovered.
 """
 
 import re
@@ -31,9 +33,9 @@ def _validate_task_id(task_id: str) -> str:
 
 
 class JobSubmitter:
-    """任务提交器。
+    """Task submission orchestrator.
 
-    用法:
+    Usage:
         submitter = JobSubmitter(
             tasks=[...],
             ssh=ssh,
@@ -65,7 +67,7 @@ class JobSubmitter:
         if tasks is None:
             raise ValueError("tasks is required")
         if max_parallel < 1:
-            raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
+            raise ValueError(f"max_parallel must be >= 1, got: {max_parallel}")
         self._tasks = [task.model_copy(deep=True) for task in tasks]
         self._ssh = ssh
         self._sftp = sftp
@@ -80,14 +82,14 @@ class JobSubmitter:
         self._task_update_callback = task_update_callback
         self._remote_started_callback = remote_started_callback
 
-    # -- 任务选择 ---------------------------------------------------------
+    # ---- task selection -------------------------------------------------------
 
     def select_tasks(
         self,
         mode: SubmitMode = SubmitMode.all,
         selected_ids: list[str] | None = None,
     ) -> list[TaskRecord]:
-        """从 Manifest 中选择可提交的任务（仅 uploaded）。"""
+        """Select submittable tasks from the Manifest (status must be uploaded)."""
         all_tasks = self._all_tasks()
         uploaded = [t for t in all_tasks if t.status == TaskStatus.uploaded]
 
@@ -103,14 +105,15 @@ class JobSubmitter:
 
         return []
 
-    # -- 脚本生成 ----------------------------------------------------------
+    # ---- script generation ----------------------------------------------------
 
     @staticmethod
     def generate_task_runner(task: TaskRecord, env_init_scripts: list[str] | None = None) -> str:
-        """为单个任务生成 .jobdesk_run.sh 脚本内容。
+        """Generate .jobdesk_run.sh content for a single task.
 
-        在执行用户命令前 source 用户 shell 环境（绕过非交互 shell 不加载
-        ~/.bashrc 的问题），并 source 额外的 env_init_scripts。
+        Sources the user's shell environment before running the command
+        (to bypass the issue where non-interactive shells do not load
+        ~/.bashrc), then sources additional env_init_scripts.
         """
         task_id = _validate_task_id(task.task_id)
         rendered = task.rendered_command
@@ -150,10 +153,10 @@ class JobSubmitter:
 
     @staticmethod
     def generate_launch_script(task_id: str, remote_job_dir: str) -> str:
-        """为单个任务生成 launch_<task_id>.sh。
+        """Generate launch_<task_id>.sh for a single task.
 
-        职责: cd 到 remote_job_dir，执行 .jobdesk_run.sh。
-        路径使用 shlex.quote 安全转义。
+        Responsibilities: cd to remote_job_dir and execute .jobdesk_run.sh.
+        Paths are safely escaped with shlex.quote.
         """
         dir_q = shlex.quote(remote_job_dir)
         lines = [
@@ -166,15 +169,15 @@ class JobSubmitter:
 
     @staticmethod
     def generate_tasks_tsv(tasks: list[TaskRecord], remote_batch_dir: str, control_subdir: str = "_batch") -> str:
-        """生成 _batch/tasks.tsv 内容。"""
+        """Generate the _batch/tasks.tsv content."""
         lines = ["task_id\tremote_job_dir\trunner_path"]
         control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
         for t in tasks:
             task_id = _validate_task_id(t.task_id)
             if "\t" in t.task_id or "\n" in t.task_id:
-                raise ValueError(f"task_id 包含非法字符 (tab/newline): {t.task_id!r}")
+                raise ValueError(f"task_id contains invalid characters (tab/newline): {t.task_id!r}")
             if "\t" in t.remote_job_dir or "\n" in t.remote_job_dir:
-                raise ValueError(f"remote_job_dir 包含非法字符: {t.remote_job_dir!r}")
+                raise ValueError(f"remote_job_dir contains invalid characters: {t.remote_job_dir!r}")
             launch_path = f"{control_dir}/launch_{task_id}.sh"
             lines.append(f"{task_id}\t{t.remote_job_dir}\t{launch_path}")
         return "\n".join(lines) + "\n"
@@ -186,7 +189,7 @@ class JobSubmitter:
         task_count: int,
         control_subdir: str = "_batch",
     ) -> str:
-        """生成 _batch/batch_control.sh 内容。"""
+        """Generate _batch/batch_control.sh content."""
         control_dir = f"{remote_batch_dir.rstrip('/')}/{control_subdir}"
         control_dir_q = shlex.quote(control_dir)
         lines = [
@@ -198,17 +201,17 @@ class JobSubmitter:
             "",
             "cd \"$CONTROL_DIR\" || exit 1",
             "",
-            "# BATCH_RUNNING 标记",
+            "# BATCH_RUNNING marker",
             "echo 'BATCH_RUNNING'",
             f"echo 'batch_id: {shlex.quote(control_dir.rsplit('/', 2)[0].rsplit('/', 1)[-1])}'",
             f"echo 'task_count: {task_count}'",
             f"echo 'max_parallel: {max_parallel}'",
             "echo 'started_at: '\"$(date -Iseconds)\"",
             "",
-            "# 从 tasks.tsv 提取 launch 脚本路径（第3列），跳过 header",
+            "# Extract launch script paths from tasks.tsv (3rd column), skip header",
             "tail -n +2 tasks.tsv | cut -f3 > launch_list.txt",
             "",
-            "# 执行: 使用 bash -c 'bash \"$1\"' _ \"{}\" 安全传参",
+            "# Execute: use bash -c 'bash \"$1\"' _ \"{}\" for safe argument passing",
             "batch_rc=0",
             "if command -v xargs > /dev/null 2>&1; then",
             "# NOTE: `|| batch_rc=$?` intentionally captures xargs exit code under set -e",
@@ -218,11 +221,11 @@ class JobSubmitter:
             "  exit 1",
             "fi",
             "",
-            "# 记录 batch control 退出码",
+            "# Record batch control exit code",
             "echo \"$batch_rc\" > batch_control_exit_code",
             "",
-            "# BATCH_FINISHED: 仅表示 batch_control.sh 运行结束",
-            "# 每个 task 的实际成功/失败以 .jobdesk_status 和 .jobdesk_exit_code 为准",
+            "# BATCH_FINISHED: only means batch_control.sh finished running",
+            "# Each task's success/failure is determined by .jobdesk_status and .jobdesk_exit_code",
             "echo 'BATCH_FINISHED'",
             "echo 'finished_at: '\"$(date -Iseconds)\"",
             "exit \"$batch_rc\"",
@@ -258,14 +261,14 @@ class JobSubmitter:
         ]
         return "\n".join(lines) + "\n"
 
-    # -- 提交流程 ----------------------------------------------------------
+    # ---- submission flow ------------------------------------------------------
 
     def prepare_plan(
         self,
         mode: SubmitMode = SubmitMode.all,
         selected_ids: list[str] | None = None,
     ) -> SubmitPlan:
-        """准备提交计划（dry-run，无副作用）。"""
+        """Prepare a submission plan (dry-run, no side effects)."""
         tasks = self.select_tasks(mode, selected_ids)
         control_dir = f"{self._remote_batch_dir}/{self._control_subdir}"
 
@@ -298,7 +301,7 @@ class JobSubmitter:
         mode: SubmitMode = SubmitMode.all,
         selected_ids: list[str] | None = None,
     ) -> SubmitPlan:
-        """dry-run: 返回提交计划，不产生任何副作用。"""
+        """Dry-run: return submission plan without any side effects."""
         return self.prepare_plan(mode, selected_ids)
 
     def submit_batch(
@@ -306,10 +309,11 @@ class JobSubmitter:
         mode: SubmitMode = SubmitMode.all,
         selected_ids: list[str] | None = None,
     ) -> SubmitResult:
-        """提交可执行任务，并逐项持久化已经确认的远端结果。
+        """Submit executable tasks and persist confirmed remote results durably.
 
-        后续任务失败时保留先前任务的确认成功结果；远端启动结果不明确的
-        任务会持久化为 ``uncertain``，以便调用方安全地进行后续核对。
+        When later tasks fail, results of previously confirmed tasks are
+        retained; tasks whose remote startup status is ambiguous are
+        persisted as ``uncertain`` so the caller can safely verify.
         """
         tasks = self.select_tasks(mode, selected_ids)
         control_dir = f"{self._remote_batch_dir}/{self._control_subdir}"
@@ -324,7 +328,7 @@ class JobSubmitter:
         )
 
         if not tasks:
-            result.errors.append("没有可提交的任务 (状态为 uploaded)")
+            result.errors.append("no tasks available to submit (all tasks must be in uploaded status)")
             return result
 
         from .scheduler import NohupAdapter
@@ -372,7 +376,7 @@ class JobSubmitter:
             script_paths.append(shlex.quote(f"{control_dir}/batch_control.sh"))
             chmod_result = self._ssh.run("chmod +x " + " ".join(script_paths), timeout=30)
             if chmod_result.exit_code != 0:
-                result.errors.append(f"chmod 失败: {chmod_result.stderr}")
+                result.errors.append(f"chmod failed: {chmod_result.stderr}")
                 return result
             cd_q = shlex.quote(control_dir)
             nohup_cmd = (
@@ -392,7 +396,7 @@ class JobSubmitter:
                 self._mark_uncertain(
                     tasks, result, f"nohup start failed: {ssh_result.stderr}", "nohup"
                 )
-                result.errors.append(f"nohup 启动失败: {ssh_result.stderr}")
+                result.errors.append(f"nohup start failed: {ssh_result.stderr}")
                 return result
             job_id = ssh_result.stdout.strip().splitlines()[-1] if ssh_result.stdout.strip() else ""
             if not job_id:
@@ -416,7 +420,7 @@ class JobSubmitter:
         except SubmitCheckpointError:
             raise
         except Exception as e:
-            result.errors.append(f"提交异常: {e}")
+            result.errors.append(f"submission error: {e}")
             return result
 
     def _submit_scheduler(self, tasks, result):
@@ -472,7 +476,7 @@ class JobSubmitter:
         except SubmitCheckpointError:
             raise
         except Exception as e:
-            result.errors.append(f"提交异常: {e}")
+            result.errors.append(f"submission error: {e}")
         if all_tasks is not None:
             result.updated_task_ids = updated_ids
             result.submitted_task_count = len(updated_ids)

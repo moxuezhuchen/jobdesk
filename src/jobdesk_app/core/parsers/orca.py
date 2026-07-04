@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .registry import ParserRegistry
+
 
 @dataclass
 class OrcaResult:
@@ -193,3 +195,6 @@ def diagnose_orca_result(result: OrcaResult) -> str | None:
 def diagnose_orca(path: Path | str) -> str | None:
     """Return a human-readable error diagnosis for an ORCA output, or None if clean."""
     return diagnose_orca_result(parse_orca_out(path))
+
+
+ParserRegistry.register("orca", parse_orca_out)

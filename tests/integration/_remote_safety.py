@@ -3,6 +3,10 @@ from __future__ import annotations
 import posixpath
 import shlex
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 
 def cleanup_remote_test_dir(ssh, remote_dir: str, remote_root: str) -> None:
     """Remove only an isolated child beneath the configured integration-test root."""
