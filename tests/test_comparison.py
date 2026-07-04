@@ -7,6 +7,7 @@ from jobdesk_app.services.comparison import (
     export_csv,
     export_markdown,
 )
+from tests.repository_helpers import replace_tasks_for_test
 
 
 def _make_comparison(rows: list[dict], fields: list[str]) -> RunComparison:
@@ -66,7 +67,6 @@ class TestCompareRuns:
         runs_dir = tmp_path / "JobDesk" / "runs"
         runs_dir.mkdir(parents=True)
         from jobdesk_app.core.lifecycle import TaskStatus
-        from jobdesk_app.core.manifest import Manifest
         from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 
         # Create two runs
@@ -82,7 +82,7 @@ class TestCompareRuns:
 
         # Write fake result files with known energies
         for run_id, energy in [(r1.run_id, -78.5), (r2.run_id, -78.6)]:
-            tasks = Manifest.read(svc.runs_dir / run_id / "manifest.tsv")
+            tasks = svc.repository.load_tasks(run_id)
             for task in tasks:
                 result_dir = tmp_path / "results" / run_id / task.task_id
                 result_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +93,7 @@ class TestCompareRuns:
                     encoding="utf-8",
                 )
                 task.status = TaskStatus.downloaded
-            Manifest.write(svc.runs_dir / run_id / "manifest.tsv", tasks)
+            replace_tasks_for_test(svc.repository, run_id, tasks)
 
         comparison = compare_runs(tmp_path, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
         assert len(comparison.rows) == 2
@@ -119,7 +119,6 @@ class TestCompareRuns:
             project.mkdir()
 
         from jobdesk_app.core.lifecycle import TaskStatus
-        from jobdesk_app.core.manifest import Manifest
         from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 
         spec = RunSpec(
@@ -134,7 +133,7 @@ class TestCompareRuns:
         r2 = svc_b.create_run(spec, run_id="run_b", local_dir=str(project_b))
 
         for record, project, energy in [(r1, project_a, -78.5), (r2, project_b, -78.6)]:
-            tasks = Manifest.read(record.manifest_path)
+            tasks = svc_a.repository.load_tasks(record.run_id)
             for task in tasks:
                 result_dir = project / "results" / record.run_id / task.task_id
                 result_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +143,7 @@ class TestCompareRuns:
                     encoding="utf-8",
                 )
                 task.status = TaskStatus.downloaded
-            Manifest.write(record.manifest_path, tasks)
+            replace_tasks_for_test(svc_a.repository, record.run_id, tasks)
 
         comparison = compare_runs(current_project, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
 

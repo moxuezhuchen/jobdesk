@@ -5,16 +5,19 @@ Emits a signal when a task completes (DONE line received).
 """
 from __future__ import annotations
 
+import codecs
 import logging
 import shlex
 import socket
 import threading
 import time
 from dataclasses import dataclass
+from typing import Callable
 
-from PySide6.QtCore import QObject, Signal
+from .protocols import SSHClientProtocol
 
 _WATCHER_STABLE_SECONDS = 30.0
+_MAX_EVENT_LINE_CHARS = 64 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -26,41 +29,51 @@ class DoneEvent:
     exit_code: int | None  # None for RUNNING events
 
 
-class RunMonitor(QObject):
-    """Monitors remote events.log via SSH tail -f, emits task_done on completion."""
+class RunMonitor:
+    """Framework-neutral manager for remote event watchers."""
 
-    task_done = Signal(object)  # DoneEvent
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(
+        self,
+        ssh_factory: Callable[[object], SSHClientProtocol],
+        callback: Callable[[DoneEvent], None],
+    ) -> None:
+        self._ssh_factory = ssh_factory
+        self._callback = callback
         self._watchers: dict[str, _Watcher] = {}  # key: "server_id:run_id"
         self._lock = threading.Lock()
 
-    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config):
+    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config: object) -> None:
         """Start watching a run's events.log. Idempotent."""
         key = f"{server_id}:{run_id}"
         with self._lock:
             if key in self._watchers:
                 return
-            w = _Watcher(run_id, server_id, remote_batch_dir, server_config, self._dispatch)
+            w = _Watcher(
+                run_id,
+                server_id,
+                remote_batch_dir,
+                server_config,
+                self._dispatch,
+                self._ssh_factory,
+            )
             self._watchers[key] = w
             w.start()
 
-    def unwatch(self, run_id: str, server_id: str):
+    def unwatch(self, run_id: str, server_id: str) -> None:
         key = f"{server_id}:{run_id}"
         with self._lock:
             w = self._watchers.pop(key, None)
         if w:
             w.stop()
 
-    def stop_all(self):
+    def stop_all(self) -> None:
         with self._lock:
             watchers = list(self._watchers.values())
             self._watchers.clear()
         for w in watchers:
             w.stop()
 
-    def _dispatch(self, run_id: str, server_id: str, line: str):
+    def _dispatch(self, run_id: str, server_id: str, line: str) -> None:
         """Called from background thread — emit signal (thread-safe via AutoConnection)."""
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0] in ("DONE", "RUNNING"):
@@ -71,7 +84,7 @@ class RunMonitor(QObject):
                     rc = int(parts[2])
                 except ValueError:
                     rc = -1
-            self.task_done.emit(DoneEvent(
+            self._callback(DoneEvent(
                 run_id=run_id, server_id=server_id, task_id=task_id,
                 exit_code=rc if parts[0] == "DONE" else None,
             ))
@@ -80,44 +93,83 @@ class RunMonitor(QObject):
 class _Watcher:
     """Background thread that SSH tail -f's events.log for one run."""
 
-    def __init__(self, run_id, server_id, remote_batch_dir, server_config, callback):
+    def __init__(
+        self,
+        run_id: str,
+        server_id: str,
+        remote_batch_dir: str,
+        server_config: object,
+        callback: Callable[[str, str, str], None],
+        ssh_factory: Callable[[object], SSHClientProtocol],
+    ) -> None:
         self._run_id = run_id
         self._server_id = server_id
         self._events_path = f"{remote_batch_dir.rstrip('/')}/_batch/events.log"
         self._server_config = server_config
         self._callback = callback
+        self._ssh_factory = ssh_factory
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def start(self):
+    def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
 
-    def _run(self):
-        from ..gui.session import create_ssh_client
+    def _run(self) -> None:
         quoted = shlex.quote(self._events_path)
         backoff = 10
         while not self._stop_event.is_set():
             ssh = None
             try:
-                ssh = create_ssh_client(self._server_config)
+                ssh = self._ssh_factory(self._server_config)
                 ssh.connect()
                 ssh.run(f"mkdir -p $(dirname {quoted}) && touch {quoted}", timeout=10)
                 channel = ssh.open_session()
                 channel.exec_command(f"tail -n 0 -f {quoted}")
                 channel.settimeout(5.0)
                 connected_at = time.monotonic()
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                line_parts: list[str] = []
+                line_length = 0
+                discarding_line = False
                 try:
                     while not self._stop_event.is_set():
                         try:
                             data = channel.recv(4096)
+                            if self._stop_event.is_set():
+                                break
                             if not data:
                                 break
                             backoff = 10
-                            for line in data.decode("utf-8", errors="replace").splitlines():
+                            decoded = decoder.decode(data)
+                            while decoded and not self._stop_event.is_set():
+                                fragment, separator, decoded = decoded.partition("\n")
+                                if discarding_line:
+                                    if separator:
+                                        discarding_line = False
+                                    else:
+                                        break
+                                    continue
+                                if line_length + len(fragment) > _MAX_EVENT_LINE_CHARS:
+                                    logger.warning(
+                                        "watcher %s/%s discarded oversized event line",
+                                        self._server_id, self._run_id,
+                                    )
+                                    line_parts.clear()
+                                    line_length = 0
+                                    discarding_line = not separator
+                                    continue
+                                if fragment:
+                                    line_parts.append(fragment)
+                                    line_length += len(fragment)
+                                if not separator:
+                                    break
+                                line = "".join(line_parts).removesuffix("\r")
+                                line_parts.clear()
+                                line_length = 0
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
                         except socket.timeout as exc:

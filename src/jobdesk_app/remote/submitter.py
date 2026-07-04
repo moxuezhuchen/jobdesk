@@ -11,12 +11,17 @@ import re
 import shlex
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import Manifest, TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+class SubmitCheckpointError(RuntimeError):
+    """A durable submission checkpoint could not be persisted."""
 
 
 def _validate_task_id(task_id: str) -> str:
@@ -43,20 +48,25 @@ class JobSubmitter:
 
     def __init__(
         self,
-        manifest_path: Path,
-        ssh,     # SSHClientWrapper
-        sftp,    # SFTPClientWrapper
-        max_parallel: int,
-        remote_batch_dir: str,
-        batch_id: str,
+        manifest_path: Path | None = None,
+        ssh=None,     # SSHClientWrapper
+        sftp=None,    # SFTPClientWrapper
+        max_parallel: int = 1,
+        remote_batch_dir: str = "",
+        batch_id: str = "",
         control_subdir: str = "_batch",
         env_init_scripts: list[str] | None = None,
         scheduler=None,   # SchedulerAdapter | None
         resources=None,   # ResourceSpec | None
+        *,
+        tasks: list[TaskRecord] | None = None,
+        task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
+        remote_started_callback: Callable[[list[str]], None] | None = None,
     ):
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
         self._manifest_path = manifest_path
+        self._tasks = [task.model_copy(deep=True) for task in tasks] if tasks is not None else None
         self._ssh = ssh
         self._sftp = sftp
         self._max_parallel = max_parallel
@@ -67,6 +77,8 @@ class JobSubmitter:
         from .scheduler import NohupAdapter, ResourceSpec
         self._scheduler = scheduler if scheduler is not None else NohupAdapter()
         self._resources = resources if resources is not None else ResourceSpec()
+        self._task_update_callback = task_update_callback
+        self._remote_started_callback = remote_started_callback
 
     # -- 任务选择 ---------------------------------------------------------
 
@@ -76,7 +88,7 @@ class JobSubmitter:
         selected_ids: list[str] | None = None,
     ) -> list[TaskRecord]:
         """从 Manifest 中选择可提交的任务（仅 uploaded）。"""
-        all_tasks = Manifest.read(self._manifest_path)
+        all_tasks = self._all_tasks()
         uploaded = [t for t in all_tasks if t.status == TaskStatus.uploaded]
 
         if mode == SubmitMode.all:
@@ -294,18 +306,17 @@ class JobSubmitter:
         mode: SubmitMode = SubmitMode.all,
         selected_ids: list[str] | None = None,
     ) -> SubmitResult:
-        """执行完整的批次提交流程。
+        """提交可执行任务，并逐项持久化已经确认的远端结果。
 
-        步骤: 选择任务 → 生成脚本 → 上传 → chmod → nohup 启动 → 更新 Manifest。
-        任一步骤失败时，不更新 Manifest（all-or-nothing）。
+        后续任务失败时保留先前任务的确认成功结果；远端启动结果不明确的
+        任务会持久化为 ``uncertain``，以便调用方安全地进行后续核对。
         """
         tasks = self.select_tasks(mode, selected_ids)
-        task_count = len(tasks)
         control_dir = f"{self._remote_batch_dir}/{self._control_subdir}"
 
         result = SubmitResult(
             batch_id=self._batch_id,
-            submitted_task_count=task_count,
+            submitted_task_count=0,
             remote_batch_dir=self._remote_batch_dir,
             control_script_path=f"{control_dir}/batch_control.sh",
             control_log_path=f"{control_dir}/batch_control.nohup.log",
@@ -369,26 +380,53 @@ class JobSubmitter:
                 " > './batch_control.nohup.log' 2>&1 & echo $!"
             )
             result.nohup_command = nohup_cmd
-            ssh_result = self._ssh.run(nohup_cmd, timeout=30)
+            self._notify_remote_started([task.task_id for task in tasks])
+            try:
+                ssh_result = self._ssh.run(nohup_cmd, timeout=30)
+            except Exception as exc:
+                message = f"nohup start failed: {exc}"
+                result.errors.append(message)
+                self._mark_uncertain(tasks, result, message, "nohup")
+                return result
             if ssh_result.exit_code != 0:
+                self._mark_uncertain(
+                    tasks, result, f"nohup start failed: {ssh_result.stderr}", "nohup"
+                )
                 result.errors.append(f"nohup 启动失败: {ssh_result.stderr}")
                 return result
             job_id = ssh_result.stdout.strip().splitlines()[-1] if ssh_result.stdout.strip() else ""
             if not job_id:
                 result.errors.append("nohup start did not return a remote process id")
+                all_tasks = self._all_tasks()
+                selected_ids = {task.task_id for task in tasks}
+                ambiguous: list[TaskRecord] = []
+                claimed_at = datetime.now()
+                for task in all_tasks:
+                    if task.task_id in selected_ids:
+                        task.status = TaskStatus.uncertain
+                        task.submitted_at = claimed_at
+                        task.scheduler_type = "nohup"
+                        task.remote_job_id = None
+                        task.error_message = "nohup start did not return a remote process id"
+                        ambiguous.append(task.model_copy(deep=True))
+                self._notify_task_updates(ambiguous)
+                self._persist_tasks(all_tasks, result)
                 return result
             return self._mark_submitted(tasks, result, scheduler_type="nohup", remote_job_id=job_id)
+        except SubmitCheckpointError:
+            raise
         except Exception as e:
             result.errors.append(f"提交异常: {e}")
             return result
 
     def _submit_scheduler(self, tasks, result):
         """Slurm/PBS per-task submission path."""
+        updated_ids: list[str] = []
+        all_tasks: list[TaskRecord] | None = None
         try:
             import tempfile
-            updated_ids: list[str] = []
             now = datetime.now()
-            all_tasks = Manifest.read(self._manifest_path)
+            all_tasks = self._all_tasks()
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
                 runner = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
@@ -405,9 +443,22 @@ class JobSubmitter:
                     self._sftp.upload_file(sp, sched_remote, overwrite=True)
                 self._ssh.run(f"chmod +x {shlex.quote(runner_remote)} {shlex.quote(sched_remote)}", timeout=15)
                 try:
+                    self._notify_remote_started([t.task_id])
                     job_id = self._scheduler.submit(self._ssh, sched_remote, self._resources)
+                    if not job_id:
+                        raise RuntimeError("scheduler did not return a job id")
+                except SubmitCheckpointError:
+                    raise
                 except Exception as e:
                     result.errors.append(f"task {t.task_id}: submit failed: {e}")
+                    for mt in all_tasks:
+                        if mt.task_id == t.task_id:
+                            mt.status = TaskStatus.uncertain
+                            mt.submitted_at = now
+                            mt.scheduler_type = _scheduler_type(self._scheduler)
+                            mt.remote_job_id = None
+                            mt.error_message = f"submit failed: {e}"
+                            self._notify_task_updates([mt])
                     continue
                 for mt in all_tasks:
                     if mt.task_id == t.task_id:
@@ -416,18 +467,22 @@ class JobSubmitter:
                         mt.scheduler_type = _scheduler_type(self._scheduler)
                         mt.remote_job_id = job_id
                         mt.error_message = None
+                        self._notify_task_updates([mt])
                 updated_ids.append(t.task_id)
-            Manifest.write(self._manifest_path, all_tasks)
-            result.updated_task_ids = updated_ids
-            result.submitted_task_count = len(updated_ids)
+        except SubmitCheckpointError:
+            raise
         except Exception as e:
             result.errors.append(f"提交异常: {e}")
+        if all_tasks is not None:
+            result.updated_task_ids = updated_ids
+            result.submitted_task_count = len(updated_ids)
+            self._persist_tasks(all_tasks, result)
         return result
 
     def _mark_submitted(self, tasks, result, scheduler_type: str = "nohup", remote_job_id: str | None = None):
         now = datetime.now()
         updated_ids: list[str] = []
-        all_tasks = Manifest.read(self._manifest_path)
+        all_tasks = self._all_tasks()
         tid_map = {t.task_id: t for t in all_tasks}
         for t in tasks:
             if t.task_id in tid_map:
@@ -437,9 +492,62 @@ class JobSubmitter:
                 tid_map[t.task_id].remote_job_id = remote_job_id
                 tid_map[t.task_id].error_message = None
                 updated_ids.append(t.task_id)
-        Manifest.write(self._manifest_path, all_tasks)
         result.updated_task_ids = updated_ids
+        result.submitted_task_count = len(updated_ids)
+        self._notify_task_updates([tid_map[task_id] for task_id in updated_ids])
+        self._persist_tasks(all_tasks, result)
         return result
+
+    def _notify_task_updates(self, tasks: list[TaskRecord]) -> None:
+        if self._task_update_callback is not None and tasks:
+            try:
+                self._task_update_callback(
+                    [task.model_copy(deep=True) for task in tasks]
+                )
+            except Exception as exc:
+                raise SubmitCheckpointError(str(exc)) from exc
+
+    def _notify_remote_started(self, task_ids: list[str]) -> None:
+        if self._remote_started_callback is not None:
+            try:
+                self._remote_started_callback(list(task_ids))
+            except Exception as exc:
+                raise SubmitCheckpointError(str(exc)) from exc
+
+    def _mark_uncertain(
+        self,
+        tasks: list[TaskRecord],
+        result: SubmitResult,
+        error: str,
+        scheduler_type: str,
+    ) -> None:
+        all_tasks = self._all_tasks()
+        selected = {task.task_id for task in tasks}
+        changed: list[TaskRecord] = []
+        submitted_at = datetime.now()
+        for task in all_tasks:
+            if task.task_id in selected:
+                task.status = TaskStatus.uncertain
+                task.submitted_at = submitted_at
+                task.scheduler_type = scheduler_type
+                task.remote_job_id = None
+                task.error_message = error
+                changed.append(task.model_copy(deep=True))
+        self._notify_task_updates(changed)
+        self._persist_tasks(all_tasks, result)
+
+    def _all_tasks(self) -> list[TaskRecord]:
+        if self._tasks is not None:
+            return [task.model_copy(deep=True) for task in self._tasks]
+        if self._manifest_path is None:
+            raise ValueError("manifest_path or tasks is required")
+        return Manifest.read(self._manifest_path)
+
+    def _persist_tasks(self, tasks: list[TaskRecord], result: SubmitResult) -> None:
+        self._tasks = [task.model_copy(deep=True) for task in tasks]
+        result.updated_tasks = [task.model_copy(deep=True) for task in tasks]
+        if self._manifest_path is not None:
+            Manifest.write(self._manifest_path, tasks)
 
 
 def _scheduler_type(scheduler) -> str:

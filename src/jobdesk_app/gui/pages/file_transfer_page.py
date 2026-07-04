@@ -42,11 +42,12 @@ from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
 from ...services.gui_settings import GuiSettingsStore
 from ...services.program_adapters import ConfFlowAdapter
+from ...services.run_coordinator import RunCoordinator
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..i18n import tr
-from ..session import create_sftp_client, create_ssh_client, sftp_session
+from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_helpers import (
@@ -108,12 +109,13 @@ def _format_transfer_speed(bytes_per_second: float) -> str:
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
 
-    def __init__(self, state, log_cb, status_cb, error_cb):
+    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None):
         super().__init__()
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
         self._error_cb = error_cb
+        self._coordinator_factory = coordinator_factory
         self._servers = {}
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
@@ -551,7 +553,7 @@ class FileTransferPage(QWidget):
             self._close_service_async(self._service)
         self._service = FileTransferService(
             factory,
-            allowed_delete_roots=collect_remote_delete_roots(self.state.current_manifest_path),
+            allowed_delete_roots=collect_remote_delete_roots(self._current_run_tasks()),
             persistent_session=True,
         )
         self._connected_server_id = server_id
@@ -559,6 +561,16 @@ class FileTransferPage(QWidget):
         self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
         self._load_remembered_profile()
         self._refresh_remote()
+
+    def _current_run_tasks(self):
+        run_id = getattr(self.state, "current_batch_id", None)
+        if not isinstance(run_id, str) or not run_id:
+            return []
+        workspace = Path(getattr(self.state, "current_project_root", None) or Path.cwd())
+        try:
+            return RunService(workspace).repository.load_tasks(run_id)
+        except (KeyError, OSError):
+            return []
 
     def _close_service_async(self, service: FileTransferService) -> None:
         worker = BackgroundWorker(service.close)
@@ -1119,6 +1131,22 @@ class FileTransferPage(QWidget):
     def _create_only(self):
         """Create run record without submitting."""
         self._run_selected_chunks(submit=False)
+
+    def _coordinator_for(self, workspace: Path) -> RunCoordinator:
+        if self._coordinator_factory is not None:
+            return self._coordinator_factory(workspace)
+        return RunCoordinator(
+            RunService(workspace),
+            server_lookup=lambda server_id: load_servers().servers[server_id],
+            ssh_factory=create_ssh_client,
+            sftp_factory=create_sftp_client,
+        )
+
+    def _execute_run_use_case(self, spec: RunSpec, workspace: Path, *, submit: bool):
+        coordinator = self._coordinator_for(workspace)
+        if submit:
+            return coordinator.create_and_submit(spec, local_dir=str(workspace))
+        return coordinator.create_run(spec, local_dir=str(workspace))
 
     def _remote_target_for_local(self, local_path: Path) -> str:
         return remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
@@ -1874,12 +1902,10 @@ class FileTransferPage(QWidget):
         else:
             xyz_targets = list(xyz_paths)
 
-        connected_server = self._connected_server
         server_id = self._connected_server_id or ""
         file_service = self._service
 
         def _run():
-            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
             if origin == "local":
                 for local_p, remote_t in zip(xyz_paths, xyz_targets):
                     records = file_service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
@@ -1894,16 +1920,7 @@ class FileTransferPage(QWidget):
                 config_path=config_target,
                 max_parallel=max_parallel,
             )
-            service = RunService(local_base)
-            record = service.create_run(spec, local_dir=str(local_base))
-            with sftp_session(connected_server) as (ssh, sftp):
-                result = service.submit_run(
-                    record.run_id, ssh, sftp,
-                    env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                    scheduler=scheduler_from_server(connected_server),
-                    resources=resources_from_server(connected_server),
-                )
-                return record, result
+            return self._execute_run_use_case(spec, Path(local_base), submit=True)
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
         worker = BackgroundWorker(_run)
@@ -1921,17 +1938,21 @@ class FileTransferPage(QWidget):
         worker.start()
 
     def _on_confflow_done(self, payload):
-        record, result = payload
+        if not payload.records:
+            self._confflow_feedback.error(tr("Submit failed", self._language))
+            self._error_cb("ConfFlow Run Error", "\n".join(payload.errors))
+            return
+        record = payload.records[0]
         self.state.current_project_root = Path(record.local_dir) if record.local_dir else self.state.current_project_root
         self.state.current_batch_id = record.run_id
         self.state.current_manifest_path = record.manifest_path
-        errors = _submit_result_errors([result])
+        errors = list(payload.errors)
         if errors:
             self._confflow_feedback.error(tr("Submit failed", self._language))
             self._error_cb("ConfFlow Run Error", "\n".join(errors))
             return
         self._confflow_feedback.success(tr("Submitted", self._language))
-        self._on_runs_done([result])
+        self._on_runs_done(payload.submit_results)
 
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
         """Return (files, dirs) of selected local paths."""
@@ -2012,7 +2033,7 @@ class FileTransferPage(QWidget):
         remote_files_for_run = list(files)
         remote_dirs_for_run = list(dirs)
 
-        def _create_records(svc: RunService, selected_files: list[str], selected_dirs: list[str]):
+        def _create_specs(selected_files: list[str], selected_dirs: list[str]):
             all_sources = [RunSource(path=p, is_dir=False) for p in selected_files] + [
                 RunSource(path=p, is_dir=True) for p in selected_dirs
             ]
@@ -2021,23 +2042,21 @@ class FileTransferPage(QWidget):
             chunks = chunk_sources(all_sources, 0)
             if run_mode == RunMode.current_directory:
                 chunks = [[]]
-            records = []
+            specs = []
             for chunk in chunks:
-                spec = RunSpec(
+                specs.append(RunSpec(
                     server_id=server_id,
                     remote_dir=remote_dir,
                     command_template=command_template,
                     max_parallel=max_parallel,
                     mode=run_mode,
                     sources=chunk,
-                )
-                records.append(svc.create_run(spec, local_dir=str(local_base)))
-            return records
+                ))
+            return specs
 
         def _run(ctx: WorkerContext):
-            from ...services.scheduler_helpers import resources_from_server, scheduler_from_server
-
             run_records = []
+            results = []
             try:
                 selected_files = remote_files_for_run
                 selected_dirs = remote_dirs_for_run
@@ -2058,42 +2077,20 @@ class FileTransferPage(QWidget):
                     selected_files = uploaded_files
                     selected_dirs = uploaded_dirs
 
-                svc = RunService(local_base)
-                run_records = _create_records(svc, selected_files, selected_dirs)
+                specs = _create_specs(selected_files, selected_dirs)
+                for spec in specs:
+                    outcome = self._execute_run_use_case(spec, Path(local_base), submit=submit)
+                    run_records.extend(outcome.records)
+                    results.extend(outcome.submit_results)
+                    if outcome.errors:
+                        return {
+                            "records": run_records,
+                            "results": results if submit else None,
+                            "error": "; ".join(outcome.errors),
+                        }
             except Exception as exc:
                 return {"records": run_records, "results": None, "error": f"{type(exc).__name__}: {exc}"}
-            if not submit:
-                return {"records": run_records, "results": None, "error": None}
-
-            results = []
-            try:
-                if use_local:
-                    ssh = create_ssh_client(connected_server)
-                    ssh.connect()
-                    sftp = create_sftp_client(ssh)
-                    try:
-                        for record in run_records:
-                            results.append(svc.submit_run(
-                                record.run_id, ssh, sftp,
-                                env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                                scheduler=scheduler_from_server(connected_server),
-                                resources=resources_from_server(connected_server),
-                            ))
-                    finally:
-                        sftp.close()
-                        ssh.close()
-                else:
-                    with sftp_session(connected_server) as (ssh, sftp):
-                        for record in run_records:
-                            results.append(svc.submit_run(
-                                record.run_id, ssh, sftp,
-                                env_init_scripts=list(getattr(connected_server, "env_init_scripts", []) or []),
-                                scheduler=scheduler_from_server(connected_server),
-                                resources=resources_from_server(connected_server),
-                            ))
-            except Exception as exc:
-                return {"records": run_records, "results": None, "error": f"{type(exc).__name__}: {exc}"}
-            return {"records": run_records, "results": results, "error": None}
+            return {"records": run_records, "results": results if submit else None, "error": None}
 
         def _on_run_worker_done(payload):
             run_records = payload["records"]

@@ -77,7 +77,36 @@ jobdesk run refresh <workspace> <run_id>
 jobdesk run download <workspace> <run_id> --patterns "*.log" "*.out"
 jobdesk run cancel <workspace> <run_id>
 jobdesk run retry <workspace> <run_id>
+jobdesk run recover <workspace>
+jobdesk run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
+jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 ```
+
+## Run Database
+
+JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share state without rewriting manifest files.
+
+Schema v4 is current. Schema v2 introduced the durable submit/delete operation
+journal; schema v3 added an independent trusted-workspace registry and
+delete-operation-to-workspace bindings; schema v4 adds renewable submit
+ownership leases. Lease timestamps are stored and compared in UTC,
+and recovery takes over only ownerless legacy submissions or submissions whose
+lease has expired. The v2-to-v3 migration seeds workspace trust only from live
+run rows and leaves old delete operations unbound; journal payloads are never
+treated as trust anchors. Back up the complete SQLite file set before first
+opening an older database with this version. Completed journal entries are
+retained for seven days; incomplete entries are never automatically pruned.
+
+New runs persist their workspace as an absolute anchor. Delete preparation
+must match that live anchor; legacy rows without one require manual cleanup.
+
+On first access, legacy `run.json` and `manifest.tsv` files under the runs directory are imported once. Legacy files are retained as read-only recovery inputs; new runs do not create them. Import failures are recorded in the database and do not prevent valid runs from loading.
+
+For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wal` and `jobdesk.db-shm` files that are present. To restore, replace that complete set while JobDesk is closed. Do not copy only the main database while the application is running.
+
+An `uncertain` task means a remote submit command may have started but JobDesk cannot prove whether it was accepted. Inspect the scheduler or remote process before resolving it. Use `confirm-submitted` (and `--job-id <task_id>=<job_id>` when known) only after confirming the remote job exists. `abandon-submit` makes the task eligible for submission again and can create a duplicate remote job if the original actually started.
+
+SSH/SFTP connections are owned by `SessionPool`. A lease is exclusive per server, callers must release it promptly, and application shutdown closes the pool after active leases return. GUI objects do not own or share raw sessions directly.
 
 ## Development
 

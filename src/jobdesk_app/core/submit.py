@@ -7,6 +7,8 @@ SubmitMode / SubmitPlan / SubmitResult 是业务记录，
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .manifest import TaskRecord
+
 
 class SubmitMode(str, Enum):
     all = "all"
@@ -40,4 +42,5 @@ class SubmitResult:
     control_nohup_log_path: str = ""
     nohup_command: str = ""
     updated_task_ids: list[str] = field(default_factory=list)
+    updated_tasks: list[TaskRecord] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)

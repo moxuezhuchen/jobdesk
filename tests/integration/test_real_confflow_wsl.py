@@ -10,10 +10,8 @@ import pytest
 
 from jobdesk_app.config.servers import load_servers
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest
 from jobdesk_app.remote.sftp import SFTPClientWrapper
 from jobdesk_app.remote.ssh import SSHClientWrapper
-from jobdesk_app.remote.status_refresh import refresh_batch_status
 from jobdesk_app.services.confflow_results import load_summary
 from jobdesk_app.services.program_adapters import ConfFlowAdapter
 from jobdesk_app.services.run_service import RunService
@@ -114,15 +112,8 @@ def test_real_confflow_batch_two_molecules(tmp_path):
 
         # Wait for completion
         for _ in range(120):
-            refresh_batch_status(
-                ssh=ssh,
-                manifest_path=record.manifest_path,
-                remote_batch_dir=f"{remote_dir}/.jobdesk_runs/{record.run_id}",
-                batch_id=record.run_id,
-                write=True,
-            )
-            service.update_run_from_manifest(record.run_id)
-            tasks = Manifest.read(record.manifest_path)
+            service.refresh_run(record.run_id, ssh)
+            tasks = service.repository.load_tasks(record.run_id)
             if all(t.status == TaskStatus.remote_completed for t in tasks):
                 break
             time.sleep(2)

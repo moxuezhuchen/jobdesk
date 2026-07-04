@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.remote.ssh import SSHResult
@@ -13,6 +15,7 @@ from jobdesk_app.remote.status_refresh import (
     _parse_batch_control,
     _recover_status,
     refresh_batch_status,
+    refresh_task_statuses,
 )
 
 
@@ -57,6 +60,85 @@ class TestRecoveryRules:
         rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False)
         new, snap = _recover_status(TaskStatus.submitted, rs, task)
         assert new == TaskStatus.running
+
+    @pytest.mark.parametrize(
+        ("marker", "exit_code", "expected"),
+        [
+            ("running", None, TaskStatus.running),
+            ("completed", 0, TaskStatus.remote_completed),
+            ("failed", 1, TaskStatus.failed),
+        ],
+    )
+    def test_uncertain_is_resolved_immediately_by_authoritative_marker(
+        self, marker, exit_code, expected
+    ):
+        task = _make_task("t1", TaskStatus.uncertain)
+        remote = RemoteTaskStatusSnapshot(
+            "t1", "/r/t1", marker, exit_code, "", True, exit_code is not None, False
+        )
+
+        new, _snapshot = _recover_status(
+            TaskStatus.uncertain,
+            remote,
+            task,
+            stale_timeout_seconds=999999,
+        )
+
+        assert new == expected
+
+    def test_submitting_claim_is_not_advanced_by_remote_marker(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False)
+
+        new, _snap = _recover_status(TaskStatus.submitting, rs, task)
+
+        assert new == TaskStatus.submitting
+
+    def test_stale_submitting_claim_recovers_completed_remote_task(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)
+
+        new, _snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.remote_completed
+
+    def test_stale_submitting_claim_survives_incomplete_remote_read(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot(
+            "t1", "/r/t1", warnings=["batch read failed"], marker_exists=False
+        )
+
+        new, snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.submitting
+        assert any("incomplete" in warning for warning in snap.warnings)
+
+    def test_stale_ambiguous_submission_without_marker_requires_manual_reconciliation(self):
+        task = _make_task("t1", TaskStatus.submitting)
+        task.submitted_at = datetime.now() - timedelta(seconds=61)
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", marker_exists=False)
+
+        new, snap = _recover_status(
+            TaskStatus.submitting,
+            rs,
+            task,
+            stale_timeout_seconds=60,
+        )
+
+        assert new == TaskStatus.submitting
+        assert any("manual reconciliation" in warning for warning in snap.warnings)
 
     def test_running_plus_completed_plus_exit_0(self):
         task = _make_task("t1", TaskStatus.running)
@@ -184,6 +266,23 @@ class TestRecoveryRules:
 
 
 class TestRefreshBatchStatus:
+    def test_refreshes_object_tasks_without_manifest(self):
+        tasks = [_make_task("t1", TaskStatus.running, "/r/t1")]
+        mock_ssh = MagicMock()
+        with patch(
+            "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+            return_value={
+                "t1": RemoteTaskStatusSnapshot(
+                    "t1", "/r/t1", "completed", 0, "", True, True, False
+                )
+            },
+        ):
+            result, updated = refresh_task_statuses(mock_ssh, tasks, "/r", "b1")
+
+        assert result.changed_count == 1
+        assert updated[0].status == TaskStatus.remote_completed
+        assert tasks[0].status == TaskStatus.running
+
     def test_refresh_with_mock(self):
         tasks = [
             _make_task("t1", TaskStatus.submitted, "/r/t1"),

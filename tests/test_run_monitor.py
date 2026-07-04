@@ -92,39 +92,43 @@ class FakeSSHClient:
         pass
 
 
-def _make_watcher():
+def _make_watcher(ssh_factory=None):
     events = []
-    w = _Watcher("run1", "wsl", "/tmp/batch", object(), lambda *a: events.append(a))
+    if ssh_factory is None:
+        ssh_factory = MagicMock()
+    w = _Watcher(
+        "run1",
+        "wsl",
+        "/tmp/batch",
+        object(),
+        lambda *a: events.append(a),
+        ssh_factory,
+    )
     return w, events
 
 
 def _run_watcher_sessions(session_actions, max_waits, monotonic_values=None):
     """Run watcher with controlled sessions and return (waits, events)."""
-    w, events = _make_watcher()
-    w._stop_event = ControlledStopEvent(max_waits=max_waits)
-
     sessions = []
     for actions in session_actions:
         ch = FakeChannel(actions)
         sessions.append(FakeSSHClient(ch))
     session_iter = iter(sessions)
+    w, events = _make_watcher(lambda _config: next(session_iter))
+    w._stop_event = ControlledStopEvent(max_waits=max_waits)
 
-    patches = [
-        patch("jobdesk_app.gui.session.create_ssh_client",
-              side_effect=lambda config: next(session_iter)),
-    ]
+    patches = []
     if monotonic_values is not None:
         patches.append(
             patch("jobdesk_app.services.run_monitor.time.monotonic",
                   side_effect=monotonic_values)
         )
 
-    with patches[0]:
-        if len(patches) > 1:
-            with patches[1]:
-                w._run()
-        else:
+    if patches:
+        with patches[0]:
             w._run()
+    else:
+        w._run()
 
     return w._stop_event.waits, events
 
@@ -152,6 +156,58 @@ def test_watcher_resets_backoff_after_receiving_stream_data():
     assert events[0] == ("run1", "wsl", "DONE task-1 0")
 
 
+def test_watcher_buffers_event_line_split_across_recv_calls():
+    waits, events = _run_watcher_sessions(
+        [[b"DONE task-", b"1 0\n"]],
+        max_waits=1,
+    )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", "DONE task-1 0")]
+
+
+def test_watcher_incrementally_decodes_utf8_split_across_recv_calls():
+    task_id = "任务-1"
+    encoded = f"DONE {task_id} 0\n".encode()
+    split_at = encoded.index("任".encode()) + 1
+
+    waits, events = _run_watcher_sessions(
+        [[encoded[:split_at], encoded[split_at:]]],
+        max_waits=1,
+    )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", f"DONE {task_id} 0")]
+
+
+def test_watcher_discards_incomplete_line_when_reconnecting():
+    waits, events = _run_watcher_sessions(
+        [[b"DONE stale-task 0"], [b"DONE fresh-task 0\n"]],
+        max_waits=2,
+    )
+
+    assert waits == [10, 10]
+    assert events == [("run1", "wsl", "DONE fresh-task 0")]
+
+
+def test_watcher_discards_oversized_line_then_recovers(caplog):
+    import logging
+
+    with (
+        patch("jobdesk_app.services.run_monitor._MAX_EVENT_LINE_CHARS", 20),
+        caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"),
+    ):
+        waits, events = _run_watcher_sessions(
+            [[b"DONE oversized-", b"task 0", b" ignored\nDONE fresh-task 0\n"]],
+            max_waits=1,
+        )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", "DONE fresh-task 0")]
+    warnings = [record for record in caplog.records if "oversized event line" in record.message]
+    assert len(warnings) == 1
+
+
 def test_watcher_resets_backoff_after_30s_stable_silent_connection():
     """A quiet tail -f session open for 30+ seconds resets backoff."""
     # Session 1: immediate EOF (connected_at call) -> wait 10
@@ -176,17 +232,28 @@ def test_watcher_resets_backoff_after_30s_stable_silent_connection():
 def test_watcher_reconnects_after_non_timeout_channel_error():
     """Broken channels must reconnect instead of spinning in recv()."""
     channel = OneBrokenReadChannel(OSError("channel closed"))
-    w, events = _make_watcher()
+    w, events = _make_watcher(lambda _config: FakeSSHClient(channel))
     w._stop_event = ControlledStopEvent(max_waits=1)
 
-    with patch(
-        "jobdesk_app.gui.session.create_ssh_client",
-        return_value=FakeSSHClient(channel),
-    ):
-        w._run()
+    w._run()
 
     assert channel.recv_calls == 1
     assert w._stop_event.waits == [10]
+    assert events == []
+
+
+def test_watcher_does_not_dispatch_data_returned_after_stop():
+    watcher, events = _make_watcher()
+
+    class StopThenDataChannel(FakeChannel):
+        def recv(self, size):
+            watcher._stop_event.set()
+            return b"DONE task-1 0\n"
+
+    watcher._ssh_factory = lambda _config: FakeSSHClient(StopThenDataChannel([]))
+
+    watcher._run()
+
     assert events == []
 
 
@@ -195,13 +262,36 @@ def test_watcher_logs_connection_failure(caplog):
     """Connection exceptions are logged at WARNING level."""
     import logging
 
-    w, events = _make_watcher()
+    def _raise_connection_error(_config):
+        raise OSError("connection refused")
+
+    w, events = _make_watcher(_raise_connection_error)
     w._stop_event = ControlledStopEvent(max_waits=1)
 
-    with patch(
-        "jobdesk_app.gui.session.create_ssh_client",
-        side_effect=OSError("connection refused"),
-    ), caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
+    with caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
         w._run()
 
     assert any("connection refused" in r.message for r in caplog.records)
+
+
+def test_watcher_uses_injected_ssh_factory():
+    """The service watcher must not reach into the GUI session module."""
+    channel = FakeChannel([])
+    ssh = FakeSSHClient(channel)
+    factory = MagicMock(return_value=ssh)
+    events = []
+    watcher = _Watcher(
+        "run1",
+        "wsl",
+        "/tmp/batch",
+        object(),
+        lambda *event: events.append(event),
+        factory,
+    )
+    watcher._stop_event = ControlledStopEvent(max_waits=1)
+
+    watcher._run()
+
+    factory.assert_called_once_with(watcher._server_config)
+    assert watcher._stop_event.waits == [10]
+    assert events == []

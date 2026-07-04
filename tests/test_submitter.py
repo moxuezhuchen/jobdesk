@@ -14,6 +14,7 @@ from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.core.submit import SubmitMode
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord
 from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
+from jobdesk_app.remote.scheduler import SlurmAdapter
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.remote.submitter import JobSubmitter
 
@@ -332,6 +333,171 @@ class TestSubmit:
             assert t1.scheduler_type == "nohup"
             assert t1.remote_job_id == "4321"
 
+    def test_submit_updates_object_tasks_without_manifest(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=ssh,
+            sftp=FakeSFTPWrapper(),
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == []
+        assert result.updated_tasks[0].status == TaskStatus.submitted
+        assert result.updated_tasks[0].remote_job_id == "4321"
+
+    def test_nohup_checkpoint_failure_propagates(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0, stdout="4321"),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            task_update_callback=MagicMock(side_effect=RuntimeError("database locked")),
+        )
+
+        with pytest.raises(RuntimeError, match="database locked"):
+            submitter.submit_batch(SubmitMode.all)
+
+    def test_scheduler_checkpoint_failure_propagates(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(return_value="123")
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            scheduler=scheduler,
+            task_update_callback=MagicMock(side_effect=RuntimeError("database locked")),
+        )
+
+        with pytest.raises(RuntimeError, match="database locked"):
+            submitter.submit_batch(SubmitMode.all)
+
+    def test_scheduler_reports_durable_success_before_later_upload_failure(self):
+        tasks = [
+            _make_task("t1", TaskStatus.uploaded, "/remote/b1/t1"),
+            _make_task("t2", TaskStatus.uploaded, "/remote/b1/t2"),
+        ]
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(return_value="123")
+        sftp = FakeSFTPWrapper()
+
+        def upload_or_fail(*args, **kwargs):
+            if str(args[1]).endswith("/t2/.jobdesk_run.sh"):
+                raise RuntimeError("upload failed")
+            return TransferRecord(
+                direction=TransferDirection.upload,
+                local_path=str(args[0]),
+                remote_path=str(args[1]),
+                status=TransferStatusEnum.transferred,
+                reason="mock upload",
+            )
+
+        sftp.upload_file.side_effect = upload_or_fail
+        checkpoints: list[TaskRecord] = []
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0),
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            scheduler=scheduler,
+            task_update_callback=lambda updates: checkpoints.extend(updates),
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.updated_task_ids == ["t1"]
+        assert result.submitted_task_count == 1
+        assert [task.status for task in result.updated_tasks] == [
+            TaskStatus.submitted,
+            TaskStatus.uploaded,
+        ]
+        assert result.updated_tasks[0].remote_job_id == "123"
+        assert checkpoints[0].task_id == "t1"
+        assert checkpoints[0].status == TaskStatus.submitted
+        assert any("upload failed" in error for error in result.errors)
+
+    def test_nohup_without_pid_marks_tasks_uncertain(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        ssh = self._make_mock_ssh(exit_code=0, stdout="")
+        checkpoints = []
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=ssh,
+            sftp=FakeSFTPWrapper(),
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            task_update_callback=lambda updates: checkpoints.extend(updates),
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == ["nohup start did not return a remote process id"]
+        assert result.submitted_task_count == 0
+        assert result.updated_tasks[0].status == TaskStatus.uncertain
+        assert result.updated_tasks[0].submitted_at is not None
+        assert result.updated_tasks[0].remote_job_id is None
+        assert checkpoints[0].status == TaskStatus.uncertain
+        assert checkpoints[0].submitted_at is not None
+        assert checkpoints[0].error_message == "nohup start did not return a remote process id"
+
+    def test_scheduler_submit_exception_marks_task_uncertain(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(side_effect=RuntimeError("response lost"))
+        checkpoints = []
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            scheduler=scheduler,
+            task_update_callback=lambda updates: checkpoints.extend(updates),
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.errors == ["task t1: submit failed: response lost"]
+        assert result.updated_tasks[0].status == TaskStatus.uncertain
+        assert result.updated_tasks[0].submitted_at is not None
+        assert checkpoints[0].status == TaskStatus.uncertain
+        assert checkpoints[0].error_message == "submit failed: response lost"
+
+    def test_scheduler_empty_job_id_marks_task_uncertain(self):
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(return_value="")
+        submitter = JobSubmitter(
+            tasks=tasks,
+            ssh=self._make_mock_ssh(exit_code=0),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
+            scheduler=scheduler,
+        )
+
+        result = submitter.submit_batch(SubmitMode.all)
+
+        assert result.updated_tasks[0].status == TaskStatus.uncertain
+        assert result.updated_tasks[0].remote_job_id is None
+
     def test_submit_uses_control_subdir_for_all_remote_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -370,7 +536,7 @@ class TestSubmit:
             t1 = next(t for t in updated if t.task_id == "t1")
             assert t1.status == TaskStatus.uploaded
 
-    def test_submit_nohup_failure_no_manifest_update(self):
+    def test_submit_nohup_failure_marks_manifest_uncertain(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
         with tempfile.TemporaryDirectory() as tmpdir:
             mp = Path(tmpdir) / "manifest.tsv"
@@ -384,10 +550,11 @@ class TestSubmit:
             submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
             result = submitter.submit_batch(SubmitMode.all)
             assert len(result.errors) > 0
-            # Manifest not updated
             updated = Manifest.read(mp)
             t1 = next(t for t in updated if t.task_id == "t1")
-            assert t1.status == TaskStatus.uploaded
+            assert t1.status == TaskStatus.uncertain
+            assert t1.submitted_at is not None
+            assert t1.error_message == "nohup start failed: nohup failed"
 
     def test_max_parallel_must_be_positive(self):
         with pytest.raises(ValueError, match="max_parallel"):

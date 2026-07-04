@@ -1,10 +1,10 @@
 """Failure recovery tests for run and manifest operations."""
-import json
 from unittest.mock import MagicMock
 
 import pytest
 
 from jobdesk_app.core.manifest import Manifest, TaskRecord, TaskStatus
+from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.services.run_service import RunService
 
 
@@ -14,11 +14,7 @@ def _task(task_id="t1", batch_id="b1", status=TaskStatus.local_ready, **kw):
 
 @pytest.fixture
 def run_service(tmp_path, monkeypatch):
-    svc = RunService(str(tmp_path))
-    # Override runs_dir to tmp
-    monkeypatch.setattr(svc, "runs_dir", tmp_path / "runs")
-    svc.runs_dir.mkdir(parents=True, exist_ok=True)
-    return svc
+    return RunService(str(tmp_path), runs_dir=tmp_path / "runs")
 
 
 class TestManifestRecovery:
@@ -77,21 +73,22 @@ class TestRunServiceRecovery:
 
     def test_download_completed_sftp_failure(self, run_service):
         """download_completed with broken sftp should not crash."""
-        run_dir = run_service.runs_dir / "260101-002"
-        run_dir.mkdir(parents=True)
-        (run_dir / "run.json").write_text(json.dumps({
-            "run_id": "260101-002",
-            "server_id": "test",
-            "remote_dir": "/tmp/test",
-            "command_template": "g16 {name}",
-            "max_parallel": 1,
-            "mode": "selected_files",
-            "created_at": "2026-01-01T00:00:00",
-        }), encoding="utf-8")
-        manifest_path = run_dir / "manifest.tsv"
-        tasks = [_task("mol1", batch_id="260101-002", status=TaskStatus.remote_completed,
-                       remote_task_files=["mol1.gjf"], remote_work_dir="/tmp/test")]
-        Manifest.write(manifest_path, tasks)
+        spec = RunSpec(
+            server_id="test",
+            remote_dir="/tmp/test",
+            command_template="g16 {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/tmp/test/mol1.gjf")],
+        )
+        run_service.create_run(spec, run_id="260101-002")
+        run_service.repository.mutate_tasks(
+            "260101-002",
+            lambda tasks: [
+                task.model_copy(update={"status": TaskStatus.remote_completed, "remote_work_dir": "/tmp/test"})
+                for task in tasks
+            ],
+        )
 
         sftp = MagicMock()
         sftp.download_file.side_effect = Exception("Connection lost")

@@ -217,6 +217,26 @@ class TestSFTPPathErrorClassification:
         assert client.mkdir_calls == []
 
 
+class TestSFTPHealth:
+    @pytest.mark.parametrize(
+        ("active", "closed", "expected"),
+        [(True, False, True), (False, False, False), (True, True, False)],
+    )
+    def test_is_alive_uses_paramiko_channel_state(self, active, closed, expected):
+        channel = MagicMock(active=active, closed=closed)
+        client = MagicMock()
+        client.get_channel.return_value = channel
+
+        assert SFTPClientWrapper(client).is_alive() is expected
+
+    def test_is_alive_is_false_after_close(self):
+        client = MagicMock()
+        sftp = SFTPClientWrapper(client)
+        sftp.close()
+
+        assert sftp.is_alive() is False
+
+
 class TestListDirInfoErrors:
     def test_missing_directory_raises_remote_path_error(self):
         sftp = SFTPClientWrapper(ListDirErrorClient(FileNotFoundError("missing")))

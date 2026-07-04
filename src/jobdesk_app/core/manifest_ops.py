@@ -7,6 +7,8 @@ from .lifecycle import TaskStatus
 from .manifest import Manifest
 
 _ACTIVE_REMOTE_STATUSES = {
+    TaskStatus.submitting,
+    TaskStatus.uncertain,
     TaskStatus.submitted,
     TaskStatus.running,
 }
