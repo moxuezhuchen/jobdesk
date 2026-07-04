@@ -26,6 +26,8 @@ class SSHClientProtocol(Protocol):
 
     def close(self) -> None: ...
 
+    def is_alive(self) -> bool: ...
+
     def run(
         self,
         command: str,
@@ -37,4 +39,6 @@ class SSHClientProtocol(Protocol):
 
 
 class SFTPClientProtocol(Protocol):
+    def is_alive(self) -> bool: ...
+
     def close(self) -> None: ...

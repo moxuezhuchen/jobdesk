@@ -5,6 +5,7 @@ Emits a signal when a task completes (DONE line received).
 """
 from __future__ import annotations
 
+import codecs
 import logging
 import shlex
 import socket
@@ -16,6 +17,7 @@ from typing import Callable
 from .protocols import SSHClientProtocol
 
 _WATCHER_STABLE_SECONDS = 30.0
+_MAX_EVENT_LINE_CHARS = 64 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -129,14 +131,45 @@ class _Watcher:
                 channel.exec_command(f"tail -n 0 -f {quoted}")
                 channel.settimeout(5.0)
                 connected_at = time.monotonic()
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                line_parts: list[str] = []
+                line_length = 0
+                discarding_line = False
                 try:
                     while not self._stop_event.is_set():
                         try:
                             data = channel.recv(4096)
+                            if self._stop_event.is_set():
+                                break
                             if not data:
                                 break
                             backoff = 10
-                            for line in data.decode("utf-8", errors="replace").splitlines():
+                            decoded = decoder.decode(data)
+                            while decoded and not self._stop_event.is_set():
+                                fragment, separator, decoded = decoded.partition("\n")
+                                if discarding_line:
+                                    if separator:
+                                        discarding_line = False
+                                    else:
+                                        break
+                                    continue
+                                if line_length + len(fragment) > _MAX_EVENT_LINE_CHARS:
+                                    logger.warning(
+                                        "watcher %s/%s discarded oversized event line",
+                                        self._server_id, self._run_id,
+                                    )
+                                    line_parts.clear()
+                                    line_length = 0
+                                    discarding_line = not separator
+                                    continue
+                                if fragment:
+                                    line_parts.append(fragment)
+                                    line_length += len(fragment)
+                                if not separator:
+                                    break
+                                line = "".join(line_parts).removesuffix("\r")
+                                line_parts.clear()
+                                line_length = 0
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
                         except socket.timeout as exc:

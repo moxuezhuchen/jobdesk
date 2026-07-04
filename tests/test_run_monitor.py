@@ -156,6 +156,58 @@ def test_watcher_resets_backoff_after_receiving_stream_data():
     assert events[0] == ("run1", "wsl", "DONE task-1 0")
 
 
+def test_watcher_buffers_event_line_split_across_recv_calls():
+    waits, events = _run_watcher_sessions(
+        [[b"DONE task-", b"1 0\n"]],
+        max_waits=1,
+    )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", "DONE task-1 0")]
+
+
+def test_watcher_incrementally_decodes_utf8_split_across_recv_calls():
+    task_id = "任务-1"
+    encoded = f"DONE {task_id} 0\n".encode()
+    split_at = encoded.index("任".encode()) + 1
+
+    waits, events = _run_watcher_sessions(
+        [[encoded[:split_at], encoded[split_at:]]],
+        max_waits=1,
+    )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", f"DONE {task_id} 0")]
+
+
+def test_watcher_discards_incomplete_line_when_reconnecting():
+    waits, events = _run_watcher_sessions(
+        [[b"DONE stale-task 0"], [b"DONE fresh-task 0\n"]],
+        max_waits=2,
+    )
+
+    assert waits == [10, 10]
+    assert events == [("run1", "wsl", "DONE fresh-task 0")]
+
+
+def test_watcher_discards_oversized_line_then_recovers(caplog):
+    import logging
+
+    with (
+        patch("jobdesk_app.services.run_monitor._MAX_EVENT_LINE_CHARS", 20),
+        caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"),
+    ):
+        waits, events = _run_watcher_sessions(
+            [[b"DONE oversized-", b"task 0", b" ignored\nDONE fresh-task 0\n"]],
+            max_waits=1,
+        )
+
+    assert waits == [10]
+    assert events == [("run1", "wsl", "DONE fresh-task 0")]
+    warnings = [record for record in caplog.records if "oversized event line" in record.message]
+    assert len(warnings) == 1
+
+
 def test_watcher_resets_backoff_after_30s_stable_silent_connection():
     """A quiet tail -f session open for 30+ seconds resets backoff."""
     # Session 1: immediate EOF (connected_at call) -> wait 10
@@ -187,6 +239,21 @@ def test_watcher_reconnects_after_non_timeout_channel_error():
 
     assert channel.recv_calls == 1
     assert w._stop_event.waits == [10]
+    assert events == []
+
+
+def test_watcher_does_not_dispatch_data_returned_after_stop():
+    watcher, events = _make_watcher()
+
+    class StopThenDataChannel(FakeChannel):
+        def recv(self, size):
+            watcher._stop_event.set()
+            return b"DONE task-1 0\n"
+
+    watcher._ssh_factory = lambda _config: FakeSSHClient(StopThenDataChannel([]))
+
+    watcher._run()
+
     assert events == []
 
 

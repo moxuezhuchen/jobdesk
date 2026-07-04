@@ -10,6 +10,36 @@ Run state is stored in `%APPDATA%/JobDesk/runs/jobdesk.db` by default. The sibli
 - If a legacy record is absent after migration, inspect the `migration_errors` table: `sqlite3 "%APPDATA%/JobDesk/runs/jobdesk.db" "select legacy_path, message from migration_errors;"`.
 - Before manual repair, make a complete database backup. Removing `jobdesk.db` creates a new empty database on next launch; it is not a repair operation.
 
+### Interrupted operations and `uncertain` tasks
+
+Run `jobdesk run recover <workspace>` after an application or machine crash. Recovery replays durable submit/delete journal entries. It also quarantines legacy `submitting` rows that predate a matching journal as `uncertain`; merely opening the database does not perform this state change. Recovery is idempotent, so it is safe to invoke again after another interruption.
+
+`uncertain` does not mean failed. It means the remote command may have started but no durable acceptance result is available. Check the scheduler queue/history or remote process first:
+
+```powershell
+jobdesk run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
+```
+
+If the remote job definitely does not exist, return the task to `uploaded` with:
+
+```powershell
+jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
+```
+
+Do not abandon an unverified task: submitting it again can launch a duplicate remote calculation.
+
+Schema v4 is current. Schema v2 introduced the submit/delete operation journal,
+schema v3 added the trusted-workspace registry and independent delete-operation
+workspace bindings, and schema v4 added renewable submit ownership leases.
+Lease timestamps use UTC; recovery skips a live lease and may acquire only an
+ownerless legacy operation or an expired lease. Before upgrading from an older
+JobDesk version, close all JobDesk processes and copy `jobdesk.db`,
+`jobdesk.db-wal`, and `jobdesk.db-shm` as one backup set. Completed operations
+are retained for seven days during recovery cleanup; incomplete operations are
+retained until successfully replayed.
+
+SSH and SFTP clients are owned by `SessionPool`, not by GUI pages. Each per-server lease is serialized and must be released; shutdown prevents new leases and closes sessions after active work returns.
+
 ## SSH 连接失败
 
 检查：

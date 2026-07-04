@@ -6,8 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jobdesk_app.cli import _build_parser, main
 from jobdesk_app.config.schema import ServerConfig
+from tests.repository_helpers import replace_tasks_for_test
 
 
 @contextmanager
@@ -116,7 +119,7 @@ def test_cli_run_rerun_reports_active_remote_tasks(capsys):
         record = service.list_runs()[0]
         tasks = service.repository.load_tasks(record.run_id)
         tasks[0].status = TaskStatus.running
-        service.repository.replace_tasks(record.run_id, tasks)
+        replace_tasks_for_test(service.repository, record.run_id, tasks)
 
         rc = main(["run", "rerun", workspace, record.run_id])
         out = capsys.readouterr().out
@@ -207,7 +210,7 @@ class TestDownloadPatterns:
         tasks = svc.repository.load_tasks(record.run_id)
         for t in tasks:
             t.status = TaskStatus.remote_completed
-        svc.repository.replace_tasks(record.run_id, tasks)
+        replace_tasks_for_test(svc.repository, record.run_id, tasks)
         return run_id
 
     def test_patterns_comma_separated(self):
@@ -283,3 +286,71 @@ def test_cli_run_submit_rejects_invalid_resource_override_before_submit(capsys):
         create_ssh_client.assert_not_called()
         create_sftp_client.assert_not_called()
         submit_run.assert_not_called()
+
+
+def test_cli_confirm_submitted_requires_tasks():
+    parser = _build_parser()
+    with __import__("pytest").raises(SystemExit):
+        parser.parse_args(["run", "confirm-submitted", ".", "run-1"])
+
+
+def test_cli_confirm_submitted_reports_changed_count(capsys, tmp_path):
+    coordinator = MagicMock()
+    coordinator.confirm_submitted.return_value = SimpleNamespace(changed_count=2, errors=[])
+    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+        rc = main([
+            "run", "confirm-submitted", str(tmp_path), "run-1",
+            "--tasks", "a", "b", "--job-id", "a=101", "--job-id", "b=102",
+        ])
+    assert rc == 0
+    coordinator.confirm_submitted.assert_called_once_with(
+        "run-1", ["a", "b"], {"a": "101", "b": "102"}
+    )
+    assert "confirmed 2 task(s)" in capsys.readouterr().out
+
+
+def test_cli_abandon_submit_returns_error_exit(capsys, tmp_path):
+    coordinator = MagicMock()
+    coordinator.abandon_submit.return_value = SimpleNamespace(changed_count=0, errors=["ValueError: stale"])
+    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+        rc = main(["run", "abandon-submit", str(tmp_path), "run-1", "--tasks", "a"])
+    assert rc == 2
+    assert "stale" in capsys.readouterr().out
+
+
+def test_cli_recover_operations_reports_partial_failure(capsys, tmp_path):
+    coordinator = MagicMock()
+    coordinator.recover_operations.return_value = SimpleNamespace(changed_count=3, errors=["OSError: locked"])
+    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+        rc = main(["run", "recover", str(tmp_path)])
+    assert rc == 2
+    output = capsys.readouterr().out
+    assert "recovered 3 operation(s)" in output
+    assert "locked" in output
+    coordinator.recover_operations.assert_called_once_with(include_legacy_imports=True)
+
+
+@pytest.mark.parametrize(
+    "job_ids, message",
+    [
+        (["a=1", "a=2"], "duplicate"),
+        (["unknown=1"], "unknown task"),
+        (["a="], "non-empty"),
+        (["=1"], "non-empty"),
+        (["a"], "task=id"),
+    ],
+)
+def test_cli_confirm_submitted_rejects_invalid_job_ids(
+    capsys, tmp_path, job_ids, message
+):
+    coordinator = MagicMock()
+    argv = [
+        "run", "confirm-submitted", str(tmp_path), "run-1", "--tasks", "a",
+    ]
+    for value in job_ids:
+        argv.extend(["--job-id", value])
+    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+        rc = main(argv)
+    assert rc == 2
+    assert message in capsys.readouterr().err.lower()
+    coordinator.confirm_submitted.assert_not_called()

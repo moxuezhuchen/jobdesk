@@ -275,6 +275,19 @@ def _recover_status(
             else:
                 snap.warnings.append("已提交但远程无状态文件")
 
+    elif current == TaskStatus.uncertain:
+        if remote_snap and remote_snap.marker_exists:
+            marker = remote_snap.status_marker.strip()
+            if marker == "running":
+                new_status = TaskStatus.running
+            elif marker == "completed":
+                result = _check_exit_code(remote_snap, snap)
+                if result is not None:
+                    new_status = result
+            elif marker == "failed":
+                new_status = TaskStatus.failed
+                snap.failure_reason = "remote status marker is failed"
+
     elif current == TaskStatus.running:
         if remote_snap and remote_snap.marker_exists:
             marker = remote_snap.status_marker.strip()

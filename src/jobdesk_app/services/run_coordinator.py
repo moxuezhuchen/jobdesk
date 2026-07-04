@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,6 +39,7 @@ class RunCoordinator:
         sftp_factory: Callable[[Any], Any],
         close_clients: bool = True,
         connect_clients: bool = True,
+        session_pool: Any | None = None,
     ) -> None:
         self.service = service
         self._server_lookup = server_lookup
@@ -45,6 +47,7 @@ class RunCoordinator:
         self._sftp_factory = sftp_factory
         self._close_clients = close_clients
         self._connect_clients = connect_clients
+        self._session_pool = session_pool
 
     def create_run(
         self,
@@ -84,24 +87,19 @@ class RunCoordinator:
         resource_overrides: dict[str, object] | None = None,
     ) -> RunOperationOutcome:
         run_id = record.run_id
-        ssh = None
-        sftp = None
         try:
             server = self._server_lookup(record.server_id)
             scheduler = scheduler_from_server(server)
             resources = resources_from_server(server, resource_overrides)
-            ssh = self._ssh_factory(server)
-            if self._connect_clients:
-                ssh.connect()
-            sftp = self._sftp_factory(ssh)
-            result = self.service.submit_run(
-                run_id,
-                ssh,
-                sftp,
-                env_init_scripts=list(server.env_init_scripts or []),
-                scheduler=scheduler,
-                resources=resources,
-            )
+            with self._clients(record.server_id, server, need_sftp=True) as (ssh, sftp):
+                result = self.service.submit_run(
+                    run_id,
+                    ssh,
+                    sftp,
+                    env_init_scripts=list(server.env_init_scripts or []),
+                    scheduler=scheduler,
+                    resources=resources,
+                )
             try:
                 durable_record = self.service.load_run(run_id)
             except (KeyError, TypeError):
@@ -112,22 +110,22 @@ class RunCoordinator:
                 errors=list(result.errors),
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
-        finally:
-            self._close(sftp, ssh)
+            errors = [_error_text(exc)]
+            try:
+                record = self.service.load_run(run_id)
+            except Exception as load_exc:
+                errors.append(f"reload after submit failure failed: {_error_text(load_exc)}")
+            return RunOperationOutcome(records=[record], errors=errors)
 
     def refresh(self, run_id: str) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
             return RunOperationOutcome(errors=[_error_text(exc)])
-        ssh = None
         try:
             server = self._server_lookup(record.server_id)
-            ssh = self._ssh_factory(server)
-            if self._connect_clients:
-                ssh.connect()
-            result = self.service.refresh_run(run_id, ssh)
+            with self._clients(record.server_id, server, need_sftp=False) as (ssh, _sftp):
+                result = self.service.refresh_run(run_id, ssh)
             return RunOperationOutcome(
                 records=[self.service.load_run(run_id)],
                 refresh_result=result,
@@ -135,55 +133,36 @@ class RunCoordinator:
             )
         except Exception as exc:
             return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
-        finally:
-            self._close(None, ssh)
 
     def refresh_and_download(
         self,
         run_id: str,
         patterns: list[str],
     ) -> RunOperationOutcome:
-        try:
-            record = self.service.load_run(run_id)
-        except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
-        ssh = None
-        sftp = None
-        try:
-            server = self._server_lookup(record.server_id)
-            ssh = self._ssh_factory(server)
-            if self._connect_clients:
-                ssh.connect()
-            sftp = self._sftp_factory(ssh)
-            refresh_result = self.service.refresh_run(run_id, ssh)
-            transfers, failures = self.service.download_completed(run_id, sftp, patterns)
-            return RunOperationOutcome(
-                records=[self.service.load_run(run_id)],
-                transfer_records=list(transfers),
-                failures=list(failures),
-                errors=[f"{task_id}: {message}" for task_id, message in failures],
-                refresh_result=refresh_result,
-                changed_count=refresh_result.changed_count,
-            )
-        except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
-        finally:
-            self._close(sftp, ssh)
+        refreshed = self.refresh(run_id)
+        if refreshed.errors or not refreshed.records:
+            return refreshed
+        if refreshed.records[0].status_summary.get("remote_completed", 0) <= 0:
+            return refreshed
+        downloaded = self.download(run_id, patterns)
+        return RunOperationOutcome(
+            records=downloaded.records or refreshed.records,
+            transfer_records=downloaded.transfer_records,
+            failures=downloaded.failures,
+            errors=downloaded.errors,
+            refresh_result=refreshed.refresh_result,
+            changed_count=refreshed.changed_count,
+        )
 
     def download(self, run_id: str, patterns: list[str]) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
             return RunOperationOutcome(errors=[_error_text(exc)])
-        ssh = None
-        sftp = None
         try:
             server = self._server_lookup(record.server_id)
-            ssh = self._ssh_factory(server)
-            if self._connect_clients:
-                ssh.connect()
-            sftp = self._sftp_factory(ssh)
-            transfers, failures = self.service.download_completed(run_id, sftp, patterns)
+            with self._clients(record.server_id, server, need_sftp=True) as (_ssh, sftp):
+                transfers, failures = self.service.download_completed(run_id, sftp, patterns)
             return RunOperationOutcome(
                 records=[self.service.load_run(run_id)],
                 transfer_records=list(transfers),
@@ -192,21 +171,16 @@ class RunCoordinator:
             )
         except Exception as exc:
             return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
-        finally:
-            self._close(sftp, ssh)
 
     def cancel(self, run_id: str) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
             return RunOperationOutcome(errors=[_error_text(exc)])
-        ssh = None
         try:
             server = self._server_lookup(record.server_id)
-            ssh = self._ssh_factory(server)
-            if self._connect_clients:
-                ssh.connect()
-            changed, errors = self.service.cancel_run(run_id, ssh)
+            with self._clients(record.server_id, server, need_sftp=False) as (ssh, _sftp):
+                changed, errors = self.service.cancel_run(run_id, ssh)
             return RunOperationOutcome(
                 records=[self.service.load_run(run_id)],
                 errors=errors,
@@ -214,8 +188,6 @@ class RunCoordinator:
             )
         except Exception as exc:
             return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
-        finally:
-            self._close(None, ssh)
 
     def _close(self, sftp: Any | None, ssh: Any | None) -> None:
         if not self._close_clients:
@@ -227,6 +199,28 @@ class RunCoordinator:
                 client.close()
             except Exception:
                 pass
+
+    @contextmanager
+    def _clients(
+        self, server_id: str, server: ServerConfig, *, need_sftp: bool
+    ) -> Iterator[tuple[Any, Any | None]]:
+        if self._session_pool is not None:
+            with self._session_pool.lease(
+                server_id, server, need_sftp=need_sftp
+            ) as lease:
+                yield lease.ssh, lease.sftp
+            return
+        ssh = None
+        sftp = None
+        try:
+            ssh = self._ssh_factory(server)
+            if self._connect_clients:
+                ssh.connect()
+            if need_sftp:
+                sftp = self._sftp_factory(ssh)
+            yield ssh, sftp
+        finally:
+            self._close(sftp, ssh)
 
     def retry_failed(self, run_id: str) -> RunOperationOutcome:
         try:
@@ -254,6 +248,63 @@ class RunCoordinator:
             return RunOperationOutcome(changed_count=1)
         except Exception as exc:
             return RunOperationOutcome(errors=[_error_text(exc)])
+
+    def confirm_submitted(
+        self,
+        run_id: str,
+        task_ids: Iterable[str],
+        remote_job_ids: dict[str, str] | None = None,
+    ) -> RunOperationOutcome:
+        return self._resolve_uncertain(
+            run_id,
+            lambda: self.service.confirm_submitted(run_id, task_ids, remote_job_ids),
+        )
+
+    def abandon_submit(self, run_id: str, task_ids: Iterable[str]) -> RunOperationOutcome:
+        return self._resolve_uncertain(
+            run_id,
+            lambda: self.service.abandon_submit(run_id, task_ids),
+        )
+
+    def _resolve_uncertain(
+        self, run_id: str, action: Callable[[], list[str]]
+    ) -> RunOperationOutcome:
+        try:
+            changed = action()
+            return RunOperationOutcome(
+                records=[self.service.load_run(run_id)],
+                changed_count=len(changed),
+            )
+        except Exception as exc:
+            return RunOperationOutcome(errors=[_error_text(exc)])
+
+    def recover_operations(
+        self, *, include_legacy_imports: bool = False
+    ) -> RunOperationOutcome:
+        changed = 0
+        errors: list[str] = []
+        if include_legacy_imports:
+            try:
+                migration_errors = self.service.retry_legacy_imports()
+                errors.extend(
+                    f"legacy migration failed for {error.legacy_path}: {error.message}"
+                    for error in migration_errors
+                )
+            except Exception as exc:
+                errors.append(_error_text(exc))
+        try:
+            changed += self.service.recover_submit_operations()
+        except Exception as exc:
+            errors.append(_error_text(exc))
+        try:
+            delete_changed, delete_errors = (
+                self.service.recover_delete_operations_globally()
+            )
+            changed += delete_changed
+            errors.extend(delete_errors)
+        except Exception as exc:
+            errors.append(_error_text(exc))
+        return RunOperationOutcome(changed_count=changed, errors=errors)
 
 
 def _error_text(exc: Exception) -> str:

@@ -11,6 +11,8 @@ dist/
 # Test and tool caches
 .pytest_cache/
 .pytest_tmp*/
+/.pytest_*/
+/.debug_delete/
 .superpowers/
 .coverage
 htmlcov/

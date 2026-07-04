@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest, TaskRecord
 from jobdesk_app.remote.ssh import SSHResult
@@ -58,6 +60,31 @@ class TestRecoveryRules:
         rs = RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False)
         new, snap = _recover_status(TaskStatus.submitted, rs, task)
         assert new == TaskStatus.running
+
+    @pytest.mark.parametrize(
+        ("marker", "exit_code", "expected"),
+        [
+            ("running", None, TaskStatus.running),
+            ("completed", 0, TaskStatus.remote_completed),
+            ("failed", 1, TaskStatus.failed),
+        ],
+    )
+    def test_uncertain_is_resolved_immediately_by_authoritative_marker(
+        self, marker, exit_code, expected
+    ):
+        task = _make_task("t1", TaskStatus.uncertain)
+        remote = RemoteTaskStatusSnapshot(
+            "t1", "/r/t1", marker, exit_code, "", True, exit_code is not None, False
+        )
+
+        new, _snapshot = _recover_status(
+            TaskStatus.uncertain,
+            remote,
+            task,
+            stale_timeout_seconds=999999,
+        )
+
+        assert new == expected
 
     def test_submitting_claim_is_not_advanced_by_remote_marker(self):
         task = _make_task("t1", TaskStatus.submitting)

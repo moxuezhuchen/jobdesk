@@ -7,6 +7,7 @@ from jobdesk_app.services.comparison import (
     export_csv,
     export_markdown,
 )
+from tests.repository_helpers import replace_tasks_for_test
 
 
 def _make_comparison(rows: list[dict], fields: list[str]) -> RunComparison:
@@ -92,7 +93,7 @@ class TestCompareRuns:
                     encoding="utf-8",
                 )
                 task.status = TaskStatus.downloaded
-            svc.repository.replace_tasks(run_id, tasks)
+            replace_tasks_for_test(svc.repository, run_id, tasks)
 
         comparison = compare_runs(tmp_path, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
         assert len(comparison.rows) == 2
@@ -142,7 +143,7 @@ class TestCompareRuns:
                     encoding="utf-8",
                 )
                 task.status = TaskStatus.downloaded
-            svc_a.repository.replace_tasks(record.run_id, tasks)
+            replace_tasks_for_test(svc_a.repository, record.run_id, tasks)
 
         comparison = compare_runs(current_project, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
 

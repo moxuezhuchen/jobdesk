@@ -74,6 +74,22 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Output file patterns (comma-separated within each arg; commas in filenames not supported)")
     dl.set_defaults(func=_cmd_run_download)
 
+    for name, func in (
+        ("confirm-submitted", _cmd_run_confirm_submitted),
+        ("abandon-submit", _cmd_run_abandon_submit),
+    ):
+        recovery = run_sub.add_parser(name)
+        recovery.add_argument("workspace", type=Path)
+        recovery.add_argument("run_id")
+        recovery.add_argument("--tasks", nargs="+", required=True)
+        if name == "confirm-submitted":
+            recovery.add_argument("--job-id", action="append", default=[])
+        recovery.set_defaults(func=func)
+
+    recover = run_sub.add_parser("recover")
+    recover.add_argument("workspace", type=Path)
+    recover.set_defaults(func=_cmd_run_recover_operations)
+
     # -- compare subcommand --
     cmp = sub.add_parser("compare", help="Compare results across runs")
     cmp.add_argument("workspace", type=Path)
@@ -308,6 +324,58 @@ def _cmd_run_rerun(args) -> int:
     changed = outcome.changed_count
     print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
     return 0
+
+
+def _cmd_run_confirm_submitted(args) -> int:
+    try:
+        remote_job_ids = _parse_job_ids(args.job_id, args.tasks)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    outcome = _run_coordinator(args, args.workspace).confirm_submitted(
+        args.run_id, args.tasks, remote_job_ids or None
+    )
+    return _print_recovery_outcome("confirmed", "task(s)", outcome)
+
+
+def _cmd_run_abandon_submit(args) -> int:
+    outcome = _run_coordinator(args, args.workspace).abandon_submit(
+        args.run_id, args.tasks
+    )
+    return _print_recovery_outcome("abandoned", "task(s)", outcome)
+
+
+def _cmd_run_recover_operations(args) -> int:
+    outcome = _run_coordinator(args, args.workspace).recover_operations(
+        include_legacy_imports=True
+    )
+    return _print_recovery_outcome("recovered", "operation(s)", outcome)
+
+
+def _print_recovery_outcome(action: str, noun: str, outcome) -> int:
+    print(f"{action} {outcome.changed_count} {noun}")
+    for error in outcome.errors:
+        print(f"  ERROR: {error}")
+    return 0 if not outcome.errors else 2
+
+
+def _parse_job_ids(values: list[str], task_ids: list[str]) -> dict[str, str]:
+    selected = set(task_ids)
+    parsed: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"job ID must use task=id syntax: {value!r}")
+        task_id, job_id = value.split("=", 1)
+        task_id = task_id.strip()
+        job_id = job_id.strip()
+        if not task_id or not job_id:
+            raise ValueError("job ID task and id must be non-empty")
+        if task_id not in selected:
+            raise ValueError(f"job ID references unknown task: {task_id}")
+        if task_id in parsed:
+            raise ValueError(f"duplicate job ID for task: {task_id}")
+        parsed[task_id] = job_id
+    return parsed
 
 
 def _cmd_compare(args) -> int:

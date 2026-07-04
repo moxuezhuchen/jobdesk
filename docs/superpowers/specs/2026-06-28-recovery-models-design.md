@@ -83,6 +83,10 @@ claimed -> remote_started -> confirmed | uncertain -> completed
 
 On startup, an incomplete submit operation at `claimed` is safe to roll back to `uploaded` because no remote command began. An operation at `remote_started` becomes `uncertain`. `confirmed` is completed after verifying the task rows already contain its durable job IDs.
 
+`SubmitResult.submitted_task_count` counts confirmed remote acceptances only.
+An empty PID, non-zero nohup exit, or transport exception leaves the count at
+zero while the affected tasks become `uncertain`.
+
 ### Delete Phases
 
 ```text
@@ -99,6 +103,12 @@ The `prepared` payload contains the run metadata, task payloads, and exact valid
 Startup recovery resumes `metadata_deleted` operations by deleting remaining files. A `prepared` operation is safe to resume from metadata deletion. Missing files count as already deleted. Filesystem errors retain the operation and `last_error` for the next startup or explicit retry.
 
 The journal is the recovery authority; deletion no longer recreates deleted run rows as an exception-time compensation.
+
+Delete recovery is workspace-scoped even though the SQLite database is shared.
+`recover_delete_operations()` processes only operations whose recorded
+`results_root` equals the service workspace's `results` directory. Operations
+for other workspaces are skipped without changing their phase or `last_error`;
+opening the owning workspace will recover them.
 
 ### Repository API
 

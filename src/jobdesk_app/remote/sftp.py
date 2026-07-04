@@ -57,6 +57,16 @@ class SFTPClientWrapper:
         sftp = ssh_client._client.open_sftp()
         return cls(sftp)
 
+    def is_alive(self) -> bool:
+        """Return whether Paramiko's underlying SFTP channel is usable."""
+        if self._sftp is None:
+            return False
+        try:
+            channel = self._sftp.get_channel()
+            return bool(channel.active and not channel.closed)
+        except Exception:
+            return False
+
     # -- 基础查询 ----------------------------------------------------------
 
     def exists(self, remote_path: str) -> bool:

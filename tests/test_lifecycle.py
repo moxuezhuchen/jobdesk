@@ -17,6 +17,7 @@ class TestTaskStatus:
             "local_ready",
             "uploaded",
             "submitting",
+            "uncertain",
             "submitted",
             "running",
             "remote_completed",

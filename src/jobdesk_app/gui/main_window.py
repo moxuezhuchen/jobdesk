@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         self.files_page.runs_submitted.connect(
             lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
         )
+        self.runs_page.startup_recovery_failed.connect(self._on_startup_recovery_failed)
+        self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
 
         self.shell.add_page(self.files_page)
         self.shell.add_page(self.runs_page)
@@ -64,6 +66,19 @@ class MainWindow(QMainWindow):
         self.shell.page_changed.connect(self._on_nav)
         self._apply_language()
         self.shell.set_current(0)
+        self.files_page.setEnabled(False)
+        self.runs_page.setEnabled(False)
+        QTimer.singleShot(0, self.runs_page.start_startup_recovery)
+
+    def _finish_startup_recovery(self) -> None:
+        if getattr(self, "_shutdown_done", False):
+            return
+        self.files_page.setEnabled(True)
+        self.runs_page.setEnabled(True)
+
+    def _on_startup_recovery_failed(self, error: str) -> None:
+        self._finish_startup_recovery()
+        self.show_error(tr("Operation recovery failed", self.language), error)
 
     def _on_nav(self, index: int):
         self._apply_language()

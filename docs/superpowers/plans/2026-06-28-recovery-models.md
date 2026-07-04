@@ -443,3 +443,66 @@ Expected: all tests and static checks pass; only the existing CRLF warning may a
 git add README.md CHANGELOG.md docs/TROUBLESHOOTING.md src/jobdesk_app/services/run_repository.py tests/test_run_repository.py tests/test_architecture_boundaries.py
 git commit -m "Document recoverable operation models"
 ```
+
+### Task 9: Scope delete recovery and report confirmed submissions
+
+**Files:**
+- Modify: `src/jobdesk_app/services/run_service.py`
+- Modify: `src/jobdesk_app/remote/submitter.py`
+- Modify: `tests/test_run_service.py`
+- Modify: `tests/test_submitter.py`
+
+- [ ] **Step 1: Write failing regressions**
+
+```python
+def test_delete_recovery_skips_other_workspace_without_recording_error(tmp_path, runs_dir):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+    owner = RunService(workspace_a, runs_dir=runs_dir)
+    record = owner.create_run(RunSpec(
+        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
+        max_parallel=1, mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh")],
+    ), run_id="cross_workspace")
+    operation = owner.repository.prepare_delete_run(
+        record.run_id, run_dir=record.run_dir,
+        results_root=workspace_a / "results",
+        results_dir=workspace_a / "results" / record.run_id,
+    )
+    outsider = RunService(workspace_b, runs_dir=runs_dir)
+
+    assert outsider.recover_delete_operations() == 0
+    stored = next(
+        item for item in outsider.repository.list_operations()
+        if item.operation_id == operation.operation_id
+    )
+    assert stored.phase == "prepared"
+    assert stored.last_error is None
+
+# Add to TestSubmit.test_nohup_without_pid_marks_tasks_uncertain:
+assert result.submitted_task_count == 0
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `pytest tests/test_run_service.py::test_delete_recovery_skips_other_workspace_without_recording_error tests/test_submitter.py::TestSubmit::test_nohup_without_pid_marks_tasks_uncertain -q`
+
+Expected: both assertions fail against the current implementation.
+
+- [ ] **Step 3: Implement the minimal fixes**
+
+In `RunService.recover_delete_operations`, compare the normalized operation
+`results_root` with `self.workspace_dir / "results"` and skip non-matching
+operations before calling `_recover_delete_operation`. In `JobSubmitter`,
+initialize `submitted_task_count` to zero and set it only in confirmed success
+paths.
+
+- [ ] **Step 4: Verify GREEN and the full gate**
+
+```powershell
+pytest tests/test_run_service.py tests/test_submitter.py -q --basetemp .pytest_tmp_recovery_t9
+pytest tests -q --basetemp .pytest_tmp_recovery_full
+ruff check .
+mypy src
+git diff --check
+```
