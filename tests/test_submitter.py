@@ -3,14 +3,13 @@
 使用 mock SSH + fake SFTP，不连接真实服务器。
 """
 
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest, TaskRecord
+from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.submit import SubmitMode
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord
 from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
@@ -90,10 +89,6 @@ def _make_task(task_id: str, status: TaskStatus = TaskStatus.uploaded,
     )
 
 
-def _write_manifest(path: Path, tasks: list[TaskRecord]) -> None:
-    Manifest.write(path, tasks)
-
-
 # ---- task selection ----------------------------------------------------
 
 
@@ -110,22 +105,18 @@ class TestTaskSelection:
             _make_task("t8", TaskStatus.analyzed),
             _make_task("t9", TaskStatus.failed),
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, None, None, 4, "/remote/b1", "b1")
-            selected = submitter.select_tasks(SubmitMode.all)
-            assert len(selected) == 2
-            assert {t.task_id for t in selected} == {"t2", "t3"}
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
+                                remote_batch_dir="/remote/b1", batch_id="b1")
+        selected = submitter.select_tasks(SubmitMode.all)
+        assert len(selected) == 2
+        assert {t.task_id for t in selected} == {"t2", "t3"}
 
     def test_no_uploaded_returns_empty(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, None, None, 4, "/r", "b1")
-            selected = submitter.select_tasks(SubmitMode.all)
-            assert selected == []
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
+                                remote_batch_dir="/r", batch_id="b1")
+        selected = submitter.select_tasks(SubmitMode.all)
+        assert selected == []
 
     def test_selected_mode(self):
         tasks = [
@@ -133,26 +124,22 @@ class TestTaskSelection:
             _make_task("t2", TaskStatus.uploaded),
             _make_task("t3", TaskStatus.uploaded),
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, None, None, 4, "/r", "b1")
-            selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t3"])
-            assert len(selected) == 2
-            assert {t.task_id for t in selected} == {"t1", "t3"}
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
+                                remote_batch_dir="/r", batch_id="b1")
+        selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t3"])
+        assert len(selected) == 2
+        assert {t.task_id for t in selected} == {"t1", "t3"}
 
     def test_selected_ignores_non_uploaded(self):
         tasks = [
             _make_task("t1", TaskStatus.uploaded),
             _make_task("t2", TaskStatus.running),
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, None, None, 4, "/r", "b1")
-            selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t2"])
-            assert len(selected) == 1
-            assert selected[0].task_id == "t1"
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
+                                remote_batch_dir="/r", batch_id="b1")
+        selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t2"])
+        assert len(selected) == 1
+        assert selected[0].task_id == "t1"
 
 
 # ---- script generation ------------------------------------------------
@@ -264,31 +251,29 @@ class TestDryRun:
             _make_task("t1", TaskStatus.uploaded, "/remote/b1/t1"),
             _make_task("t2", TaskStatus.uploaded, "/remote/b1/t2"),
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            fake_ssh = MagicMock()
-            fake_sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(mp, fake_ssh, fake_sftp, 4, "/remote/b1", "b1")
-            plan = submitter.dry_run(SubmitMode.all)
-            assert plan.dry_run is True
-            assert plan.task_count == 2
-            assert plan.max_parallel == 4
-            assert len(plan.generated_files) > 0
-            assert "setsid" in plan.control_command
-            assert "echo $!" in plan.control_command
-            # 验证没有副作用
-            fake_sftp.upload_file.assert_not_called()
-            fake_ssh.run.assert_not_called()
+        fake_ssh = MagicMock()
+        fake_sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=fake_ssh, sftp=fake_sftp,
+            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+        )
+        plan = submitter.dry_run(SubmitMode.all)
+        assert plan.dry_run is True
+        assert plan.task_count == 2
+        assert plan.max_parallel == 4
+        assert len(plan.generated_files) > 0
+        assert "setsid" in plan.control_command
+        assert "echo $!" in plan.control_command
+        # 验证没有副作用
+        fake_sftp.upload_file.assert_not_called()
+        fake_ssh.run.assert_not_called()
 
     def test_dry_run_no_uploaded_tasks(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, None, None, 4, "/r", "b1")
-            plan = submitter.dry_run(SubmitMode.all)
-            assert plan.task_count == 0
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
+                                remote_batch_dir="/r", batch_id="b1")
+        plan = submitter.dry_run(SubmitMode.all)
+        assert plan.task_count == 0
 
 
 # ---- submit ------------------------------------------------------------
@@ -307,31 +292,30 @@ class TestSubmit:
 
     def test_submit_no_tasks_returns_error(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            submitter = JobSubmitter(mp, MagicMock(), FakeSFTPWrapper(), 4, "/r", "b1")
-            result = submitter.submit_batch(SubmitMode.all)
-            assert len(result.errors) > 0
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=MagicMock(), sftp=FakeSFTPWrapper(),
+            max_parallel=4, remote_batch_dir="/r", batch_id="b1",
+        )
+        result = submitter.submit_batch(SubmitMode.all)
+        assert len(result.errors) > 0
 
     def test_submit_updates_manifest_to_submitted(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            ssh = self._make_mock_ssh(exit_code=0, stdout="4321")  # chmod succeeds, nohup returns PID
-            sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
-            result = submitter.submit_batch(SubmitMode.all)
-            assert len(result.errors) == 0
-            assert result.updated_task_ids == ["t1"]
-            # re-read manifest and verify status
-            updated = Manifest.read(mp)
-            t1 = next(t for t in updated if t.task_id == "t1")
-            assert t1.status == TaskStatus.submitted
-            assert t1.submitted_at is not None
-            assert t1.scheduler_type == "nohup"
-            assert t1.remote_job_id == "4321"
+        ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
+        sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=ssh, sftp=sftp,
+            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+        )
+        result = submitter.submit_batch(SubmitMode.all)
+        assert len(result.errors) == 0
+        assert result.updated_task_ids == ["t1"]
+        # verify internal task state
+        t1 = next(t for t in submitter._tasks if t.task_id == "t1")
+        assert t1.status == TaskStatus.submitted
+        assert t1.submitted_at is not None
+        assert t1.scheduler_type == "nohup"
+        assert t1.remote_job_id == "4321"
 
     def test_submit_updates_object_tasks_without_manifest(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
@@ -500,68 +484,62 @@ class TestSubmit:
 
     def test_submit_uses_control_subdir_for_all_remote_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
-            sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(
-                mp, ssh, sftp, 4, "/remote/b1", "b1",
-                control_subdir="_batch/g16",
-            )
+        ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
+        sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=ssh, sftp=sftp, max_parallel=4,
+            remote_batch_dir="/remote/b1", batch_id="b1",
+            control_subdir="_batch/g16",
+        )
 
-            result = submitter.submit_batch(SubmitMode.all)
+        result = submitter.submit_batch(SubmitMode.all)
 
-            assert result.errors == []
-            uploaded_paths = [call.args[1] for call in sftp.upload_file.call_args_list]
-            assert "/remote/b1/_batch/g16/tasks.tsv" in uploaded_paths
-            assert "/remote/b1/_batch/g16/batch_control.sh" in uploaded_paths
-            assert "/remote/b1/_batch/g16/launch_t1.sh" in uploaded_paths
-            assert "/remote/b1/_batch/tasks.tsv" not in uploaded_paths
-            assert any("cd /remote/b1/_batch/g16" in c.args[0] for c in ssh.run.call_args_list)
+        assert result.errors == []
+        uploaded_paths = [call.args[1] for call in sftp.upload_file.call_args_list]
+        assert "/remote/b1/_batch/g16/tasks.tsv" in uploaded_paths
+        assert "/remote/b1/_batch/g16/batch_control.sh" in uploaded_paths
+        assert "/remote/b1/_batch/g16/launch_t1.sh" in uploaded_paths
+        assert "/remote/b1/_batch/tasks.tsv" not in uploaded_paths
+        assert any("cd /remote/b1/_batch/g16" in c.args[0] for c in ssh.run.call_args_list)
 
     def test_submit_chmod_failure_no_manifest_update(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            ssh = self._make_mock_ssh(exit_code=1, stderr="chmod: permission denied")
-            sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
-            result = submitter.submit_batch(SubmitMode.all)
-            assert len(result.errors) > 0
-            assert "chmod" in result.errors[0].lower()
-            # Manifest not updated
-            updated = Manifest.read(mp)
-            t1 = next(t for t in updated if t.task_id == "t1")
-            assert t1.status == TaskStatus.uploaded
+        ssh = self._make_mock_ssh(exit_code=1, stderr="chmod: permission denied")
+        sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=ssh, sftp=sftp,
+            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+        )
+        result = submitter.submit_batch(SubmitMode.all)
+        assert len(result.errors) > 0
+        assert "chmod" in result.errors[0].lower()
+        # Task status unchanged
+        t1 = next(t for t in submitter._tasks if t.task_id == "t1")
+        assert t1.status == TaskStatus.uploaded
 
     def test_submit_nohup_failure_marks_manifest_uncertain(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, tasks)
-            ssh = MagicMock()
-            ssh.run = MagicMock(side_effect=[
-                SSHResult("chmod", 0, "", "", 0.01),  # chmod ok
-                SSHResult("nohup", 1, "", "nohup failed", 0.01),  # nohup fails
-            ])
-            sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
-            result = submitter.submit_batch(SubmitMode.all)
-            assert len(result.errors) > 0
-            updated = Manifest.read(mp)
-            t1 = next(t for t in updated if t.task_id == "t1")
-            assert t1.status == TaskStatus.uncertain
-            assert t1.submitted_at is not None
-            assert t1.error_message == "nohup start failed: nohup failed"
+        ssh = MagicMock()
+        ssh.run = MagicMock(side_effect=[
+            SSHResult("chmod", 0, "", "", 0.01),  # chmod ok
+            SSHResult("nohup", 1, "", "nohup failed", 0.01),  # nohup fails
+        ])
+        sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=ssh, sftp=sftp,
+            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+        )
+        result = submitter.submit_batch(SubmitMode.all)
+        assert len(result.errors) > 0
+        t1 = next(t for t in submitter._tasks if t.task_id == "t1")
+        assert t1.status == TaskStatus.uncertain
+        assert t1.submitted_at is not None
+        assert t1.error_message == "nohup start failed: nohup failed"
 
     def test_max_parallel_must_be_positive(self):
         with pytest.raises(ValueError, match="max_parallel"):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                mp = Path(tmpdir) / "manifest.tsv"
-                _write_manifest(mp, [])
-                JobSubmitter(mp, None, None, 0, "/r", "b1")
+            JobSubmitter(ssh=None, sftp=None, max_parallel=0,
+                        remote_batch_dir="/r", batch_id="b1", tasks=[])
 
     def test_remote_paths_are_quoted(self):
         """验证 launch 脚本中的路径使用了 shlex.quote。"""
@@ -597,16 +575,17 @@ class TestSubmit:
 
 class TestSubmitResult:
     def test_result_has_control_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mp = Path(tmpdir) / "manifest.tsv"
-            _write_manifest(mp, [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")])
-            ssh = _MockSSHForSubmit(
-                SSHResult("", 0, "4321", "", 0.01)
-            )
-            sftp = FakeSFTPWrapper()
-            submitter = JobSubmitter(mp, ssh, sftp, 4, "/remote/b1", "b1")
-            result = submitter.submit_batch(SubmitMode.all)
-            assert result.control_script_path == "/remote/b1/_batch/batch_control.sh"
-            assert result.control_log_path == "/remote/b1/_batch/batch_control.nohup.log"
-            assert result.control_nohup_log_path == "/remote/b1/_batch/batch_control.nohup.log"
-            assert "nohup" in result.nohup_command
+        tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
+        ssh = _MockSSHForSubmit(
+            SSHResult("", 0, "4321", "", 0.01)
+        )
+        sftp = FakeSFTPWrapper()
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=ssh, sftp=sftp,
+            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+        )
+        result = submitter.submit_batch(SubmitMode.all)
+        assert result.control_script_path == "/remote/b1/_batch/batch_control.sh"
+        assert result.control_log_path == "/remote/b1/_batch/batch_control.nohup.log"
+        assert result.control_nohup_log_path == "/remote/b1/_batch/batch_control.nohup.log"
+        assert "nohup" in result.nohup_command

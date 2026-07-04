@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..core.lifecycle import TaskStatus
-from ..core.manifest import Manifest, TaskRecord
+from ..core.manifest import TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -35,7 +35,7 @@ class JobSubmitter:
 
     用法:
         submitter = JobSubmitter(
-            manifest_path=Path("manifest.tsv"),
+            tasks=[...],
             ssh=ssh,
             sftp=sftp,
             max_parallel=4,
@@ -48,7 +48,6 @@ class JobSubmitter:
 
     def __init__(
         self,
-        manifest_path: Path | None = None,
         ssh=None,     # SSHClientWrapper
         sftp=None,    # SFTPClientWrapper
         max_parallel: int = 1,
@@ -63,10 +62,11 @@ class JobSubmitter:
         task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
         remote_started_callback: Callable[[list[str]], None] | None = None,
     ):
+        if tasks is None:
+            raise ValueError("tasks is required")
         if max_parallel < 1:
             raise ValueError(f"max_parallel 必须 >= 1，当前值: {max_parallel}")
-        self._manifest_path = manifest_path
-        self._tasks = [task.model_copy(deep=True) for task in tasks] if tasks is not None else None
+        self._tasks = [task.model_copy(deep=True) for task in tasks]
         self._ssh = ssh
         self._sftp = sftp
         self._max_parallel = max_parallel
@@ -537,17 +537,11 @@ class JobSubmitter:
         self._persist_tasks(all_tasks, result)
 
     def _all_tasks(self) -> list[TaskRecord]:
-        if self._tasks is not None:
-            return [task.model_copy(deep=True) for task in self._tasks]
-        if self._manifest_path is None:
-            raise ValueError("manifest_path or tasks is required")
-        return Manifest.read(self._manifest_path)
+        return [task.model_copy(deep=True) for task in self._tasks]
 
     def _persist_tasks(self, tasks: list[TaskRecord], result: SubmitResult) -> None:
         self._tasks = [task.model_copy(deep=True) for task in tasks]
         result.updated_tasks = [task.model_copy(deep=True) for task in tasks]
-        if self._manifest_path is not None:
-            Manifest.write(self._manifest_path, tasks)
 
 
 def _scheduler_type(scheduler) -> str:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import threading
 from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -23,10 +22,15 @@ from .run_repository import (
     _lexical_absolute,
     _reject_reparse_chain,
 )
+from .submit_ownership import (
+    SUBMIT_HEARTBEAT_INTERVAL,
+    SUBMIT_LEASE_SECONDS,
+    _CheckpointSink,
+    _SubmitOwnershipGuard,
+)
 
-SUBMIT_LEASE_SECONDS = 60.0
-SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_LEASE_SECONDS / 3
-
+# re-export so tests can patch run_service.SUBMIT_HEARTBEAT_INTERVAL
+SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_HEARTBEAT_INTERVAL
 
 class RunService:
     def __init__(self, workspace_dir: str | Path | None = None, runs_dir: str | Path | None = None):
@@ -166,125 +170,48 @@ class RunService:
         primary_error: Exception | None = None
         recovery_diagnostics: list[str] = []
         release_diagnostics: list[str] = []
-        lease_stop = threading.Event()
-        lease_lost = threading.Event()
-        active_operation_ids = {operation.operation_id for operation in operations}
-        active_lock = threading.Lock()
 
-        def renew_active_leases() -> bool:
-            with active_lock:
-                operation_ids = tuple(active_operation_ids)
-            for operation_id in operation_ids:
-                if not self.repository.renew_submit_lease(
-                    operation_id, owner_id, lease_seconds=lease_seconds
-                ):
-                    lease_lost.set()
-                    return False
-            return True
-
-        def heartbeat() -> None:
-            while not lease_stop.wait(SUBMIT_HEARTBEAT_INTERVAL):
-                try:
-                    if not renew_active_leases():
-                        return
-                except Exception:
-                    lease_lost.set()
-                    return
-
-        heartbeat_thread = threading.Thread(
-            target=heartbeat, name=f"submit-lease-{run_id}", daemon=True
-        )
-        heartbeat_thread.start()
-
-        def stop_heartbeat() -> None:
-            lease_stop.set()
-            heartbeat_thread.join()
         try:
-            operation_by_task = {}
-            for operation in operations:
-                task_ids = operation.payload.get("task_ids")
-                if not isinstance(task_ids, list):
-                    raise RuntimeError(
-                        f"submit operation has invalid task ids: {operation.operation_id}"
-                    )
-                for task_id in task_ids:
-                    operation_by_task[str(task_id)] = operation
+            with _SubmitOwnershipGuard(
+                self.repository,
+                [op.operation_id for op in operations],
+                owner_id,
+                lease_seconds=lease_seconds,
+            ) as guard:
+                operation_by_task: dict[str, object] = {}
+                for operation in operations:
+                    task_ids = operation.payload.get("task_ids")
+                    if not isinstance(task_ids, list):
+                        raise RuntimeError(
+                            f"submit operation has invalid task ids: {operation.operation_id}"
+                        )
+                    for task_id in task_ids:
+                        operation_by_task[str(task_id)] = operation
 
-            def checkpoint_task_updates(updates: list[TaskRecord]) -> None:
-                groups: dict[str, list[TaskRecord]] = {}
-                for update in updates:
-                    operation = operation_by_task[update.task_id]
-                    groups.setdefault(operation.operation_id, []).append(update)
-                for operation_id, changed in groups.items():
-                    if lease_lost.is_set() or not self.repository.renew_submit_lease(
-                        operation_id, owner_id, lease_seconds=lease_seconds
-                    ):
-                        lease_lost.set()
-                        raise RuntimeError(
-                            f"submit operation ownership lost: {operation_id}"
-                        )
-                    error = next(
-                        (
-                            task.error_message
-                            for task in changed
-                            if task.status == TaskStatus.uncertain
-                        ),
-                        None,
-                    )
-                    if not self.repository.finish_submit_operation(
-                        operation_id,
-                        task_ids=[task.task_id for task in changed],
-                        job_ids={
-                            task.task_id: task.remote_job_id
-                            for task in changed
-                            if task.remote_job_id is not None
-                        },
-                        error=error,
-                        owner_id=owner_id,
-                    ):
-                        raise RuntimeError(
-                            f"submit operation could not finish: {operation_id}"
-                        )
-                    with active_lock:
-                        active_operation_ids.discard(operation_id)
+                sink = _CheckpointSink(
+                    repository=self.repository,
+                    guard=guard,
+                    operation_by_task=operation_by_task,
+                )
 
-            def checkpoint_remote_started(task_ids: list[str]) -> None:
-                operation_ids = {
-                    operation_by_task[task_id].operation_id for task_id in task_ids
-                }
-                for operation_id in operation_ids:
-                    if lease_lost.is_set() or not self.repository.renew_submit_lease(
-                        operation_id, owner_id, lease_seconds=lease_seconds
-                    ):
-                        lease_lost.set()
-                        raise RuntimeError(
-                            f"submit operation ownership lost: {operation_id}"
-                        )
-                    if not self.repository.start_submit_operation(
-                        operation_id, owner_id=owner_id
-                    ):
-                        raise RuntimeError(
-                            f"submit operation could not start: {operation_id}"
-                        )
-
-            self.repository.update_run(record)
-            submitter = JobSubmitter(
-                tasks=tasks,
-                ssh=ssh,
-                sftp=sftp,
-                max_parallel=record.max_parallel,
-                remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
-                batch_id=record.run_id,
-                env_init_scripts=list(env_init_scripts),
-                scheduler=scheduler,
-                resources=resources,
-                task_update_callback=checkpoint_task_updates,
-                remote_started_callback=checkpoint_remote_started,
-            )
-            result = submitter.submit_batch()
+                self.repository.update_run(record)
+                submitter = JobSubmitter(
+                    tasks=tasks,
+                    ssh=ssh,
+                    sftp=sftp,
+                    max_parallel=record.max_parallel,
+                    remote_batch_dir=remote_run_dir(record.remote_dir, record.run_id),
+                    batch_id=record.run_id,
+                    env_init_scripts=list(env_init_scripts),
+                    scheduler=scheduler,
+                    resources=resources,
+                    task_update_callback=sink.update_tasks,
+                    remote_started_callback=sink.mark_remote_started,
+                )
+                result = submitter.submit_batch()
         except Exception as exc:
             primary_error = exc
-            stop_heartbeat()
+            guard.stop_heartbeat()
             for operation in operations:
                 try:
                     self.repository.recover_submit_operation(
@@ -297,7 +224,7 @@ class RunService:
                     )
             raise
         finally:
-            stop_heartbeat()
+            guard.stop_heartbeat()
             for operation in operations:
                 try:
                     self.repository.release_claimed_submit_operation(

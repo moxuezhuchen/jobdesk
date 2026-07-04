@@ -104,7 +104,7 @@ def test_run_service_has_no_manifest_to_database_writeback() -> None:
 
 
 def test_run_repository_has_no_unjournaled_lifecycle_entry_points() -> None:
-    path = _SRC_ROOT / "services" / "run_repository.py"
+    path = _SRC_ROOT / "services" / "run_repository" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     repository = next(
         node
