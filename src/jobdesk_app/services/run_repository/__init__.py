@@ -43,7 +43,7 @@ from ._runs import (
 
 # Public re-exports (same names as original single-file module).
 from ._schema import (
-    SCHEMA_VERSION,
+    SCHEMA_VERSION as SCHEMA_VERSION,  # noqa: F401 - explicit re-export
     _create_tables,
     _migrate_v1_to_v2,
     _migrate_v2_to_v3,
