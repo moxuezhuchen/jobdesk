@@ -34,33 +34,49 @@ from ._operations import (
 from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
 from ._runs import (
     create_run as _create_run,
+)
+from ._runs import (
     incomplete_delete_run_ids,
+)
+from ._runs import (
     list_runs as _list_runs,
+)
+from ._runs import (
     load_run as _load_run,
+)
+from ._runs import (
     load_tasks as _load_tasks,
+)
+from ._runs import (
     update_run as _update_run,
 )
 
 # Public re-exports (same names as original single-file module).
 from ._schema import (
     SCHEMA_VERSION as SCHEMA_VERSION,  # noqa: F401 - explicit re-export
+)
+from ._schema import (
+    SCHEMA_VERSION as _SCHEMA_VERSION,
+)
+from ._schema import (
     _create_tables,
     _migrate_v1_to_v2,
     _migrate_v2_to_v3,
     _migrate_v3_to_v4,
 )
-from ._schema import SCHEMA_VERSION as _SCHEMA_VERSION
 from ._submit import (
     acquire_submit_recovery,
     claim_submit_tasks,
     complete_submit_operation,
     finish_submit_operation,
-    record_submit_outcome as _record_submit_outcome,
     recover_submit_operation,
     release_claimed_submit_operation,
     renew_submit_lease,
     resolve_uncertain_tasks,
     start_submit_operation,
+)
+from ._submit import (
+    record_submit_outcome as _record_submit_outcome,
 )
 from ._tasks import merge_tasks, mutate_tasks
 from ._workspaces import delete_operation_workspace, list_workspace_roots

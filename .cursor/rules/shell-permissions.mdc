@@ -1,0 +1,18 @@
+---
+description: Shell tool always needs all permissions
+alwaysApply: true
+---
+
+# Shell Tool Configuration
+
+Every Shell tool call MUST include `required_permissions: ["all"]` to avoid being silently blocked by the sandbox.
+
+```python
+# Correct
+Shell(command="git status", required_permissions=["all"])
+
+# Incorrect - will silently fail
+Shell(command="git status")
+```
+
+This is a workspace-level requirement for this environment.
