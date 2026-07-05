@@ -36,6 +36,23 @@ from ..worker_utils import WorkerContext, start_context_worker
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
+# Colour coding for agent job statuses (module-level so it's accessible everywhere)
+_STATUS_COLOR: dict[str, Any] = {}  # filled in after Qt is ready
+
+
+def _init_status_colors():
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+    _STATUS_COLOR.update({
+        "pending":    QColor("#9ca3af"),
+        "running":     QColor("#2563eb"),
+        "paused":      QColor("#d97706"),
+        "completed":   QColor("#16a34a"),
+        "failed":      QColor("#dc2626"),
+        "cancelled":   QColor("#9ca3af"),
+        "unknown":     Qt.black,
+    })
+
 
 def _format_status(summary: dict[str, int], language: str = "en") -> str:
     if not summary:
@@ -77,11 +94,12 @@ class RunsResultsPage(QWidget):
     startup_recovery_failed = Signal(str)
     startup_recovery_finished = Signal()
 
-    def __init__(self, state, log_cb, status_cb, coordinator_factory=None):
+    def __init__(self, state, log_cb, status_cb, error_cb=None, coordinator_factory=None):
         super().__init__()
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
+        self._error_cb = error_cb or (lambda t, m: None)
         self._coordinator_factory = coordinator_factory
         self._language = GuiSettingsStore().load().language
         self._shutting_down = False
@@ -161,6 +179,65 @@ class RunsResultsPage(QWidget):
         top_layout.addWidget(btn_card)
         splitter.addWidget(top)
 
+        # ─── Agent Jobs card ─────────────────────────────────────────────
+        self._agent_card = QWidget()
+        self._agent_card.setObjectName("AgentCard")
+        self._agent_card.setStyleSheet(
+            "#AgentCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            " #AgentCard QLabel { background: transparent; }"
+        )
+        self._agent_card.setVisible(False)
+        agent_card_layout = QVBoxLayout(self._agent_card)
+        agent_card_layout.setContentsMargins(16, 12, 16, 12)
+        agent_card_layout.setSpacing(6)
+
+        agent_header = QHBoxLayout()
+        agent_title = QLabel(tr("ConfFlow Agent Jobs", self._language))
+        agent_title.setStyleSheet("color: #111827; font-weight: 600; font-size: 13px;")
+        agent_header.addWidget(agent_title)
+        agent_header.addStretch()
+        self._agent_refresh_btn = QPushButton(tr("Refresh", self._language))
+        self._agent_refresh_btn.clicked.connect(self._poll_agent_jobs)
+        agent_header.addWidget(self._agent_refresh_btn)
+        agent_card_layout.addLayout(agent_header)
+
+        self._agent_table = StyledTableWidget()
+        self._agent_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._agent_table.verticalHeader().setVisible(False)
+        self._agent_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._agent_table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self._agent_table.setColumnCount(5)
+        self._agent_table.setHorizontalHeaderLabels([
+            tr("Job ID", self._language),
+            tr("Status", self._language),
+            tr("Step", self._language),
+            tr("Progress", self._language),
+            tr("Work Dir", self._language),
+        ])
+        self._agent_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self._agent_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._agent_table.customContextMenuRequested.connect(self._agent_context_menu)
+        agent_card_layout.addWidget(self._agent_table)
+
+        # Agent action buttons
+        agent_btn_row = QHBoxLayout()
+        agent_btn_row.setContentsMargins(0, 0, 0, 0)
+        self._agent_pause_btn = QPushButton(tr("Pause", self._language))
+        self._agent_pause_btn.clicked.connect(self._agent_pause)
+        agent_btn_row.addWidget(self._agent_pause_btn)
+        self._agent_resume_btn = QPushButton(tr("Resume", self._language))
+        self._agent_resume_btn.clicked.connect(self._agent_resume)
+        agent_btn_row.addWidget(self._agent_resume_btn)
+        self._agent_cancel_btn = QPushButton(tr("Cancel", self._language))
+        self._agent_cancel_btn.clicked.connect(self._agent_cancel)
+        agent_btn_row.addWidget(self._agent_cancel_btn)
+        self._agent_download_btn = QPushButton(tr("Download", self._language))
+        self._agent_download_btn.clicked.connect(self._agent_download)
+        agent_btn_row.addWidget(self._agent_download_btn)
+        agent_btn_row.addStretch()
+        agent_card_layout.addLayout(agent_btn_row)
+        splitter.addWidget(self._agent_card)
+
         # ─── Bottom: Results preview ───
         bottom = QWidget()
         bottom.setObjectName("ResultsCard")
@@ -233,6 +310,14 @@ class RunsResultsPage(QWidget):
         self._applied_batch_id: str | None = None
 
         self._session_pool = SessionPool(create_ssh_client, create_sftp_client)
+
+        # ─── Agent Jobs view ────────────────────────────────────────────
+        self._agent_server_id: str | None = None
+        self._agent_job_ids: list[str] = []
+        self._agent_polling_timer = QTimer(self)
+        self._agent_polling_timer.setInterval(5000)
+        self._agent_polling_timer.timeout.connect(self._poll_agent_jobs)
+        _init_status_colors()
 
     def _start_monitoring(self):
         """Watch all running runs."""
@@ -380,6 +465,168 @@ class RunsResultsPage(QWidget):
         self._recovery_running = False
         self._recovery_complete = True
         self.startup_recovery_finished.emit()
+
+    # ─── Agent Jobs ─────────────────────────────────────────────────────────────
+
+    def show_agent_jobs(self, job_ids: list[str], server_id: str) -> None:
+        """Switch to the agent view and begin polling for the given jobs."""
+        self._agent_server_id = server_id
+        self._agent_job_ids = list(job_ids)
+        # Show agent card, hide runs table card
+        self._show_agent_view(True)
+        self._poll_agent_jobs()
+
+    def _show_agent_view(self, show: bool) -> None:
+        """Toggle between the runs list (False) and the agent jobs card (True)."""
+        self._agent_card.setVisible(show)
+        self._refresh_timer.stop()
+
+    def _poll_agent_jobs(self) -> None:
+        """Poll the remote agent for current job statuses and update the table."""
+        if not self._agent_server_id:
+            return
+        if self._shutting_down:
+            return
+        srv = self._agent_server_id
+        self._poll_agent_once(srv)
+
+    def _poll_agent_once(self, server_id: str) -> None:
+        """Fetch job list from agent and update the agent table."""
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(server_id)
+            return bridge.parse_jobs()
+
+        def _on_done(jobs):
+            self._render_agent_table(jobs)
+            # Keep polling while any job is pending or running
+            still_active = any(j.status in ("pending", "running") for j in jobs)
+            if still_active and not self._shutting_down:
+                self._agent_polling_timer.start()
+            else:
+                self._agent_polling_timer.stop()
+
+        def _on_error(err: str):
+            self._status_cb(f"Agent poll error: {err}")
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_on_done,
+            on_error=_on_error,
+        )
+
+    def _render_agent_table(self, jobs: list) -> None:
+        """Render the current agent job list into the agent table."""
+        if not hasattr(self, "_agent_table"):
+            return
+        self._agent_table.blockSignals(True)
+        self._agent_table.setRowCount(len(jobs))
+        for row, job in enumerate(jobs):
+            self._agent_table.setItem(row, 0, QTableWidgetItem(job.job_id))
+            status_item = QTableWidgetItem(job.status)
+            # Colour-code status
+            status_item.setForeground(_STATUS_COLOR.get(job.status, Qt.black))
+            self._agent_table.setItem(row, 1, status_item)
+            self._agent_table.setItem(row, 2, QTableWidgetItem(job.step))
+            self._agent_table.setItem(row, 3, QTableWidgetItem(f"{job.progress_pct}%"))
+            self._agent_table.setItem(row, 4, QTableWidgetItem(job.work_dir))
+        self._agent_table.blockSignals(False)
+        self._agent_table.resizeColumnsToContents()
+
+    def _agent_selected_job(self) -> str | None:
+        """Return the job_id of the currently selected agent row, or None."""
+        row = self._agent_table.currentRow()
+        if row < 0:
+            return None
+        item = self._agent_table.item(row, 0)
+        return item.text() if item else None
+
+    def _agent_pause(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "pause", tr("Pause", self._language))
+
+    def _agent_resume(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "resume", tr("Resume", self._language))
+
+    def _agent_cancel(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "cancel", tr("Cancel", self._language))
+
+    def _agent_action(self, job_id: str, action: str, label: str) -> None:
+        """Run a pause/resume/cancel action on the selected job."""
+        srv = self._agent_server_id
+        if not srv:
+            return
+
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(srv)
+            if action == "pause":
+                return bridge.pause_job(job_id)
+            if action == "resume":
+                return bridge.resume_job(job_id)
+            return bridge.cancel_job(job_id)
+
+        def _on_done(result):
+            if result.ok:
+                self._status_cb(result.message)
+                self._poll_agent_jobs()
+            else:
+                self._error_cb(f"Agent {label} error", result.message)
+
+        def _on_error(err: str):
+            self._error_cb(f"Agent {label} error", err)
+
+        start_context_worker(self, target=_run, registry_attr="_bg_workers",
+                            on_result=_on_done, on_error=_on_error)
+
+    def _agent_download(self) -> None:
+        """Download output for the selected agent job to the project root."""
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        srv = self._agent_server_id
+        if not srv:
+            return
+        dest = self.state.current_project_root or Path.cwd()
+        job_dest = dest / f"agent_{job_id}"
+        job_dest.mkdir(parents=True, exist_ok=True)
+
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(srv)
+            return bridge.download_job_output(job_id, job_dest)
+
+        def _on_done(result):
+            if result.ok:
+                self._status_cb(result.message)
+            else:
+                self._error_cb("Download error", result.message)
+
+        def _on_error(err: str):
+            self._error_cb("Download error", err)
+
+        self._status_cb(f"Downloading {job_id} output to {job_dest}...")
+        start_context_worker(self, target=_run, registry_attr="_bg_workers",
+                            on_result=_on_done, on_error=_on_error)
+
+    def _agent_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction(tr("Pause", self._language), self._agent_pause)
+        menu.addAction(tr("Resume", self._language), self._agent_resume)
+        menu.addAction(tr("Cancel", self._language), self._agent_cancel)
+        menu.addSeparator()
+        menu.addAction(tr("Download output", self._language), self._agent_download)
+        menu.exec(self._agent_table.viewport().mapToGlobal(pos))
 
     def apply_language(self, language: str):
         self._language = language

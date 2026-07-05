@@ -50,11 +50,17 @@ class MainWindow(QMainWindow):
         # 3 pages
         self.files_page = FileTransferPage(self.state, self._log, self._update_status,
                                            self.show_error)
-        self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
+        self.runs_page = RunsResultsPage(self.state, self._log, self._update_status,
+                                          error_cb=self.show_error)
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
         self.settings_page.language_changed.connect(self._on_language_changed)
         self.files_page.runs_submitted.connect(
             lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
+        )
+        self.files_page.agent_jobs_submitted.connect(
+            lambda job_ids, srv: (
+                QTimer.singleShot(0, lambda j=job_ids, s=srv: self._show_agent_jobs(j, s))
+            )
         )
         self.runs_page.startup_recovery_failed.connect(self._on_startup_recovery_failed)
         self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
@@ -113,6 +119,15 @@ class MainWindow(QMainWindow):
     def show_error(self, title: str, message: str):
         self._file_logger.error("%s: %s", title, message)
         QMessageBox.critical(self, title, message)
+
+    def _show_agent_jobs(self, job_ids: list[str], server_id: str) -> None:
+        """Navigate to the Runs page and signal agent jobs to refresh."""
+        self.shell.sidebar.blockSignals(True)
+        self.shell.sidebar.set_current(1)
+        self.shell.sidebar.blockSignals(False)
+        self.shell.pages.setCurrentIndex(1)
+        self.shell.page_changed.emit(1)
+        self.runs_page.show_agent_jobs(job_ids, server_id)
 
     def shutdown(self):
         if getattr(self, "_shutdown_done", False):

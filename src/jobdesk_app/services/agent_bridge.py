@@ -1,47 +1,35 @@
-"""AgentBridge — thin wrapper around SFTP + SSH exec for remote agent operations.
+"""AgentBridge — SSH/SFTP bridge for remote confflow-agent operations.
 
-This module provides a high-level interface for the JobDesk GUI and CLI to
-communicate with a remote `confflow-agent` daemon without requiring a dedicated
-port or HTTP server.  All operations are performed over SSH (exec) and SFTP
-(file transfer), consistent with the rest of the JobDesk architecture.
+All communication with the remote agent goes over SSH (paramiko) and SFTP, consistent
+with the rest of the JobDesk architecture. No new TCP port is required on the remote.
 
-Design principles
------------------
-- No new TCP port on the remote — agent communication uses existing SSH channel.
-- Remote agent must already be installed (pip installed with `[agent]` extras).
-- File-based queue (`~/.confflow-queue/`) lives on the remote server.
-- State DB (`~/.local/share/confflow-agent/state.db`) is the source of truth for
-  job status; the CLI reads it directly via `confflow-agent list --all`.
-
-Usage
------
-    bridge = AgentBridge("wsl")   # server_id from servers.yaml
-    result = bridge.install_agent()
-    result = bridge.submit_job("confflow.yaml", "mol.xyz")
-    result = bridge.list_jobs()
-    result = bridge.pause_job("job_abc123")
-    result = bridge.download_job_output("job_abc123", Path("/local/output"))
+Design
+------
+- Reuses SessionPool / SessionLease from jobdesk_app.services.session_pool so that
+  SSH sessions are pooled and reused across bridge operations.
+- `AgentBridge` acquires and releases a SessionLease per operation.
+- For long-running operations (download) the lease is held for the full duration.
+- Remote agent communicates via the file-based queue and state DB; this bridge
+  calls `confflow-agent` CLI over SSH and reads/writes files via SFTP.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import shutil
-import subprocess
-import tempfile
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Local imports (jobdesk_staging itself)
-from ..config.servers import ServerConfig, load_servers
+from ..config.servers import load_servers
+from ..config.schema import ServerConfig
 from .session_pool import SessionLease, SessionPool
+from .ssh_session import create_sftp_client, create_ssh_client
 
 DEFAULT_QUEUE_DIR = "~/.confflow-queue"
 DEFAULT_STATE_DB = "~/.local/share/confflow-agent/state.db"
 DEFAULT_LOG_DIR = "~/.local/log/confflow-agent"
+DEFAULT_AGENT_SLOTS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +38,6 @@ DEFAULT_LOG_DIR = "~/.local/log/confflow-agent"
 
 @dataclass
 class BridgeResult:
-    """Result of a bridge operation."""
     ok: bool
     message: str = ""
     data: dict[str, Any] = field(default_factory=dict)
@@ -68,24 +55,27 @@ class BridgeResult:
 
 
 # ---------------------------------------------------------------------------
+# Job record
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentJob:
+    job_id: str
+    status: str = "unknown"
+    step: str = ""
+    progress_pct: int = 0
+    work_dir: str = ""
+    submitted_at: str = ""
+
+
+# ---------------------------------------------------------------------------
 # AgentBridge
 # ---------------------------------------------------------------------------
 
 class AgentBridge:
     """High-level interface for remote confflow-agent operations.
 
-    Uses the JobDesk SessionPool for SSH/SFTP connections, so sessions are
-    reused across multiple bridge operations within the same process.
-
-    Parameters
-    ----------
-    server_id:
-        Server key in ``servers.yaml`` (e.g. ``"wsl"``, ``"linux-cluster"``).
-    servers_yaml:
-        Path to a custom ``servers.yaml``.  ``None`` uses the default
-        (``~/.jobdesk/servers.yaml``).
-    pool:
-        Optional ``SessionPool`` instance.  ``None`` creates a new one.
+    Acquires a SessionLease per operation so sessions are pooled and reused.
     """
 
     def __init__(
@@ -100,85 +90,77 @@ class AgentBridge:
         if server_id not in servers:
             raise ValueError(f"Unknown server: {server_id!r}. Known: {list(servers)}")
         self.server: ServerConfig = servers[server_id]
-        self._pool = pool or SessionPool()
+        self._pool = pool or SessionPool(
+            ssh_factory=lambda cfg: create_ssh_client(cfg),
+            sftp_factory=create_sftp_client,
+        )
         self._agent_installed: bool | None = None
-        self.server.host: str = str(self.server.host)
 
     # ------------------------------------------------------------------
-    # Low-level SSH helpers
+    # Path helpers
     # ------------------------------------------------------------------
 
-    def _exec(self, cmd: str, check: bool = True) -> subprocess.CompletedProcess:
-        """Execute a command on the remote via SSH and return the result."""
-        result = subprocess.run(
-            ["ssh", self.server.host, cmd],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if check and result.returncode != 0:
-            raise RuntimeError(
-                f"SSH exec failed (exit {result.returncode}): {result.stderr.strip()}"
-            )
-        return result
-
-    def _sftp_get(self, remote_path: str, local_path: Path) -> None:
-        """Download a remote file to a local path via SFTP."""
-        subprocess.run(
-            ["sftp", f"{self.server.host}:{remote_path}", str(local_path.parent)],
-            check=True,
-            capture_output=True,
-        )
-
-    def _sftp_put(self, local_path: Path, remote_path: str) -> None:
-        """Upload a local file to a remote path via SFTP."""
-        subprocess.run(
-            ["sftp", str(local_path), f"{self.server.host}:{remote_path}"],
-            check=True,
-            capture_output=True,
-        )
-
-    def _remote_path(self, path: str | Path) -> str:
-        """Ensure a path is remote-style (expand ~)."""
+    @staticmethod
+    def _remote_path(path: str | Path) -> str:
         p = str(path)
-        if p.startswith("~"):
-            return p
-        if p.startswith("/"):
+        if p.startswith("~") or p.startswith("/"):
             return p
         return f"~/{p}"
 
     # ------------------------------------------------------------------
-    # Session-based helpers (for use within a lease)
+    # Low-level exec via pooled session
     # ------------------------------------------------------------------
 
-    def _lease_exec(
+    def _exec(
         self,
-        lease: SessionLease,
         cmd: str,
+        timeout: int = 120,
         check: bool = True,
     ) -> tuple[int, str, str]:
-        """Execute command over an open SSH session lease. Returns (code, stdout, stderr)."""
-        transport = lease.ssh.get_TRANSPORT()  # type: ignore[attr-defined]
-        channel = transport.open_session()  # type: ignore[attr-defined]
-        channel.exec_command(cmd)
-        stdout_text = channel.makefile("rb").read().decode("utf-8", errors="replace")
-        stderr_text = channel.makefile_stderr("rb").read().decode("utf-8", errors="replace")
-        code = channel.recv_exit_status()
-        if check and code != 0:
-            raise RuntimeError(f"Remote command failed ({code}): {stderr_text.strip()}")
-        return code, stdout_text, stderr_text
+        """Execute a command over SSH using a pooled session. Returns (code, stdout, stderr)."""
+        with self._pool.lease(self.server_id, self.server, need_sftp=False) as lease:
+            result = lease.ssh.run(cmd, timeout=timeout, check=check)
+            return result.exit_code, result.stdout, result.stderr
 
-    def _lease_sftp_get(self, lease: SessionLease, remote_path: str, local_path: Path) -> None:
-        """Download via SFTP session lease."""
-        remote_file = lease.sftp.open(remote_path, "rb")
-        try:
-            local_file = open(local_path, "wb")
+    # ------------------------------------------------------------------
+    # Low-level SFTP helpers (file transfer)
+    # ------------------------------------------------------------------
+
+    def _sftp_read_text(self, remote_path: str) -> str:
+        """Read remote text file content via SFTP lease."""
+        with self._pool.lease(self.server_id, self.server, need_sftp=True) as lease:
+            with lease.sftp.open(remote_path, "rb") as f:
+                return f.read().decode("utf-8", errors="replace")
+
+    def _sftp_write_text(self, remote_path: str, content: str) -> None:
+        """Write text content to a remote file via SFTP lease."""
+        with self._pool.lease(self.server_id, self.server, need_sftp=True) as lease:
+            with lease.sftp.open(remote_path, "wb") as f:
+                f.write(content.encode("utf-8"))
+
+    def _sftp_upload(self, local_path: Path, remote_path: str) -> None:
+        """Upload a local file to a remote path via SFTP lease."""
+        with self._pool.lease(self.server_id, self.server, need_sftp=True) as lease:
+            lease.sftp.put(str(local_path), remote_path)
+
+    def _sftp_download(self, remote_path: str, local_path: Path) -> None:
+        """Download a remote file to a local path via SFTP lease."""
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._pool.lease(self.server_id, self.server, need_sftp=True) as lease:
+            lease.sftp.get(remote_path, str(local_path))
+
+    def _sftp_exists(self, remote_path: str) -> bool:
+        """Check if a remote path exists via SFTP lease."""
+        with self._pool.lease(self.server_id, self.server, need_sftp=True) as lease:
             try:
-                shutil.copyfileobj(remote_file, local_file)
-            finally:
-                local_file.close()
-        finally:
-            remote_file.close()
+                lease.sftp.stat(remote_path)
+                return True
+            except FileNotFoundError:
+                return False
+
+    def _sftp_makedirs(self, remote_path: str) -> None:
+        """Create remote directory (and parents) via SSH exec (SFTP has no makedirs)."""
+        self._exec(f"mkdir -p {shlex.quote(remote_path)}", timeout=30, check=True)
 
     # ------------------------------------------------------------------
     # Agent lifecycle
@@ -189,129 +171,119 @@ class AgentBridge:
         if self._agent_installed is not None:
             return self._agent_installed
         try:
-            result = subprocess.run(
-                ["ssh", self.server.host, "confflow-agent --version"],
-                capture_output=True, text=True, timeout=10,
-            )
-            self._agent_installed = result.returncode == 0
+            code, _, _ = self._exec("confflow-agent --version", timeout=15, check=False)
+            self._agent_installed = code == 0
         except Exception:
             self._agent_installed = False
         return self._agent_installed
+
+    def is_agent_running(self) -> bool:
+        """Check if the agent daemon is currently running on the remote."""
+        if not self.is_agent_installed():
+            return False
+        try:
+            code, out, _ = self._exec(
+                "systemctl --user is-active confflow-agent 2>/dev/null || "
+                "(pgrep -f 'confflow-agent serve' > /dev/null && echo running) || echo stopped",
+                timeout=15, check=False,
+            )
+            status = out.strip()
+            return status in ("active", "running")
+        except Exception:
+            return False
 
     def install_agent(
         self,
         queue_dir: str = DEFAULT_QUEUE_DIR,
         state_db: str = DEFAULT_STATE_DB,
-        slots: int = 2,
-        pip_extra: str = "agent",
+        slots: int = DEFAULT_AGENT_SLOTS,
     ) -> BridgeResult:
-        """Install and enable the agent on the remote via SSH.
-
-        Uses ``pip install "jobdesk[agent]"`` and optionally sets up a
-        systemd user service (if systemd is available and lingering is enabled).
-
-        Returns
-        -------
-        BridgeResult
-            ``ok=True`` if installation succeeded.
-        """
+        """Install jobdesk[agent] on the remote and create required directories."""
         if self.is_agent_installed():
             return BridgeResult.success(f"Agent already installed on {self.server_id}")
 
         remote_cmds = [
-            # Upgrade pip first
-            f"python3 -m pip install --user --upgrade pip",
-            # Install jobdesk with agent extras
-            f'python3 -m pip install --user "jobdesk[{pip_extra}]"',
+            "python3 -m pip install --user --upgrade pip",
+            f'python3 -m pip install --user "jobdesk[agent]"',
         ]
-
         for cmd in remote_cmds:
-            result = subprocess.run(
-                ["ssh", self.server.host, cmd],
-                capture_output=True, text=True, timeout=120,
-            )
-            if result.returncode != 0:
-                return BridgeResult.failure(
-                    f"Installation command failed: {cmd}\n{result.stderr.strip()}"
-                )
+            try:
+                self._exec(cmd, timeout=180)
+            except RuntimeError as exc:
+                return BridgeResult.failure(f"Install failed: {exc}")
 
-        # Try to enable systemd lingering (Tier 2 fallback mechanism)
-        subprocess.run(
-            ["ssh", self.server.host,
-             "systemd-logind-ctl enable-linger $(whoami) 2>/dev/null || true"],
-            capture_output=True, timeout=30,
+        # Ensure directories exist
+        self._sftp_makedirs(self._remote_path(queue_dir))
+        state_db_dir = str(Path(self._remote_path(state_db)).parent)
+        self._sftp_makedirs(state_db_dir)
+
+        # Best-effort systemd lingering
+        self._exec(
+            "systemd-logind-ctl enable-linger $(whoami) 2>/dev/null || true",
+            timeout=30, check=False,
         )
 
         self._agent_installed = True
         return BridgeResult.success(
             f"Agent installed on {self.server_id}. "
-            f"Run: confflow-agent serve --queue-dir {queue_dir} --state-db {state_db} --slots {slots}"
+            f"Start: confflow-agent serve --queue-dir {queue_dir} "
+            f"--state-db {state_db} --slots {slots}"
         )
 
     def start_agent(
         self,
         queue_dir: str = DEFAULT_QUEUE_DIR,
         state_db: str = DEFAULT_STATE_DB,
-        slots: int = 2,
-        use_systemd: bool = True,
+        slots: int = DEFAULT_AGENT_SLOTS,
     ) -> BridgeResult:
-        """Start the agent daemon on the remote.
-
-        If ``use_systemd=True`` (default), attempts to start via
-        ``systemctl --user start confflow-agent``.  Falls back to
-        direct ``confflow-agent serve`` via nohup otherwise.
-        """
+        """Start the agent daemon on the remote (systemd preferred, nohup fallback)."""
         if not self.is_agent_installed():
             return BridgeResult.failure(
-                f"Agent not installed on {self.server_id}. Run: jobdesk agent install"
+                f"Agent not installed. Run: jobdesk agent install --server {self.server_id}"
             )
 
-        if use_systemd:
-            result = subprocess.run(
-                ["ssh", self.server.host,
-                 f"systemctl --user start confflow-agent 2>/dev/null"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if result.returncode == 0:
-                return BridgeResult.success(f"Agent started via systemd on {self.server_id}")
-
-        # Fallback: direct serve
-        serve_cmd = (
-            f"mkdir -p {self._remote_path(queue_dir)} {self._remote_path(state_db)} && "
-            f"nohup confflow-agent serve "
-            f"--queue-dir {self._remote_path(queue_dir)} "
-            f"--state-db {self._remote_path(state_db)} "
-            f"--slots {slots} "
-            f"> {self._remote_path(DEFAULT_LOG_DIR)}/agent.log 2>&1 &"
+        # systemd first
+        code, _, _ = self._exec(
+            "systemctl --user start confflow-agent 2>/dev/null",
+            timeout=30, check=False,
         )
-        subprocess.run(["ssh", self.server.host, serve_cmd], timeout=30)
+        if code == 0:
+            return BridgeResult.success(f"Agent started via systemd on {self.server_id}")
+
+        # nohup fallback
+        self._sftp_makedirs(self._remote_path(queue_dir))
+        state_db_dir = str(Path(self._remote_path(state_db)).parent)
+        self._sftp_makedirs(state_db_dir)
+        log_dir = str(Path(self._remote_path(DEFAULT_LOG_DIR)).parent)
+        self._sftp_makedirs(log_dir)
+
+        log_file = f"{self._remote_path(DEFAULT_LOG_DIR)}/agent.log"
+        serve_cmd = (
+            f"nohup confflow-agent serve "
+            f"--queue-dir {shlex.quote(self._remote_path(queue_dir))} "
+            f"--state-db {shlex.quote(self._remote_path(state_db))} "
+            f"--slots {slots} "
+            f"> {shlex.quote(log_file)} 2>&1 &"
+        )
+        self._exec(serve_cmd, timeout=30, check=False)
         return BridgeResult.success(f"Agent started via nohup on {self.server_id}")
 
     def stop_agent(self) -> BridgeResult:
         """Stop the agent daemon on the remote."""
-        if not self.is_agent_installed():
-            return BridgeResult.failure(f"Agent not installed on {self.server_id}")
-
         for method in [
-            f"systemctl --user stop confflow-agent 2>/dev/null",
-            f"pkill -f 'confflow-agent serve' 2>/dev/null || true",
+            "systemctl --user stop confflow-agent 2>/dev/null || true",
+            "pkill -f 'confflow-agent serve' 2>/dev/null || true",
         ]:
-            subprocess.run(["ssh", self.server.host, method], timeout=30)
+            self._exec(method, timeout=30, check=False)
         return BridgeResult.success(f"Agent stopped on {self.server_id}")
 
     def get_agent_status(self) -> BridgeResult:
-        """Check if the agent daemon is running on the remote."""
+        """Get daemon status as a human-readable string."""
         if not self.is_agent_installed():
             return BridgeResult.failure(f"Agent not installed on {self.server_id}")
-
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             "systemctl --user is-active confflow-agent 2>/dev/null || "
-             "pgrep -f 'confflow-agent serve' > /dev/null && echo running || echo stopped"],
-            capture_output=True, text=True, timeout=15,
-        )
-        status = result.stdout.strip()
-        return BridgeResult.success(f"Agent status on {self.server_id}: {status}")
+        running = self.is_agent_running()
+        status = "running" if running else "stopped"
+        return BridgeResult.success(f"Agent on {self.server_id}: {status}")
 
     # ------------------------------------------------------------------
     # Job operations
@@ -323,106 +295,165 @@ class AgentBridge:
         input_remote: str,
         job_id: str | None = None,
     ) -> BridgeResult:
-        """Submit a job to the remote agent via SFTP + SSH exec.
+        """Submit a job to the remote agent queue.
 
         Parameters
         ----------
         config_remote:
-            Remote path to the workflow YAML config file.
+            Remote path to the workflow YAML config.
         input_remote:
             Remote path to the input XYZ file.
         job_id:
-            Optional custom job ID.  If ``None`` the agent auto-generates one.
+            Optional custom job ID (auto-generated if None).
         """
-        cmd = "confflow-agent submit " + " ".join([
-            f'"{config_remote}"',
-            f'"{input_remote}"',
-            f"--job-id {job_id}" if job_id else "",
-        ])
-        result = subprocess.run(
-            ["ssh", self.server.host, cmd.strip()],
-            capture_output=True, text=True, timeout=60,
-        )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Submit failed: {result.stderr.strip()}")
-        # Parse job_id from output: "Job <job_id> submitted to queue."
-        match = re.search(r"Job (\S+) submitted", result.stdout)
+        if not self.is_agent_running():
+            return BridgeResult.failure(
+                f"Agent not running on {self.server_id}. "
+                f"Run: jobdesk agent start --server {self.server_id}"
+            )
+        parts = [
+            shlex.quote(config_remote),
+            shlex.quote(input_remote),
+        ]
+        if job_id:
+            parts.append(f"--job-id {shlex.quote(job_id)}")
+        cmd = "confflow-agent submit " + " ".join(parts)
+        try:
+            code, stdout, stderr = self._exec(cmd, timeout=60, check=False)
+        except RuntimeError as exc:
+            return BridgeResult.failure(f"SSH error: {exc}")
+
+        if code != 0:
+            return BridgeResult.failure(f"Submit failed: {stderr.strip()}")
+        match = re.search(r"Job (\S+) submitted", stdout)
         submitted_id = match.group(1) if match else (job_id or "?")
-        return BridgeResult.success(f"Job {submitted_id} submitted to queue on {self.server_id}")
+        return BridgeResult.success(
+            f"Job {submitted_id} submitted to queue on {self.server_id}",
+            job_id=submitted_id,
+        )
 
     def list_jobs(self, no_all: bool = False) -> BridgeResult:
         """List jobs tracked by the remote agent."""
         extra = "" if no_all else "--all"
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent list {extra} 2>/dev/null"],
-            capture_output=True, text=True, timeout=30,
+        try:
+            code, stdout, stderr = self._exec(
+                f"confflow-agent list {extra} 2>/dev/null",
+                timeout=30, check=False,
+            )
+        except RuntimeError as exc:
+            return BridgeResult.failure(f"SSH error: {exc}")
+        if code != 0:
+            return BridgeResult.failure(f"List failed: {stderr.strip()}")
+        return BridgeResult.success(stdout.strip())
+
+    def parse_jobs(self) -> list[AgentJob]:
+        """Parse `confflow-agent list --all` into AgentJob objects."""
+        code, stdout, _ = self._exec(
+            "confflow-agent list --all 2>/dev/null", timeout=30, check=False,
         )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"List failed: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout.strip())
+        if code != 0:
+            return []
+        jobs: list[AgentJob] = []
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+            parts = line.strip().split(None, 5)
+            if len(parts) < 2:
+                continue
+            job = AgentJob(
+                job_id=parts[0],
+                status=parts[1],
+                step=parts[2] if len(parts) > 2 else "",
+                progress_pct=int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0,
+                work_dir=parts[4] if len(parts) > 4 else "",
+                submitted_at=parts[5] if len(parts) > 5 else "",
+            )
+            jobs.append(job)
+        return jobs
 
     def get_job_status(self, job_id: str) -> BridgeResult:
-        """Get the status of a specific job."""
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent status {job_id}"],
-            capture_output=True, text=True, timeout=30,
+        """Get status text for a specific job."""
+        try:
+            code, stdout, stderr = self._exec(
+                f"confflow-agent status {shlex.quote(job_id)}",
+                timeout=30, check=False,
+            )
+        except RuntimeError as exc:
+            return BridgeResult.failure(f"SSH error: {exc}")
+        if code != 0:
+            return BridgeResult.failure(f"Status failed: {stderr.strip()}")
+        return BridgeResult.success(stdout.strip())
+
+    def get_job(self, job_id: str) -> AgentJob | None:
+        """Get a single job record by parsing status output."""
+        code, stdout, _ = self._exec(
+            f"confflow-agent status {shlex.quote(job_id)} 2>/dev/null",
+            timeout=30, check=False,
         )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Status failed: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout.strip())
+        if code != 0:
+            return None
+        job = AgentJob(job_id=job_id, status="unknown")
+        for line in stdout.splitlines():
+            if m := re.match(r"Status:\s*(\S+)", line):
+                job.status = m.group(1)
+            elif m := re.match(r"Current step:\s*(.+)", line):
+                job.step = m.group(1).strip()
+            elif m := re.match(r"Progress:\s*(\d+)%", line):
+                job.progress_pct = int(m.group(1))
+            elif m := re.match(r"Work dir:\s*(\S+)", line):
+                job.work_dir = m.group(1)
+        return job
 
     def pause_job(self, job_id: str) -> BridgeResult:
-        """Pause a running or pending job."""
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent pause {job_id}"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Pause failed: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout.strip())
+        return self._job_action("pause", job_id)
 
     def resume_job(self, job_id: str) -> BridgeResult:
-        """Resume a paused job."""
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent resume {job_id}"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Resume failed: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout.strip())
+        return self._job_action("resume", job_id)
 
     def cancel_job(self, job_id: str) -> BridgeResult:
-        """Cancel a job."""
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent cancel {job_id}"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Cancel failed: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout.strip())
+        return self._job_action("cancel", job_id)
+
+    def _job_action(self, action: str, job_id: str) -> BridgeResult:
+        """Run confflow-agent <action> <job_id>."""
+        try:
+            code, stdout, stderr = self._exec(
+                f"confflow-agent {action} {shlex.quote(job_id)}",
+                timeout=30, check=False,
+            )
+        except RuntimeError as exc:
+            return BridgeResult.failure(f"SSH error: {exc}")
+        if code != 0:
+            return BridgeResult.failure(f"{action.capitalize()} failed: {stderr.strip()}")
+        return BridgeResult.success(stdout.strip() or f"Job {job_id} {action}ed")
 
     # ------------------------------------------------------------------
     # Log retrieval
     # ------------------------------------------------------------------
 
-    def tail_logs(self, job_id: str | None, lines: int = 50) -> BridgeResult:
-        """Tail the last N lines of agent or job logs."""
+    def tail_logs(self, job_id: str | None = None, lines: int = 50) -> BridgeResult:
+        """Read the last N lines of agent or job logs."""
         if job_id:
             remote_log = f"{self._remote_path(DEFAULT_LOG_DIR)}/{job_id}.log"
         else:
             remote_log = f"{self._remote_path(DEFAULT_LOG_DIR)}/agent.log"
-        result = subprocess.run(
-            ["ssh", self.server.host, f'tail -n {lines} "{remote_log}" 2>/dev/null'],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return BridgeResult.failure(f"Could not read {remote_log}: {result.stderr.strip()}")
-        return BridgeResult.success(result.stdout)
+        try:
+            code, stdout, stderr = self._exec(
+                f"tail -n {lines} {shlex.quote(remote_log)} 2>/dev/null",
+                timeout=30, check=False,
+            )
+            if code == 0:
+                return BridgeResult.success(stdout)
+        except RuntimeError:
+            pass
+        # Fallback: try SFTP
+        if self._sftp_exists(remote_log):
+            try:
+                content = self._sftp_read_text(remote_log)
+                tail = "\n".join(content.splitlines()[-lines:])
+                return BridgeResult.success(tail)
+            except Exception as exc:
+                return BridgeResult.failure(f"Could not read {remote_log}: {exc}")
+        return BridgeResult.failure(f"Could not read {remote_log}")
 
     # ------------------------------------------------------------------
     # Output download
@@ -436,67 +467,56 @@ class AgentBridge:
     ) -> BridgeResult:
         """Download job output files from the remote to a local directory.
 
-        Parameters
-        ----------
-        job_id:
-            The job ID whose output to download.
-        local_dest:
-            Local destination directory.
-        patterns:
-            Glob patterns for files to download (e.g. ``["*.xyz", "*.log"]``).
-            ``None`` downloads all files in the job's output directory.
+        Discovers the remote work_dir from agent status, then downloads
+        files matching ``patterns`` (default: ``["*"]``).
         """
         local_dest = Path(local_dest)
         local_dest.mkdir(parents=True, exist_ok=True)
 
-        # Find the remote run directory from the agent state DB
-        result = subprocess.run(
-            ["ssh", self.server.host,
-             f"confflow-agent status {job_id} 2>/dev/null | grep 'Work Dir'"],
-            capture_output=True, text=True, timeout=30,
-        )
-        work_dir = None
-        for line in result.stdout.splitlines():
-            m = re.search(r"Work Dir:\s*(\S+)", line)
-            if m:
-                work_dir = m.group(1)
-                break
-
-        if not work_dir:
-            return BridgeResult.failure(f"Could not determine work_dir for job {job_id}")
-
-        # Download each pattern via SFTP
-        patterns = patterns or ["*"]
-        downloaded = []
-        errors = []
-        for pattern in patterns:
-            glob_cmd = f"ls {work_dir}/{pattern} 2>/dev/null"
-            ls_result = subprocess.run(
-                ["ssh", self.server.host, glob_cmd],
-                capture_output=True, text=True, timeout=30,
+        job = self.get_job(job_id)
+        if job is None:
+            return BridgeResult.failure(f"Could not get status for job {job_id}")
+        if not job.work_dir:
+            return BridgeResult.failure(
+                f"No work_dir for job {job_id} (job may not have started)"
             )
-            if ls_result.returncode != 0:
+
+        patterns = patterns or ["*"]
+        downloaded: list[str] = []
+        errors: list[str] = []
+
+        for pattern in patterns:
+            try:
+                code, stdout, _ = self._exec(
+                    f"ls {shlex.quote(job.work_dir)}/{pattern} 2>/dev/null",
+                    timeout=30, check=False,
+                )
+            except RuntimeError as exc:
+                errors.append(f"pattern {pattern!r}: {exc}")
                 continue
-            for fname in ls_result.stdout.splitlines():
-                if not fname.strip():
+
+            if code != 0:
+                continue
+
+            for fname in stdout.splitlines():
+                fname = fname.strip()
+                if not fname:
                     continue
-                remote_path = f"{work_dir}/{fname.strip()}"
-                local_path = local_dest / fname.strip()
+                remote_path = f"{job.work_dir}/{fname}"
+                local_path = local_dest / fname
                 try:
-                    subprocess.run(
-                        ["sftp", f"{self.server.host}:{remote_path}", str(local_dest)],
-                        check=True, capture_output=True, timeout=60,
-                    )
-                    downloaded.append(fname.strip())
+                    self._sftp_download(remote_path, local_path)
+                    downloaded.append(fname)
                 except Exception as exc:
-                    errors.append(f"{fname.strip()}: {exc}")
+                    errors.append(f"{fname}: {exc}")
 
         if not downloaded:
+            msg = f"No files matching {patterns} found in {job.work_dir}"
             if errors:
-                return BridgeResult.failure("; ".join(errors))
-            return BridgeResult.failure(f"No files matching {patterns} found in {work_dir}")
+                msg += f"; errors: {'; '.join(errors[:3])}"
+            return BridgeResult.failure(msg)
 
         msg = f"Downloaded {len(downloaded)} file(s) to {local_dest}"
         if errors:
-            msg += f"; {len(errors)} error(s): {'; '.join(errors[:3])}"
+            msg += f"; {len(errors)} error(s)"
         return BridgeResult.success(msg, files=downloaded, errors=errors)
