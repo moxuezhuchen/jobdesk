@@ -8,8 +8,10 @@ from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMenu,
     QMessageBox,
@@ -176,6 +178,9 @@ class RunsResultsPage(QWidget):
         self._retry_download_feedback = ButtonFeedback(self.retry_dl_btn, ButtonRole.TRANSFER_ACTION)
         self._delete_feedback = ButtonFeedback(self.delete_btn, ButtonRole.DANGER_ACTION)
         btn_row.addStretch()
+        self.view_agent_btn = QPushButton(tr("View Agent Jobs", self._language))
+        self.view_agent_btn.clicked.connect(self._show_agent_picker)
+        btn_row.addWidget(self.view_agent_btn)
         top_layout.addWidget(btn_card)
         splitter.addWidget(top)
 
@@ -468,6 +473,16 @@ class RunsResultsPage(QWidget):
 
     # ─── Agent Jobs ─────────────────────────────────────────────────────────────
 
+    def _apply_agent_headers(self, language: str | None = None) -> None:
+        lang = language or self._language
+        self._agent_table.setHorizontalHeaderLabels([
+            tr("Job ID", lang),
+            tr("Status", lang),
+            tr("Step", lang),
+            tr("Progress", lang),
+            tr("Work Dir", lang),
+        ])
+
     def show_agent_jobs(self, job_ids: list[str], server_id: str) -> None:
         """Switch to the agent view and begin polling for the given jobs."""
         self._agent_server_id = server_id
@@ -479,7 +494,13 @@ class RunsResultsPage(QWidget):
     def _show_agent_view(self, show: bool) -> None:
         """Toggle between the runs list (False) and the agent jobs card (True)."""
         self._agent_card.setVisible(show)
-        self._refresh_timer.stop()
+        # When showing agent view, stop runs polling; when hiding, restart it
+        if show:
+            self._refresh_timer.stop()
+        else:
+            self._agent_polling_timer.stop()
+            self._agent_server_id = None
+            self._agent_job_ids = []
 
     def _poll_agent_jobs(self) -> None:
         """Poll the remote agent for current job statuses and update the table."""
@@ -637,8 +658,9 @@ class RunsResultsPage(QWidget):
         self.confirm_submitted_btn.setText(tr("Confirm Submitted", language))
         self.abandon_submit_btn.setText(tr("Abandon Submit", language))
         self.result_label.setText(tr("Result Preview", language))
+        self.view_agent_btn.setText(tr("View Agent Jobs", language))
+        self._apply_agent_headers(language)
         self._set_headers()
-        self.refresh_run_list()
 
     def _set_headers(self):
         self.table.setHorizontalHeaderLabels([
@@ -1763,6 +1785,34 @@ class RunsResultsPage(QWidget):
             f"Database: {record.run_dir.parent / 'jobdesk.db'}\n"
             f"{tr('Results directory', self._language)}: {ws}")
         self.result_text.setVisible(True)
+
+    def _show_agent_picker(self) -> None:
+        """Show a server picker and switch to the agent view for that server."""
+        servers = load_servers().servers
+        if not servers:
+            self._error_cb("Agent Jobs", "No servers configured")
+            return
+        server_ids = list(servers.keys())
+        default = self.state.last_agent_server if self.state.last_agent_server in server_ids else server_ids[0]
+        if len(server_ids) == 1:
+            chosen = server_ids[0]
+        else:
+            # Put last-used server first so it is pre-selected in the dialog
+            ordered = [default] + [s for s in server_ids if s != default]
+            chosen, ok = QInputDialog.getItem(
+                self,
+                tr("Select Server", self._language),
+                tr("Server:", self._language),
+                ordered,
+                editable=False,
+            )
+            if not ok or not chosen:
+                return
+        self.state.last_agent_server = chosen
+        self._agent_server_id = chosen
+        self._agent_job_ids = []
+        self._show_agent_view(True)
+        self._poll_agent_jobs()
 
     def shutdown(self):
         self._shutting_down = True
