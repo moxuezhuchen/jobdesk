@@ -11,13 +11,13 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..blocks import confgen
-from ..calc.runner import CalcStepRequest, CalcStepRunner
-from ..config.models import CalcStepParams, GlobalOptions
-from ..core.exceptions import ConfFlowError
-from ..core.pairs import normalize_pair_list
-from ..core.utils import get_logger
-from ..shared.defaults import DEFAULT_MAX_PARALLEL_JOBS
+from .blocks import confgen
+from .calc.runner import CalcStepRequest, CalcStepRunner
+from .config.models import CalcStepParams, GlobalOptions
+from .core.exceptions import ConfFlowError
+from .core.pairs import normalize_pair_list
+from .core.utils import get_logger
+from .shared.defaults import DEFAULT_MAX_PARALLEL_JOBS
 from .helpers import as_list, is_multi_frame_any, pushd
 from .stats import FailureTracker
 from .step_naming import build_step_dir_name_map

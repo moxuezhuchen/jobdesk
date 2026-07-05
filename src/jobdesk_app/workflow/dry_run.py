@@ -8,15 +8,15 @@ import os
 from math import prod
 from typing import Any
 
-from ..blocks.confgen.rotations import _parse_chain, _resolve_angle_lists
-from ..config.models import CalcStepParams, load_workflow_model
-from ..core.io import parse_gaussian_input_text
-from ..core.path_policy import (
+from .blocks.confgen.rotations import _parse_chain, _resolve_angle_lists
+from .config.models import CalcStepParams, load_workflow_model
+from .core.io import parse_gaussian_input_text
+from .core.path_policy import (
     resolve_sandbox_root,
     validate_executable_setting,
     validate_managed_path,
 )
-from ..core.utils import validate_xyz_file
+from .core.utils import validate_xyz_file
 from .helpers import as_list
 from .step_naming import build_step_dir_name_map
 

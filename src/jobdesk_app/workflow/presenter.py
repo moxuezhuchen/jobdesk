@@ -10,18 +10,18 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from ..blocks import viz
-from ..core import io as io_xyz
-from ..core.console import (
+from .blocks import viz
+from .core import io as io_xyz
+from .core.console import (
     console,
     print_kv,
     print_step_header,
     print_step_result,
     print_workflow_header,
 )
-from ..core.types import TaskStatus
-from ..core.utils import format_duration_hms, format_index_ranges, parse_index_spec, parse_itask
-from ..shared.defaults import (
+from .core.types import TaskStatus
+from .core.utils import format_duration_hms, format_index_ranges, parse_index_spec, parse_itask
+from .shared.defaults import (
     DEFAULT_CORES_PER_TASK,
     DEFAULT_MAX_PARALLEL_JOBS,
     DEFAULT_TOTAL_MEMORY,

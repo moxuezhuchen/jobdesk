@@ -12,8 +12,8 @@ import time
 from datetime import datetime
 from typing import Any
 
-from ..core import io as io_xyz
-from ..core.exceptions import InputFileError
+from .core import io as io_xyz
+from .core.exceptions import InputFileError
 
 __all__ = [
     "count_task_statuses_in_results_db",

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from jobdesk_app.workflow.core.exceptions import StopRequestedError
-from jobdesk_app.workflow.workflow.engine import run_workflow
+from jobdesk_app.workflow.engine import run_workflow
 from .state import AgentStateDB, JobStatus
 
 logger = logging.getLogger(__name__)

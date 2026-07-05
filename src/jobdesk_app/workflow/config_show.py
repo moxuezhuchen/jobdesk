@@ -8,7 +8,7 @@ import json
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from ..config.models import CalcStepParams, load_workflow_model
+from .config.models import CalcStepParams, load_workflow_model
 
 __all__ = [
     "show_resolved_config",

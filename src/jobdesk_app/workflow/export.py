@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jobdesk_app.workflow.core.path_policy import validate_managed_path
-from jobdesk_app.workflow.step_naming import sanitize_step_dir_name
+from .core.path_policy import validate_managed_path
+from .step_naming import sanitize_step_dir_name
 
 __all__ = [
     "EXPORT_FIELDS",

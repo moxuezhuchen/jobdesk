@@ -8,11 +8,11 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from ..calc.runner import CalcStepRequest, CalcStepRunner
-from ..config.models import CalcStepParams, load_workflow_model
-from ..core.exceptions import ConfigurationError
-from ..core.io import read_xyz_file
-from ..core.path_policy import resolve_sandbox_root, validate_managed_path
+from .calc.runner import CalcStepRequest, CalcStepRunner
+from .config.models import CalcStepParams, load_workflow_model
+from .core.exceptions import ConfigurationError
+from .core.io import read_xyz_file
+from .core.path_policy import resolve_sandbox_root, validate_managed_path
 
 __all__ = [
     "RerunFailedResult",

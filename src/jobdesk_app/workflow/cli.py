@@ -23,15 +23,15 @@ from .core.exceptions import ConfigurationError, InputFileError, PathSafetyError
 from .core.io import parse_gaussian_input_text, write_xyz_file
 from .core.path_policy import resolve_sandbox_root, validate_managed_path
 from .core.utils import get_logger
-from .workflow.dry_run import run_dry_run
-from .workflow.engine import run_workflow
-from .workflow.export import NoExportableResultsError, export_results
-from .workflow.rerun_failed import (
+from .dry_run import run_dry_run
+from .engine import run_workflow
+from .export import NoExportableResultsError, export_results
+from .rerun_failed import (
     RerunFailedRuntimeError,
     RerunFailedUsageError,
     run_rerun_failed,
 )
-from .agent.cli import main as agent_main
+from jobdesk_app.agent.cli import main as agent_main
 
 __all__ = [
     "build_parser",
@@ -428,7 +428,7 @@ def main(args_list: list[str] | None = None):
         # Determine effective format: for --config-show, treat "csv" as "text"
         show_format = args.format if args.format in ("json", "text") else "text"
         try:
-            from .workflow.config_show import show_resolved_config
+            from .config_show import show_resolved_config
 
             show_resolved_config(
                 config_file=os.path.abspath(args.config),

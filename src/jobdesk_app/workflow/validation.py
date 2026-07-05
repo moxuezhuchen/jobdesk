@@ -7,9 +7,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core.chem_validation import ChainValidator, load_mol_from_xyz
-from ..core.exceptions import InputFileError, XYZFormatError
-from ..core.utils import validate_xyz_file
+from .core.chem_validation import ChainValidator, load_mol_from_xyz
+from .core.exceptions import InputFileError, XYZFormatError
+from .core.utils import validate_xyz_file
 from .helpers import as_list
 
 __all__ = [

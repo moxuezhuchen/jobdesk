@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Any
 
-from ..core.path_policy import resolve_sandbox_root, validate_managed_path
+from .core.path_policy import resolve_sandbox_root, validate_managed_path
 from .stats import CheckpointManager, FailureTracker, WorkflowStatsTracker
 
 __all__ = [
