@@ -32,8 +32,12 @@ from ._operations import (
     recover_legacy_orphan_submit_tasks,
 )
 from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
-from ._paths import _lexical_absolute, _reject_reparse_chain
-
+from ._paths import (
+    _lexical_absolute as _lexical_absolute,
+)
+from ._paths import (
+    _reject_reparse_chain as _reject_reparse_chain,
+)
 from ._runs import (
     create_run as _create_run,
 )
