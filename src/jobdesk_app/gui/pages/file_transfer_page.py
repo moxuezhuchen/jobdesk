@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
@@ -42,7 +43,6 @@ from ...remote.errors import RemotePathError
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
 from ...services.gui_settings import GuiSettingsStore
-from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
@@ -1847,8 +1847,22 @@ class FileTransferPage(QWidget):
         if self._service is None or self._connected_server is None:
             self._status_cb(tr("Connect to a server first", self._language))
             return
+
+        # Stage 4 wizard: if a wizard-built YAML is stashed in AppState, use
+        # that. The wizard has already authored the YAML and just wants us to
+        # upload + submit.
+        wizard_yaml = getattr(self.state, "_wizard_yaml", None)
+        if isinstance(wizard_yaml, str) and wizard_yaml.strip():
+            wizard_server = getattr(self.state, "_wizard_server", None)
+            target_server = wizard_server or self._connected_server_id or ""
+            self._run_confflow_via_wizard(wizard_yaml, target_server)
+            # Clear stash so a subsequent click uses the regular Files-page flow.
+            setattr(self.state, "_wizard_yaml", None)
+            setattr(self.state, "_wizard_server", None)
+            return
+
         remote_files, _remote_dirs = self._selected_remote_entries()
-        local_files, _local_dirs = self._selected_local_entries()
+        local_files, _local_dirs = self._selected_local_entries() or ([], [])
         origin, xyz_paths, error = choose_confflow_xyz(local_files, remote_files)
         if error:
             self._status_cb(error)
@@ -1885,52 +1899,91 @@ class FileTransferPage(QWidget):
         )
         server_id = self._connected_server_id or ""
 
-        # Ask user to choose the execution path
-        choice = QMessageBox.question(
-            self, "ConfFlow Submit Mode",
-            (
-                f"Choose how to run this ConfFlow batch:\n\n"
-                f"Molecules: {mol_count}\n"
-                f"YAML: {yaml_desc}\n"
-                f"Remote dir: {remote_dir}\n"
-                f"Max parallel: {max_parallel}\n\n"
-                f"① JobDesk Agent (recommended):\n"
-                f"   Upload files, submit to remote confflow-agent daemon.\n"
-                f"   JobDesk monitors progress and survives GUI close.\n\n"
-                f"② Legacy direct submit:\n"
-                f"   Run via JobDesk scheduler (single-job, no agent).\n\n"
-                f"Select Yes for Agent, No for Legacy."
-            ),
-            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+        # Stage 5: agent path is the only supported submission mode. Legacy
+        # ``RunCoordinator``-based submit was removed because closing the GUI
+        # used to kill jobs in flight. See handoff_execution_guide.md §5.
+        self._run_confflow_via_agent(
+            origin=origin,
+            xyz_paths=xyz_paths,
+            yaml_path=yaml_path,
+            local_yaml_path=local_yaml_path,
+            remote_dir=remote_dir,
+            server_id=server_id,
+            mol_count=mol_count,
+            yaml_desc=yaml_desc,
+            max_parallel=max_parallel,
         )
-        if choice == QMessageBox.Cancel:
-            return
-        use_agent = choice == QMessageBox.Yes
 
-        if use_agent:
-            self._run_confflow_via_agent(
-                origin=origin,
-                xyz_paths=xyz_paths,
-                yaml_path=yaml_path,
-                local_yaml_path=local_yaml_path,
-                remote_dir=remote_dir,
-                server_id=server_id,
-                mol_count=mol_count,
-                yaml_desc=yaml_desc,
-                max_parallel=max_parallel,
-            )
+    def _run_confflow_via_wizard(self, yaml_text: str, server_id: str) -> None:
+        """Submit a YAML produced by the Stage 4 wizard.
+
+        The wizard already produced the YAML text; we just need to upload it
+        to the server and trigger AgentBridge. If an XYZ is currently selected
+        on the Files page we attach it as the input molecule. Otherwise we
+        fall back to a single dummy molecule (the agent's dry-run will report
+        a clean validation error and the user can pick an XYZ and re-submit).
+        """
+        if not server_id:
+            self._error_cb("ConfFlow Agent", "No server selected")
+            return
+
+        remote_dir = self.remote_path.text().strip() or "/"
+        remote_files, _ = self._selected_remote_entries() or ([], [])
+        local_files, _ = self._selected_local_entries() or ([], [])
+        origin, xyz_paths, _ = choose_confflow_xyz(local_files, remote_files)
+        if origin == "local":
+            xyz_targets = [remote_child_path(remote_dir, Path(p).name) for p in xyz_paths]
         else:
-            self._run_confflow_legacy(
-                origin=origin,
-                xyz_paths=xyz_paths,
-                yaml_path=yaml_path,
-                local_yaml_path=local_yaml_path,
-                remote_dir=remote_dir,
-                server_id=server_id,
-                mol_count=mol_count,
-                yaml_desc=yaml_desc,
-                max_parallel=max_parallel,
+            xyz_targets = list(xyz_paths)
+
+        # Stash the wizard YAML as a temporary local file, then upload under a
+        # stable name ``wizard_<job_id>.yaml``.
+        job_id = f"wizard_{uuid.uuid4().hex[:8]}"
+        tmp_path = Path(tempfile.gettempdir()) / f"{job_id}.yaml"
+        tmp_path.write_text(yaml_text, encoding="utf-8")
+        config_target = remote_child_path(remote_dir, f"{job_id}.yaml")
+
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(server_id)
+            if not bridge.is_agent_installed():
+                raise RuntimeError(
+                    f"confflow-agent is not installed on {server_id}.\n"
+                    f"Run: jobdesk agent install --server {server_id}"
+                )
+            if not bridge.is_agent_running():
+                raise RuntimeError(
+                    f"confflow-agent is not running on {server_id}.\n"
+                    f"Run: jobdesk agent start --server {server_id}"
+                )
+            records = self._service.upload_path(tmp_path, config_target, OverwritePolicy.overwrite)
+            if not isinstance(records, list):
+                records = [records]
+            for r in records:
+                if r.status == TransferStatus.failed:
+                    raise RuntimeError(f"YAML upload failed: {r.error}")
+            job_ids = []
+            for xyz_remote in xyz_targets:
+                result = bridge.submit_job(config_remote=config_target, input_remote=xyz_remote)
+                if not result.ok:
+                    raise RuntimeError(f"Submit failed: {result.message}")
+                job_ids.append(result.data.get("job_id", "?"))
+            tmp_path.unlink(missing_ok=True)
+            return job_ids
+
+        def _on_done(job_ids):
+            self._confflow_feedback.success(tr("Submitted", self._language))
+            self._status_cb(
+                f"Submitted wizard workflow: {len(job_ids)} molecule(s) via agent on {server_id}"
             )
+            self.agent_jobs_submitted.emit(job_ids, server_id)
+
+        def _on_error(error: str):
+            self._confflow_feedback.error(tr("Submit failed", self._language))
+            self._error_cb("ConfFlow Wizard Error", error)
+
+        self._status_cb(f"Uploading wizard YAML and submitting ({len(xyz_targets)} molecule(s))...")
+        self._run_bg(_run, _on_done, _on_error)
 
     def _run_confflow_via_agent(
         self,
@@ -1956,7 +2009,7 @@ class FileTransferPage(QWidget):
             xyz_targets = list(xyz_paths)
 
         def _run():
-            from ..services.agent_bridge import AgentBridge
+            from ...services.agent_bridge import AgentBridge
 
             bridge = AgentBridge(server_id)
 
@@ -2019,63 +2072,21 @@ class FileTransferPage(QWidget):
         self._status_cb(f"Submitting ConfFlow batch via agent ({mol_count} molecules)...")
         self._run_bg(_run, _on_done, _on_error)
 
-    def _run_confflow_legacy(
+    def _run_bg(
         self,
-        origin: str,
-        xyz_paths: list[str],
-        yaml_path: str,
-        local_yaml_path: str,
-        remote_dir: str,
-        server_id: str,
-        mol_count: int,
-        yaml_desc: str,
-        max_parallel: int,
-    ):
-        """Original RunCoordinator-based ConfFlow submission (unchanged)."""
-        local_base = self.state.current_project_root or Path.cwd()
-        config_target = yaml_path if yaml_path else remote_child_path(remote_dir, Path(local_yaml_path).name)
-        if origin == "local":
-            xyz_targets = [remote_child_path(remote_dir, Path(p).name) for p in xyz_paths]
-        else:
-            xyz_targets = list(xyz_paths)
-
-        def _raise_if_upload_failed(records, remote_path: str):
-            if not isinstance(records, list):
-                records = [records]
-            for r in records:
-                if r.status == TransferStatus.failed:
-                    raise RuntimeError(f"Upload failed: {r.error}")
-
-        def _run():
-            if origin == "local":
-                for local_p, remote_t in zip(xyz_paths, xyz_targets):
-                    records = self._service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
-                    _raise_if_upload_failed(records, remote_t)
-            if local_yaml_path:
-                records = self._service.upload_path(Path(local_yaml_path), config_target, OverwritePolicy.overwrite)
-                _raise_if_upload_failed(records, config_target)
-            spec = ConfFlowAdapter.build_spec(
-                server_id=server_id,
-                remote_dir=remote_dir,
-                xyz_paths=xyz_targets,
-                config_path=config_target,
-                max_parallel=max_parallel,
-            )
-            return self._execute_run_use_case(spec, Path(local_base), submit=True)
-
-        self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
-        worker = BackgroundWorker(_run)
-        worker.result.connect(self._on_confflow_done)
-        worker.error.connect(lambda error: (
-            self._confflow_feedback.error(tr("Submit failed", self._language)),
-            self._error_cb("ConfFlow Run Error", error),
-        ))
+        fn: Callable[[], Any],
+        on_done: Callable[[Any], None],
+        on_error: Callable[[str], None],
+    ) -> None:
+        """Run a background callable and call on_done(result) or on_error(message)."""
+        worker = BackgroundWorker(fn)
+        worker.result.connect(on_done)
+        worker.error.connect(on_error)
         worker.finished.connect(
             lambda: self._background_workers.remove(worker)
             if worker in self._background_workers else None
         )
         self._background_workers.append(worker)
-        self._confflow_feedback.pending(tr("Submitting...", self._language))
         worker.start()
 
     def _run_bg(
@@ -2094,23 +2105,6 @@ class FileTransferPage(QWidget):
         )
         self._background_workers.append(worker)
         worker.start()
-
-    def _on_confflow_done(self, payload):
-        if not payload.records:
-            self._confflow_feedback.error(tr("Submit failed", self._language))
-            self._error_cb("ConfFlow Run Error", "\n".join(payload.errors))
-            return
-        record = payload.records[0]
-        self.state.current_project_root = Path(record.local_dir) if record.local_dir else self.state.current_project_root
-        self.state.current_batch_id = record.run_id
-        self.state.current_manifest_path = record.manifest_path
-        errors = list(payload.errors)
-        if errors:
-            self._confflow_feedback.error(tr("Submit failed", self._language))
-            self._error_cb("ConfFlow Run Error", "\n".join(errors))
-            return
-        self._confflow_feedback.success(tr("Submitted", self._language))
-        self._on_runs_done(payload.submit_results)
 
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
         """Return (files, dirs) of selected local paths."""
@@ -2133,8 +2127,8 @@ class FileTransferPage(QWidget):
 
     def _run_selected_chunks(self, submit: bool = True):
         # Detect whether selection is local or remote
-        remote_files, remote_dirs = self._selected_remote_entries()
-        local_files, local_dirs = self._selected_local_entries()
+        remote_files, remote_dirs = self._selected_remote_entries() or ([], [])
+        local_files, local_dirs = self._selected_local_entries() or ([], [])
         has_remote_selection = bool(remote_files or remote_dirs)
         has_local_selection = bool(local_files or local_dirs)
         use_local = has_local_selection and (

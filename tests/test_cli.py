@@ -182,6 +182,12 @@ def test_cli_run_download_returns_failure_for_coordinator_error(capsys, tmp_path
 
 
 def test_cli_no_longer_registers_jobdesk_owned_workflow_commands():
+    """Stage 4 contract: ``jobdesk workflow build|check|presets`` is wired in.
+
+    Earlier Stages had ``workflow`` removed because no command owned it.
+    Stage 4 introduces the workflow builder CLI, so the top-level CLI must
+    expose ``workflow`` again. Other top-level commands stay put.
+    """
     parser = _build_parser()
     subcommands = next(
         action.choices
@@ -189,7 +195,17 @@ def test_cli_no_longer_registers_jobdesk_owned_workflow_commands():
         if getattr(action, "choices", None)
     )
 
-    assert "workflow" not in subcommands
+    assert "workflow" in subcommands
+    workflow_parser = subcommands["workflow"]
+    workflow_subcommands = next(
+        action.choices
+        for action in workflow_parser._actions
+        if getattr(action, "choices", None)
+    )
+    assert {"build", "check", "presets"} <= set(workflow_subcommands.keys())
+    # Other primary commands must still be present.
+    for primary in ("run", "files", "compare", "agent"):
+        assert primary in subcommands
 
 
 class TestDownloadPatterns:

@@ -1,0 +1,154 @@
+# Workflow Builder schema hints.
+#
+# This file is the **only** place to maintain user-facing hint strings for the
+# ConfFlow workflow wizard. It is read at GUI startup by
+# ``gui.i18n.schema_hints()`` and merged on top of the in-code dictionary in
+# ``gui/i18n.py``. Edit a key here and restart the GUI.
+#
+# Schema:
+#   <language>:
+#     <hint_key>: <human-readable text>
+#
+# ``hint_key`` is referenced from ``workflow/schema.py`` and from the
+# ``FieldSpec`` / ``StepKindSpec`` catalog. Keep the keys stable; only the
+# text changes per language.
+
+zh:
+  field.charge: 电荷 (charge)
+  field.multiplicity: 多重度 (multiplicity, 2S+1)
+  field.cores_per_task: 每任务核数 (cores_per_task)
+  field.total_memory: 总内存 (e.g. 8GB / 500MB)
+  field.max_parallel_jobs: 最大并行任务数
+  field.iprog: 计算程序 (orca / g16)
+  field.itask: 任务类型 (opt / sp / freq / opt_freq / ts)
+  field.keyword: 计算关键字
+  field.freeze: 固定原子索引 (逗号分隔, 0 表示全部)
+  field.rmsd_threshold: RMSD 阈值 (Å)
+  field.energy_window: 能量窗口 (Hartree)
+  field.energy_tolerance: 能量容差 (Hartree)
+  field.noH: 比较前去掉氢原子
+  field.auto_clean: 完成后自动去重
+  field.ts_bond_atoms: TS 键合原子 (1-based 索引对)
+  field.ts_rescue_scan: TS 失败时启动扫描救援
+  field.scan_coarse_step: 粗扫描步长 (Å)
+  field.scan_fine_step: 精扫描步长 (Å)
+  field.scan_uphill_limit: 上坡步数限制
+  field.sandbox_root: 沙盒根目录
+  field.allowed_executables: 允许调用的可执行文件
+  field.enable_dynamic_resources: 动态调度资源
+  field.resume_from_backups: 从备份恢复
+  field.delete_work_dir: 完成后删除工作目录
+  field.step_name: 步骤名称
+  field.gaussian_path: Gaussian 可执行路径
+  field.orca_path: ORCA 可执行路径
+  field.blocks: ORCA blocks 文本
+  field.orca_maxcore: ORCA 单核内存 (MB)
+  field.gaussian_modredundant: Gaussian modredundant 文本
+  field.gaussian_link0: Gaussian link0 文本
+  field.dedup_only: 仅去重，不重排能量
+  field.keep_all_topos: 保留所有拓扑
+  field.imag: 虚频个数过滤
+  field.max_conformers: 最大构型数
+  field.engine: 构型引擎 (rdkit / rdkit-mmff / rdkit-uff)
+  field.angle_step: 键角扫描步长 (度)
+  field.chain_steps: 链式扫描步长
+  field.bond_pairs: 键对列表
+  step.calc: 计算步骤
+  step.confgen: 构型生成步骤
+  section.cleanup: 清理
+  section.ts: 过渡态
+  wf.load: 加载 YAML
+  wf.save: 保存 YAML
+  wf.validate: 校验
+  wf.preset: 预设
+  wf.submit_agent: 提交到 Agent
+  wf.add_step: 添加步骤
+  wf.remove_step: 删除步骤
+  wf.up: 上移
+  wf.down: 下移
+  wf.steps: 步骤列表
+  wf.form: 表单
+  wf.preview: YAML 预览
+  wf.global_options: 全局选项
+  wf.no_step_selected: 请选择一个步骤以编辑表单
+  wf.step_enabled: 启用此步骤
+  wf.step_type: 步骤类型
+  wf.preview_ok: YAML 已更新
+  wf.preview_invalid: 表单字段需要修改
+  wf.load_error: 加载失败
+  wf.save_invalid: 表单校验未通过，无法保存
+  wf.validate_failed: 校验失败
+  wf.validate_ok: 校验通过 ({n} 个步骤)
+  wf.preset_pick: 选择预设
+  wf.submit_invalid: 提交失败
+  wf.no_server: 请先选择一个 Agent 服务器
+
+en:
+  field.charge: Charge
+  field.multiplicity: Multiplicity (2S+1)
+  field.cores_per_task: Cores per task
+  field.total_memory: Total memory (e.g. 8GB / 500MB)
+  field.max_parallel_jobs: Max parallel jobs
+  field.iprog: Program (orca / g16)
+  field.itask: Task type (opt / sp / freq / opt_freq / ts)
+  field.keyword: Calculation keyword
+  field.freeze: Freeze atom indices (comma separated, 0 = all)
+  field.rmsd_threshold: RMSD threshold (Å)
+  field.energy_window: Energy window (Hartree)
+  field.energy_tolerance: Energy tolerance (Hartree)
+  field.noH: Strip hydrogens before comparing
+  field.auto_clean: Auto-clean (dedup) after workflow
+  field.ts_bond_atoms: TS bond atoms (1-based pair)
+  field.ts_rescue_scan: Run scan rescue on TS failure
+  field.scan_coarse_step: Coarse scan step (Å)
+  field.scan_fine_step: Fine scan step (Å)
+  field.scan_uphill_limit: Uphill step limit
+  field.sandbox_root: Sandbox root directory
+  field.allowed_executables: Allowed executable list
+  field.enable_dynamic_resources: Dynamic resource scheduling
+  field.resume_from_backups: Resume from backups
+  field.delete_work_dir: Delete work directory on success
+  field.step_name: Step name
+  field.gaussian_path: Gaussian executable path
+  field.orca_path: ORCA executable path
+  field.blocks: ORCA blocks text
+  field.orca_maxcore: ORCA max memory per core (MB)
+  field.gaussian_modredundant: Gaussian modredundant text
+  field.gaussian_link0: Gaussian link0 text
+  field.dedup_only: Dedup-only, no energy re-ranking
+  field.keep_all_topos: Keep all topologies
+  field.imag: Imaginary frequency filter
+  field.max_conformers: Max conformers
+  field.engine: Conformer engine (rdkit / rdkit-mmff / rdkit-uff)
+  field.angle_step: Bond angle scan step (degrees)
+  field.chain_steps: Chain scan step
+  field.bond_pairs: Bond pair list
+  step.calc: Calculation step
+  step.confgen: Conformer generation step
+  section.cleanup: Cleanup
+  section.ts: Transition state
+  wf.load: Load YAML
+  wf.save: Save YAML
+  wf.validate: Validate
+  wf.preset: Preset
+  wf.submit_agent: Submit to Agent
+  wf.add_step: Add step
+  wf.remove_step: Remove step
+  wf.up: Up
+  wf.down: Down
+  wf.steps: Steps
+  wf.form: Form
+  wf.preview: YAML preview
+  wf.global_options: Global options
+  wf.no_step_selected: Select a step on the left to edit its form
+  wf.step_enabled: Enable this step
+  wf.step_type: Step type
+  wf.preview_ok: YAML is up to date
+  wf.preview_invalid: Form fields need fixing
+  wf.load_error: Failed to load
+  wf.save_invalid: Form validation failed; cannot save
+  wf.validate_failed: Validation failed
+  wf.validate_ok: Validation OK ({n} step(s))
+  wf.preset_pick: Pick a preset
+  wf.submit_invalid: Submit failed
+  wf.no_server: Select an Agent server first
