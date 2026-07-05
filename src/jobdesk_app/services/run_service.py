@@ -178,7 +178,7 @@ class RunService:
                 owner_id,
                 lease_seconds=lease_seconds,
             ) as guard:
-                operation_by_task: dict[str, object] = {}
+                operation_by_task: dict[str, OperationRecord] = {}
                 for operation in operations:
                     task_ids = operation.payload.get("task_ids")
                     if not isinstance(task_ids, list):

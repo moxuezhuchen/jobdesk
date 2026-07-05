@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import TaskRecord
-from .run_repository import RunRepository
+from .run_repository import OperationRecord, RunRepository
 
 SUBMIT_LEASE_SECONDS = 60.0
 SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_LEASE_SECONDS / 3
@@ -99,7 +99,7 @@ class _CheckpointSink:
 
     repository: RunRepository
     guard: _SubmitOwnershipGuard
-    operation_by_task: dict[str, object]  # task_id -> OperationRecord
+    operation_by_task: dict[str, OperationRecord]
 
     def update_tasks(self, updates: list[TaskRecord]) -> None:
         groups: dict[str, list[TaskRecord]] = {}

@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Shell Tool Configuration
 
+## Required Permissions
+
 Every Shell tool call MUST include `required_permissions: ["all"]` to avoid being silently blocked by the sandbox.
 
 ```python
@@ -13,6 +15,18 @@ Shell(command="git status", required_permissions=["all"])
 
 # Incorrect - will silently fail
 Shell(command="git status")
+```
+
+## PowerShell Compatibility
+
+The default shell is PowerShell on Windows. It does NOT support `&&` for chaining commands. Use `;` instead.
+
+```python
+# Correct
+Shell(command="git add -A; git commit -m 'msg'; git push")
+
+# Incorrect - will fail with "&& is not a valid statement separator"
+Shell(command="git add -A && git commit -m 'msg' && git push")
 ```
 
 This is a workspace-level requirement for this environment.
