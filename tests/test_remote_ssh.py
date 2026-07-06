@@ -4,6 +4,7 @@
 """
 
 import subprocess
+import sys as _sys
 from unittest.mock import MagicMock, patch
 
 import paramiko
@@ -612,6 +613,7 @@ class TestSSHClientWrapper:
         jump_client.close.assert_called_once()
         target_client.close.assert_called_once()
 
+    @pytest.mark.skipif(_sys.platform != "win32", reason="WSL bootstrap uses CREATE_NO_WINDOW which is win32-only")
     def test_connect_starts_configured_wsl_distro_before_ssh(self):
         server = ServerConfig(
             server_id="wsl",
@@ -825,6 +827,7 @@ class TestSSHClientWrapper:
         assert "test.example.com" not in r.lower()  # host not in default repr
 
 
+    @pytest.mark.skipif(_sys.platform != "win32", reason="WSL bootstrap uses CREATE_NO_WINDOW which is win32-only")
     def test_wsl_bootstrap_failure_is_rate_limited_during_cooldown(self):
         """Failed wsl.exe launches must also enter cooldown — no repeated spawns."""
         server = ServerConfig(
@@ -869,6 +872,7 @@ class TestSSHClientWrapper:
         run_wsl.assert_not_called()
 
 
+    @pytest.mark.skipif(_sys.platform != "win32", reason="WSL bootstrap uses CREATE_NO_WINDOW which is win32-only")
     def test_wsl_bootstrap_first_attempt_is_not_suppressed_by_low_monotonic_clock(self):
         """First WSL boot must not be suppressed even if monotonic() < cooldown."""
         server = ServerConfig(
