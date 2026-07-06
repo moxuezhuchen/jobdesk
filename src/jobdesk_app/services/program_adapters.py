@@ -1,9 +1,21 @@
+"""Program-specific adapters that translate a JobDesk ``RunSpec`` into the
+remote command template and download-pattern set.
+
+Currently:
+
+* :class:`ConfFlowAdapter` builds a multi-molecule batch whose remote program
+  is ``confflow``. Submission goes through the existing nohup pipeline
+  (``_submit_nohup``) — no scheduler change is needed, because the command
+  template already encodes ``confflow {name} -c yaml -w work --resume`` and
+  ``--resume`` lets a disconnected SSH session pick up where it left off via
+  ConfFlow's checkpoint directory.
+"""
 from __future__ import annotations
 
 import posixpath
 import shlex
 
-from ..core.run import RunMode, RunSource, RunSpec
+from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind
 
 
 class ConfFlowAdapter:
@@ -41,4 +53,5 @@ class ConfFlowAdapter:
                 "{basename}_confflow_work/run_summary.json",
                 "{basename}_confflow_work/workflow_stats.json",
             ],
+            workflow_kind=WorkflowKind.confflow,
         )

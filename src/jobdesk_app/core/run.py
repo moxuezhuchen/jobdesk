@@ -14,6 +14,22 @@ class RunMode(str, Enum):
     current_directory = "current_directory"
 
 
+class WorkflowKind(str, Enum):
+    """How the remote program interprets a RunSpec's command_template.
+
+    ``gaussian`` / ``orca`` invoke a single-shot quantum-chemistry binary
+    (.gjf / .inp execution). ``confflow`` invokes the ConfFlow workflow engine
+    over one or more XYZ inputs against a workflow YAML; the wizard emits the
+    YAML and ``program_adapters.ConfFlowAdapter`` renders the command. This
+    field lives on RunSpec only — not RunRecord — so introducing it needs no
+    schema migration on existing rows.
+    """
+
+    gaussian = "gaussian"
+    orca = "orca"
+    confflow = "confflow"
+
+
 @dataclass(frozen=True)
 class RunSource:
     path: str
@@ -44,6 +60,9 @@ class RunSpec:
     supporting_sources: list[RunSource] = field(default_factory=list)
     result_templates: list[str] = field(default_factory=list)
     batch_size: int | None = None
+    # How the remote program interprets command_template; default keeps
+    # backwards compatibility with rows that predate WorkflowKind.
+    workflow_kind: WorkflowKind = WorkflowKind.gaussian
 
 
 @dataclass(frozen=True)
