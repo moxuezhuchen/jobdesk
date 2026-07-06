@@ -41,6 +41,9 @@ class MainWindow(QMainWindow):
         size = settings.window_size or [1320, 860]
         self.resize(size[0], size[1])
         self.state = AppState()
+        # Persisted across GUI sessions: last-viewed agent server.
+        if settings.last_agent_server:
+            self.state.last_agent_server = settings.last_agent_server
         self.language = settings.language
         self._file_logger = configure_file_logging()
         self.setStyleSheet(build_app_stylesheet())
@@ -68,6 +71,8 @@ class MainWindow(QMainWindow):
         )
         self.runs_page.startup_recovery_failed.connect(self._on_startup_recovery_failed)
         self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
+        # Persist last-viewed agent server across GUI sessions.
+        self.runs_page.agent_server_changed.connect(self._persist_last_agent_server)
         self.workflow_page.workflow_built.connect(self._on_workflow_built)
 
         self.shell.add_page(self.workflow_page)
@@ -151,12 +156,26 @@ class MainWindow(QMainWindow):
             f"select an XYZ, and click Run ConfFlow to submit."
         )
 
+    def _persist_last_agent_server(self, server_id: str) -> None:
+        """Persist the agent-view server choice to GuiSettingsStore.
+
+        Called via ``runs_page.agent_server_changed`` signal so the choice
+        survives across GUI close/reopen.
+        """
+        try:
+            self._settings_store.update(last_agent_server=server_id or "")
+        except Exception as exc:
+            self._log(f"Failed to persist last_agent_server: {exc}")
+
     def shutdown(self):
         if getattr(self, "_shutdown_done", False):
             return
         self._shutdown_done = True
         try:
-            self._settings_store.update(window_size=[self.width(), self.height()])
+            self._settings_store.update(
+                window_size=[self.width(), self.height()],
+                last_agent_server=self.state.last_agent_server or "",
+            )
         except Exception:
             pass
         for page in (self.workflow_page, self.files_page, self.runs_page, self.settings_page):

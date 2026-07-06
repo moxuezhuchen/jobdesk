@@ -1961,7 +1961,7 @@ class FileTransferPage(QWidget):
                 records = [records]
             for r in records:
                 if r.status == TransferStatus.failed:
-                    raise RuntimeError(f"YAML upload failed: {r.error}")
+                    raise RuntimeError(f"YAML upload failed: {r.reason}")
             job_ids = []
             for xyz_remote in xyz_targets:
                 result = bridge.submit_job(config_remote=config_target, input_remote=xyz_remote)
@@ -2035,7 +2035,7 @@ class FileTransferPage(QWidget):
                     records = [records]
                 for r in records:
                     if r.status == TransferStatus.failed:
-                        raise RuntimeError(f"Upload failed: {r.error}")
+                        raise RuntimeError(f"Upload failed: {r.reason}")
 
             if origin == "local":
                 for local_p, remote_t in zip(xyz_paths, xyz_targets):

@@ -95,6 +95,9 @@ def _format_row(record: RunRecord, language: str = "en") -> list[str]:
 class RunsResultsPage(QWidget):
     startup_recovery_failed = Signal(str)
     startup_recovery_finished = Signal()
+    # Emitted when the user picks the agent-view server, so MainWindow can
+    # persist it across GUI sessions via GuiSettingsStore.
+    agent_server_changed = Signal(str)
 
     def __init__(self, state, log_cb, status_cb, error_cb=None, coordinator_factory=None):
         super().__init__()
@@ -1809,6 +1812,7 @@ class RunsResultsPage(QWidget):
             if not ok or not chosen:
                 return
         self.state.last_agent_server = chosen
+        self.agent_server_changed.emit(chosen)
         self._agent_server_id = chosen
         self._agent_job_ids = []
         self._show_agent_view(True)

@@ -60,7 +60,7 @@ def count_conformers_in_xyz(filepath: str) -> int:
     """Count the number of conformers in a single XYZ file."""
     if not os.path.exists(filepath):
         return 0
-    from ..core.utils import validate_xyz_file
+    from .core.utils import validate_xyz_file
 
     ok, geoms = validate_xyz_file(filepath)
     if not ok:

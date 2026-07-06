@@ -2870,7 +2870,25 @@ class TestFileTransferPage:
         with patch("jobdesk_app.gui.pages.file_transfer_page.QFileDialog.getOpenFileName", return_value=(str(yaml_file), "")), \
              patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
              patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls, \
-             patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls:
+             patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls, \
+             patch(
+                 "jobdesk_app.services.agent_bridge.load_servers",
+                 return_value=SimpleNamespace(
+                     servers={
+                         "wsl": SimpleNamespace(
+                             auth_unsupported_message="",
+                             host="localhost",
+                             port=22,
+                             username="me",
+                             display_name="WSL",
+                             env_init_scripts=[],
+                             scheduler=SimpleNamespace(),
+                         ),
+                     },
+                 ),
+             ), \
+             patch("jobdesk_app.services.agent_bridge.AgentBridge.is_agent_installed", return_value=True), \
+             patch("jobdesk_app.services.agent_bridge.AgentBridge.is_agent_running", return_value=True):
             worker = MagicMock()
             worker.result.connect = MagicMock()
             worker.error.connect = MagicMock()
@@ -3767,6 +3785,7 @@ class TestMainWindowExcepthook:
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
             def __init__(self, *_args, **_kwargs):
                 super().__init__()
@@ -3827,6 +3846,7 @@ class TestMainWindowExcepthook:
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
             def __init__(self, *_args, **_kwargs):
                 super().__init__()
@@ -3894,6 +3914,7 @@ class TestMainWindowExcepthook:
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
             def __init__(self, *_args, **_kwargs):
                 super().__init__()

@@ -38,6 +38,8 @@ class GuiSettings:
     notify_enabled: bool = False
     download_patterns: str = "*.log, *.out, .jobdesk_submit.log"
     hide_dotfiles: bool = True
+    # Agent Jobs view: remember last-viewed agent server across GUI sessions
+    last_agent_server: str = ""
     # Per-software profiles: input_extensions, command_template, download_patterns
     software_profiles: dict[str, dict[str, str]] | None = None
 
@@ -82,6 +84,7 @@ class GuiSettingsStore:
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "*.log, *.out, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
+            last_agent_server=str(raw.get("last_agent_server", "") or ""),
             software_profiles=self._load_profiles(raw),
         )
 
@@ -126,6 +129,7 @@ class GuiSettingsStore:
                 "notify_enabled": settings.notify_enabled,
                 "download_patterns": settings.download_patterns,
                 "hide_dotfiles": settings.hide_dotfiles,
+                "last_agent_server": settings.last_agent_server,
                 "software_profiles": settings.software_profiles or {},
             }
             atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
