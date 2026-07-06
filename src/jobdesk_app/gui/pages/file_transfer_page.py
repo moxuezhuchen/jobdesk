@@ -44,6 +44,7 @@ from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_coordinator import RunCoordinator
+from ...services.session_pool import SessionPool
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
 from ...services.agent_bridge import AgentBridge
@@ -108,17 +109,38 @@ def _format_transfer_speed(bytes_per_second: float) -> str:
     return f"{bytes_per_second:.0f} B/s"
 
 
+class _PooledSFTPFactory:
+    """Wraps a SessionLease so its SSH+SFTP pair are returned as _ConnectedSFTP.
+
+    The lease is held open for the lifetime of the tab; FileTransferService.close()
+    does NOT close the underlying SSH transport — only the lease release (on tab
+    switch or server change) actually closes the pooled session.
+    """
+
+    def __init__(self, lease):
+        self._lease = lease
+        self._ssh = lease.ssh
+        self._sftp = lease.sftp
+
+    def __call__(self):
+        return _ConnectedSFTP(self._ssh, self._sftp)
+
+    def close(self):
+        self._lease.release()
+
+
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
     agent_jobs_submitted = Signal(list, str)  # (job_ids, server_id)
 
-    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None):
+    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None, session_pool=None):
         super().__init__()
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
         self._error_cb = error_cb
         self._coordinator_factory = coordinator_factory
+        self._session_pool = session_pool
         self._servers = {}
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
@@ -546,11 +568,16 @@ class FileTransferPage(QWidget):
         if self._connected_server_id != server_id:
             self.remote_path.setText(self._server_remote_dirs.get(server_id) or default_remote_dir_for_server(server))
 
-        def factory():
-            ssh = create_ssh_client(server)
-            ssh.connect()
-            sftp = create_sftp_client(ssh)
-            return _ConnectedSFTP(ssh, sftp)
+        if self._session_pool is not None:
+            lease = self._session_pool.lease(server_id, server)
+            ssh, sftp = lease.ssh, lease.sftp
+            factory = _PooledSFTPFactory(lease)
+        else:
+            def factory():
+                ssh = create_ssh_client(server)
+                ssh.connect()
+                sftp = create_sftp_client(ssh)
+                return _ConnectedSFTP(ssh, sftp)
 
         if self._service is not None:
             self._close_service_async(self._service)
