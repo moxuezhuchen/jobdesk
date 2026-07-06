@@ -3,9 +3,11 @@ from __future__ import annotations
 import posixpath
 import threading
 from pathlib import Path
+from typing import Any, Callable, Iterator, Literal
 
 from ..core.file_transfer import OverwritePolicy, policy_to_transfer_flags
 from ..remote.errors import RemotePathError
+from .ssh_session import ConnectedSFTP
 
 
 def ensure_safe_remote_path(remote_path: str) -> str:
@@ -22,13 +24,23 @@ def ensure_safe_remote_path(remote_path: str) -> str:
 
 
 class FileTransferService:
+    sftp_factory: Callable[[], ConnectedSFTP]
+    _sftp_factory: Callable[[], ConnectedSFTP]
+    _persistent_session: bool
+    _persistent_read_sftp: ConnectedSFTP | None
+    _persistent_write_sftp: ConnectedSFTP | None
+    _read_lock: threading.RLock
+    _write_lock: threading.RLock
+    _protected_roots: set[str]
+    _allowed_delete_roots: set[str]
+
     def __init__(
         self,
-        sftp_factory,
+        sftp_factory: Callable[[], ConnectedSFTP],
         protected_remote_roots: list[str] | None = None,
         allowed_delete_roots: list[str] | None = None,
         persistent_session: bool = False,
-    ):
+    ) -> None:
         self._sftp_factory = sftp_factory
         self._persistent_session = persistent_session
         self._persistent_read_sftp = None
@@ -40,7 +52,7 @@ class FileTransferService:
             ensure_safe_remote_path(p) for p in (allowed_delete_roots or [])
         }
 
-    def list_remote(self, remote_dir: str):
+    def list_remote(self, remote_dir: str) -> list[Any]:
         remote_dir = ensure_safe_remote_path(remote_dir)
         try:
             with self._read_sftp() as sftp:
@@ -51,7 +63,14 @@ class FileTransferService:
             with self._read_sftp() as sftp:
                 return sftp.list_dir_info(remote_dir)
 
-    def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
+    def upload_path(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        policy: OverwritePolicy = OverwritePolicy.skip_same_size,
+        dry_run: bool = False,
+        progress_callback: Callable[[int, int], object] | None = None,
+    ) -> list[Any]:
         overwrite, skip_same = policy_to_transfer_flags(policy)
         local_path = Path(local_path)
         remote_path = ensure_safe_remote_path(remote_path)
@@ -60,7 +79,14 @@ class FileTransferService:
                 return sftp.upload_dir(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
             return sftp.upload_file(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run, progress_callback=progress_callback)
 
-    def download_path(self, remote_path: str, local_path: str | Path, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
+    def download_path(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+        policy: OverwritePolicy = OverwritePolicy.skip_same_size,
+        dry_run: bool = False,
+        progress_callback: Callable[[int, int], object] | None = None,
+    ) -> list[Any]:
         overwrite, skip_same = policy_to_transfer_flags(policy)
         remote_path = ensure_safe_remote_path(remote_path)
         with self._write_sftp() as sftp:
@@ -126,12 +152,12 @@ class FileTransferService:
         if not any(_is_path_at_or_under(remote_path, root) for root in allowed_roots):
             raise RemotePathError(f"refusing to delete path outside allowed roots: {remote_path}")
 
-    def _read_sftp(self):
+    def _read_sftp(self) -> Iterator[ConnectedSFTP]:
         if self._persistent_session:
             return _PersistentSFTPContext(self, "read")
         return _SFTPContext(self._sftp_factory())
 
-    def _write_sftp(self):
+    def _write_sftp(self) -> Iterator[ConnectedSFTP]:
         if self._persistent_session:
             return _PersistentSFTPContext(self, "write")
         return _SFTPContext(self._sftp_factory())
@@ -144,24 +170,30 @@ class FileTransferService:
 
 
 class _SFTPContext:
-    def __init__(self, sftp):
+    _sftp: ConnectedSFTP
+
+    def __init__(self, sftp: ConnectedSFTP) -> None:
         self._sftp = sftp
 
-    def __enter__(self):
+    def __enter__(self) -> ConnectedSFTP:
         return self._sftp
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         if hasattr(self._sftp, "close"):
             self._sftp.close()
 
 
 class _PersistentSFTPContext:
-    def __init__(self, service: FileTransferService, which: str):
+    _service: FileTransferService
+    _which: Literal["read", "write"]
+    _lock: threading.RLock
+
+    def __init__(self, service: FileTransferService, which: Literal["read", "write"]) -> None:
         self._service = service
         self._which = which
         self._lock = service._read_lock if which == "read" else service._write_lock
 
-    def __enter__(self):
+    def __enter__(self) -> ConnectedSFTP:
         self._lock.acquire()
         try:
             attr = f"_persistent_{self._which}_sftp"
@@ -174,7 +206,7 @@ class _PersistentSFTPContext:
             self._lock.release()
             raise
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         try:
             if exc_type is not None and not issubclass(exc_type, RemotePathError):
                 self._service._close_sftp(self._which)

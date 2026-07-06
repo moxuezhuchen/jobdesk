@@ -8,8 +8,11 @@ from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMenu,
     QMessageBox,
@@ -25,6 +28,7 @@ from PySide6.QtWidgets import (
 from ...config.servers import load_servers
 from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
+from ...services.multi_server_coordinator import MultiServerCoordinator
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_service import RunRecord, RunService
 from ...services.session_pool import SessionPool
@@ -35,6 +39,23 @@ from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
+
+# Colour coding for agent job statuses (module-level so it's accessible everywhere)
+_STATUS_COLOR: dict[str, Any] = {}  # filled in after Qt is ready
+
+
+def _init_status_colors():
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+    _STATUS_COLOR.update({
+        "pending":    QColor("#9ca3af"),
+        "running":     QColor("#2563eb"),
+        "paused":      QColor("#d97706"),
+        "completed":   QColor("#16a34a"),
+        "failed":      QColor("#dc2626"),
+        "cancelled":   QColor("#9ca3af"),
+        "unknown":     Qt.black,
+    })
 
 
 def _format_status(summary: dict[str, int], language: str = "en") -> str:
@@ -73,15 +94,67 @@ def _format_row(record: RunRecord, language: str = "en") -> list[str]:
     ]
 
 
+def filter_runs_by_servers(
+    runs: list[RunRecord],
+    visible_server_ids: set[str] | None,
+) -> list[RunRecord]:
+    """Pure helper: return runs whose ``server_id`` is in ``visible_server_ids``.
+
+    When ``visible_server_ids`` is ``None`` or empty, every run is returned so
+    the page falls back to the "all servers visible" default without callers
+    having to special-case the empty selection.
+    """
+    if not visible_server_ids:
+        return list(runs)
+    return [record for record in runs if record.server_id in visible_server_ids]
+
+
+def coerce_visible_servers(
+    persisted: list[str] | tuple[str, ...] | None,
+    known_servers: list[str],
+) -> set[str]:
+    """Resolve which server IDs should appear checked on first paint.
+
+    Empty persisted state defaults to "everything currently known". Unknown
+    persisted IDs are silently dropped so a stale entry from a renamed server
+    cannot wedge the filter bar into an empty view.
+    """
+    known = set(known_servers)
+    if not persisted:
+        return set(known)
+    cleaned = {str(sid) for sid in persisted if sid}
+    if not cleaned:
+        return set(known)
+    return cleaned & known
+
+
+def toggle_all_selection(
+    current: set[str],
+    all_server_ids: list[str],
+    *,
+    select: bool,
+) -> set[str]:
+    """Pure helper: bulk-select or bulk-deselect every server ID."""
+    if select:
+        return set(all_server_ids)
+    # Always retain at least an empty set so the bar never crashes the page
+    # if all_server_ids is empty; we still return an empty selection.
+    return set()
+
+
 class RunsResultsPage(QWidget):
     startup_recovery_failed = Signal(str)
     startup_recovery_finished = Signal()
+    # Emitted when the user picks the agent-view server, so MainWindow can
+    # persist it across GUI sessions via GuiSettingsStore.
+    agent_server_changed = Signal(str)
 
-    def __init__(self, state, log_cb, status_cb, coordinator_factory=None):
+    def __init__(self, state, log_cb, status_cb, error_cb=None, coordinator_factory=None):
         super().__init__()
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
+        self._error_cb = error_cb or (lambda t, m: None)
         self._coordinator_factory = coordinator_factory
         self._language = GuiSettingsStore().load().language
         self._shutting_down = False
@@ -100,6 +173,9 @@ class RunsResultsPage(QWidget):
         top_layout = QVBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(6)
+
+        self._init_server_filter_bar()
+        top_layout.addWidget(self._server_filter_bar)
 
         self.table = StyledTableWidget()
         self.table.setColumnCount(6)
@@ -158,8 +234,70 @@ class RunsResultsPage(QWidget):
         self._retry_download_feedback = ButtonFeedback(self.retry_dl_btn, ButtonRole.TRANSFER_ACTION)
         self._delete_feedback = ButtonFeedback(self.delete_btn, ButtonRole.DANGER_ACTION)
         btn_row.addStretch()
+        self.view_agent_btn = QPushButton(tr("View Agent Jobs", self._language))
+        self.view_agent_btn.clicked.connect(self._show_agent_picker)
+        btn_row.addWidget(self.view_agent_btn)
         top_layout.addWidget(btn_card)
         splitter.addWidget(top)
+
+        # ─── Agent Jobs card ─────────────────────────────────────────────
+        self._agent_card = QWidget()
+        self._agent_card.setObjectName("AgentCard")
+        self._agent_card.setStyleSheet(
+            "#AgentCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            " #AgentCard QLabel { background: transparent; }"
+        )
+        self._agent_card.setVisible(False)
+        agent_card_layout = QVBoxLayout(self._agent_card)
+        agent_card_layout.setContentsMargins(16, 12, 16, 12)
+        agent_card_layout.setSpacing(6)
+
+        agent_header = QHBoxLayout()
+        agent_title = QLabel(tr("ConfFlow Agent Jobs", self._language))
+        agent_title.setStyleSheet("color: #111827; font-weight: 600; font-size: 13px;")
+        agent_header.addWidget(agent_title)
+        agent_header.addStretch()
+        self._agent_refresh_btn = QPushButton(tr("Refresh", self._language))
+        self._agent_refresh_btn.clicked.connect(self._poll_agent_jobs)
+        agent_header.addWidget(self._agent_refresh_btn)
+        agent_card_layout.addLayout(agent_header)
+
+        self._agent_table = StyledTableWidget()
+        self._agent_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._agent_table.verticalHeader().setVisible(False)
+        self._agent_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._agent_table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self._agent_table.setColumnCount(5)
+        self._agent_table.setHorizontalHeaderLabels([
+            tr("Job ID", self._language),
+            tr("Status", self._language),
+            tr("Step", self._language),
+            tr("Progress", self._language),
+            tr("Work Dir", self._language),
+        ])
+        self._agent_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self._agent_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._agent_table.customContextMenuRequested.connect(self._agent_context_menu)
+        agent_card_layout.addWidget(self._agent_table)
+
+        # Agent action buttons
+        agent_btn_row = QHBoxLayout()
+        agent_btn_row.setContentsMargins(0, 0, 0, 0)
+        self._agent_pause_btn = QPushButton(tr("Pause", self._language))
+        self._agent_pause_btn.clicked.connect(self._agent_pause)
+        agent_btn_row.addWidget(self._agent_pause_btn)
+        self._agent_resume_btn = QPushButton(tr("Resume", self._language))
+        self._agent_resume_btn.clicked.connect(self._agent_resume)
+        agent_btn_row.addWidget(self._agent_resume_btn)
+        self._agent_cancel_btn = QPushButton(tr("Cancel", self._language))
+        self._agent_cancel_btn.clicked.connect(self._agent_cancel)
+        agent_btn_row.addWidget(self._agent_cancel_btn)
+        self._agent_download_btn = QPushButton(tr("Download", self._language))
+        self._agent_download_btn.clicked.connect(self._agent_download)
+        agent_btn_row.addWidget(self._agent_download_btn)
+        agent_btn_row.addStretch()
+        agent_card_layout.addLayout(agent_btn_row)
+        splitter.addWidget(self._agent_card)
 
         # ─── Bottom: Results preview ───
         bottom = QWidget()
@@ -233,6 +371,26 @@ class RunsResultsPage(QWidget):
         self._applied_batch_id: str | None = None
 
         self._session_pool = SessionPool(create_ssh_client, create_sftp_client)
+
+        # Multi-server coordinator used by the "Refresh All" filter button.
+        # Lazily initialised on first click so we never spin up a coordinator
+        # for a workspace the user never interacts with.
+        self._multi_server_coordinator: MultiServerCoordinator | None = None
+
+        # Persisted + runtime state for the server filter bar.
+        self._server_filter_visible_ids: set[str] = set()
+        self._server_filter_known_ids: list[str] = []
+        self._server_filter_checkboxes: dict[str, QCheckBox] = {}
+        self._server_filter_loading = False
+        self._init_server_filter_state()
+
+        # ─── Agent Jobs view ────────────────────────────────────────────
+        self._agent_server_id: str | None = None
+        self._agent_job_ids: list[str] = []
+        self._agent_polling_timer = QTimer(self)
+        self._agent_polling_timer.setInterval(5000)
+        self._agent_polling_timer.timeout.connect(self._poll_agent_jobs)
+        _init_status_colors()
 
     def _start_monitoring(self):
         """Watch all running runs."""
@@ -381,6 +539,184 @@ class RunsResultsPage(QWidget):
         self._recovery_complete = True
         self.startup_recovery_finished.emit()
 
+    # ─── Agent Jobs ─────────────────────────────────────────────────────────────
+
+    def _apply_agent_headers(self, language: str | None = None) -> None:
+        lang = language or self._language
+        self._agent_table.setHorizontalHeaderLabels([
+            tr("Job ID", lang),
+            tr("Status", lang),
+            tr("Step", lang),
+            tr("Progress", lang),
+            tr("Work Dir", lang),
+        ])
+
+    def show_agent_jobs(self, job_ids: list[str], server_id: str) -> None:
+        """Switch to the agent view and begin polling for the given jobs."""
+        self._agent_server_id = server_id
+        self._agent_job_ids = list(job_ids)
+        # Show agent card, hide runs table card
+        self._show_agent_view(True)
+        self._poll_agent_jobs()
+
+    def _show_agent_view(self, show: bool) -> None:
+        """Toggle between the runs list (False) and the agent jobs card (True)."""
+        self._agent_card.setVisible(show)
+        # When showing agent view, stop runs polling; when hiding, restart it
+        if show:
+            self._refresh_timer.stop()
+        else:
+            self._agent_polling_timer.stop()
+            self._agent_server_id = None
+            self._agent_job_ids = []
+
+    def _poll_agent_jobs(self) -> None:
+        """Poll the remote agent for current job statuses and update the table."""
+        if not self._agent_server_id:
+            return
+        if self._shutting_down:
+            return
+        srv = self._agent_server_id
+        self._poll_agent_once(srv)
+
+    def _poll_agent_once(self, server_id: str) -> None:
+        """Fetch job list from agent and update the agent table."""
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(server_id)
+            return bridge.parse_jobs()
+
+        def _on_done(jobs):
+            self._render_agent_table(jobs)
+            # Keep polling while any job is pending or running
+            still_active = any(j.status in ("pending", "running") for j in jobs)
+            if still_active and not self._shutting_down:
+                self._agent_polling_timer.start()
+            else:
+                self._agent_polling_timer.stop()
+
+        def _on_error(err: str):
+            self._status_cb(f"Agent poll error: {err}")
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_on_done,
+            on_error=_on_error,
+        )
+
+    def _render_agent_table(self, jobs: list) -> None:
+        """Render the current agent job list into the agent table."""
+        if not hasattr(self, "_agent_table"):
+            return
+        self._agent_table.blockSignals(True)
+        self._agent_table.setRowCount(len(jobs))
+        for row, job in enumerate(jobs):
+            self._agent_table.setItem(row, 0, QTableWidgetItem(job.job_id))
+            status_item = QTableWidgetItem(job.status)
+            # Colour-code status
+            status_item.setForeground(_STATUS_COLOR.get(job.status, Qt.black))
+            self._agent_table.setItem(row, 1, status_item)
+            self._agent_table.setItem(row, 2, QTableWidgetItem(job.step))
+            self._agent_table.setItem(row, 3, QTableWidgetItem(f"{job.progress_pct}%"))
+            self._agent_table.setItem(row, 4, QTableWidgetItem(job.work_dir))
+        self._agent_table.blockSignals(False)
+        self._agent_table.resizeColumnsToContents()
+
+    def _agent_selected_job(self) -> str | None:
+        """Return the job_id of the currently selected agent row, or None."""
+        row = self._agent_table.currentRow()
+        if row < 0:
+            return None
+        item = self._agent_table.item(row, 0)
+        return item.text() if item else None
+
+    def _agent_pause(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "pause", tr("Pause", self._language))
+
+    def _agent_resume(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "resume", tr("Resume", self._language))
+
+    def _agent_cancel(self) -> None:
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        self._agent_action(job_id, "cancel", tr("Cancel", self._language))
+
+    def _agent_action(self, job_id: str, action: str, label: str) -> None:
+        """Run a pause/resume/cancel action on the selected job."""
+        srv = self._agent_server_id
+        if not srv:
+            return
+
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(srv)
+            if action == "pause":
+                return bridge.pause_job(job_id)
+            if action == "resume":
+                return bridge.resume_job(job_id)
+            return bridge.cancel_job(job_id)
+
+        def _on_done(result):
+            if result.ok:
+                self._status_cb(result.message)
+                self._poll_agent_jobs()
+            else:
+                self._error_cb(f"Agent {label} error", result.message)
+
+        def _on_error(err: str):
+            self._error_cb(f"Agent {label} error", err)
+
+        start_context_worker(self, target=_run, registry_attr="_bg_workers",
+                            on_result=_on_done, on_error=_on_error)
+
+    def _agent_download(self) -> None:
+        """Download output for the selected agent job to the project root."""
+        job_id = self._agent_selected_job()
+        if not job_id:
+            return
+        srv = self._agent_server_id
+        if not srv:
+            return
+        dest = self.state.current_project_root or Path.cwd()
+        job_dest = dest / f"agent_{job_id}"
+        job_dest.mkdir(parents=True, exist_ok=True)
+
+        def _run():
+            from ...services.agent_bridge import AgentBridge
+            bridge = AgentBridge(srv)
+            return bridge.download_job_output(job_id, job_dest)
+
+        def _on_done(result):
+            if result.ok:
+                self._status_cb(result.message)
+            else:
+                self._error_cb("Download error", result.message)
+
+        def _on_error(err: str):
+            self._error_cb("Download error", err)
+
+        self._status_cb(f"Downloading {job_id} output to {job_dest}...")
+        start_context_worker(self, target=_run, registry_attr="_bg_workers",
+                            on_result=_on_done, on_error=_on_error)
+
+    def _agent_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction(tr("Pause", self._language), self._agent_pause)
+        menu.addAction(tr("Resume", self._language), self._agent_resume)
+        menu.addAction(tr("Cancel", self._language), self._agent_cancel)
+        menu.addSeparator()
+        menu.addAction(tr("Download output", self._language), self._agent_download)
+        menu.exec(self._agent_table.viewport().mapToGlobal(pos))
+
     def apply_language(self, language: str):
         self._language = language
         self._retry_feedback.set_idle_text(tr("Retry Failed", language))
@@ -390,8 +726,13 @@ class RunsResultsPage(QWidget):
         self.confirm_submitted_btn.setText(tr("Confirm Submitted", language))
         self.abandon_submit_btn.setText(tr("Abandon Submit", language))
         self.result_label.setText(tr("Result Preview", language))
+        self.view_agent_btn.setText(tr("View Agent Jobs", language))
+        self._all_servers_btn.setText(tr("All", language))
+        self._no_servers_btn.setText(tr("None", language))
+        self._refresh_all_btn.setText(tr("Refresh All", language))
+        self._server_filter_title.setText(tr("Server filter:", language))
+        self._apply_agent_headers(language)
         self._set_headers()
-        self.refresh_run_list()
 
     def _set_headers(self):
         self.table.setHorizontalHeaderLabels([
@@ -425,7 +766,8 @@ class RunsResultsPage(QWidget):
 
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
-        runs = RunService(workspace).list_runs()
+        all_runs = RunService(workspace).list_runs()
+        runs = filter_runs_by_servers(all_runs, self._server_filter_visible_ids)
         prev_selected = self._current_run_id()
         self._set_headers()
         self.table.blockSignals(True)
@@ -1516,6 +1858,212 @@ class RunsResultsPage(QWidget):
             f"Database: {record.run_dir.parent / 'jobdesk.db'}\n"
             f"{tr('Results directory', self._language)}: {ws}")
         self.result_text.setVisible(True)
+
+    def _show_agent_picker(self) -> None:
+        """Show a server picker and switch to the agent view for that server."""
+        servers = load_servers().servers
+        if not servers:
+            self._error_cb("Agent Jobs", "No servers configured")
+            return
+        server_ids = list(servers.keys())
+        default = self.state.last_agent_server if self.state.last_agent_server in server_ids else server_ids[0]
+        if len(server_ids) == 1:
+            chosen = server_ids[0]
+        else:
+            # Put last-used server first so it is pre-selected in the dialog
+            ordered = [default] + [s for s in server_ids if s != default]
+            chosen, ok = QInputDialog.getItem(
+                self,
+                tr("Select Server", self._language),
+                tr("Server:", self._language),
+                ordered,
+                editable=False,
+            )
+            if not ok or not chosen:
+                return
+        self.state.last_agent_server = chosen
+        self.agent_server_changed.emit(chosen)
+        self._agent_server_id = chosen
+        self._agent_job_ids = []
+        self._show_agent_view(True)
+        self._poll_agent_jobs()
+
+    # ─── Server filter bar ────────────────────────────────────────────────
+
+    def _init_server_filter_bar(self) -> None:
+        """Create the horizontal filter bar shown above the runs table."""
+        bar = QWidget()
+        bar.setObjectName("ServerFilterBar")
+        bar.setStyleSheet(
+            "#ServerFilterBar { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            " #ServerFilterBar QLabel { background: transparent; }"
+        )
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(16, 6, 16, 6)
+        row.setSpacing(8)
+
+        title = QLabel(tr("Server filter:", self._language))
+        title.setStyleSheet("color: #111827; font-weight: 600;")
+        self._server_filter_title = title
+        row.addWidget(title)
+
+        self._server_checkbox_container = QWidget()
+        self._server_checkbox_layout = QHBoxLayout(self._server_checkbox_container)
+        self._server_checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        self._server_checkbox_layout.setSpacing(8)
+        row.addWidget(self._server_checkbox_container, 1)
+
+        self._all_servers_btn = QPushButton(tr("All", self._language))
+        self._all_servers_btn.clicked.connect(lambda: self._toggle_all_servers(True))
+        row.addWidget(self._all_servers_btn)
+
+        self._no_servers_btn = QPushButton(tr("None", self._language))
+        self._no_servers_btn.clicked.connect(lambda: self._toggle_all_servers(False))
+        row.addWidget(self._no_servers_btn)
+
+        self._refresh_all_btn = QPushButton(tr("Refresh All", self._language))
+        self._refresh_all_btn.clicked.connect(self._on_refresh_all_clicked)
+        row.addWidget(self._refresh_all_btn)
+
+        self._server_filter_bar = bar
+
+    def _init_server_filter_state(self) -> None:
+        """Populate the bar from known servers and apply persisted selection."""
+        try:
+            known = sorted(load_servers().servers.keys())
+        except FileNotFoundError:
+            known = []
+        self._server_filter_known_ids = list(known)
+        persisted = self._load_server_filter_state()
+        self._server_filter_visible_ids = coerce_visible_servers(persisted, known)
+        self._rebuild_server_filter_checkboxes()
+
+    def _rebuild_server_filter_checkboxes(self) -> None:
+        """Recreate the per-server checkboxes from the current known list."""
+        self._server_filter_loading = True
+        # Remove existing widgets from the inner layout
+        layout = self._server_checkbox_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._server_filter_checkboxes.clear()
+        for server_id in self._server_filter_known_ids:
+            checkbox = QCheckBox(server_id)
+            checkbox.setChecked(server_id in self._server_filter_visible_ids)
+            checkbox.toggled.connect(
+                lambda checked, sid=server_id: self._on_server_filter_changed(sid, checked)
+            )
+            self._server_checkbox_layout.addWidget(checkbox)
+            self._server_filter_checkboxes[server_id] = checkbox
+        self._server_filter_layout = layout
+        self._server_filter_loading = False
+
+    def _on_server_filter_changed(self, server_id: str, checked: bool) -> None:
+        """Handle checkbox toggles: persist + re-filter the table."""
+        if self._server_filter_loading:
+            return
+        if checked:
+            self._server_filter_visible_ids.add(server_id)
+        else:
+            self._server_filter_visible_ids.discard(server_id)
+        self._save_server_filter_state()
+        self._filter_visible_runs()
+
+    def _toggle_all_servers(self, checked: bool) -> None:
+        """Bulk select / deselect every known server checkbox."""
+        self._server_filter_loading = True
+        try:
+            for server_id, checkbox in self._server_filter_checkboxes.items():
+                checkbox.setChecked(checked)
+                if checked:
+                    self._server_filter_visible_ids.add(server_id)
+                else:
+                    self._server_filter_visible_ids.discard(server_id)
+        finally:
+            self._server_filter_loading = False
+        self._server_filter_visible_ids = toggle_all_selection(
+            self._server_filter_visible_ids,
+            list(self._server_filter_checkboxes.keys()),
+            select=checked,
+        )
+        self._save_server_filter_state()
+        self._filter_visible_runs()
+
+    def _on_refresh_all_clicked(self) -> None:
+        """Trigger MultiServerCoordinator.refresh_all() in a worker thread."""
+        if self._shutting_down:
+            return
+        if not self._server_filter_visible_ids:
+            self._status_cb(tr("No servers selected to refresh", self._language))
+            return
+        workspace = self._workspace()
+        server_ids = sorted(self._server_filter_visible_ids)
+
+        def _run(_ctx: WorkerContext):
+            coordinator = MultiServerCoordinator(
+                workspace=workspace,
+                server_lookup=lambda server_id: load_servers().servers[server_id],
+                ssh_factory=create_ssh_client,
+                sftp_factory=create_sftp_client,
+                session_pool=self._session_pool,
+            )
+            try:
+                return coordinator.refresh_all(server_ids)
+            finally:
+                coordinator.close()
+
+        def _on_done(results):
+            errors: list[str] = []
+            refreshed = 0
+            for server_id, result in results.items():
+                if result.error:
+                    errors.append(f"{server_id}: {result.error}")
+                elif result.outcome.errors:
+                    errors.extend(f"{server_id}: {err}" for err in result.outcome.errors)
+                else:
+                    refreshed += 1
+            if refreshed:
+                self._status_cb(tr("Refreshed {n} server(s)", self._language, n=refreshed))
+            if errors:
+                self._status_cb(tr("Refresh errors: {e}", self._language, e="; ".join(errors)))
+            self.refresh_run_list()
+
+        def _on_error(err: str):
+            self._status_cb(tr("Refresh all failed: {e}", self._language, e=err))
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_on_done,
+            on_error=_on_error,
+        )
+
+    def _filter_visible_runs(self) -> None:
+        """Re-populate the runs table using the current server selection."""
+        self.refresh_run_list()
+
+    def _load_server_filter_state(self) -> list[str]:
+        """Read the persisted server selection from GuiSettingsStore."""
+        try:
+            settings = GuiSettingsStore().load()
+        except Exception:
+            return []
+        return list(settings.runs_server_filter or [])
+
+    def _save_server_filter_state(self) -> None:
+        """Write the current server selection to GuiSettingsStore."""
+        try:
+            GuiSettingsStore().update(
+                runs_server_filter=sorted(self._server_filter_visible_ids),
+            )
+        except Exception:
+            # Persistence failures must not break filtering; the in-memory
+            # state already reflects the user's choice.
+            pass
 
     def shutdown(self):
         self._shutting_down = True

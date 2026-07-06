@@ -13,3 +13,4 @@ class AppState:
     current_batch_id: str | None = None
     current_manifest_path: Path | None = None
     last_error: str | None = None
+    last_agent_server: str | None = None  # server_id of last agent view

@@ -156,3 +156,32 @@ def test_update_merges_only_given_fields_without_losing_others(tmp_path):
     assert loaded.last_remote_dirs == {"wsl": "/scratch"}  # not lost by the second update
     assert loaded.window_size == [800, 600]
 
+
+def test_last_agent_server_field_round_trip(tmp_path):
+    """Bug #3 fix: last_agent_server must persist across GUI sessions."""
+    path = tmp_path / "gui_settings.yaml"
+    store = GuiSettingsStore(path)
+
+    # Default: empty string.
+    assert store.load().last_agent_server == ""
+
+    # Pick a server; persist.
+    store.update(last_agent_server="cluster-a")
+    assert GuiSettingsStore(path).load().last_agent_server == "cluster-a"
+
+    # Change to a different server; old value must not linger.
+    GuiSettingsStore(path).update(last_agent_server="cluster-b")
+    assert GuiSettingsStore(path).load().last_agent_server == "cluster-b"
+
+    # The serialized YAML must contain the key (for forward-compat with newer
+    # readers; older readers that ignore unknown keys still work).
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert saved.get("last_agent_server") == "cluster-b"
+
+
+def test_last_agent_server_field_default_is_empty_string():
+    """Fresh GuiSettings must always have last_agent_server == ''."""
+    gs = GuiSettings()
+    assert hasattr(gs, "last_agent_server")
+    assert gs.last_agent_server == ""
+

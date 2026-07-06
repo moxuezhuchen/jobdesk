@@ -2870,7 +2870,25 @@ class TestFileTransferPage:
         with patch("jobdesk_app.gui.pages.file_transfer_page.QFileDialog.getOpenFileName", return_value=(str(yaml_file), "")), \
              patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", return_value=QMessageBox.Yes), \
              patch("jobdesk_app.gui.pages.file_transfer_page.RunService") as run_service_cls, \
-             patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls:
+             patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_cls, \
+             patch(
+                 "jobdesk_app.services.agent_bridge.load_servers",
+                 return_value=SimpleNamespace(
+                     servers={
+                         "wsl": SimpleNamespace(
+                             auth_unsupported_message="",
+                             host="localhost",
+                             port=22,
+                             username="me",
+                             display_name="WSL",
+                             env_init_scripts=[],
+                             scheduler=SimpleNamespace(),
+                         ),
+                     },
+                 ),
+             ), \
+             patch("jobdesk_app.services.agent_bridge.AgentBridge.is_agent_installed", return_value=True), \
+             patch("jobdesk_app.services.agent_bridge.AgentBridge.is_agent_running", return_value=True):
             worker = MagicMock()
             worker.result.connect = MagicMock()
             worker.error.connect = MagicMock()
@@ -3742,11 +3760,13 @@ class TestFileTransferPage:
             return QMessageBox.No  # Say No to prevent actual submission
 
         with patch("jobdesk_app.gui.pages.file_transfer_page.QFileDialog.getOpenFileName", return_value=(str(yaml_file), "")):
-            with patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question", side_effect=fake_question):
+            with patch.object(file_page, "_run_confflow_via_agent", side_effect=lambda **kw: confirm_messages.append(kw)):
                 file_page._run_confflow()
 
-        assert len(confirm_messages) == 1
-        assert "Max parallel: 7" in confirm_messages[0]
+        # Stage 5: agent path is the only supported submission. Confirm the
+        # spinbox value flows through unchanged.
+        assert confirm_messages
+        assert confirm_messages[-1]["max_parallel"] == 7
 
 
 
@@ -3757,15 +3777,17 @@ class TestMainWindowExcepthook:
 
         class FilesStub(QWidget):
             runs_submitted = Signal(list)
+            agent_jobs_submitted = Signal(list, str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
             def start_startup_recovery(self):
@@ -3774,7 +3796,7 @@ class TestMainWindowExcepthook:
         class SettingsStub(QWidget):
             language_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         monkeypatch.setattr(
@@ -3816,15 +3838,17 @@ class TestMainWindowExcepthook:
 
         class FilesStub(QWidget):
             runs_submitted = Signal(list)
+            agent_jobs_submitted = Signal(list, str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
             def start_startup_recovery(self):
@@ -3833,7 +3857,7 @@ class TestMainWindowExcepthook:
         class SettingsStub(QWidget):
             language_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         monkeypatch.setattr(
@@ -3882,15 +3906,17 @@ class TestMainWindowExcepthook:
 
         class FilesStub(QWidget):
             runs_submitted = Signal(list)
+            agent_jobs_submitted = Signal(list, str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         class RunsStub(QWidget):
             startup_recovery_failed = Signal(str)
             startup_recovery_finished = Signal()
+            agent_server_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
             def start_startup_recovery(self):
@@ -3899,7 +3925,7 @@ class TestMainWindowExcepthook:
         class SettingsStub(QWidget):
             language_changed = Signal(str)
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 super().__init__()
 
         original_hook = sys.excepthook

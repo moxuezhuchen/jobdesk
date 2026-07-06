@@ -1,21 +1,31 @@
 # JobDesk
 
-JobDesk is a Windows-first desktop and CLI tool for managing single scientific-computing jobs over SSH/SFTP. It helps prepare Gaussian and ORCA inputs, submit jobs to a remote machine or local WSL environment, monitor status, download outputs, and preview parsed results.
+JobDesk is a Windows-first desktop and CLI tool for managing scientific-computing
+workloads over SSH/SFTP. It bundles:
 
-JobDesk is currently a preview project. It is suitable for source review and controlled local use, but not yet a stable public package release.
+* Single-task Gaussian/ORCA submissions (`jobdesk run` / Files page).
+* **ConfFlow** — declarative multi-step conformational search & refinement
+  workflows (`jobdesk workflow`, wizard on the Workflow tab).
+* **confflow-agent** — a remote daemon that runs workflows independently of
+  the GUI, so closing JobDesk no longer kills in-flight calculations.
+
+JobDesk is currently a preview project. It is suitable for source review and
+controlled local use, but not yet a stable public package release.
 
 ## Scope
 
-- Submit, monitor, cancel, refresh, download, and retry single-task Gaussian/ORCA runs.
-- Submit one or more `.xyz` inputs through the ConfFlow integration and display per-molecule execution summaries.
-- Manage remote files through SSH/SFTP with guarded deletion boundaries.
-- Keep multi-step workflow orchestration outside JobDesk's public user interface.
+- Single-task Gaussian/ORCA runs (one input, one output, monitor/download).
+- Multi-molecule **ConfFlow** workflows via the confflow-agent daemon.
+- Declarative YAML **Workflow Builder** (wizard) for composing
+  `conformers → opt → freq` style pipelines without hand-editing YAML.
+- Remote file management through SSH/SFTP with guarded deletion boundaries.
 
 ## Requirements
 
-- Windows 11
+- Windows 11 (GUI runs locally)
+- Linux or WSL host for the **confflow-agent** daemon (the daemon is the
+  actual compute executor; without it the GUI cannot submit workflows)
 - Python 3.11 or newer
-- SSH access to a configured remote machine or WSL environment
 
 ## Install From Source
 
@@ -66,6 +76,7 @@ JobDesk does not store SSH passwords and does not pass passwords on command line
 ## CLI Examples
 
 ```powershell
+# Single-task Gaussian/ORCA runs
 jobdesk files list-remote <server_id> <remote_path>
 jobdesk files upload <server_id> <local_path> <remote_path>
 jobdesk files download <server_id> <remote_path> <local_path>
@@ -78,8 +89,23 @@ jobdesk run download <workspace> <run_id> --patterns "*.log" "*.out"
 jobdesk run cancel <workspace> <run_id>
 jobdesk run retry <workspace> <run_id>
 jobdesk run recover <workspace>
-jobdesk run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
-jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
+
+# ConfFlow workflow builder (Stage 4)
+jobdesk workflow presets
+jobdesk workflow build --preset opt-freq-orca --output conflow.yaml
+jobdesk workflow build --params conflow.json --output conflow.yaml --check
+jobdesk workflow check conflow.yaml
+
+# ConfFlow agent management
+jobdesk agent install --server <id>
+jobdesk agent start  --server <id>
+jobdesk agent status
+jobdesk agent list
+jobdesk agent submit <yaml> <xyz>
+jobdesk agent pause  <job_id>
+jobdesk agent resume <job_id>
+jobdesk agent cancel <job_id>
+jobdesk agent stop
 ```
 
 ## Run Database

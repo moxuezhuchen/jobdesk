@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -20,6 +21,7 @@ class _Entry:
     sftp: SFTPClientProtocol | None = None
     active_leases: int = 0
     closing: bool = False
+    last_used: float = 0.0
 
 
 class SessionLease:
@@ -68,16 +70,28 @@ class SessionLease:
 class SessionPool:
     """Own one reusable, serialized SSH session per server with optional SFTP."""
 
+    _ssh_factory: Callable[[Any], SSHClientProtocol]
+    _sftp_factory: Callable[[SSHClientProtocol], SFTPClientProtocol]
+    _metadata_lock: threading.Lock
+    _entries: dict[str, _Entry]
+    _closing: bool
+    _max_idle_entries: int
+    _idle_ttl_seconds: float
+
     def __init__(
         self,
         ssh_factory: Callable[[Any], SSHClientProtocol],
         sftp_factory: Callable[[SSHClientProtocol], SFTPClientProtocol],
-    ):
+        max_idle_entries: int = 5,
+        idle_ttl_seconds: float = 300.0,
+    ) -> None:
         self._ssh_factory = ssh_factory
         self._sftp_factory = sftp_factory
         self._metadata_lock = threading.Lock()
         self._entries: dict[str, _Entry] = {}
         self._closing = False
+        self._max_idle_entries = max_idle_entries
+        self._idle_ttl_seconds = idle_ttl_seconds
 
     def lease(
         self, server_id: str, server_config: Any, *, need_sftp: bool = True
@@ -116,6 +130,7 @@ class SessionPool:
                 entry.mutex.release()
                 raise RuntimeError("session pool is closing")
             entry.active_leases += 1
+            entry.last_used = time.monotonic()
 
         old_clients: tuple[SFTPClientProtocol | None, SSHClientProtocol | None] = (None, None)
         try:
@@ -165,6 +180,21 @@ class SessionPool:
                 clients = self._detach_clients(entry)
         entry.mutex.release()
         self._close_clients(*clients)
+        self._evict_idle_entries()
+
+    def _evict_idle_entries(self) -> None:
+        if len(self._entries) <= self._max_idle_entries:
+            return
+        now = time.monotonic()
+        to_close: list[tuple[SFTPClientProtocol | None, SSHClientProtocol | None]] = []
+        with self._metadata_lock:
+            for entry in list(self._entries.values()):
+                if entry.active_leases == 0 and (now - entry.last_used) > self._idle_ttl_seconds:
+                    entry.closing = True
+                    clients = self._detach_clients(entry)
+                    to_close.append(clients)
+        for clients in to_close:
+            self._close_clients(*clients)
 
     def _create_clients(
         self, server_config: Any, *, need_sftp: bool

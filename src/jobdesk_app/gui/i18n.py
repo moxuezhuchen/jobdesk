@@ -86,6 +86,7 @@ ZH: dict[str, str] = {
     "Server Profiles": "\u670d\u52a1\u5668\u914d\u7f6e",
     "Servers": "\u670d\u52a1\u5668",
     "Settings": "\u8bbe\u7f6e",
+    "Workflow": "\u5de5\u4f5c\u6d41",
     "Show Logs": "\u663e\u793a\u65e5\u5fd7",
     "Show Paths": "\u663e\u793a\u8def\u5f84",
     "Open Terminal Here": "\u5728\u6b64\u6253\u5f00\u7ec8\u7aef",
@@ -297,5 +298,132 @@ ZH: dict[str, str] = {
 
 
 def tr(text: str, language: str = "en", **kwargs) -> str:
-    value = ZH.get(text, text) if language == "zh" else text
+    # Schema hints (workflow builder labels) live in i18n/schema_hints.yaml and
+    # are loaded into ``schema_hints()``. They take precedence over the small
+    # ``ZH`` map below, so a translator editing the YAML sees their work
+    # without having to also update the Python source.
+    if language == "zh":
+        try:
+            value = schema_hints().get("zh", {}).get(text, "")
+        except Exception:
+            value = ""
+        if not value:
+            value = ZH.get(text, text)
+    else:
+        try:
+            value = schema_hints().get("en", {}).get(text, text)
+        except Exception:
+            value = text
     return value.format(**kwargs) if kwargs else value
+
+
+# ---------------------------------------------------------------------------
+# Workflow Builder hints -- schema_hints.yaml is the on-disk authoring source
+# for these strings. This dict is loaded once at import time and re-exported
+# as :data:`schema_hints` so widgets can ask for both labels and tooltips.
+# ---------------------------------------------------------------------------
+
+
+_SCHEMA_HINTS_ZH: dict[str, str] = {
+    "field.charge": "\u7535\u8377",
+    "field.multiplicity": "\u591a\u91cd\u5ea6",
+    "field.cores_per_task": "\u6bcf\u4efb\u52a1\u6838\u6570",
+    "field.total_memory": "\u603b\u5185\u5b58",
+    "field.max_parallel_jobs": "\u6700\u5927\u5e76\u884c\u4efb\u52a1",
+    "field.iprog": "\u8ba1\u7b97\u7a0b\u5e8f",
+    "field.itask": "\u8ba1\u7b97\u7c7b\u578b",
+    "field.keyword": "\u8ba1\u7b97\u5173\u952e\u5b57",
+    "field.freeze": "\u56fa\u5b9a\u539f\u5b50\u7d22\u5f15",
+    "field.rmsd_threshold": "RMSD \u9608\u503c",
+    "field.energy_window": "\u80fd\u91cf\u7a97\u53e3",
+    "field.energy_tolerance": "\u80fd\u91cf\u5bb9\u5dee",
+    "field.noH": "\u53bb\u6389\u6c22\u539f\u5b50",
+    "field.auto_clean": "\u81ea\u52a8\u53bb\u91cd",
+    "field.ts_bond_atoms": "TS \u952e\u539f\u5b50",
+    "field.ts_rescue_scan": "TS \u626b\u63cf\u6551\u63f4",
+    "field.scan_coarse_step": "\u7c97\u626b\u63cf\u6b65\u957f",
+    "field.scan_fine_step": "\u7cbe\u626b\u63cf\u6b65\u957f",
+    "field.scan_uphill_limit": "\u4e0a\u5761\u9650\u5236",
+    "field.sandbox_root": "\u6c99\u76d2\u76ee\u5f55",
+    "field.allowed_executables": "\u5141\u8bb8\u8c03\u7528\u7684\u53ef\u6267\u884c\u6587\u4ef6",
+    "field.enable_dynamic_resources": "\u52a8\u6001\u8c03\u5ea6\u8d44\u6e90",
+    "field.resume_from_backups": "\u4ece\u5907\u4efd\u6062\u590d",
+    "field.delete_work_dir": "\u5220\u9664\u5de5\u4f5c\u76ee\u5f55",
+    "field.step_name": "\u6b65\u9aa4\u540d\u79f0",
+    "field.gaussian_path": "Gaussian \u8def\u5f84",
+    "field.orca_path": "ORCA \u8def\u5f84",
+    "field.blocks": "ORCA blocks",
+    "field.orca_maxcore": "ORCA \u5355\u6838\u5185\u5b58",
+    "field.gaussian_modredundant": "Gaussian modredundant",
+    "field.gaussian_link0": "Gaussian link0",
+    "field.dedup_only": "\u4ec5\u53bb\u91cd",
+    "field.keep_all_topos": "\u4fdd\u7559\u6240\u6709\u8d28\u5b50\u5b66\u4e1d\u7ef3",
+    "field.imag": "\u865a\u9891\u8303\u56f4",
+    "field.max_conformers": "\u6700\u5927\u6784\u578b\u6570",
+    "field.engine": "\u6784\u578b\u5f15\u64ce",
+    "field.angle_step": "\u952e\u89d2\u626b\u63cf\u6b65\u957f",
+    "field.chain_steps": "\u94fe\u5f0f\u626b\u63cf\u6b65\u957f",
+    "field.bond_pairs": "\u952e\u5bf9\u5217\u8868",
+    "step.calc": "\u8ba1\u7b97 (calc)",
+    "step.confgen": "\u6784\u578b (confgen)",
+    "section.cleanup": "\u6e05\u7406",
+    "section.ts": "\u8fc7\u6e21\u6001",
+    "wf.load": "\u52a0\u8f7d YAML",
+    "wf.save": "\u4fdd\u5b58 YAML",
+    "wf.validate": "\u6821\u9a8c",
+    "wf.preset": "\u9884\u8bbe\u5b57\u53d6",
+    "wf.submit_agent": "\u63d0\u4ea4\u5230 agent",
+    "wf.add_step": "\u6dfb\u52a0\u6b65\u9aa4",
+    "wf.remove_step": "\u5220\u9664\u6b65\u9aa4",
+    "wf.up": "\u4e0a\u79fb",
+    "wf.down": "\u4e0b\u79fb",
+    "wf.steps": "\u6b65\u9aa4",
+    "wf.form": "\u8868\u5355",
+    "wf.preview": "YAML \u9884\u89c8",
+    "wf.global_options": "\u5168\u5c40\u9009\u9879",
+    "wf.no_step_selected": "\u8bf7\u9009\u62e9\u4e00\u4e2a\u6b65\u9aa4",
+    "wf.step_enabled": "\u542f\u7528\u6b65\u9aa4",
+    "wf.step_type": "\u7c7b\u578b",
+    "wf.preview_ok": "YAML \u9884\u89c8\u6210\u529f",
+    "wf.preview_invalid": "\u8868\u5355\u5b57\u6bb5\u9700\u8981\u4fee\u6539",
+    "wf.load_error": "\u52a0\u8f7d\u5931\u8d25",
+    "wf.save_invalid": "\u4fdd\u5b58\u5931\u8d25\uff1a\u8868\u5355\u5b57\u6bb5\u672a\u901a\u8fc7\u6821\u9a8c",
+    "wf.validate_failed": "\u6821\u9a8c\u5931\u8d25",
+    "wf.validate_ok": "\u6821\u9a8c\u901a\u8fc7 ({n} \u4e2a\u6b65\u9aa4)",
+    "wf.preset_pick": "\u9009\u62e9\u9884\u8bbe",
+    "wf.submit_invalid": "\u63d0\u4ea4\u5931\u8d25",
+    "wf.no_server": "\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a agent \u670d\u52a1\u5668",
+}
+
+
+# Lazy-loaded schema hints from on-disk YAML, falling back to the in-code
+# Chinese dictionary above. This allows translators to edit
+# ``gui/i18n/schema_hints.yaml`` without touching Python.
+_SCHEMA_HINTS_CACHE: dict[str, dict[str, str]] | None = None
+
+
+def schema_hints() -> dict[str, dict[str, str]]:
+    """Return ``{language: {key: text}}`` for the workflow builder hints."""
+
+    global _SCHEMA_HINTS_CACHE
+    if _SCHEMA_HINTS_CACHE is not None:
+        return _SCHEMA_HINTS_CACHE
+    hints: dict[str, dict[str, str]] = {"en": {}, "zh": dict(_SCHEMA_HINTS_ZH)}
+    try:
+        from pathlib import Path
+
+        yaml_path = Path(__file__).resolve().parent / "i18n" / "schema_hints.yaml"
+        if yaml_path.exists():
+            import yaml
+
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            if isinstance(data, dict):
+                for lang, mapping in data.items():
+                    if isinstance(mapping, dict):
+                        bucket = hints.setdefault(str(lang), {})
+                        bucket.update({str(k): str(v) for k, v in mapping.items()})
+    except Exception:
+        # The wizard falls back to English keys if anything fails to load.
+        pass
+    _SCHEMA_HINTS_CACHE = hints
+    return hints
