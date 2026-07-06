@@ -253,11 +253,34 @@ class RunsResultsPage(QWidget):
             pass
 
     def _on_task_done(self, event):
-        """Called when a remote task changes state — debounce before refresh."""
+        """Called when a remote task changes state — debounce before refresh.
+
+        Synthetic checkpoint events (``task_id`` starts with ``_ckpt_``)
+        trigger an immediate refresh-only path: no download, no status
+        mutation. They exist so the Runs page reflects ConfFlow step
+        progress even when no DONE/RUNNING line has been emitted yet.
+        """
         if self._shutting_down:
             return
         run_id = event.run_id
-        # Merge event into pending state
+        is_checkpoint = isinstance(event.task_id, str) and event.task_id.startswith("_ckpt_")
+        if is_checkpoint:
+            # Immediate lightweight refresh: re-read run_summary /
+            # workflow_stats from disk and update the preview. No
+            # background worker needed since confflow_results parsing is
+            # cheap and we already cache by signature in
+            # ``_analyze_cache``.
+            self.refresh_run_list()
+            # Force the selected run's preview to reload so the new
+            # Progress column reflects the latest workflow_stats.json.
+            record = self._selected_record()
+            if record is not None:
+                # Drop analyze cache so the next preview re-reads
+                # workflow_stats.json / run_summary.json from disk.
+                self._analyze_cache.clear()
+                self._preview_timer.start()
+            return
+        # Real DONE/RUNNING path — debounce before refresh + download.
         if run_id in self._pending_task_events:
             state = self._pending_task_events[run_id]
             state["has_done"] = state["has_done"] or (event.exit_code is not None)
@@ -851,7 +874,7 @@ class RunsResultsPage(QWidget):
         from ...core.lifecycle import TaskStatus
         from ...services.confflow_results import load_summary
 
-        headers = ["Molecule", "Status", "Conformers (in→out)", "Duration (s)", "Steps"]
+        headers = ["Molecule", "Status", "Conformers (in→out)", "Duration (s)", "Steps", "Progress"]
         rows: list[list[str]] = []
 
         tasks = self._load_tasks(record)
@@ -864,20 +887,22 @@ class RunsResultsPage(QWidget):
                     try:
                         s = load_summary(summary_file)
                         steps = ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items()) if s.step_status_counts else ""
-                        rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps])
+                        progress = _step_progress_text(result_dir, mol_name)
+                        rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps, progress])
                     except Exception:
-                        rows.append([mol_name, "⚠ Parse Error", "", "", ""])
+                        rows.append([mol_name, "⚠ Parse Error", "", "", "", ""])
                 elif task.status == TaskStatus.failed:
                     reason = f" ({task.error_message})" if task.error_message else ""
-                    rows.append([mol_name, f"✗ Failed{reason}", "", "", ""])
+                    rows.append([mol_name, f"✗ Failed{reason}", "", "", "", ""])
                 elif task.status == TaskStatus.remote_completed:
                     reason = f" ({task.error_message})" if task.error_message else ""
-                    rows.append([mol_name, f"⚠ Download Failed{reason}", "", "", ""])
+                    rows.append([mol_name, f"⚠ Download Failed{reason}", "", "", "", ""])
                 elif task.status in (TaskStatus.submitting, TaskStatus.submitted, TaskStatus.running):
                     label = "Running" if task.status == TaskStatus.running else "Pending"
-                    rows.append([mol_name, f"⏳ {label}", "", "", ""])
+                    progress = _step_progress_text(result_dir, mol_name)
+                    rows.append([mol_name, f"⏳ {label}", "", "", "", progress])
                 else:
-                    rows.append([mol_name, "✗ Missing", "", "", ""])
+                    rows.append([mol_name, "✗ Missing", "", "", "", ""])
         else:
             # Fallback: scan local directories if no manifest
             if result_dir.exists():
@@ -892,11 +917,12 @@ class RunsResultsPage(QWidget):
                         try:
                             s = load_summary(summary_file)
                             steps = ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items()) if s.step_status_counts else ""
-                            rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps])
+                            progress = _step_progress_text(result_dir, mol_name)
+                            rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps, progress])
                         except Exception:
-                            rows.append([mol_name, "⚠ Parse Error", "", "", ""])
+                            rows.append([mol_name, "⚠ Parse Error", "", "", "", ""])
                     else:
-                        rows.append([mol_name, "✗ Missing", "", "", ""])
+                        rows.append([mol_name, "✗ Missing", "", "", "", ""])
 
         if not rows:
             self._set_parsed_results_label("ConfFlow Batch Results (no tasks)")
@@ -1550,6 +1576,27 @@ def _confflow_summary_file(result_dir: Path, mol_name: str) -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def _confflow_step_stats_file(result_dir: Path, mol_name: str) -> Path:
+    """Locate ``workflow_stats.json`` next to a run summary if present."""
+    candidates = [
+        result_dir / f"{mol_name}_confflow_work" / "workflow_stats.json",
+        result_dir / mol_name / f"{mol_name}_confflow_work" / "workflow_stats.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _step_progress_text(result_dir: Path, mol_name: str) -> str:
+    """Render a short step-progress string for the Runs page table."""
+    from ...services.confflow_results import format_step_progress, load_step_progress
+
+    stats_file = _confflow_step_stats_file(result_dir, mol_name)
+    progress = load_step_progress(stats_file)
+    return format_step_progress(progress)
 
 
 def _confflow_result_dir_has_summary(record, result_dir: Path, tasks=None) -> bool:

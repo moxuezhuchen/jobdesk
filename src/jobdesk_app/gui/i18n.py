@@ -159,6 +159,7 @@ ZH: dict[str, str] = {
     "Run Compare Runs first": "\u8bf7\u5148\u70b9\u51fb\u201c\u5bf9\u6bd4\u8fd0\u884c\u201d",
     "Markdown copied to clipboard": "Markdown \u5df2\u590d\u5236\u5230\u526a\u8d34\u677f",
     "Generate GJF from XYZ\u2026": "\u4ece XYZ \u751f\u6210 GJF\u2026",
+    "ConfFlow Wizard\u2026": "ConfFlow \u5411\u5bfc\u2026",
     "Open in Viewer": "\u5728\u67e5\u770b\u5668\u4e2d\u6253\u5f00",
     "Scheduler:": "\u8c03\u5ea6\u5668:",
     "Partition/Queue:": "\u5206\u533a/\u961f\u5217:",

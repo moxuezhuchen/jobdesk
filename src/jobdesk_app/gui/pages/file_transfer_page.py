@@ -332,10 +332,13 @@ class FileTransferPage(QWidget):
         self.confflow_btn = QPushButton(tr("Run ConfFlow", self._language))
         self.confflow_btn.clicked.connect(self._run_confflow)
         run_options_row.addWidget(self.confflow_btn)
+        self.confflow_wizard_btn = QPushButton(tr("ConfFlow Wizard…", self._language))
+        self.confflow_wizard_btn.clicked.connect(self._open_confflow_wizard)
+        run_options_row.addWidget(self.confflow_wizard_btn)
         self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
         self.create_only_btn.clicked.connect(self._create_only)
         run_options_row.addWidget(self.create_only_btn)
-        run_button_group = [self.run_btn, self.confflow_btn, self.create_only_btn]
+        run_button_group = [self.run_btn, self.confflow_btn, self.confflow_wizard_btn, self.create_only_btn]
         self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
         self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)
         self._preview_feedback = ButtonFeedback(self.preview_commands_btn, role=ButtonRole.INSTANT_ACTION)
@@ -453,6 +456,7 @@ class FileTransferPage(QWidget):
         self.max_parallel_label.setText(tr("Max parallel:", language))
         self.run_btn.setText(tr("Run Selected", language))
         self.confflow_btn.setText(tr("Run ConfFlow", language))
+        self.confflow_wizard_btn.setText(tr("ConfFlow Wizard…", language))
         self.create_only_btn.setText(tr("Create tasks only", language))
         self._refresh_feedback.set_idle_text(self.refresh_btn.text())
         self._terminal_feedback.set_idle_text(self.open_terminal_btn.text())
@@ -1920,6 +1924,97 @@ class FileTransferPage(QWidget):
                 config_path=config_target,
                 max_parallel=max_parallel,
             )
+            return self._execute_run_use_case(spec, Path(local_base), submit=True)
+
+        self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
+        worker = BackgroundWorker(_run)
+        worker.result.connect(self._on_confflow_done)
+        worker.error.connect(lambda error: (
+            self._confflow_feedback.error(tr("Submit failed", self._language)),
+            self._error_cb("ConfFlow Run Error", error),
+        ))
+        worker.finished.connect(
+            lambda: self._background_workers.remove(worker)
+            if worker in self._background_workers else None
+        )
+        self._background_workers.append(worker)
+        self._confflow_feedback.pending(tr("Submitting...", self._language))
+        worker.start()
+
+    def _open_confflow_wizard(self):
+        """Open the ConfFlow workflow wizard and submit the resulting run.
+
+        Mirrors ``_run_confflow``'s upload+submit flow but sources XYZ paths
+        and the workflow YAML from :class:`ConfFlowWizard` instead of the
+        file table. The wizard writes ``workflow.yaml`` next to the first
+        local XYZ file so the existing upload helper can ship it.
+        """
+        if self._service is None or self._connected_server is None:
+            self._status_cb(tr("Connect to a server first", self._language))
+            return
+        from ..dialogs.confflow_wizard_dialog import (
+            ConfFlowUnavailableError,
+            ConfFlowWizard,
+        )
+
+        remote_dir = self.remote_path.text().strip() or "/"
+        server_id = self._connected_server_id or ""
+        try:
+            wizard = ConfFlowWizard(
+                self, server_id=server_id, remote_dir=remote_dir
+            )
+        except ConfFlowUnavailableError as exc:
+            self._status_cb(str(exc))
+            self._error_cb("ConfFlow Wizard", str(exc))
+            return
+        if wizard.exec() != wizard.Accepted:
+            return
+        payload = wizard.accepted_payload()
+        if payload is None:
+            self._status_cb("Wizard did not produce a workflow")
+            return
+        max_parallel = self.max_parallel_spin.value()
+        mol_count = len(payload.xyz_paths)
+        yaml_desc = f"local: {payload.workflow_yaml_path.name}"
+        confirm_msg = (
+            f"Submit ConfFlow batch?\n\n"
+            f"Molecules: {mol_count}\n"
+            f"YAML: {yaml_desc}\n"
+            f"Remote dir: {remote_dir}\n"
+            f"Max parallel: {max_parallel}"
+        )
+        if QMessageBox.question(
+            self, "Confirm ConfFlow Batch", confirm_msg,
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        xyz_targets = [
+            remote_child_path(remote_dir, Path(p).name)
+            for p in payload.xyz_paths
+        ]
+        yaml_target = remote_child_path(
+            remote_dir, payload.workflow_yaml_path.name
+        )
+        file_service = self._service
+        local_base = self.state.current_project_root or Path.cwd()
+        spec = ConfFlowAdapter.build_spec(
+            server_id=server_id,
+            remote_dir=remote_dir,
+            xyz_paths=xyz_targets,
+            config_path=yaml_target,
+            max_parallel=max_parallel,
+        )
+
+        def _run():
+            for local_p, remote_t in zip(payload.xyz_paths, xyz_targets):
+                records = file_service.upload_path(
+                    Path(local_p), remote_t, OverwritePolicy.overwrite
+                )
+                _raise_if_upload_failed(records, remote_t)
+            records = file_service.upload_path(
+                payload.workflow_yaml_path, yaml_target, OverwritePolicy.overwrite
+            )
+            _raise_if_upload_failed(records, yaml_target)
             return self._execute_run_use_case(spec, Path(local_base), submit=True)
 
         self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")

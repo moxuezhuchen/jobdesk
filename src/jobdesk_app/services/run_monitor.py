@@ -18,6 +18,11 @@ from .protocols import SSHClientProtocol
 
 _WATCHER_STABLE_SECONDS = 30.0
 _MAX_EVENT_LINE_CHARS = 64 * 1024
+# Polling cadence for ConfFlow checkpoint mtime detection. Independent of
+# events.log because ConfFlow writes checkpoint files out-of-band and we
+# want the Runs page to reflect step progress even before the runner emits
+# RUNNING/DONE lines.
+_CHECKPOINT_PROBE_SECONDS = 20.0
 logger = logging.getLogger(__name__)
 
 
@@ -30,15 +35,25 @@ class DoneEvent:
 
 
 class RunMonitor:
-    """Framework-neutral manager for remote event watchers."""
+    """Framework-neutral manager for remote event watchers.
+
+    Accepts an optional ``progress_callback`` that fires on ConfFlow
+    checkpoint mtime changes (synthetic event with ``task_id`` starting
+    with ``_ckpt_`` and ``exit_code=None``). The GUI bridges it into the
+    same debounced refresh path used by ``DoneEvent`` so the Runs page
+    updates without waiting for the next DONE/RUNNING line in
+    ``events.log``.
+    """
 
     def __init__(
         self,
         ssh_factory: Callable[[object], SSHClientProtocol],
         callback: Callable[[DoneEvent], None],
+        progress_callback: Callable[[DoneEvent], None] | None = None,
     ) -> None:
         self._ssh_factory = ssh_factory
         self._callback = callback
+        self._progress_callback = progress_callback or callback
         self._watchers: dict[str, _Watcher] = {}  # key: "server_id:run_id"
         self._lock = threading.Lock()
 
@@ -55,6 +70,7 @@ class RunMonitor:
                 server_config,
                 self._dispatch,
                 self._ssh_factory,
+                self._progress_callback,
             )
             self._watchers[key] = w
             w.start()
@@ -101,6 +117,7 @@ class _Watcher:
         server_config: object,
         callback: Callable[[str, str, str], None],
         ssh_factory: Callable[[object], SSHClientProtocol],
+        progress_callback: Callable[[DoneEvent], None] | None = None,
     ) -> None:
         self._run_id = run_id
         self._server_id = server_id
@@ -108,6 +125,7 @@ class _Watcher:
         self._server_config = server_config
         self._callback = callback
         self._ssh_factory = ssh_factory
+        self._progress_callback = progress_callback or (lambda _event: None)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -121,7 +139,19 @@ class _Watcher:
     def _run(self) -> None:
         quoted = shlex.quote(self._events_path)
         backoff = 10
+        # Cached SSH client kept alive across iterations so the checkpoint
+        # probe doesn't pay the cost of a fresh connection every loop.
+        # Closed when the watcher stops or the connection drops.
+        self._cached_ssh: object | None = None
         while not self._stop_event.is_set():
+            # Close any leftover SSH from a previous iteration's probe
+            # before opening a new tail channel.
+            if self._cached_ssh is not None:
+                try:
+                    self._cached_ssh.close()
+                except Exception:
+                    pass
+                self._cached_ssh = None
             ssh = None
             try:
                 ssh = self._ssh_factory(self._server_config)
@@ -188,8 +218,11 @@ class _Watcher:
                             break
                 finally:
                     channel.close()
-                    ssh.close()
-                    ssh = None
+                    # Keep the underlying SSH client open so the next
+                    # checkpoint probe can run on the same connection. We
+                    # close it when the *next* main-loop iteration takes
+                    # over (see top of the try block).
+                    self._cached_ssh = ssh
             except Exception as exc:
                 logger.warning(
                     "watcher %s/%s connection lost, reconnecting in %ds: %s",
@@ -200,5 +233,67 @@ class _Watcher:
                         ssh.close()
                     except Exception:
                         pass
+                self._cached_ssh = None
             self._stop_event.wait(backoff)
             backoff = min(backoff * 2, 120)
+            # Periodic checkpoint probe — independent of events.log so the
+            # Runs page can pick up ConfFlow step progress between DONE
+            # lines. Emits a DoneEvent with exit_code=None and a special
+            # task_id so the consumer can trigger a status refresh without
+            # treating it as a real completion.
+            self._probe_checkpoint()
+        # Loop exited (stop_event set). Close any cached SSH.
+        if self._cached_ssh is not None:
+            try:
+                self._cached_ssh.close()
+            except Exception:
+                pass
+            self._cached_ssh = None
+
+    def _probe_checkpoint(self) -> None:
+        """Best-effort check that the ConfFlow checkpoint dir advanced.
+
+        We invoke ``find <work_dir> -name workflow_stats.json -newer sentinel
+        -print`` once per loop iteration. ``sentinel`` is an empty marker
+        file we touch on first probe, so subsequent probes only flag a
+        change. If any new file appears, we fire a synthetic DoneEvent to
+        nudge the GUI to refresh. Errors are swallowed — checkpoint probing
+        is opportunistic.
+
+        The probe reuses the most recent live SSH connection (cached by the
+        main loop) so it does not pay the cost of a fresh connect per
+        iteration. When the cached connection is unavailable (initial loop,
+        after a drop) the probe is skipped.
+        """
+        if self._stop_event.is_set():
+            return
+        ssh = getattr(self, "_cached_ssh", None)
+        if ssh is None:
+            return
+        probe_script = (
+            "set +e\n"
+            f"marker={shlex.quote(self._events_path.rsplit('/', 1)[0])}/.jobdesk_checkpoint_marker\n"
+            "[ -f \"$marker\" ] || touch \"$marker\"\n"
+            f"updated=$(find {shlex.quote(self._events_path.rsplit('/', 1)[0])} "
+            "-name workflow_stats.json -newer \"$marker\" -print -quit 2>/dev/null)\n"
+            "touch \"$marker\"\n"
+            "if [ -n \"$updated\" ]; then printf '__JD_CHECKPOINT_CHANGED__\\n'; fi\n"
+        )
+        try:
+            r = ssh.run(probe_script, timeout=10)
+            if r.exit_code == 0 and "__JD_CHECKPOINT_CHANGED__" in r.stdout:
+                logger.debug(
+                    "watcher %s/%s detected ConfFlow checkpoint change",
+                    self._server_id, self._run_id,
+                )
+                self._progress_callback(DoneEvent(
+                    run_id=self._run_id,
+                    server_id=self._server_id,
+                    task_id="_ckpt_progress",
+                    exit_code=None,
+                ))
+        except Exception as exc:
+            logger.debug(
+                "watcher %s/%s checkpoint probe failed (ignored): %s",
+                self._server_id, self._run_id, exc,
+            )

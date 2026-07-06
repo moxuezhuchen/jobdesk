@@ -119,6 +119,62 @@ python -m build --outdir .build_dev
 
 Real SSH/SFTP and ConfFlow integration tests are skipped unless the documented environment variables are set. See `docs/CONFFLOW_WSL_SINGLE_RUN.md` for the controlled real-environment test shape.
 
+## ConfFlow integration
+
+The ConfFlow workflow engine is an **optional** dependency. JobDesk's GUI
+loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
+submitter branches become available only after `pip install -e ".[chem]"`
+on the same Python that runs JobDesk, and after `pip install confflow==X`
+on the remote Linux compute node. Versions must match between Windows and
+Linux because the GUI imports the same Pydantic models
+(`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
+remote `confflow` binary consumes.
+
+```powershell
+# Windows (JobDesk side)
+python -m pip install -e ".[chem]"
+# The ``chem`` extra pulls ``confflow`` from the archived Git tag pinned in
+# pyproject.toml — the package on PyPI named ``confflow`` is unrelated.
+```
+
+```bash
+# Linux compute node (same version as pyproject.toml)
+pip install "git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10"
+```
+
+### Wizard
+
+`ConfFlow Wizard…` next to **Run ConfFlow** opens a three-step QWizard:
+
+1. **XYZ inputs** — pick one or more local `.xyz` files (multi-molecule batch).
+2. **Calculation settings** — program (`gaussian` / `orca`), method, basis,
+   charge, multiplicity, `nproc`, memory.
+3. **Workflow settings & preview** — step list (confgen / preopt / opt /
+   refine / sp), `work_dir` template, raw `key=value` advanced options, plus
+   a live YAML preview with round-trip validation.
+
+On accept, the wizard writes `workflow.yaml` next to the first XYZ file,
+uploads both to the configured remote, and submits a `nohup setsid
+confflow … --resume` batch through the existing scheduler.
+
+### SSH-disconnect resilience
+
+ConfFlow runs are submitted through the existing `nohup` scheduler. The
+command template already encodes `--resume` so a dropped SSH session does
+not interrupt execution: the remote `confflow` keeps writing its
+checkpoint directory, and JobDesk's watcher reconnects and re-reads
+`events.log` plus a checkpoint `workflow_stats.json` to refresh the Runs
+page.
+
+### Auto-sync progress
+
+`services/run_monitor.py` polls the remote `events.log` for `DONE` /
+`RUNNING` lines, and additionally probes `workflow_stats.json` mtime once
+per loop iteration. A change there fires a synthetic DoneEvent that
+triggers an immediate refresh of the Runs page **Progress** column so step
+progress (`done: confgen, preopt; current: opt`) updates between DONE
+lines.
+
 ## Safety Notes
 
 - Remote deletion is restricted to JobDesk-declared run directories and protected roots are rejected.
