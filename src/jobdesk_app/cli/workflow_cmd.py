@@ -1,4 +1,4 @@
-"""``jobdesk workflow build`` subcommand.
+"""``jobdesk workflow`` subcommands — build, check, presets, and run.
 
 Generates a ConfFlow workflow YAML from a small, flat JSON/INI-style
 parameter file or by stitching together flags on the command line. Used by
@@ -31,6 +31,8 @@ from ..workflow.builder import (
     validate_state,
 )
 from ..workflow.config.models import ConfigurationError
+from ..workflow.core.exceptions import StopRequestedError
+from ..workflow.engine import run_workflow
 
 
 PRESETS: dict[str, dict[str, Any]] = {
@@ -195,6 +197,43 @@ def add_parser(subparsers) -> argparse.ArgumentParser:
     )
     presets.set_defaults(func=_cmd_presets)
 
+    # ---- run ----------------------------------------------------------------
+    run = sub.add_parser(
+        "run",
+        help="Execute a ConfFlow workflow on one or more XYZ structures.",
+    )
+    run.add_argument(
+        "input_xyz",
+        nargs="+",
+        type=Path,
+        help="One or more input XYZ file paths.",
+    )
+    run.add_argument(
+        "--config",
+        "-c",
+        type=Path,
+        required=True,
+        help="Path to confflow.yaml.",
+    )
+    run.add_argument(
+        "--work-dir",
+        "-w",
+        type=Path,
+        default=None,
+        help="Working directory (default: directory of the first input file).",
+    )
+    run.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the last checkpoint.",
+    )
+    run.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
+    )
+    run.set_defaults(func=_cmd_workflow_run)
+
     return p
 
 
@@ -277,6 +316,42 @@ def _cmd_presets(args) -> int:
     for name, body in PRESETS.items():
         steps = body.get("steps", [])
         print(f"{name}: {len(steps)} step(s)")
+    return 0
+
+
+def _cmd_workflow_run(args) -> int:
+    # Resolve input files to absolute paths.
+    input_files = [str(p.resolve()) for p in args.input_xyz]
+
+    # Resolve config file to absolute path.
+    config_path = str(args.config.resolve())
+
+    # Resolve working directory.
+    if args.work_dir is not None:
+        work_dir = str(args.work_dir.resolve())
+    else:
+        work_dir = str(args.input_xyz[0].resolve().parent)
+
+    try:
+        result = run_workflow(
+            input_xyz=input_files,
+            config_file=config_path,
+            work_dir=work_dir,
+            resume=args.resume,
+            verbose=args.verbose,
+        )
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    except StopRequestedError:
+        print("Workflow paused.", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    n_conformers = result.get("n_conformers", "?")
+    print(f"Workflow complete: {n_conformers} conformer(s)")
     return 0
 
 
