@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 from ...config.servers import load_servers
 from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
+from ...services.multi_server_coordinator import MultiServerCoordinator
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_service import RunRecord, RunService
 from ...services.session_pool import SessionPool
@@ -92,6 +94,54 @@ def _format_row(record: RunRecord, language: str = "en") -> list[str]:
     ]
 
 
+def filter_runs_by_servers(
+    runs: list[RunRecord],
+    visible_server_ids: set[str] | None,
+) -> list[RunRecord]:
+    """Pure helper: return runs whose ``server_id`` is in ``visible_server_ids``.
+
+    When ``visible_server_ids`` is ``None`` or empty, every run is returned so
+    the page falls back to the "all servers visible" default without callers
+    having to special-case the empty selection.
+    """
+    if not visible_server_ids:
+        return list(runs)
+    return [record for record in runs if record.server_id in visible_server_ids]
+
+
+def coerce_visible_servers(
+    persisted: list[str] | tuple[str, ...] | None,
+    known_servers: list[str],
+) -> set[str]:
+    """Resolve which server IDs should appear checked on first paint.
+
+    Empty persisted state defaults to "everything currently known". Unknown
+    persisted IDs are silently dropped so a stale entry from a renamed server
+    cannot wedge the filter bar into an empty view.
+    """
+    known = set(known_servers)
+    if not persisted:
+        return set(known)
+    cleaned = {str(sid) for sid in persisted if sid}
+    if not cleaned:
+        return set(known)
+    return cleaned & known
+
+
+def toggle_all_selection(
+    current: set[str],
+    all_server_ids: list[str],
+    *,
+    select: bool,
+) -> set[str]:
+    """Pure helper: bulk-select or bulk-deselect every server ID."""
+    if select:
+        return set(all_server_ids)
+    # Always retain at least an empty set so the bar never crashes the page
+    # if all_server_ids is empty; we still return an empty selection.
+    return set()
+
+
 class RunsResultsPage(QWidget):
     startup_recovery_failed = Signal(str)
     startup_recovery_finished = Signal()
@@ -123,6 +173,9 @@ class RunsResultsPage(QWidget):
         top_layout = QVBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(6)
+
+        self._init_server_filter_bar()
+        top_layout.addWidget(self._server_filter_bar)
 
         self.table = StyledTableWidget()
         self.table.setColumnCount(6)
@@ -318,6 +371,18 @@ class RunsResultsPage(QWidget):
         self._applied_batch_id: str | None = None
 
         self._session_pool = SessionPool(create_ssh_client, create_sftp_client)
+
+        # Multi-server coordinator used by the "Refresh All" filter button.
+        # Lazily initialised on first click so we never spin up a coordinator
+        # for a workspace the user never interacts with.
+        self._multi_server_coordinator: MultiServerCoordinator | None = None
+
+        # Persisted + runtime state for the server filter bar.
+        self._server_filter_visible_ids: set[str] = set()
+        self._server_filter_known_ids: list[str] = []
+        self._server_filter_checkboxes: dict[str, QCheckBox] = {}
+        self._server_filter_loading = False
+        self._init_server_filter_state()
 
         # ─── Agent Jobs view ────────────────────────────────────────────
         self._agent_server_id: str | None = None
@@ -662,6 +727,10 @@ class RunsResultsPage(QWidget):
         self.abandon_submit_btn.setText(tr("Abandon Submit", language))
         self.result_label.setText(tr("Result Preview", language))
         self.view_agent_btn.setText(tr("View Agent Jobs", language))
+        self._all_servers_btn.setText(tr("All", language))
+        self._no_servers_btn.setText(tr("None", language))
+        self._refresh_all_btn.setText(tr("Refresh All", language))
+        self._server_filter_title.setText(tr("Server filter:", language))
         self._apply_agent_headers(language)
         self._set_headers()
 
@@ -697,7 +766,8 @@ class RunsResultsPage(QWidget):
 
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
-        runs = RunService(workspace).list_runs()
+        all_runs = RunService(workspace).list_runs()
+        runs = filter_runs_by_servers(all_runs, self._server_filter_visible_ids)
         prev_selected = self._current_run_id()
         self._set_headers()
         self.table.blockSignals(True)
@@ -1817,6 +1887,183 @@ class RunsResultsPage(QWidget):
         self._agent_job_ids = []
         self._show_agent_view(True)
         self._poll_agent_jobs()
+
+    # ─── Server filter bar ────────────────────────────────────────────────
+
+    def _init_server_filter_bar(self) -> None:
+        """Create the horizontal filter bar shown above the runs table."""
+        bar = QWidget()
+        bar.setObjectName("ServerFilterBar")
+        bar.setStyleSheet(
+            "#ServerFilterBar { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            " #ServerFilterBar QLabel { background: transparent; }"
+        )
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(16, 6, 16, 6)
+        row.setSpacing(8)
+
+        title = QLabel(tr("Server filter:", self._language))
+        title.setStyleSheet("color: #111827; font-weight: 600;")
+        self._server_filter_title = title
+        row.addWidget(title)
+
+        self._server_checkbox_container = QWidget()
+        self._server_checkbox_layout = QHBoxLayout(self._server_checkbox_container)
+        self._server_checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        self._server_checkbox_layout.setSpacing(8)
+        row.addWidget(self._server_checkbox_container, 1)
+
+        self._all_servers_btn = QPushButton(tr("All", self._language))
+        self._all_servers_btn.clicked.connect(lambda: self._toggle_all_servers(True))
+        row.addWidget(self._all_servers_btn)
+
+        self._no_servers_btn = QPushButton(tr("None", self._language))
+        self._no_servers_btn.clicked.connect(lambda: self._toggle_all_servers(False))
+        row.addWidget(self._no_servers_btn)
+
+        self._refresh_all_btn = QPushButton(tr("Refresh All", self._language))
+        self._refresh_all_btn.clicked.connect(self._on_refresh_all_clicked)
+        row.addWidget(self._refresh_all_btn)
+
+        self._server_filter_bar = bar
+
+    def _init_server_filter_state(self) -> None:
+        """Populate the bar from known servers and apply persisted selection."""
+        try:
+            known = sorted(load_servers().servers.keys())
+        except FileNotFoundError:
+            known = []
+        self._server_filter_known_ids = list(known)
+        persisted = self._load_server_filter_state()
+        self._server_filter_visible_ids = coerce_visible_servers(persisted, known)
+        self._rebuild_server_filter_checkboxes()
+
+    def _rebuild_server_filter_checkboxes(self) -> None:
+        """Recreate the per-server checkboxes from the current known list."""
+        self._server_filter_loading = True
+        # Remove existing widgets from the inner layout
+        layout = self._server_checkbox_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._server_filter_checkboxes.clear()
+        for server_id in self._server_filter_known_ids:
+            checkbox = QCheckBox(server_id)
+            checkbox.setChecked(server_id in self._server_filter_visible_ids)
+            checkbox.toggled.connect(
+                lambda checked, sid=server_id: self._on_server_filter_changed(sid, checked)
+            )
+            self._server_checkbox_layout.addWidget(checkbox)
+            self._server_filter_checkboxes[server_id] = checkbox
+        self._server_filter_layout = layout
+        self._server_filter_loading = False
+
+    def _on_server_filter_changed(self, server_id: str, checked: bool) -> None:
+        """Handle checkbox toggles: persist + re-filter the table."""
+        if self._server_filter_loading:
+            return
+        if checked:
+            self._server_filter_visible_ids.add(server_id)
+        else:
+            self._server_filter_visible_ids.discard(server_id)
+        self._save_server_filter_state()
+        self._filter_visible_runs()
+
+    def _toggle_all_servers(self, checked: bool) -> None:
+        """Bulk select / deselect every known server checkbox."""
+        self._server_filter_loading = True
+        try:
+            for server_id, checkbox in self._server_filter_checkboxes.items():
+                checkbox.setChecked(checked)
+                if checked:
+                    self._server_filter_visible_ids.add(server_id)
+                else:
+                    self._server_filter_visible_ids.discard(server_id)
+        finally:
+            self._server_filter_loading = False
+        self._server_filter_visible_ids = toggle_all_selection(
+            self._server_filter_visible_ids,
+            list(self._server_filter_checkboxes.keys()),
+            select=checked,
+        )
+        self._save_server_filter_state()
+        self._filter_visible_runs()
+
+    def _on_refresh_all_clicked(self) -> None:
+        """Trigger MultiServerCoordinator.refresh_all() in a worker thread."""
+        if self._shutting_down:
+            return
+        if not self._server_filter_visible_ids:
+            self._status_cb(tr("No servers selected to refresh", self._language))
+            return
+        workspace = self._workspace()
+        server_ids = sorted(self._server_filter_visible_ids)
+
+        def _run(_ctx: WorkerContext):
+            coordinator = MultiServerCoordinator(
+                workspace=workspace,
+                server_lookup=lambda server_id: load_servers().servers[server_id],
+                ssh_factory=create_ssh_client,
+                sftp_factory=create_sftp_client,
+                session_pool=self._session_pool,
+            )
+            try:
+                return coordinator.refresh_all(server_ids)
+            finally:
+                coordinator.close()
+
+        def _on_done(results):
+            errors: list[str] = []
+            refreshed = 0
+            for server_id, result in results.items():
+                if result.error:
+                    errors.append(f"{server_id}: {result.error}")
+                elif result.outcome.errors:
+                    errors.extend(f"{server_id}: {err}" for err in result.outcome.errors)
+                else:
+                    refreshed += 1
+            if refreshed:
+                self._status_cb(tr("Refreshed {n} server(s)", self._language, n=refreshed))
+            if errors:
+                self._status_cb(tr("Refresh errors: {e}", self._language, e="; ".join(errors)))
+            self.refresh_run_list()
+
+        def _on_error(err: str):
+            self._status_cb(tr("Refresh all failed: {e}", self._language, e=err))
+
+        start_context_worker(
+            self,
+            target=_run,
+            registry_attr="_bg_workers",
+            on_result=_on_done,
+            on_error=_on_error,
+        )
+
+    def _filter_visible_runs(self) -> None:
+        """Re-populate the runs table using the current server selection."""
+        self.refresh_run_list()
+
+    def _load_server_filter_state(self) -> list[str]:
+        """Read the persisted server selection from GuiSettingsStore."""
+        try:
+            settings = GuiSettingsStore().load()
+        except Exception:
+            return []
+        return list(settings.runs_server_filter or [])
+
+    def _save_server_filter_state(self) -> None:
+        """Write the current server selection to GuiSettingsStore."""
+        try:
+            GuiSettingsStore().update(
+                runs_server_filter=sorted(self._server_filter_visible_ids),
+            )
+        except Exception:
+            # Persistence failures must not break filtering; the in-memory
+            # state already reflects the user's choice.
+            pass
 
     def shutdown(self):
         self._shutting_down = True

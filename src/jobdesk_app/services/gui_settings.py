@@ -40,6 +40,10 @@ class GuiSettings:
     hide_dotfiles: bool = True
     # Agent Jobs view: remember last-viewed agent server across GUI sessions
     last_agent_server: str = ""
+    # Runs page: persisted set of server IDs the user wants visible. When empty
+    # the page falls back to "all servers visible". Stored as a sorted list in
+    # YAML so the file remains diff-friendly.
+    runs_server_filter: list[str] | None = None
     # Per-software profiles: input_extensions, command_template, download_patterns
     software_profiles: dict[str, dict[str, str]] | None = None
 
@@ -48,6 +52,8 @@ class GuiSettings:
             object.__setattr__(self, "column_widths", {})
         if self.last_remote_dirs is None:
             object.__setattr__(self, "last_remote_dirs", {})
+        if self.runs_server_filter is None:
+            object.__setattr__(self, "runs_server_filter", [])
         if self.software_profiles is None:
             object.__setattr__(self, "software_profiles", {k: dict(v) for k, v in _BUILTIN_PROFILES.items()})
 
@@ -85,8 +91,20 @@ class GuiSettingsStore:
             download_patterns=str(raw.get("download_patterns", "*.log, *.out, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
             last_agent_server=str(raw.get("last_agent_server", "") or ""),
+            runs_server_filter=self._load_server_filter(raw),
             software_profiles=self._load_profiles(raw),
         )
+
+    @staticmethod
+    def _load_server_filter(raw: dict) -> list[str]:
+        """Load runs_server_filter as a deterministic sorted list of strings."""
+        value = raw.get("runs_server_filter", [])
+        if not value:
+            return []
+        if not isinstance(value, list):
+            return []
+        cleaned = sorted({str(item) for item in value if str(item)})
+        return cleaned
 
     @staticmethod
     def _load_profiles(raw: dict) -> dict[str, dict[str, str]]:
@@ -130,6 +148,7 @@ class GuiSettingsStore:
                 "download_patterns": settings.download_patterns,
                 "hide_dotfiles": settings.hide_dotfiles,
                 "last_agent_server": settings.last_agent_server,
+                "runs_server_filter": list(settings.runs_server_filter or []),
                 "software_profiles": settings.software_profiles or {},
             }
             atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
