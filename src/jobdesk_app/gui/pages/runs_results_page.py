@@ -6,8 +6,10 @@ import csv
 import os
 from pathlib import Path, PurePosixPath
 
+from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -33,7 +35,6 @@ from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker
-
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
 
@@ -182,6 +183,7 @@ class RunsResultsPage(QWidget):
         self.result_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.result_table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.result_table.itemSelectionChanged.connect(self._update_uncertain_actions)
+        self.result_table.itemDoubleClicked.connect(self._on_result_row_double_clicked)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.bind_column_widths("runs_results.preview")
         bottom_layout.addWidget(self.result_table)
@@ -191,6 +193,10 @@ class RunsResultsPage(QWidget):
         self.result_text.setMaximumHeight(80)
         self.result_text.setVisible(False)
         bottom_layout.addWidget(self.result_text)
+
+        # Detail pane: shows full parsed Gaussian/ORCA result on double-click
+        self.detail_pane = ResultDetailPane()
+        bottom_layout.addWidget(self.detail_pane)
 
         splitter.addWidget(bottom)
         splitter.setSizes([500, 150])
@@ -225,6 +231,9 @@ class RunsResultsPage(QWidget):
         self._activation_timer.timeout.connect(self._run_deferred_activation)
         # Memoized parsed rows keyed by result-dir, invalidated by file signature.
         self._analyze_cache: dict[str, tuple] = {}
+        # Memoized detail-pane results keyed by (task_id, mtime, size) of the source
+        # log/out. Invalidated by the _ckpt_ checkpoint handler and on parser failure.
+        self._detail_cache: dict[tuple, object] = {}
         # run_ids currently being refreshed/downloaded, shared by the auto-refresh
         # timer and the monitor-driven flush to avoid duplicate concurrent work.
         self._in_progress: set[str] = set()
@@ -278,6 +287,7 @@ class RunsResultsPage(QWidget):
                 # Drop analyze cache so the next preview re-reads
                 # workflow_stats.json / run_summary.json from disk.
                 self._analyze_cache.clear()
+                self._detail_cache.clear()
                 self._preview_timer.start()
             return
         # Real DONE/RUNNING path — debounce before refresh + download.
@@ -716,7 +726,15 @@ class RunsResultsPage(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 0:
-                    item.setData(Qt.UserRole, (task.task_id, status))
+                    item.setData(
+                        Qt.UserRole,
+                        {
+                            "kind": "uncertain",
+                            "task_id": task.task_id,
+                            "status": status,
+                            "error": task.error_message,
+                        },
+                    )
                 self.result_table.setItem(row, column, item)
         self.result_label.setText(tr("Select uncertain tasks to recover", self._language))
         self._update_uncertain_actions()
@@ -944,15 +962,142 @@ class RunsResultsPage(QWidget):
         notice = tr("Execution output parsed; scientific review required", self._language)
         self.result_label.setText(f"{prefix} - {notice}")
 
-    def _show_analysis_rows(self, rows: list[list[str]]):
+    def _on_result_row_double_clicked(self, item: QTableWidgetItem) -> None:
+        """Dispatch a double-click on a result-table row to the detail pane."""
+        if item is None:
+            return
+        row = item.row()
+        first_col = self.result_table.item(row, 0)
+        if first_col is None:
+            self.detail_pane.clear()
+            return
+        cached = first_col.data(Qt.UserRole)
+        task_id = str(first_col.text())
+        if isinstance(cached, dict) and cached.get("kind") == "uncertain":
+            self._show_uncertain_row_detail(task_id, cached.get("status"), cached.get("error"))
+            return
+        if isinstance(cached, dict) and cached.get("kind") == "analysis":
+            # Stash payload context on the first column so we can parse the
+            # right file when the user double-clicks.
+            workspace = cached.get("workspace")
+            task = cached.get("task")
+            self._render_detail_for_task(task_id, task, workspace)
+            return
+        # Default — fall back to clearing the pane.
+        self.detail_pane.clear()
+
+    def _show_uncertain_row_detail(self, task_id: str, status: str | None, error: str | None) -> None:
+        self.detail_pane.title_label.setText(task_id)
+        if error:
+            self.detail_pane.status_label.setText(
+                f"⚠ {status or 'Uncertain'}: {error}"
+            )
+            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b45309;")
+            self.detail_pane.error_value.setText(error)
+            self.detail_pane.error_value.setVisible(True)
+        else:
+            self.detail_pane.status_label.setText(str(status or "Uncertain"))
+            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #475569;")
+            self.detail_pane.error_value.setText("")
+            self.detail_pane.error_value.setVisible(False)
+        for lbl in (
+            self.detail_pane.energy_value,
+            self.detail_pane.zpe_value,
+            self.detail_pane.gibbs_value,
+            self.detail_pane.imag_value,
+            self.detail_pane.walltime_value,
+            self.detail_pane.cputime_value,
+        ):
+            lbl.setText("—")
+        self.detail_pane.termination_value.setText("—")
+        self.detail_pane.geometry_view.setPlainText("(uncertain task — no parsed output)")
+
+    def _render_detail_for_task(self, task_id: str, task, workspace: Path | None) -> None:
+        """Resolve a parser output file and render the parsed result to the pane.
+
+        Tries cache first; on miss, calls ``_resolve_output_path`` and the
+        appropriate parser. The parser calls are monkeypatched in unit tests
+        to avoid spawning the (slow, license-bound) real Gaussian.
+        """
+        from ...core.parsers.gaussian import parse_gaussian_log
+        from ...core.parsers.orca import parse_orca_out
+
+        output_path = _resolve_output_path(task, workspace)
+        if output_path is None:
+            self.detail_pane.title_label.setText(task_id)
+            self.detail_pane.status_label.setText(tr("Output file not found", self._language))
+            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b91c1c;")
+            self.detail_pane.geometry_view.setPlainText("")
+            return
+
+        sig = (task_id, output_path.stat().st_mtime, output_path.stat().st_size)
+        cached = self._detail_cache.get(sig)
+        if cached is not None:
+            self._render_cached_detail(cached, task_id)
+            return
+
+        try:
+            if output_path.suffix.lower() == ".log":
+                result = parse_gaussian_log(output_path)
+            elif output_path.suffix.lower() == ".out":
+                result = parse_orca_out(output_path)
+            else:
+                self.detail_pane.clear()
+                return
+        except Exception as exc:
+            self.detail_pane.title_label.setText(task_id)
+            self.detail_pane.status_label.setText(tr("Parse error", self._language))
+            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b91c1c;")
+            self.detail_pane.error_value.setText(str(exc))
+            self.detail_pane.error_value.setVisible(True)
+            return
+
+        self._detail_cache[sig] = result
+        if output_path.suffix.lower() == ".log":
+            self.detail_pane.render_gaussian(result)
+        else:
+            self.detail_pane.render_orca(result)
+
+    def _render_cached_detail(self, cached, task_id: str) -> None:
+        # Heuristic by attribute set (GaussianResult vs OrcaResult / mock).
+        if hasattr(cached, "zpe_au") and hasattr(cached, "walltime_seconds") and hasattr(cached, "error_termination"):
+            if hasattr(cached, "total_energy_au") or "Total" in type(cached).__name__ or cached.__class__.__name__ == "OrcaResult":
+                self.detail_pane.render_orca(cached)
+                return
+            self.detail_pane.render_gaussian(cached)
+            return
+        # Fallback by class name
+        if cached.__class__.__name__ == "OrcaResult":
+            self.detail_pane.render_orca(cached)
+        else:
+            self.detail_pane.render_gaussian(cached)
+
+    def _show_analysis_rows(self, rows: list[list[str]], *, tasks=None, workspace: Path | None = None):
         headers = [tr("Task", self._language), tr("File", self._language), tr("Program", self._language), tr("Energy(Hartree)", self._language), "Gibbs(Hartree)", "ZPE(Hartree)", tr("Imag.Freq", self._language), tr("Diagnosis", self._language)]
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
         self.result_table.restore_column_widths("runs_results.preview")
         self.result_table.setRowCount(len(rows))
+        # Build a quick lookup from task_id to the corresponding TaskRecord
+        # so the detail pane can re-parse the right output on double-click.
+        task_by_id: dict[str, object] = {}
+        if tasks:
+            for t in tasks:
+                task_by_id[getattr(t, "task_id", "")] = t
         for r, row in enumerate(rows):
             for c, val in enumerate(row):
-                self.result_table.setItem(r, c, QTableWidgetItem(val))
+                item = QTableWidgetItem(val)
+                if c == 0:
+                    task_id = str(row[0]) if row else ""
+                    item.setData(
+                        Qt.UserRole,
+                        {
+                            "kind": "analysis",
+                            "task": task_by_id.get(task_id),
+                            "workspace": workspace,
+                        },
+                    )
+                self.result_table.setItem(r, c, item)
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
     def _load_tsv(self, path: Path):
@@ -1641,3 +1786,227 @@ def _analysis_row(task_id: str, file_name: str, program: str, result, diagnosis:
     zpe = f"{result.zpe_au:.6f}" if result.zpe_au else ""
     imag = str(result.imaginary_freq_count)
     return [task_id, file_name, program, energy, gibbs, zpe, imag, diagnosis or tr("OK", language)]
+
+
+class ResultDetailPane(QWidget):
+    """Read-only panel that renders a parsed Gaussian/ORCA result.
+
+    Shown below the result preview table on the Runs/Results page. A
+    double-click on a result row in ``RunsResultsPage`` triggers a
+    parse and calls :py:meth:`render_gaussian` or :py:meth:`render_orca`.
+    """
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("ResultDetailPane")
+        self.setStyleSheet(
+            "#ResultDetailPane { background: #f1f5fa; border: 1px solid #9aaec4; border-radius: 3px; padding: 4px; }"
+            " #ResultDetailPane QLabel { background: transparent; }"
+            " #ResultDetailPane QTextEdit { background: #ffffff; border: 1px solid #c5d2e3; }"
+        )
+        self._program = "—"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+
+        self.title_label = QLabel("—")
+        self.title_label.setStyleSheet("color: #111827; font-weight: 600; font-size: 13px;")
+        layout.addWidget(self.title_label)
+
+        self.status_label = QLabel("—")
+        self.status_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(self.status_label)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(Qt.AlignRight)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(2)
+
+        self.energy_value = QLabel("—")
+        self.zpe_value = QLabel("—")
+        self.gibbs_value = QLabel("—")
+        self.imag_value = QLabel("—")
+        self.termination_value = QLabel("—")
+        self.termination_value.setWordWrap(True)
+        self.error_value = QLabel("")
+        self.error_value.setWordWrap(True)
+        self.error_value.setStyleSheet("color: #b91c1c; font-weight: 600;")
+        self.error_value.setVisible(False)
+        self.walltime_value = QLabel("—")
+        self.cputime_value = QLabel("—")
+
+        form.addRow(self._field_label("Final SCF energy"), self.energy_value)
+        form.addRow(self._field_label("Zero-point correction"), self.zpe_value)
+        form.addRow(self._field_label("Gibbs free energy"), self.gibbs_value)
+        form.addRow(self._field_label("Imaginary frequencies"), self.imag_value)
+        form.addRow(self._field_label("Wall time"), self.walltime_value)
+        form.addRow(self._field_label("CPU time"), self.cputime_value)
+        form.addRow(self._field_label("Termination"), self.termination_value)
+        form.addRow(self._field_label("Error"), self.error_value)
+        layout.addLayout(form)
+
+        geom_label = QLabel("Final geometry (XYZ, first 100 lines)")
+        geom_label.setStyleSheet("color: #111827; font-weight: 600;")
+        layout.addWidget(geom_label)
+        self.geometry_view = QTextEdit()
+        self.geometry_view.setReadOnly(True)
+        self.geometry_view.setLineWrapMode(QTextEdit.NoWrap)
+        font = self.geometry_view.font()
+        font.setFamily("Courier New")
+        font.setStyleHint(QFont.Monospace)
+        self.geometry_view.setFont(font)
+        self.geometry_view.setMinimumHeight(120)
+        self.geometry_view.setMaximumHeight(180)
+        layout.addWidget(self.geometry_view)
+
+        layout.addStretch(1)
+        self.clear()
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        lbl = QLabel(f"{text}:")
+        lbl.setStyleSheet("color: #475569;")
+        return lbl
+
+    @staticmethod
+    def _format_energy(value) -> str:
+        return f"{value:.6f} Hartree" if value is not None else "—"
+
+    @staticmethod
+    def _format_seconds(value) -> str:
+        if value is None:
+            return "—"
+        seconds = float(value)
+        if seconds < 60:
+            return f"{seconds:.1f} s"
+        minutes, secs = divmod(seconds, 60)
+        if minutes < 60:
+            return f"{int(minutes)}m {int(secs)}s"
+        hours, minutes = divmod(int(minutes), 60)
+        return f"{int(hours)}h {int(minutes)}m {int(secs)}s"
+
+    def clear(self) -> None:
+        self._program = "—"
+        self.title_label.setText(tr("Select a task to see details", "en"))
+        self.status_label.setText("—")
+        self.status_label.setStyleSheet("font-weight: 600; color: #475569;")
+        self.energy_value.setText("—")
+        self.zpe_value.setText("—")
+        self.gibbs_value.setText("—")
+        self.imag_value.setText("—")
+        self.walltime_value.setText("—")
+        self.cputime_value.setText("—")
+        self.termination_value.setText("—")
+        self.error_value.setText("")
+        self.error_value.setVisible(False)
+        self.geometry_view.setPlainText("")
+
+    def _status_text(self, result) -> tuple[str, str]:
+        """Return ``(display_text, css_color)`` describing the result status."""
+        if getattr(result, "error_termination", False):
+            return "✗ Error termination", "#b91c1c"
+        if getattr(result, "normal_termination", False):
+            return "✓ Normal termination", "#15803d"
+        if getattr(result, "scf_energies", None):
+            return "⚠ Abnormal termination", "#b45309"
+        return "— Unknown", "#475569"
+
+    def render_gaussian(self, result) -> None:
+        self._program = "Gaussian"
+        route = ""
+        method = getattr(result, "method", None)
+        basis = getattr(result, "basis", None)
+        if method and basis:
+            route = f"{method} / {basis}"
+        else:
+            energy_text = self._format_energy(getattr(result, "final_energy_au", None))
+            route = f"Gaussian — {energy_text}"
+        self.title_label.setText(route)
+        status_text, color = self._status_text(result)
+        self.status_label.setText(status_text)
+        self.status_label.setStyleSheet(f"font-weight: 600; color: {color};")
+        self.energy_value.setText(self._format_energy(getattr(result, "final_energy_au", None)))
+        self.zpe_value.setText(self._format_energy(getattr(result, "zpe_au", None)))
+        self.gibbs_value.setText(self._format_energy(getattr(result, "gibbs_au", None)))
+        imag = getattr(result, "imaginary_freq_count", 0) or 0
+        self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
+        self.walltime_value.setText(self._format_seconds(getattr(result, "walltime_seconds", None)))
+        self.cputime_value.setText(self._format_seconds(getattr(result, "cpu_time_seconds", None)))
+        self.termination_value.setText("Normal termination of Gaussian" if result.normal_termination else "—")
+        err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)
+        if err:
+            self.error_value.setText(str(err))
+            self.error_value.setVisible(True)
+        else:
+            self.error_value.setText("")
+            self.error_value.setVisible(False)
+        self._render_geometry(result)
+
+    def render_orca(self, result) -> None:
+        self._program = "ORCA"
+        total = getattr(result, "total_energy_au", None)
+        final = getattr(result, "final_energy_au", None)
+        energy = total if total is not None else final
+        self.title_label.setText(f"ORCA — {self._format_energy(energy)}")
+        status_text, color = self._status_text(result)
+        self.status_label.setText(status_text)
+        self.status_label.setStyleSheet(f"font-weight: 600; color: {color};")
+        self.energy_value.setText(self._format_energy(energy))
+        self.zpe_value.setText(self._format_energy(getattr(result, "zpe_au", None)))
+        self.gibbs_value.setText(self._format_energy(getattr(result, "gibbs_au", None)))
+        imag = getattr(result, "imaginary_freq_count", 0) or 0
+        self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
+        self.walltime_value.setText(self._format_seconds(getattr(result, "walltime_seconds", None)))
+        self.cputime_value.setText("—")
+        self.termination_value.setText("ORCA TERMINATED NORMALLY" if result.normal_termination else "—")
+        err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)
+        if err:
+            self.error_value.setText(str(err))
+            self.error_value.setVisible(True)
+        else:
+            self.error_value.setText("")
+            self.error_value.setVisible(False)
+        self._render_geometry(result)
+
+    def _render_geometry(self, result) -> None:
+        xyz = getattr(result, "final_xyz", None)
+        symbols = getattr(result, "atom_symbols", None) or []
+        if xyz:
+            lines = xyz.splitlines()
+            n = len(symbols) or len(lines)
+            display = [f"{n} atoms", *lines]
+            if len(lines) > 100:
+                display = display[:101]
+            self.geometry_view.setPlainText("\n".join(display))
+        else:
+            self.geometry_view.setPlainText("(no geometry parsed)")
+
+
+def _resolve_output_path(task, workspace: Path | None = None) -> Path | None:
+    """Return the local output file (Gaussian .log or ORCA .out) for ``task``.
+
+    Heuristics (in order):
+    1. If ``task.task_dir`` (str) exists and contains a ``*.log`` → return first
+    2. If contains ``*.out`` → return first
+    3. If ``task.remote_task_files`` non-empty, derive from the first file's stem
+       and look under ``workspace`` for ``<stem>.log`` / ``<stem>.out``
+    4. Otherwise return None
+    """
+    task_dir_attr = getattr(task, "task_dir", None)
+    if task_dir_attr:
+        task_dir = Path(task_dir_attr)
+        if task_dir.is_dir():
+            for suffix in (".log", ".out"):
+                matches = sorted(p for p in task_dir.iterdir() if p.is_file() and p.suffix.lower() == suffix)
+                if matches:
+                    return matches[0]
+    remote_files = getattr(task, "remote_task_files", None) or []
+    if remote_files and workspace is not None:
+        stem = PurePosixPath(remote_files[0]).stem
+        for suffix in (".log", ".out"):
+            candidate = Path(workspace) / f"{stem}{suffix}"
+            if candidate.is_file():
+                return candidate
+    return None

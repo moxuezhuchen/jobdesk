@@ -41,6 +41,37 @@ class DryRunReport:
     error: str = ""
 
 
+def _strip_bang(s: str) -> str:
+    """Remove a single leading ``!`` from a user-typed keyword line.
+
+    ConfFlow's ORCA policy template (``BUILTIN_TEMPLATES['orca']``) already
+    emits ``! {keyword}``.  If a user pastes a raw ORCA keyword line that
+    starts with ``!``, we get ``!! method basis`` and ORCA rejects it.
+    Sanitize once at the wizard boundary so downstream templates are
+    authoritative.
+    """
+    stripped = s.strip()
+    while stripped.startswith("!"):
+        stripped = stripped[1:].lstrip()
+    return stripped
+
+
+def assemble_orca_keyword(method: str, basis: str, extra: str = "") -> str:
+    """Assemble an ORCA keyword line from wizard form fields.
+
+    ConfFlow's ORCA policy expects a single ``keyword`` string of the form
+    ``"<method> <basis> [extra]"``.  The wizard collects ``method`` and
+    ``basis`` as separate text fields so the form stays compact; here we
+    splice them together.  The leading ``!`` is *omitted* — the policy
+    template adds it.  Empty components are dropped.
+    """
+    parts = [_strip_bang(p) for p in (method, basis) if p and p.strip()]
+    extra = _strip_bang(extra)
+    if extra:
+        parts.append(extra)
+    return " ".join(parts)
+
+
 class ConfFlowUnavailableError(RuntimeError):
     """Raised when a workflow_spec method needs the confflow package but it
     is not installed (the ``chem`` extra was skipped).
@@ -102,6 +133,14 @@ class WorkflowSpec:
         }
         if extra_options:
             calc_payload.update(extra_options)
+        # When the user picks ORCA, the policy's input template emits
+        # ``! {keyword}`` — we therefore assemble ``keyword`` from the
+        # method/basis text fields unless the user explicitly supplied one
+        # via ``extra_options["keyword"]``.
+        if program == "orca" and not calc_payload.get("keyword"):
+            assembled = assemble_orca_keyword(method, basis)
+            if assembled:
+                calc_payload["keyword"] = assembled
         # GlobalConfigModel in v1.0.10 has shape:
         #   { "work_dir": str, "calc": CalcConfigModel-shaped dict }
         # We pass a dict so validators run; downstream code may later
@@ -198,6 +237,7 @@ __all__ = [
     "ConfFlowUnavailableError",
     "DryRunReport",
     "WorkflowSpec",
+    "assemble_orca_keyword",
     "require_confflow",
     "write_workflow_yaml",
 ]

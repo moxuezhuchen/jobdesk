@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -197,6 +198,121 @@ def list_presets() -> dict[str, str]:
     for name, ospec in ORCA_PRESETS.items():
         result[name] = f"ORCA: {ospec.keywords}"
     return result
+
+
+def preset_to_confflow_fields(preset_name: str) -> dict[str, Any]:
+    """Map a preset name to the wizard's form-friendly fields.
+
+    ConfFlow's YAML model accepts ``method`` + ``basis`` as separate
+    strings; the wizard's preset dropdown uses the legacy
+    :data:`GAUSSIAN_PRESETS` / :data:`ORCA_PRESETS` keyed by name.  This
+    converter splits each preset back into method/basis so the wizard
+    can drop the preset selection into the workflow.yaml.
+
+    Returns a dict with keys ``method``, ``basis``, ``nproc``,
+    ``memory_mb`` (always present; ``nproc``/``memory_mb`` default to
+    the preset's resources, ``method``/``basis`` are empty strings if
+    no preset matches so the wizard leaves the text fields alone).
+    """
+    empty: dict[str, Any] = {
+        "method": "",
+        "basis": "",
+        "nproc": 1,
+        "memory_mb": 1024,
+    }
+    if preset_name in GAUSSIAN_PRESETS:
+        spec = GAUSSIAN_PRESETS[preset_name]
+        # Gaussian ``method_basis`` is "METHOD/BASIS" or "METHOD/BASIS ExtraDispersion=..."
+        mb = spec.method_basis.strip()
+        if "/" in mb:
+            method, basis = mb.split("/", 1)
+        else:
+            method, basis = mb, ""
+        return {
+            "method": method.strip(),
+            "basis": basis.strip(),
+            "nproc": spec.nproc,
+            "memory_mb": _mem_to_mb(spec.mem),
+        }
+    if preset_name in ORCA_PRESETS:
+        spec = ORCA_PRESETS[preset_name]
+        # ORCA ``keywords`` starts with ``!``, then tokens like "B3LYP D3BJ def2-TZVP def2/J Opt".
+        tokens = spec.keywords.replace("!", "").split()
+        method, basis = _split_orca_method_basis(tokens)
+        return {
+            "method": method,
+            "basis": basis,
+            "nproc": spec.nproc,
+            "memory_mb": int(spec.mem_per_core_mb),
+        }
+    return empty
+
+
+def _mem_to_mb(mem_str: str) -> int:
+    """Parse a memory string like '16GB', '32GB', '1024MB' into MB."""
+    s = mem_str.strip().upper().replace(" ", "")
+    if s.endswith("GB"):
+        try:
+            return int(float(s[:-2]) * 1024)
+        except ValueError:
+            return 1024
+    if s.endswith("MB"):
+        try:
+            return int(float(s[:-2]))
+        except ValueError:
+            return 1024
+    try:
+        return int(s)
+    except ValueError:
+        return 1024
+
+
+# Tokens that look like basis-set names or auxiliary basis names — used by
+# :func:`_split_orca_method_basis` to split an ORCA keyword line.
+_ORCA_BASIS_TOKENS = {
+    "def2-SVP", "def2-TZVP", "def2-QZVP",
+    "def2-SV(P)", "def2-TZVPP", "def2-TZVPD",
+    "def2/J", "def2-SVP/C", "def2-TZVP/C",
+    "cc-pVDZ", "cc-pVTZ", "cc-pVQZ",
+    "aug-cc-pVDZ", "aug-cc-pVTZ", "aug-cc-pVQZ",
+    "cc-pVDZ/C", "cc-pVTZ/C", "cc-pVQZ/C",
+    "MINIS", "MINAO",
+}
+
+
+def _split_orca_method_basis(tokens: list[str]) -> tuple[str, str]:
+    """Best-effort split of ORCA tokens into ``(method, basis)`` for the wizard.
+
+    The ORCA keyword line is a free-form bag of tokens: method, dispersion,
+    basis, auxiliary basis, RI flags, SCF tightness, job keywords.  We pick
+    the *last* token that looks like a basis set as ``basis``; everything
+    before that (until the first job keyword like ``Opt``) is the method.
+    Anything else (dispersion, RI flags, …) is included in the method string.
+    """
+    job_keywords = {
+        "Opt", "SP", "Freq", "NumFreq", "TS", "OptTS",
+        "TightSCF", "LooseSCF", "NormalSCF", "MiniPrint", "NormalPrint",
+        "RIJCOSX", "RI", "RIJK", "RI-MP2",
+        # Dispersion flags (D3BJ etc.) are NOT job keywords — they describe
+        # the method. Keep them out of this set so they end up in the method
+        # string the wizard sends to ConfFlow.
+    }
+    method_tokens: list[str] = []
+    basis_tokens: list[str] = []
+    seen_basis = False
+    for tok in tokens:
+        if tok in job_keywords:
+            break
+        if tok in _ORCA_BASIS_TOKENS or "/" in tok:
+            seen_basis = True
+            basis_tokens.append(tok)
+            continue
+        if seen_basis:
+            # Tokens after the basis are still auxiliary basis or job tokens.
+            basis_tokens.append(tok)
+            continue
+        method_tokens.append(tok)
+    return " ".join(method_tokens), " ".join(basis_tokens)
 
 
 # ---- Internal helpers ------------------------------------------------------
