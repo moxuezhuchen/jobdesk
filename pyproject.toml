@@ -1,6 +1,6 @@
 [project]
 name = "jobdesk"
-version = "0.3.0.dev0"
+version = "0.4.0"
 description = "Windows-first scientific-computing job desk for local inputs, remote execution, result download, and local analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"

@@ -7,20 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- Schema v4 is current: v2 introduced the replayable submit/delete operation journal, v3 added trusted-workspace registry and delete-operation bindings, and v4 added UTC submit ownership leases so recovery cannot take over a live submission. Completed operations are retained for seven days, and legacy orphan `submitting` tasks are recovered into `uncertain`.
-- Added explicit recovery commands for confirming or abandoning uncertain submissions and a shared, GUI-independent SSH/SFTP `SessionPool` ownership model.
-- Replaced writable per-run JSON/TSV manifests with transactional SQLite persistence in the JobDesk runs directory, including one-time legacy import and migration diagnostics.
-- Added a shared run coordinator for CLI and GUI lifecycle operations and separated the run monitor service from its Qt adapter.
-- Added architecture-boundary, concurrent persistence, migration, coordinator, and GUI delegation regression coverage.
-- Prepared the repository for public source preview under Apache License 2.0.
-- Consolidated the GUI around single-task execution and ConfFlow batch submission.
-- Added guarded remote cancellation, explicit SSH host-key trust configuration, and restricted recursive remote deletion.
-- Hardened run persistence, result download diagnostics, task identity generation, scheduler validation, and XYZ validation.
-- Added GUI button feedback polish and strengthened GUI behavior coverage.
-- Included GUI resource assets in distributable packages and strengthened CI quality gates.
+## [0.4.0] — 2026-07-07
+
+### Added
 - Added the ConfFlow three-step wizard (`_XyzPage` / `_CalcPage` / `_WorkflowPage`) with method/basis preset dropdown, validation hints on every page, drag-and-drop onto the XYZ list, and an in-memory MRU recent-presets strip.
 - Added a `ResultDetailPane` to the Runs page that renders parsed Gaussian / ORCA output on double-click (SCF energy, ZPE, Gibbs, imaginary-freq count, termination, geometry preview).
+- Added Chinese (zh) translations for the ConfFlow wizard and Input Builder dialogs (titles, subtitles, buttons, form labels, validation messages, ORCA caveat). The `tr(text, language)` helper now covers both dialogs end-to-end.
+- Added `README.zh.md`, `CHANGELOG.md` per-version history, `CONTRIBUTING.md`, and `docs/architecture.md` to lower the onboarding cost for new contributors.
 - Wired `scripts/check_public_tree.ps1` into the CI workflow so future PRs cannot leak private/internal patterns.
+
+### Fixed
+- `.gitignore` now excludes `tmp*/` cwd-pollution directories produced by manual shell pipeline testing.
+
+### Tests
+- 1162 passed, 18 skipped (up from 1125 / 18 at the start of Phase 10).
 
 ## [0.3.0] — 2026-07-07
 
