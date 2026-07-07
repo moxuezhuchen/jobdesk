@@ -196,11 +196,12 @@ class SubmitUseCase:
         yaml_local = first_xyz / "workflow.yaml"
 
         calc = payload.calc
+        method, basis = _split_method_basis(getattr(calc, "method_basis", ""))
         spec = WorkflowSpec.from_form(
             work_dir_name=workflow.work_dir_name,
             program=payload.program,
-            method=getattr(calc, "method_basis", "") or "",
-            basis="",  # merged into method_basis above; left blank here
+            method=method,
+            basis=basis,
             charge=calc.charge,
             multiplicity=calc.multiplicity,
             nproc=calc.nproc,
@@ -259,6 +260,20 @@ def _parse_mem_mb(mem: str) -> int:
         return max(1024, int(text))
     except ValueError:
         return 1024
+
+
+def _split_method_basis(method_basis: str) -> tuple[str, str]:
+    """Split ``"B3LYP/6-31G(d)"`` into ``("B3LYP", "6-31G(d)")``.
+
+    ConfFlow wants ``method`` and ``basis`` as separate form fields;
+    the calc widget produces a single ``"method/basis"`` string.  When
+    there is no slash we treat the whole string as the method.
+    """
+    text = (method_basis or "").strip()
+    if "/" not in text:
+        return text, ""
+    method, basis = text.split("/", 1)
+    return method.strip(), basis.strip()
 
 
 __all__ = ["PreparedBatch", "SubmitUseCase", "remote_child_path"]
