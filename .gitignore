@@ -21,6 +21,8 @@ htmlcov/
 tmp_pytest*/
 fake_project/
 fake_project_real/
+# tmpXXXXXXX/ directories created by manual shell commands in cwd
+/tmp*/
 
 # Local one-off scripts/logs from manual validation
 m8_real_backend.py

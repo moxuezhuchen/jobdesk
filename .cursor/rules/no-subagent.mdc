@@ -1,20 +1,19 @@
 ---
-description: 禁止使用 subagent
+description: 关于 subagent 使用方式
 alwaysApply: true
 ---
 
-# 禁止使用 Subagent
+# 关于 Subagent
 
-本项目严禁使用 `Task` 工具创建 subagent 子代理。所有任务必须在当前会话中直接完成，不得委托给子代理执行。
+本项目允许使用 `Task` 工具创建 subagent 子代理来分担工作，但应遵循以下原则以确保任务质量：
 
-**禁止的操作：**
-- 使用 `Task` 工具启动任何类型的子代理
-- 调用 `Task` 工具并设置 `subagent_type` 参数
-- 启动 `generalPurpose`、`explore`、`shell`、`browser-use` 等任何 subagent
+**使用建议：**
+- 对于范围明确、上下文有限的探索/搜索任务，可以委托给 `explore` 等 subagent
+- 对于复杂的多步骤任务，可以使用 `generalPurpose` 等 subagent 协助执行
+- 涉及代码修改时，重要决策和最终实现仍应在主会话中完成
+- 终端命令、文件读写等操作也可以委托给 subagent
 
-**正确做法：**
-- 使用 `Read`、`Write`、`EditNotebook`、`Grep`、`Glob` 等工具直接操作文件
-- 使用 `Shell` 工具执行终端命令
-- 所有代码修改和调试都在当前会话中完成
-
-违反此规则将导致任务不被接受。
+**注意事项：**
+- 子代理没有主会话的上下文，需要在 prompt 中提供充分的背景信息
+- 对于需要精细控制的操作（如 Git 提交、推送等），建议在主会话中直接执行
+- subagent 返回结果后应进行验证，不盲目信任

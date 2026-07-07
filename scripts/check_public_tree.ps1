@@ -27,6 +27,7 @@ $hits = rg -n --hidden `
   -g "!.ruff_cache/**" `
   -g "!build/**" `
   -g "!dist/**" `
+  -g "!docs/superpowers/**" `
   -e $regex `
   $existing 2>$null
 

@@ -30,6 +30,10 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Public-tree guard
+        shell: pwsh
+        run: powershell -File scripts/check_public_tree.ps1
+
       - name: Type check
         run: python -m mypy src
 
