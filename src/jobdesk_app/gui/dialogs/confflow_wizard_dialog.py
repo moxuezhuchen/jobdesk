@@ -57,6 +57,7 @@ from ...core.workflow_spec import (
 )
 from ...services.program_adapters import ConfFlowAdapter
 from ..button_feedback import ButtonRole, apply_button_role
+from ..i18n import tr
 
 _PROGRAMS = ("gaussian", "orca")
 _DEFAULT_STEPS = ("confgen", "preopt", "opt", "refine", "sp")
@@ -76,13 +77,17 @@ class WizardResult:
 
 
 class _XyzPage(QWizardPage):
-    def __init__(self, parent: QDialog | None = None):
+    def __init__(self, parent: QDialog | None = None, language: str = "en"):
         super().__init__(parent)
-        self.setTitle("Input XYZ files")
+        self._language = language
+        self.setTitle(tr("Input XYZ files", self._language))
         self.setSubTitle(
-            "Pick one or more .xyz files (or a whole directory). "
-            "ConfFlow will run each independently. "
-            "You can also drag .xyz files or folders here."
+            tr(
+                "Pick one or more .xyz files (or a whole directory). "
+                "ConfFlow will run each independently. "
+                "You can also drag .xyz files or folders here.",
+                self._language,
+            )
         )
 
         layout = QVBoxLayout(self)
@@ -93,15 +98,21 @@ class _XyzPage(QWizardPage):
         layout.addWidget(self.list, 1)
 
         btn_row = QHBoxLayout()
-        add_btn = apply_button_role(QPushButton("Add files…"), ButtonRole.INSTANT_ACTION)
+        add_btn = apply_button_role(
+            QPushButton(tr("Add files…", self._language)), ButtonRole.INSTANT_ACTION
+        )
         add_btn.clicked.connect(self._add)
         add_dir_btn = apply_button_role(
-            QPushButton("Add directory…"), ButtonRole.INSTANT_ACTION
+            QPushButton(tr("Add directory…", self._language)), ButtonRole.INSTANT_ACTION
         )
         add_dir_btn.clicked.connect(self._add_directory)
-        rm_btn = apply_button_role(QPushButton("Remove"), ButtonRole.INSTANT_ACTION)
+        rm_btn = apply_button_role(
+            QPushButton(tr("Remove", self._language)), ButtonRole.INSTANT_ACTION
+        )
         rm_btn.clicked.connect(self._remove)
-        clear_btn = apply_button_role(QPushButton("Clear"), ButtonRole.INSTANT_ACTION)
+        clear_btn = apply_button_role(
+            QPushButton(tr("Clear", self._language)), ButtonRole.INSTANT_ACTION
+        )
         clear_btn.clicked.connect(self._clear)
         btn_row.addWidget(add_btn)
         btn_row.addWidget(add_dir_btn)
@@ -112,11 +123,13 @@ class _XyzPage(QWizardPage):
 
         # Recursive scan toggle. Default off so the wizard stays safe —
         # users must opt in to recursive directory walking.
-        self.recursive_checkbox = QCheckBox("Include subdirectories")
+        self.recursive_checkbox = QCheckBox(
+            tr("Include files in subdirectories", self._language)
+        )
         layout.addWidget(self.recursive_checkbox)
 
         # Counter / status line that updates as the user adds files.
-        self.count_label = QLabel("0 file(s) selected")
+        self.count_label = QLabel(tr("0 file(s) selected", self._language))
         self.count_label.setStyleSheet("color: #666;")
         layout.addWidget(self.count_label)
 
@@ -185,9 +198,19 @@ class _XyzPage(QWizardPage):
         n = len(self._xyz_paths)
         suffix = "s" if n != 1 else ""
         if added > 0:
-            self.count_label.setText(f"{n} file{suffix} selected (+{added} new)")
+            self.count_label.setText(
+                tr(
+                    "{n} file{suffix} selected (+{added} new)",
+                    self._language,
+                    n=n,
+                    suffix=suffix,
+                    added=added,
+                )
+            )
         else:
-            self.count_label.setText(f"{n} file{suffix} selected")
+            self.count_label.setText(
+                tr("{n} file{suffix} selected", self._language, n=n, suffix=suffix)
+            )
 
     def _clear(self) -> None:
         self._xyz_paths.clear()
@@ -249,10 +272,13 @@ class _XyzPage(QWizardPage):
 class _CalcPage(QWizardPage):
     _hint_style = "color: #c00; font-style: italic;"
 
-    def __init__(self, parent: QDialog | None = None):
+    def __init__(self, parent: QDialog | None = None, language: str = "en"):
         super().__init__(parent)
-        self.setTitle("Calculation settings")
-        self.setSubTitle("Program, method/basis, charge, resources.")
+        self._language = language
+        self.setTitle(tr("Calculation settings", self._language))
+        self.setSubTitle(
+            tr("Program, method/basis, charge, resources.", self._language)
+        )
 
         # Validation state — _touched gates which fields surface inline hints,
         # so the user is not yelled at mid-typing. _was_complete tracks the
@@ -266,12 +292,12 @@ class _CalcPage(QWizardPage):
 
         self.program_combo = QComboBox()
         self.program_combo.addItems(_PROGRAMS)
-        form.addRow("Program:", self.program_combo)
+        form.addRow(tr("Program:", self._language), self.program_combo)
 
         # Preset dropdown — picks method/basis/nproc/memory in one click.
         self.preset_combo = QComboBox()
         self.preset_combo.addItem("(manual)", None)
-        form.addRow("Preset:", self.preset_combo)
+        form.addRow(tr("Preset:", self._language), self.preset_combo)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
 
         # Recent-presets strip — quick one-click access to the last few
@@ -282,7 +308,7 @@ class _CalcPage(QWizardPage):
         self.recent_strip.setSpacing(4)
         self.recent_strip_wrap = QWidget()
         self.recent_strip_wrap.setLayout(self.recent_strip)
-        self.recent_label = QLabel("Recent:")
+        self.recent_label = QLabel(tr("Recent:", self._language))
         self.recent_label.setStyleSheet("color: #475569;")
         self.recent_strip.addWidget(self.recent_label)
         self.recent_strip.addStretch(1)
@@ -300,14 +326,14 @@ class _CalcPage(QWizardPage):
         form.addRow("", self.orca_hint)
 
         self.method_edit = QLineEdit("B3LYP")
-        form.addRow("Method:", self.method_edit)
+        form.addRow(tr("Method:", self._language), self.method_edit)
         self.method_hint = QLabel("")
         self.method_hint.setStyleSheet(self._hint_style)
         self.method_hint.setWordWrap(True)
         form.addRow("", self.method_hint)
 
         self.basis_edit = QLineEdit("6-31G(d)")
-        form.addRow("Basis:", self.basis_edit)
+        form.addRow(tr("Basis:", self._language), self.basis_edit)
         self.basis_hint = QLabel("")
         self.basis_hint.setStyleSheet(self._hint_style)
         self.basis_hint.setWordWrap(True)
@@ -315,7 +341,7 @@ class _CalcPage(QWizardPage):
 
         self.charge_spin = QSpinBox()
         self.charge_spin.setRange(-10, 10)
-        form.addRow("Charge:", self.charge_spin)
+        form.addRow(tr("Charge:", self._language), self.charge_spin)
         self.charge_hint = QLabel("")
         self.charge_hint.setStyleSheet(self._hint_style)
         self.charge_hint.setWordWrap(True)
@@ -324,7 +350,7 @@ class _CalcPage(QWizardPage):
         self.mult_spin = QSpinBox()
         self.mult_spin.setRange(1, 10)
         self.mult_spin.setValue(1)
-        form.addRow("Multiplicity:", self.mult_spin)
+        form.addRow(tr("Multiplicity:", self._language), self.mult_spin)
         self.mult_hint = QLabel("")
         self.mult_hint.setStyleSheet(self._hint_style)
         self.mult_hint.setWordWrap(True)
@@ -333,7 +359,7 @@ class _CalcPage(QWizardPage):
         self.nproc_spin = QSpinBox()
         self.nproc_spin.setRange(1, 256)
         self.nproc_spin.setValue(8)
-        form.addRow("CPU cores:", self.nproc_spin)
+        form.addRow(tr("CPU cores:", self._language), self.nproc_spin)
         self.nproc_hint = QLabel("")
         self.nproc_hint.setStyleSheet(self._hint_style)
         self.nproc_hint.setWordWrap(True)
@@ -344,7 +370,7 @@ class _CalcPage(QWizardPage):
         self.mem_spin.setSingleStep(512)
         self.mem_spin.setValue(4096)
         self.mem_spin.setSuffix(" MB")
-        form.addRow("Memory:", self.mem_spin)
+        form.addRow(tr("Memory:", self._language), self.mem_spin)
         self.mem_hint = QLabel("")
         self.mem_hint.setStyleSheet(self._hint_style)
         self.mem_hint.setWordWrap(True)
@@ -394,9 +420,12 @@ class _CalcPage(QWizardPage):
         """
         if program == "orca":
             self.orca_hint.setText(
-                "ORCA: ConfFlow's policy template already prefixes '!'. "
-                "Use a geometry optimization step (e.g. 'opt') — ORCA single-point "
-                "does not emit a geometry file and the run will fail."
+                tr(
+                    "ORCA: ConfFlow's policy template already prefixes '!'. "
+                    "Use a geometry optimization step (e.g. 'opt') — ORCA single-point "
+                    "does not emit a geometry file and the run will fail.",
+                    self._language,
+                )
             )
         else:
             self.orca_hint.setText("")
@@ -483,7 +512,9 @@ class _CalcPage(QWizardPage):
             btn = QToolButton()
             btn.setText(name)
             btn.setAutoRaise(True)
-            btn.setToolTip(f"Apply preset: {name}")
+            btn.setToolTip(
+                tr("Apply preset: {name}", self._language, name=name)
+            )
             btn.clicked.connect(lambda _checked=False, n=name: self._apply_recent_preset(n))
             self.recent_strip.insertWidget(self.recent_strip.count() - 1, btn)
 
@@ -511,27 +542,31 @@ class _CalcPage(QWizardPage):
 
         method = self.method_edit.text().strip()
         if not method:
-            errors["method"] = "Method is required."
+            errors["method"] = tr("Method is required.", self._language)
 
         basis = self.basis_edit.text().strip()
         if not basis:
-            errors["basis"] = "Basis set is required."
+            errors["basis"] = tr("Basis set is required.", self._language)
 
         charge = self.charge_spin.value()
         if not -10 <= charge <= 10:
-            errors["charge"] = "Charge must be between -10 and 10."
+            errors["charge"] = tr(
+                "Charge must be between -10 and 10.", self._language
+            )
 
         mult = self.mult_spin.value()
         if mult < 1:
-            errors["mult"] = "Multiplicity must be at least 1."
+            errors["mult"] = tr("Multiplicity must be at least 1.", self._language)
 
         nproc = self.nproc_spin.value()
         if nproc < 1:
-            errors["nproc"] = "CPU cores must be at least 1."
+            errors["nproc"] = tr("CPU cores must be at least 1.", self._language)
 
         mem = self.mem_spin.value()
         if mem < 1024:
-            errors["mem"] = "Memory must be at least 1024 MB."
+            errors["mem"] = tr(
+                "Memory must be at least 1024 MB.", self._language
+            )
 
         self._errors = errors
         return errors
@@ -602,10 +637,16 @@ class _WorkflowPage(QWizardPage):
 
     _hint_style = "color: #c00; font-style: italic;"
 
-    def __init__(self, parent: QDialog | None = None):
+    def __init__(self, parent: QDialog | None = None, language: str = "en"):
         super().__init__(parent)
-        self.setTitle("Workflow settings & preview")
-        self.setSubTitle("Pick steps, set work_dir, then preview & validate the YAML.")
+        self._language = language
+        self.setTitle(tr("Workflow settings & preview", self._language))
+        self.setSubTitle(
+            tr(
+                "Pick steps, set work_dir, then preview & validate the YAML.",
+                self._language,
+            )
+        )
 
         # Validation state — same pattern as _CalcPage (Phase 9C):
         # _touched gates which fields surface inline hints so we don't yell
@@ -618,7 +659,7 @@ class _WorkflowPage(QWizardPage):
         layout = QVBoxLayout(self)
 
         # Steps
-        steps_box = QGroupBox("Steps")
+        steps_box = QGroupBox(tr("Steps", self._language))
         sb_layout = QHBoxLayout(steps_box)
         self._step_checks: dict[str, QCheckBox] = {}
         for step in _DEFAULT_STEPS:
@@ -638,7 +679,7 @@ class _WorkflowPage(QWizardPage):
 
         # work_dir
         wd_row = QHBoxLayout()
-        wd_row.addWidget(QLabel("Work dir name:"))
+        wd_row.addWidget(QLabel(tr("Work dir name:", self._language)))
         self.work_dir_edit = QLineEdit("{basename}_confflow_work")
         self.work_dir_edit.setPlaceholderText("{basename}_confflow_work")
         wd_row.addWidget(self.work_dir_edit, 1)
@@ -652,7 +693,12 @@ class _WorkflowPage(QWizardPage):
         layout.addWidget(self.work_dir_hint)
 
         # Advanced options (raw key=value lines; parsed on accept)
-        adv = QGroupBox("Advanced options (key=value, one per line)")
+        adv = QGroupBox(
+            tr(
+                "Advanced options (key=value, one per line)",
+                self._language,
+            )
+        )
         adv_layout = QVBoxLayout(adv)
         self.adv_edit = QTextEdit()
         self.adv_edit.setPlaceholderText("# examples:\n# solvent=water\n# scan=true")
@@ -668,7 +714,7 @@ class _WorkflowPage(QWizardPage):
         layout.addWidget(self.adv_hint)
 
         # Preview + dry-run
-        preview_box = QGroupBox("YAML preview")
+        preview_box = QGroupBox(tr("YAML preview", self._language))
         pv_layout = QVBoxLayout(preview_box)
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
@@ -677,7 +723,8 @@ class _WorkflowPage(QWizardPage):
         pv_layout.addWidget(self.preview)
         btn_row = QHBoxLayout()
         self.refresh_btn = apply_button_role(
-            QPushButton("Refresh preview"), ButtonRole.INSTANT_ACTION
+            QPushButton(tr("Refresh preview", self._language)),
+            ButtonRole.INSTANT_ACTION,
         )
         self.refresh_btn.clicked.connect(self._on_refresh_clicked)
         btn_row.addWidget(self.refresh_btn)
@@ -760,13 +807,15 @@ class _WorkflowPage(QWizardPage):
             self._last_report = None
             return
         except Exception as exc:
-            self.status_label.setText(f"Render failed: {exc}")
+            self.status_label.setText(
+                tr("Render failed: {exc}", self._language, exc=exc)
+            )
             self._last_report = None
             return
         self._last_spec = spec
         self._last_report = report
         if report.ok:
-            self.status_label.setText("✓ YAML valid")
+            self.status_label.setText(tr("✓ YAML valid", self._language))
         else:
             self.status_label.setText(f"✗ {report.error}")
 
@@ -775,7 +824,9 @@ class _WorkflowPage(QWizardPage):
         try:
             spec = self.build_spec(calc_page.calc_fields())
         except Exception as exc:
-            self.status_label.setText(f"Build failed: {exc}")
+            self.status_label.setText(
+                tr("Build failed: {exc}", self._language, exc=exc)
+            )
             return
         self.render_preview(spec)
 
@@ -791,12 +842,14 @@ class _WorkflowPage(QWizardPage):
 
         work_dir_name = self.work_dir_edit.text().strip()
         if not work_dir_name:
-            errors["work_dir"] = "Work dir name is required."
+            errors["work_dir"] = tr("Work dir name is required.", self._language)
         elif "/" in work_dir_name or "\\" in work_dir_name:
-            errors["work_dir"] = "Work dir name cannot contain '/' or '\\'."
+            errors["work_dir"] = tr(
+                "Work dir name cannot contain '/' or '\\'.", self._language
+            )
 
         if not any(cb.isChecked() for cb in self._step_checks.values()):
-            errors["steps"] = "Pick at least one workflow step."
+            errors["steps"] = tr("Pick at least one workflow step.", self._language)
 
         # Duplicate-key detection on the advanced options textarea: parse the
         # raw text the same way extra_options() does, then count occurrences
@@ -816,7 +869,11 @@ class _WorkflowPage(QWizardPage):
             seen[key] = seen.get(key, 0) + 1
         for key, count in seen.items():
             if count > 1:
-                errors["adv"] = f"Duplicate advanced option key: '{key}'."
+                errors["adv"] = tr(
+                    "Duplicate advanced option key: '{key}'.",
+                    self._language,
+                    key=key,
+                )
                 break
 
         self._errors = errors
@@ -908,16 +965,18 @@ class ConfFlowWizard(QWizard):
         server_id: str = "",
         remote_dir: str = "",
         default_workflow_yaml: str | Path | None = None,
+        language: str = "en",
     ):
         super().__init__(parent)
-        self.setWindowTitle("ConfFlow Workflow Wizard")
+        self._language = language
+        self.setWindowTitle(tr("ConfFlow Workflow Wizard", self._language))
         self.setMinimumSize(760, 620)
         self._server_id = server_id
         self._remote_dir = remote_dir
 
-        self.xyz_page = _XyzPage()
-        self.calc_page = _CalcPage()
-        self.workflow_page = _WorkflowPage()
+        self.xyz_page = _XyzPage(language=language)
+        self.calc_page = _CalcPage(language=language)
+        self.workflow_page = _WorkflowPage(language=language)
         self.addPage(self.xyz_page)
         self.addPage(self.calc_page)
         self.addPage(self.workflow_page)
@@ -1004,8 +1063,11 @@ class ConfFlowWizard(QWizard):
 
             QMessageBox.warning(
                 self,
-                "ConfFlow Wizard",
-                "Server, remote directory, and at least one XYZ file are required.",
+                tr("ConfFlow Wizard", self._language),
+                tr(
+                    "Server, remote directory, and at least one XYZ file are required.",
+                    self._language,
+                ),
             )
             return
         super().accept()

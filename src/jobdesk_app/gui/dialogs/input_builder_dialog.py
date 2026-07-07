@@ -32,14 +32,16 @@ from ...core.input_builder import (
     list_presets,
 )
 from ..button_feedback import ButtonRole, apply_button_role
+from ..i18n import tr
 
 
 class InputBuilderDialog(QDialog):
     """Dialog for generating Gaussian .gjf or ORCA .inp from an XYZ file."""
 
-    def __init__(self, parent=None, xyz_path: str | Path | None = None):
+    def __init__(self, parent=None, xyz_path: str | Path | None = None, language: str = "en"):
         super().__init__(parent)
-        self.setWindowTitle("Input File Builder")
+        self._language = language
+        self.setWindowTitle(tr("Input File Builder", self._language))
         self.setMinimumWidth(560)
         self._output_path: Path | None = None
 
@@ -48,23 +50,25 @@ class InputBuilderDialog(QDialog):
 
         # ── XYZ source ────────────────────────────────────────────────────
         src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("XYZ file:"))
+        src_row.addWidget(QLabel(tr("XYZ file:", self._language)))
         self.xyz_edit = QLineEdit()
-        self.xyz_edit.setPlaceholderText("Path to .xyz file…")
+        self.xyz_edit.setPlaceholderText(tr("Path to .xyz file…", self._language))
         if xyz_path:
             self.xyz_edit.setText(str(xyz_path))
         src_row.addWidget(self.xyz_edit, 1)
-        browse_btn = apply_button_role(QPushButton("Browse…"), ButtonRole.INSTANT_ACTION)
+        browse_btn = apply_button_role(
+            QPushButton(tr("Browse…", self._language)), ButtonRole.INSTANT_ACTION
+        )
         browse_btn.clicked.connect(self._browse_xyz)
         src_row.addWidget(browse_btn)
         layout.addLayout(src_row)
 
         # ── Software toggle ───────────────────────────────────────────────
         sw_row = QHBoxLayout()
-        sw_row.addWidget(QLabel("Software:"))
+        sw_row.addWidget(QLabel(tr("Software:", self._language)))
         self._sw_group = QButtonGroup(self)
-        self.gauss_radio = QRadioButton("Gaussian (.gjf)")
-        self.orca_radio = QRadioButton("ORCA (.inp)")
+        self.gauss_radio = QRadioButton(tr("Gaussian (.gjf)", self._language))
+        self.orca_radio = QRadioButton(tr("ORCA (.inp)", self._language))
         self.gauss_radio.setChecked(True)
         self._sw_group.addButton(self.gauss_radio, 0)
         self._sw_group.addButton(self.orca_radio, 1)
@@ -76,7 +80,7 @@ class InputBuilderDialog(QDialog):
 
         # ── Preset selector ───────────────────────────────────────────────
         preset_row = QHBoxLayout()
-        preset_row.addWidget(QLabel("Preset:"))
+        preset_row.addWidget(QLabel(tr("Preset:", self._language)))
         self.preset_combo = QComboBox()
         self.preset_combo.addItem("(manual)", None)
         for name, desc in sorted(list_presets().items()):
@@ -86,49 +90,53 @@ class InputBuilderDialog(QDialog):
         layout.addLayout(preset_row)
 
         # ── Manual parameters ─────────────────────────────────────────────
-        self.manual_group = QGroupBox("Parameters")
+        self.manual_group = QGroupBox(tr("Manual parameters", self._language))
         form = QFormLayout(self.manual_group)
         form.setLabelAlignment(Qt.AlignRight)
 
         self.method_edit = QLineEdit("B3LYP/6-31G(d)")
-        form.addRow("Method/Basis:", self.method_edit)
+        form.addRow(tr("Method/Basis:", self._language), self.method_edit)
 
         self.keywords_edit = QLineEdit("opt freq")
-        form.addRow("Keywords:", self.keywords_edit)
+        form.addRow(tr("Keywords:", self._language), self.keywords_edit)
 
         charge_row = QHBoxLayout()
         self.charge_spin = QSpinBox()
         self.charge_spin.setRange(-10, 10)
         charge_row.addWidget(self.charge_spin)
-        charge_row.addWidget(QLabel("Mult:"))
+        charge_row.addWidget(QLabel(tr("Mult:", self._language)))
         self.mult_spin = QSpinBox()
         self.mult_spin.setRange(1, 10)
         self.mult_spin.setValue(1)
         charge_row.addWidget(self.mult_spin)
         charge_row.addStretch()
-        form.addRow("Charge:", charge_row)
+        form.addRow(tr("Charge:", self._language), charge_row)
 
         nproc_row = QHBoxLayout()
         self.nproc_spin = QSpinBox()
         self.nproc_spin.setRange(1, 256)
         self.nproc_spin.setValue(8)
         nproc_row.addWidget(self.nproc_spin)
-        nproc_row.addWidget(QLabel("Mem:"))
+        nproc_row.addWidget(QLabel(tr("Mem:", self._language)))
         self.mem_edit = QLineEdit("16GB")
         self.mem_edit.setMaximumWidth(80)
         nproc_row.addWidget(self.mem_edit)
         nproc_row.addStretch()
-        form.addRow("nproc:", nproc_row)
+        form.addRow(tr("nproc:", self._language), nproc_row)
 
         layout.addWidget(self.manual_group)
 
         # ── Output path ───────────────────────────────────────────────────
         out_row = QHBoxLayout()
-        out_row.addWidget(QLabel("Output:"))
+        out_row.addWidget(QLabel(tr("Output:", self._language)))
         self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("Leave blank to preview only")
+        self.output_edit.setPlaceholderText(
+            tr("Leave blank to preview only", self._language)
+        )
         out_row.addWidget(self.output_edit, 1)
-        out_browse = apply_button_role(QPushButton("Save as…"), ButtonRole.INSTANT_ACTION)
+        out_browse = apply_button_role(
+            QPushButton(tr("Save as…", self._language)), ButtonRole.INSTANT_ACTION
+        )
         out_browse.clicked.connect(self._browse_output)
         out_row.addWidget(out_browse)
         layout.addLayout(out_row)
@@ -142,16 +150,20 @@ class InputBuilderDialog(QDialog):
 
         # ── Buttons ───────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        preview_btn = apply_button_role(QPushButton("Preview"), ButtonRole.INSTANT_ACTION)
+        preview_btn = apply_button_role(
+            QPushButton(tr("Preview", self._language)), ButtonRole.INSTANT_ACTION
+        )
         preview_btn.clicked.connect(self._do_preview)
         btn_row.addWidget(preview_btn)
         btn_row.addStretch()
-        self.generate_btn = QPushButton("Generate")
+        self.generate_btn = QPushButton(tr("Generate", self._language))
         self.generate_btn.setObjectName("PrimaryBtn")
         apply_button_role(self.generate_btn, ButtonRole.PRIMARY_ACTION)
         self.generate_btn.clicked.connect(self._do_generate)
         btn_row.addWidget(self.generate_btn)
-        close_btn = apply_button_role(QPushButton("Close"), ButtonRole.INSTANT_ACTION)
+        close_btn = apply_button_role(
+            QPushButton(tr("Close", self._language)), ButtonRole.INSTANT_ACTION
+        )
         close_btn.clicked.connect(self.reject)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
