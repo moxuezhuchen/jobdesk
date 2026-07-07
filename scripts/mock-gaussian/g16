@@ -1,0 +1,102 @@
+#!/bin/sh
+# Mock Gaussian 16 for ConfFlow Phase 6 smoke tests.
+# ConFlow invokes: g16 <name.gjf>   (runs in the task work_dir, cwd=work_dir).
+#
+# Produces:
+#   - result.xyz          confflow assembly reads this for final geometry
+#   - <name>.log          Gaussian-style log with SCF energy + geometry block
+#
+set -eu
+
+# Allow tests to slow down execution so the watcher sees "running" state.
+DELAY="${JOBDESK_MOCK_G16_DELAY:-0.3}"
+sleep "$DELAY"
+
+# ConFlow pwd's into the task work_dir before invoking g16.
+# The argument is the bare basename (no .gjf) when ConFlow calls it.
+INPUT="$1"
+BASENAME="${INPUT%.gjf}"
+LOG="${BASENAME}.log"
+
+# Read geometry from the input .gjf (3rd line onward: charge multiplicity, then coords).
+# ConfFlow writes coords as: "Element  X  Y  Z"
+GEO_LINES=""
+COUNT=0
+while IFS= read -r line; do
+    COUNT=$((COUNT + 1))
+    # Skip route card, title, charge/multiplicity
+    [ "$COUNT" -le 3 ] && continue
+    [ -z "$line" ] && break
+    GEO_LINES="${GEO_LINES}${line}"$'\n'
+done < "${BASENAME}.gjf"
+
+# Default methane-like geometry if parsing fails.
+if [ -z "$GEO_LINES" ]; then
+GEO_LINES="C   0.000000   0.000000   0.000000
+H   0.629118   0.629118   0.629118
+H  -0.629118  -0.629118   0.629118
+H  -0.629118   0.629118  -0.629118
+H   0.629118  -0.629118  -0.629118
+"
+fi
+
+NUM_ATOMS=$(printf '%s' "$GEO_LINES" | grep -c .)
+
+# Build a Gaussian-style Standard Orientation block from GEO_LINES.
+ORIENT_BLOCK=""
+_count=0
+printf '%s' "$GEO_LINES" | while IFS= read -r line; do
+    _count=$((_count + 1))
+    [ -z "$line" ] && continue
+    # line format: "Element  X  Y  Z"
+    ELE=$(echo "$line" | awk '{print $1}')
+    # Map element to atomic number
+    case "$ELE" in
+        H) NUM=1 ;;
+        C) NUM=6 ;;
+        N) NUM=7 ;;
+        O) NUM=8 ;;
+        F) NUM=9 ;;
+        P) NUM=15 ;;
+        S) NUM=16 ;;
+        Cl) NUM=17 ;;
+        Br) NUM=35 ;;
+        I) NUM=53 ;;
+        *) NUM=99 ;;
+    esac
+    X=$(echo "$line" | awk '{print $2}')
+    Y=$(echo "$line" | awk '{print $3}')
+    Z=$(echo "$line" | awk '{print $4}')
+    ORIENT_BLOCK="${ORIENT_BLOCK}       ${NUM}             ${X}                   ${Y}                   ${Z}"$'\n'
+done
+
+cat > "$LOG" <<LOGEOF
+ Entering Gaussian 16 (MOCK — testing only), branch linux.
+ Link 0:  $BASENAME
+LOGEOF
+
+# Write a minimal SCF Done line.
+printf '\n SCF Done:  E(RB3LYP) = -40.478123   A.U. after   1 cycles\n\n' >> "$LOG"
+
+# Write Standard Orientation block.
+cat >> "$LOG" <<LOGEOF
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic     Atomic              Coordinates (Angstroms)
+ Number     Number      Type              X           Y           Z
+ ---------------------------------------------------------------------
+LOGEOF
+
+printf '%s' "$ORIENT_BLOCK" >> "$LOG"
+
+cat >> "$LOG" <<LOGEOF
+ ---------------------------------------------------------------------
+LOGEOF
+
+# Write archive-like HF entry so parse_output falls back even without SCF Done.
+printf '\n \\HF=%.10f\\\\\n' '-40.478123' >> "$LOG"
+
+# Normal termination marker.
+printf '\n Normal termination.\n' >> "$LOG"
+
+exit 0

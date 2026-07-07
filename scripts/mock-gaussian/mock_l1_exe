@@ -1,0 +1,152 @@
+#!/bin/sh
+# Mock Gaussian 16 l1.exe for ConfFlow smoke tests (Phase 9A).
+#
+# Replaces /opt/g16/l1.exe while leaving the recovered wrapper at
+# /opt/g16/g16 (Phase 8C) untouched. Lets the wrapper exercise its
+# argument-forwarding and GAUSS_EXEDIR resolution against a binary
+# we control, instead of the real Gaussian (which dumps core without
+# a license).
+#
+# Produces a Gaussian-16-formatted log so the wizard's result
+# downloader and parse_output can be tested end-to-end.
+#
+# Usage: drop-in replacement for /opt/g16/l1.exe. Called by g16 as
+#   l1.exe <basename>
+# ConFlow invokes: g16 methane.gjf   →  l1.exe methane
+set -eu
+
+INPUT="${1:-}"
+DELAY="${JOBDESK_MOCK_L1_DELAY:-0.2}"
+sleep "$DELAY"
+
+BASENAME="${INPUT%.gjf}"
+LOG="${BASENAME}.log"
+
+# ---------------------------------------------------------------------------
+# Geometry: parse the .gjf the wizard prepared. Format (line numbers):
+#   1: %chk=...
+#   2: %mem=...
+#   3: %nproc=...
+#   4: # method/basis keywords ...
+#   5: (blank)
+#   6: title
+#   7: (blank)
+#   8: charge multiplicity
+#   9..: atomic coordinates
+# ---------------------------------------------------------------------------
+GJF="${BASENAME}.gjf"
+if [ ! -f "$GJF" ]; then
+    echo "Mock l1.exe: missing input ${GJF}" >&2
+    exit 2
+fi
+
+# Extract route, method/basis keywords, title, charge/mult, atom coords.
+ROUTE=$(sed -n '4p' "$GJF")
+TITLE=$(sed -n '6p' "$GJF")
+CHARGE_MULT=$(sed -n '8p' "$GJF")
+# Atom lines start at line 9; stop after we've read MAX_ATOMS lines (or EOF).
+# Using NR-based exit instead of NF-based because awk-on-WSL treats EOF
+# as NF!=4 before any matches get a chance to print when piped.
+GEO=$(awk -v max=64 'NR>=9 && NF==4 && cnt<max {print; cnt++; next} NR>=9+max {exit}' "$GJF")
+
+if [ -z "$GEO" ]; then
+    # Fall back to a methane geometry.
+    GEO="C   0.000000   0.000000   0.000000
+H   0.629118   0.629118   0.629118
+H  -0.629118  -0.629118   0.629118
+H  -0.629118   0.629118  -0.629118
+H   0.629118  -0.629118  -0.629118"
+    CHARGE_MULT=${CHARGE_MULT:-"0 1"}
+    TITLE=${TITLE:-"mock_methane"}
+    ROUTE=${ROUTE:-"# hf/sto-3g sp"}
+fi
+
+NUM_ATOMS=$(printf '%s\n' "$GEO" | wc -l)
+
+# ---------------------------------------------------------------------------
+# Build Gaussian-style log file.
+# ---------------------------------------------------------------------------
+NOW="$(date '+%Y-%m-%d %H:%M:%S')"
+METHOD=$(echo "$ROUTE" | awk '{print $2}' | awk -F/ '{print $1}')
+BASIS=$(echo "$ROUTE" | awk '{print $2}' | awk -F/ '{print $2}')
+
+# Convert "Element X Y Z" → Standard Orientation row.
+# Real Gaussian format: "   CN  AN  Type  X  Y  Z" (atomic number column 2 is integer)
+ORIENT_BLOCK=""
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    ELE=$(echo "$line" | awk '{print $1}')
+    case "$ELE" in
+        H)  NUM=1 ;;
+        C)  NUM=6 ;;
+        N)  NUM=7 ;;
+        O)  NUM=8 ;;
+        F)  NUM=9 ;;
+        P)  NUM=15 ;;
+        S)  NUM=16 ;;
+        Cl) NUM=17 ;;
+        Br) NUM=35 ;;
+        I)  NUM=53 ;;
+        *)  NUM=0 ;;
+    esac
+    X=$(echo "$line" | awk '{print $2}')
+    Y=$(echo "$line" | awk '{print $3}')
+    Z=$(echo "$line" | awk '{print $4}')
+    ORIENT_BLOCK="${ORIENT_BLOCK}    1          ${NUM}          0   ${X}    ${Y}    ${Z}
+"
+done <<EOF
+${GEO}
+EOF
+
+# Mock SCF energy. Deterministic per-method so tests can compare.
+case "${METHOD}" in
+    hf)        METHOD_DISPLAY="HF";      E=" -40.478900" ;;
+    b3lyp*)    METHOD_DISPLAY="RB3LYP";  E=" -75.123456" ;;
+    m062x*)    METHOD_DISPLAY="RM062X";  E=" -75.456789" ;;
+    wb97xd*)   METHOD_DISPLAY="RwB97XD"; E=" -75.987654" ;;
+    ccsd*)     METHOD_DISPLAY="CCSD";    E="-100.123456" ;;
+    *)         METHOD_DISPLAY="R${METHOD}"; E=" -50.000000" ;;
+esac
+
+cat > "$LOG" <<LOGEOF
+ Entering Gaussian System, MOCK l1.exe (Phase 9A testing binary).
+ Link 0:  ${BASENAME}
+${NOW}
+
+ ${ROUTE}
+
+ ${TITLE}
+
+ ${CHARGE_MULT}
+ ${GEO}
+
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic     Atomic              Coordinates (Angstroms)
+ Number     Number      Type              X           Y           Z
+ ---------------------------------------------------------------------
+${ORIENT_BLOCK}
+ ---------------------------------------------------------------------
+ Rotational constants (GHZ): (mock — not computed)
+ Standard basis: ${BASIS} (MOCK)
+
+ Job cpu time:  0 days 0 hours 0 minutes ${DELAY%.*}.0 seconds.
+ Elapsed time:  0 days 0 hours 0 minutes ${DELAY%.*}.0 seconds.
+
+ SCF Done:  E(${METHOD_DISPLAY}) =${E} A.U. after    1 cycles
+       NFock=  1  Conv=0.00D-08     -V/T= 2.0000
+
+ \\1\\1\\${METHOD}\\${BASIS}\\${E}\\MOCK\\\\
+
+ Normal termination of Gaussian 16 (MOCK l1.exe).
+LOGEOF
+
+# Result .xyz (confflow assembles this).
+XYZ="${BASENAME}.xyz"
+cat > "$XYZ" <<EOF
+${NUM_ATOMS}
+${BASENAME} (MOCK optimised)
+${GEO}
+EOF
+
+exit 0
