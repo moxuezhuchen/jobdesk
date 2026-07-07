@@ -13,6 +13,7 @@ from jobdesk_app.core.input_builder import (
     build_gjf,
     build_inp,
     list_presets,
+    preset_to_confflow_fields,
 )
 
 ETHANE_XYZ = """\
@@ -202,3 +203,47 @@ class TestPresets:
             assert name in presets
         for name in ORCA_PRESETS:
             assert name in presets
+
+
+class TestPresetToConfflowFields:
+    """Phase 8A: converter from legacy preset name to wizard-friendly fields."""
+
+    def test_gaussian_preset_splits_method_and_basis(self):
+        fields = preset_to_confflow_fields("b3lyp_631gd_opt_freq")
+        assert fields["method"] == "B3LYP"
+        assert fields["basis"] == "6-31G(d)"
+        assert fields["nproc"] == 8
+        assert fields["memory_mb"] == 16 * 1024
+
+    def test_gaussian_preset_with_empirical_dispersion(self):
+        fields = preset_to_confflow_fields("b3lyp_d3_def2tzvp_opt")
+        # The Gaussian preset stores the dispersion on the basis side, so the
+        # wizard sees "def2-TZVP EmpiricalDispersion=GD3BJ" as basis.
+        assert fields["method"] == "B3LYP"
+        assert fields["basis"].startswith("def2-TZVP")
+
+    def test_orca_preset_strips_bang_and_splits_basis(self):
+        fields = preset_to_confflow_fields("b3lyp_def2tzvp_opt_freq")
+        # ORCA preset is "! B3LYP D3BJ def2-TZVP def2/J RIJCOSX TightSCF opt freq"
+        assert fields["method"] == "B3LYP D3BJ"
+        assert "def2-TZVP" in fields["basis"]
+        assert "def2/J" in fields["basis"]
+
+    def test_orca_preset_dlpno(self):
+        fields = preset_to_confflow_fields("dlpno_ccsd_t_sp")
+        assert "DLPNO-CCSD(T)" in fields["method"]
+        assert "cc-pVTZ" in fields["basis"]
+
+    def test_unknown_preset_returns_empty(self):
+        fields = preset_to_confflow_fields("does_not_exist")
+        assert fields["method"] == ""
+        assert fields["basis"] == ""
+        # Defaults still non-zero so the wizard doesn't show "1MB" / "1 core".
+        assert fields["nproc"] >= 1
+        assert fields["memory_mb"] >= 1024
+
+    def test_orca_preset_memory_mb_matches_mem_per_core(self):
+        # ORCA presets store memory *per core*, which is exactly what the
+        # wizard's memory field wants.
+        fields = preset_to_confflow_fields("r2scan3c_opt_freq")
+        assert fields["memory_mb"] == ORCA_PRESETS["r2scan3c_opt_freq"].mem_per_core_mb

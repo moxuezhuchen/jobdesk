@@ -16,6 +16,7 @@ from jobdesk_app.core.workflow_spec import (
     ConfFlowUnavailableError,
     DryRunReport,
     WorkflowSpec,
+    assemble_orca_keyword,
     require_confflow,
     write_workflow_yaml,
 )
@@ -120,3 +121,103 @@ def test_write_workflow_yaml_is_atomic(tmp_path: Path):
         # Graceful path: missing confflow raises a typed error.
         with pytest.raises(ConfFlowUnavailableError):
             write_workflow_yaml(WorkflowSpec(global_config=None), target)
+
+
+# ----------------------------------------------------------------------------
+# Phase 7: ORCA keyword assembly.
+# ----------------------------------------------------------------------------
+
+
+def test_assemble_orca_keyword_basic():
+    """method + basis join with a single space; no leading '!'."""
+    assert assemble_orca_keyword("B3LYP", "def2-svp") == "B3LYP def2-svp"
+    assert assemble_orca_keyword("b3lyp", "def2-svp") == "b3lyp def2-svp"
+
+
+def test_assemble_orca_keyword_strips_bang():
+    """User-pasted '! method basis' must drop the leading '!'."""
+    assert assemble_orca_keyword("! B3LYP", "def2-svp") == "B3LYP def2-svp"
+    assert assemble_orca_keyword("!! B3LYP", "def2-svp") == "B3LYP def2-svp"
+    assert assemble_orca_keyword("B3LYP", "! def2-svp") == "B3LYP def2-svp"
+
+
+def test_assemble_orca_keyword_extra_tokens():
+    """Extra tokens (e.g. Opt, MiniPrint) are appended and '!'-stripped."""
+    assert (
+        assemble_orca_keyword("b3lyp", "def2-svp", "Opt MiniPrint")
+        == "b3lyp def2-svp Opt MiniPrint"
+    )
+    assert (
+        assemble_orca_keyword("b3lyp", "def2-svp", "! Opt MiniPrint")
+        == "b3lyp def2-svp Opt MiniPrint"
+    )
+
+
+def test_assemble_orca_keyword_skips_empty_components():
+    """An empty method or basis is dropped, never inserted as whitespace."""
+    assert assemble_orca_keyword("", "def2-svp") == "def2-svp"
+    assert assemble_orca_keyword("B3LYP", "") == "B3LYP"
+    assert assemble_orca_keyword("", "") == ""
+
+
+def test_from_form_passes_keyword_for_orca(tmp_path: Path):
+    """When program is ORCA and no manual keyword is supplied, from_form must
+    auto-assemble the keyword from method + basis."""
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="methane_work",
+        program="orca",
+        method="B3LYP",
+        basis="def2-svp",
+        charge=0,
+        multiplicity=1,
+        nproc=1,
+        memory_mb=512,
+    )
+    yaml_text = spec.to_yaml()
+    assert "keyword:" in yaml_text
+    assert "B3LYP def2-svp" in yaml_text
+    # No '!!' from the ORCA template + user '!'.
+    assert "!!" not in yaml_text
+
+
+def test_from_form_orca_keyword_keeps_user_override():
+    """When the user supplies their own keyword via extra_options, do not
+    overwrite it."""
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="orca",
+        method="B3LYP",
+        basis="def2-svp",
+        charge=0,
+        multiplicity=1,
+        nproc=1,
+        memory_mb=512,
+        extra_options={"keyword": "B3LYP def2-TZVP Opt TightSCF"},
+    )
+    yaml_text = spec.to_yaml()
+    assert "def2-TZVP" in yaml_text
+    assert "def2-svp" not in yaml_text  # user override wins
+
+
+def test_from_form_gaussian_does_not_force_keyword():
+    """Gaussian users rely on method/basis; from_form must not synthesize a
+    `keyword` field for them (ConfFlow Gaussian policy constructs it)."""
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=4096,
+    )
+    yaml_text = spec.to_yaml()
+    # No 'keyword' synthesised; Gaussian policy builds it from method/basis.
+    assert "keyword:" not in yaml_text
