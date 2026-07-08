@@ -87,6 +87,7 @@ from ._submit import (
 )
 from ._tasks import merge_tasks, mutate_tasks
 from ._workspaces import delete_operation_workspace, list_workspace_roots
+from ._activity import append_activity as _append_activity, list_recent_activity as _list_recent_activity
 
 
 class RunRepository:
@@ -459,3 +460,24 @@ class RunRepository:
     def retry_legacy_imports(self) -> list[MigrationError]:
         with self._connection() as connection:
             return retry_legacy_imports(connection, self.runs_dir)
+
+    def append_activity(
+        self,
+        *,
+        level: str,
+        message: str,
+        run_id: str | None = None,
+        payload: dict | None = None,
+    ) -> int:
+        with self._connection() as connection:
+            return _append_activity(
+                connection,
+                level=level,
+                message=message,
+                run_id=run_id,
+                payload=payload,
+            )
+
+    def list_recent_activity(self, *, limit: int = 50) -> list[dict]:
+        with self._connection() as connection:
+            return _list_recent_activity(connection, limit=limit)
