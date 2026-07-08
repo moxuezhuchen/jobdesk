@@ -21,8 +21,14 @@ htmlcov/
 tmp_pytest*/
 fake_project/
 fake_project_real/
+# tmp60f7j8ix/ holds pytest smoke artifacts from real-g16 / chk / TS tests;
+# it is never part of the repo and should not be accidentally staged.
+tmp60f7j8ix/
 # tmpXXXXXXX/ directories created by manual shell commands in cwd
 /tmp*/
+# Gau-*.inp spill from g16 WSL scratch (g16 sometimes writes to cwd when
+# GAUSS_SCRDIR is misconfigured or the scratch dir is missing)
+Gau-*.inp
 
 # Local one-off scripts/logs from manual validation
 m8_real_backend.py

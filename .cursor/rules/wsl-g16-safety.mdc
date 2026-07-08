@@ -1,0 +1,84 @@
+---
+description: WSL g16 / ConFlow smoke testing discipline — prevent damaging /opt/g16
+alwaysApply: true
+---
+
+# WSL Gaussian 16 (g16) / ConfFlow smoke testing — DO NOT BREAK IT
+
+This project has a **real Gaussian 16 install at `/opt/g16`** inside WSL. It is fragile, expensive to reinstall, and is shared with other work. The Phase 6 incident and the Phase 8C wrapper recovery took real time to undo. The user has explicitly said: **do not break the WSL g16 install again.** This rule is non-negotiable.
+
+## The hard rules
+
+### 1. Never overwrite `/opt/g16/g16` or `/opt/g16/l1.exe`
+
+- Do not `cp`, `mv`, `dd`, `wsl -e cp`, or any base64-stamp write to either path.
+- Mock g16 install is only allowed at `/opt/g16/l1.exe` AND only via `scripts/install_mock_l1_wsl.py` (which already has the JOBDESK_MOCK-tainted-wrapper guard). Do not bypass it with raw `wsl ... bash -c '... > /opt/g16/...'` writes.
+- The install mock script refuses to run if `/opt/g16/g16` is JOBDESK_MOCK-tainted. If that refusal fires, **stop and report to the user** — do not pass `--yes` to override.
+
+### 2. Pre-flight g16 state check is mandatory before any smoke that touches g16
+
+Before running `scripts/smoke_confflow_real_g16*.py` (or any script that calls `g16` / `l1.exe` in WSL), the agent MUST run a 4-line probe and confirm all 4 lines look right:
+
+```bash
+wsl -e bash -c '
+file /opt/g16/g16 /opt/g16/l1.exe | grep -E "ELF 64-bit" | wc -l   # expect 2
+head -c 4096 /opt/g16/g16 | grep -ac JOBDESK_MOCK                  # expect 0
+head -c 4096 /opt/g16/l1.exe | grep -ac JOBDESK_MOCK               # expect 0
+ls /opt/g16/bsd/g16.profile                                         # expect the file
+'
+```
+
+If any check fails, **abort the smoke and report to the user** with the exact line that failed and the literal output. Do not try to "fix" `/opt/g16/` — that's the user's call.
+
+### 3. WSL distro is `Ubuntu-24.04` (not 22.04)
+
+- All `wsl` invocations: either `wsl bash -c '...'` (default distro) or `wsl -d Ubuntu-24.04 bash -c '...'`.
+- Do not pass `-d Ubuntu-22.04` — that distro is not installed and `wsl` will fail with `Wsl/Service/Wsl_E_Distro_Not_Found`.
+- For long bash payloads with quotes/parens that PowerShell mangles, write the bash into a file in `tmp60f7j8ix/_*.sh` and invoke it as `wsl -e bash /mnt/c/dft/tool/jobdesk-dev/tmp60f7j8ix/_<name>.sh`. The file is in `tmp60f7j8ix/` which is already gitignored.
+
+### 4. Inside the inner WSL bash, the g16 env must be set explicitly
+
+The recovered Phase 8C `/opt/g16/g16` wrapper does NOT source `/opt/g16/bsd/g16.profile` for you (sourcing that file under `set -euo pipefail` triggers PERLLIB unbound-variable errors). The inner harness MUST export:
+
+```bash
+export g16root=/opt
+export GAUSS_EXEDIR=/opt/g16/bsd:/opt/g16
+export PATH=/opt/g16/bsd:/opt/g16:$PATH
+# Do NOT prepend /opt/gauopen — it does not exist on this install.
+export GAUSS_SCRDIR=/opt/g16/scratch
+```
+
+And must skip `source /opt/g16/bsd/g16.profile`. The existing smoke scripts in `scripts/smoke_confflow_real_g16*.py` follow this pattern — copy it, don't invent a new env setup.
+
+### 5. g16 writes `Gau-<pid>.inp` into the CWD on startup
+
+When g16 starts, it writes a copy of the .gjf as `Gau-<pid>.inp` into the working directory (or its parent). This is normal, **not an error**, and **must be gitignored**. Add `Gau-*.inp` to `.gitignore` if it isn't there. Do not delete the file as a "cleanup" — leave it; g16 manages its own scratch.
+
+### 6. g16 runs are slow — use timeouts, not kill
+
+`g16.opt=ts` on a 3-atom system at b3lyp/6-31g(d) takes 30–300 seconds. Set the inner-bash subprocess timeout to **at least 900 s** (the existing smoke scripts use `timeout=900`). Never `wsl --shutdown` or `kill -9` a g16 child process — that can leave a stale `Gau-*.inp` and a half-written `.log`. If you must cancel, use `wsl -e bash -c "kill -TERM $pid"` first, wait 10 s, and only then escalate to SIGKILL.
+
+### 7. When delegating g16 work to a subagent
+
+The subagent has none of the project's WSL/g16 history. The prompt you give it **MUST** include:
+- The 4-line pre-flight probe verbatim, with the "abort and report" instruction
+- The distro name `Ubuntu-24.04`
+- The export block above (verbatim)
+- The "no /opt/gauopen" note
+- The 900 s timeout note
+- An explicit "do not pass `--yes` to install_mock_l1_wsl.py" line
+
+If the subagent reports a JOBDESK_MOCK fingerprint on `/opt/g16/g16`, that's a **P0** — the wrapper is corrupted and the user must restore it manually before any more g16 work. Do not have the subagent "fix" it.
+
+## Quick reference: what NOT to do
+
+```bash
+# BAD — these are the things that have already broken the install once
+wsl -e bash -c 'echo ... > /opt/g16/g16'
+wsl -e bash -c 'cp ~/some_mock /opt/g16/l1.exe'
+wsl -d Ubuntu-22.04 bash -c '...'                 # wrong distro
+python3 -c 'pathlib.Path("/opt/g16/g16").write_text(...)'
+source /opt/g16/bsd/g16.profile                    # under set -euo pipefail
+wsl --shutdown                                     # while a g16 is running
+wsl -e bash -c "kill -9 $(pgrep -f g16)"          # never SIGKILL a g16 child
+```
