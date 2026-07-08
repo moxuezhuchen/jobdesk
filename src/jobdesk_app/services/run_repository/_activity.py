@@ -10,7 +10,7 @@ from datetime import datetime
 def append_activity(
     connection: sqlite3.Connection,
     *,
-    level: str,
+    level: str = "info",
     message: str,
     run_id: str | None = None,
     payload: dict | None = None,

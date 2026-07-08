@@ -204,6 +204,7 @@ class RunRepository:
                 current_version = 3
             if current_version == 3:
                 _migrate_v3_to_v4(connection)
+                current_version = 4
             if current_version == 4:
                 _migrate_v4_to_v5(connection)
             _import_legacy_runs(connection, self.runs_dir)
@@ -464,7 +465,7 @@ class RunRepository:
     def append_activity(
         self,
         *,
-        level: str,
+        level: str = "info",
         message: str,
         run_id: str | None = None,
         payload: dict | None = None,

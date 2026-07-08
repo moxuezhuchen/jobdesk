@@ -13,6 +13,13 @@
 # Usage: drop-in replacement for /opt/g16/l1.exe. Called by g16 as
 #   l1.exe <basename>
 # ConFlow invokes: g16 methane.gjf   →  l1.exe methane
+#
+# ── SENTINEL ───────────────────────────────────────────────────────────
+# The literal string "JOBDESK_MOCK" is grep-detectable on purpose: future
+# installers (and the real-g16 smoke in scripts/smoke_confflow_real_g16_wsl.py)
+# can detect a leaked mock by reading the first KB of a candidate binary and
+# looking for this marker. Do NOT remove. See docs/PHASE9H3_ORCA_MOCK_CLEANUP.md.
+# ───────────────────────────────────────────────────────────────────────
 set -eu
 
 INPUT="${1:-}"
