@@ -86,7 +86,7 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 JobDesk 默认使用 SQLite 将运行和任务状态存储在 `%APPDATA%/JobDesk/runs/jobdesk.db`。WAL 模式与事务化更新允许 GUI 与 CLI 共享状态而无需重写 manifest 文件。
 
-当前为 Schema v4。Schema v2 引入了可重放的 submit / delete 操作日志；v3 增加了独立的受信工作区注册表与 delete 操作到工作区的绑定；v4 增加了可续期的 submit 所有权租约。租约时间戳以 UTC 存储与比较，恢复操作仅接管无主的遗留提交或租约已过期的提交。v2 到 v3 的迁移仅从活跃 run 行种子化工作区信任，并将旧 delete 操作保留为未绑定；日志负载永远不会被视为信任锚点。在用本版本首次打开旧数据库之前，请备份完整的 SQLite 文件集。已完成的日志条目保留 7 天；未完成的条目永远不会被自动清理。
+当前为 Schema v5。Schema v2 引入了可重放的 submit / delete 操作日志；v3 增加了独立的受信工作区注册表与 delete 操作到工作区的绑定；v4 增加了可续期的 submit 所有权租约；v5 新增 `submit_activity_log` 表，用于持久化提交页活动日志，使应用重启后活动记录得以保留。
 
 新增的运行以绝对路径作为工作区锚点持久化。删除准备必须匹配该活跃锚点；没有锚点的遗留行需要手动清理。
 
@@ -137,7 +137,7 @@ pip install "git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10
    - **生成工作流**：完整的 ConfFlow 工作流（方法/基组校验、步骤列表、`work_dir`、高级选项、实时 YAML 预览）。
 3. **操作行** — 服务器状态标签、最大并行数微调框、**提交** / **仅创建任务** / **刷新预览**。
 4. **实时预览** — `.gjf` / `.inp` 内容或 `workflow.yaml`。
-5. **活动记录** — 最近 50 条状态消息。
+5. **活动记录** — 最近 50 条状态消息，已持久化到 SQLite（Schema v5），应用重启后可恢复。
 
 在文件页的本地或远端表任意行上右键，即可将其作为输入推送到提交页。提交页是"用户希望提交"这一动作的唯一入口；页面级工作线程回调（位于 `MainWindow`）负责上传与 `RunCoordinator.create_and_submit` 调用。
 

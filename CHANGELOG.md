@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Fix InputSourcePanel directory-drop not honoring the recursive-scan checkbox
 
+### Added (Phase 15C — activity log persistence)
+- `services.run_repository.append_activity()` / `list_recent_activity()`: new repository methods backed by the new `submit_activity_log` SQLite table (schema v5).
+- `SubmitPage` activity log now persists to the repository on every `_log()` call and reloads the last 50 entries on startup, so activity survives application restarts.
+
 ## [0.5.0] — 2026-07-08
 
 The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.

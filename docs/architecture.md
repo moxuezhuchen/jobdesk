@@ -106,11 +106,12 @@ Schemas:
 - **v1** — original per-task-only store
 - **v2** — added the submit / delete operation journal
 - **v3** — added trusted-workspace registry and delete-op-to-workspace bindings
-- **v4** — added UTC submit-ownership leases (current)
+- **v4** — added UTC submit-ownership leases
+- **v5** — added `submit_activity_log` table for persisting SubmitPage activity (Phase 15C)
 
 `services/run_repository/` is split into `_schema`, `_paths`,
 `_workspaces`, `_leases`, `_submit`, `_delete`, `_tasks`, `_runs`,
-`_operations`, `_legacy`, `_operations_types`. The split is purely
+`_operations`, `_legacy`, `_operations_types`, `_activity`. The split is purely
 organisational; all reads / writes still flow through
 `RunRepository` (the package's `__init__.py`).
 

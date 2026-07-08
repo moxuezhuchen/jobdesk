@@ -86,16 +86,17 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share state without rewriting manifest files.
 
-Schema v4 is current. Schema v2 introduced the durable submit/delete operation
+Schema v5 is current. Schema v2 introduced the durable submit/delete operation
 journal; schema v3 added an independent trusted-workspace registry and
-delete-operation-to-workspace bindings; schema v4 adds renewable submit
-ownership leases. Lease timestamps are stored and compared in UTC,
-and recovery takes over only ownerless legacy submissions or submissions whose
-lease has expired. The v2-to-v3 migration seeds workspace trust only from live
-run rows and leaves old delete operations unbound; journal payloads are never
-treated as trust anchors. Back up the complete SQLite file set before first
-opening an older database with this version. Completed journal entries are
-retained for seven days; incomplete entries are never automatically pruned.
+delete-operation-to-workspace bindings; schema v4 added renewable submit
+ownership leases; schema v5 adds a `submit_activity_log` table that persists
+SubmitPage activity across restarts.
+
+The v2-to-v3 migration seeds workspace trust only from live run rows and
+leaves old delete operations unbound; journal payloads are never treated as
+trust anchors. Back up the complete SQLite file set before first opening an
+older database with this version. Completed journal entries are retained for
+seven days; incomplete entries are never automatically pruned.
 
 New runs persist their workspace as an absolute anchor. Delete preparation
 must match that live anchor; legacy rows without one require manual cleanup.
@@ -163,6 +164,8 @@ Layout (top to bottom):
 3. **Action row** — server pill, max-parallel spinbox, **Submit** /
    **Create tasks only** / **Refresh preview**.
 4. **Live preview** — `.gjf` / `.inp` body or `workflow.yaml`.
+5. **Activity log** — last 50 status messages, persisted to SQLite so
+   they survive application restarts (schema v5).
 5. **Activity log** — last 50 status messages.
 
 Right-click on any row in the Files page's Local or Remote table
