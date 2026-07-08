@@ -97,14 +97,14 @@ class TestRunsPage:
 
     def test_buttons_exist(self, runs_page):
         assert runs_page.retry_btn is not None
-        assert runs_page.cancel_btn is not None
+        assert runs_page.stop_btn is not None
         assert runs_page.delete_btn is not None
 
     def test_runs_results_buttons_have_feedback_roles(self, runs_page):
         from jobdesk_app.gui.button_feedback import ButtonRole
 
         assert runs_page.retry_btn.property("buttonRole") == ButtonRole.PRIMARY_ACTION.value
-        assert runs_page.cancel_btn.property("buttonRole") == ButtonRole.DANGER_ACTION.value
+        assert runs_page.stop_btn.property("buttonRole") == ButtonRole.DANGER_ACTION.value
         assert runs_page.retry_dl_btn.property("buttonRole") == ButtonRole.TRANSFER_ACTION.value
         assert runs_page.delete_btn.property("buttonRole") == ButtonRole.DANGER_ACTION.value
 
@@ -1303,7 +1303,7 @@ class TestRunsPage:
              patch.object(runs_page, "_coordinator_for") as coordinator_factory, \
              patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker:
             coordinator_factory.return_value.cancel.return_value = outcome
-            runs_page._cancel_run()
+            runs_page._stop_run()
             start_worker.call_args.kwargs["target"](MagicMock())
 
         coordinator_factory.return_value.cancel.assert_called_once_with("run-1")
@@ -1328,7 +1328,7 @@ class TestRunsPage:
              ):
             runs_page._submit_record("run-1")
             tracked = list(runs_page._bg_workers)
-            runs_page._cancel_run()
+            runs_page._stop_run()
 
         assert len(captured) == 1
         assert runs_page._bg_workers == tracked
@@ -1381,10 +1381,10 @@ class TestRunsPage:
                  "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
                  side_effect=RuntimeError("start failed"),
              ):
-            runs_page._cancel_run()
+            runs_page._stop_run()
 
         assert runs_page._remote_mutation_running is False
-        assert runs_page.cancel_btn.property("feedbackState") == "error"
+        assert runs_page.stop_btn.property("feedbackState") == "error"
         assert any("start failed" in status for status in statuses)
 
     @pytest.mark.parametrize("action", ["retry", "rerun"])

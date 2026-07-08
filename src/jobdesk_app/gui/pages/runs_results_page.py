@@ -137,9 +137,9 @@ class RunsResultsPage(QWidget):
         self.retry_btn = QPushButton(tr("Retry Failed", self._language))
         self.retry_btn.clicked.connect(self._retry_failed)
         btn_row.addWidget(self.retry_btn)
-        self.cancel_btn = QPushButton(tr("Cancel", self._language))
-        self.cancel_btn.clicked.connect(self._cancel_run)
-        btn_row.addWidget(self.cancel_btn)
+        self.stop_btn = QPushButton(tr("Stop Task", self._language))
+        self.stop_btn.clicked.connect(self._stop_run)
+        btn_row.addWidget(self.stop_btn)
         self.retry_dl_btn = QPushButton(tr("Retry Download", self._language))
         self.retry_dl_btn.clicked.connect(self._retry_download)
         btn_row.addWidget(self.retry_dl_btn)
@@ -155,7 +155,7 @@ class RunsResultsPage(QWidget):
         self.abandon_submit_btn.hide()
         btn_row.addWidget(self.abandon_submit_btn)
         self._retry_feedback = ButtonFeedback(self.retry_btn, ButtonRole.PRIMARY_ACTION)
-        self._cancel_feedback = ButtonFeedback(self.cancel_btn, ButtonRole.DANGER_ACTION)
+        self._stop_feedback = ButtonFeedback(self.stop_btn, ButtonRole.DANGER_ACTION)
         self._retry_download_feedback = ButtonFeedback(self.retry_dl_btn, ButtonRole.TRANSFER_ACTION)
         self._delete_feedback = ButtonFeedback(self.delete_btn, ButtonRole.DANGER_ACTION)
         btn_row.addStretch()
@@ -417,7 +417,7 @@ class RunsResultsPage(QWidget):
     def apply_language(self, language: str):
         self._language = language
         self._retry_feedback.set_idle_text(tr("Retry Failed", language))
-        self._cancel_feedback.set_idle_text(tr("Cancel", language))
+        self._stop_feedback.set_idle_text(tr("Stop Task", language))
         self._retry_download_feedback.set_idle_text(tr("Retry Download", language))
         self._delete_feedback.set_idle_text(tr("Delete", language))
         self.confirm_submitted_btn.setText(tr("Confirm Submitted", language))
@@ -1432,17 +1432,17 @@ class RunsResultsPage(QWidget):
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self._set_parsed_results_label(tr("Cross-run Comparison", self._language) + f" ({len(comparison.rows)})")
 
-    def _cancel_run(self):
+    def _stop_run(self):
         record = self._selected_record()
         if record is None:
             return
         if not self._begin_remote_mutation():
             return
-        if QMessageBox.question(self, tr("Cancel", self._language), tr("Cancel run {run_id}?", self._language, run_id=record.run_id),
+        if QMessageBox.question(self, tr("Stop", self._language), tr("Stop run {run_id}?", self._language, run_id=record.run_id),
                                 QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             self._finish_remote_mutation()
             return
-        self._cancel_feedback.pending(tr("Cancelling...", self._language))
+        self._stop_feedback.pending(tr("Stopping...", self._language))
 
         def _run(_ctx: WorkerContext):
             outcome = self._coordinator_for(self._result_workspace(record)).cancel(record.run_id)
@@ -1453,27 +1453,27 @@ class RunsResultsPage(QWidget):
                 self,
                 target=_run,
                 registry_attr="_bg_workers",
-                on_result=lambda result: self._on_cancel_done(record.run_id, result),
-                on_error=self._on_cancel_error,
+                on_result=lambda result: self._on_stop_done(record.run_id, result),
+                on_error=self._on_stop_error,
                 on_finished=self._finish_remote_mutation,
             )
         except Exception as exc:
             self._finish_remote_mutation()
-            self._on_cancel_error(exc)
+            self._on_stop_error(exc)
 
-    def _on_cancel_error(self, exc: Exception | str):
-        self._cancel_feedback.error(tr("Cancel failed", self._language))
-        self._status_cb(tr("Cancel failed: {e}", self._language, e=exc))
+    def _on_stop_error(self, exc: Exception | str):
+        self._stop_feedback.error(tr("Stop failed", self._language))
+        self._status_cb(tr("Stop failed: {e}", self._language, e=exc))
 
-    def _on_cancel_done(self, run_id: str, result: tuple[int, list[str]]):
+    def _on_stop_done(self, run_id: str, result: tuple[int, list[str]]):
         changed, errors = result
         self.refresh_run_list()
         if errors:
-            self._cancel_feedback.error(tr("Cancel failed", self._language))
-            self._status_cb(tr("Cancel failed: {e}", self._language, e="; ".join(errors)))
+            self._stop_feedback.error(tr("Stop failed", self._language))
+            self._status_cb(tr("Stop failed: {e}", self._language, e="; ".join(errors)))
         else:
-            self._cancel_feedback.success(tr("Cancelled", self._language))
-            self._status_cb(tr("Cancelled: {run_id}", self._language, run_id=run_id))
+            self._stop_feedback.success(tr("Stopped", self._language))
+            self._status_cb(tr("Stopped: {run_id}", self._language, run_id=run_id))
 
     def _confirm_submitted(self) -> None:
         self._resolve_uncertain_selection(confirm=True)
