@@ -223,9 +223,9 @@ def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
             )
         }
 
-    assert version == "4"
-    assert repository.schema_version() == 4
-    assert repository.current_schema_version() == 4
+    assert version == "5"
+    assert repository.schema_version() == 5
+    assert repository.current_schema_version() == 5
     assert journal_mode.lower() == "wal"
     assert {"workspace_roots", "delete_operation_workspaces"}.issubset(tables)
 
