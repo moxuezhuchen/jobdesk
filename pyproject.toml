@@ -57,7 +57,7 @@ pythonpath = ["src"]
 tmp_path_retention_policy = "none"
 addopts = "-m 'not integration'"
 markers = [
-    "integration: opt-in tests that require real SSH/SFTP/ConfFlow endpoints",
+    "integration: opt-in tests that require real SSH/SFTP/ConfFlow endpoints or local WSL g16",
 ]
 
 [tool.ruff]
