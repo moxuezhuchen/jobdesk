@@ -119,6 +119,50 @@ def test_set_recursive_toggles_checkbox(panel_factory):
     assert panel.is_recursive() is False
 
 
+def test_drop_directory_respects_recursive_checkbox(qtbot, tmp_path):
+    """Phase 15E: dropping a directory must honour the per-tab recursive checkbox.
+
+    Regression check — pre-refactor the wizard honoured the checkbox on drop too;
+    the extracted :class:`InputSourcePanel` had hard-coded ``recursive=False``.
+    """
+    from PySide6.QtCore import QMimeData, QUrl
+    from unittest.mock import MagicMock
+
+    from jobdesk_app.gui.widgets.input_source_panel import _TabBody
+
+    root = tmp_path / "batch"
+    root.mkdir()
+    top = root / "top.xyz"
+    nested_child = root / "nested" / "child.xyz"
+    deeper = root / "nested" / "deeper" / "grandchild.xyz"
+    _write_xyz(top)
+    _write_xyz(nested_child)
+    _write_xyz(deeper)
+
+    body = _TabBody(side="local", language="en")
+    qtbot.addWidget(body)
+
+    def _drop():
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(root))])
+        event = MagicMock()
+        event.mimeData.return_value = mime
+        body._dropEvent(event)
+
+    # Default — checkbox unchecked: only the top-level file is picked up.
+    assert body.recursive_cb.isChecked() is False
+    _drop()
+    names = {s.path.resolve() for s in body._sources}
+    assert names == {top.resolve()}
+    body.clear()
+
+    # Toggled on: all three nested .xyz files are picked up.
+    body.recursive_cb.setChecked(True)
+    _drop()
+    names = {s.path.resolve() for s in body._sources}
+    assert names == {top.resolve(), nested_child.resolve(), deeper.resolve()}
+
+
 # --- Remote tab visibility ------------------------------------------------
 
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Fix InputSourcePanel directory-drop not honoring the recursive-scan checkbox
+
 ## [0.5.0] — 2026-07-08
 
 The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.

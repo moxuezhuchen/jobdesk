@@ -395,6 +395,11 @@ class _TabBody(QWidget):
         event.ignore()
 
     def _dropEvent(self, event):  # noqa: N802
+        """Handle drops onto the picker list.
+
+        Directories are walked via :meth:`add_directory`; the recursive
+        setting is taken from the per-tab checkbox so drop honours it.
+        """
         if not event.mimeData().hasUrls():
             event.ignore()
             return
@@ -404,7 +409,7 @@ class _TabBody(QWidget):
                 continue
             p = Path(url.toLocalFile())
             if p.is_dir():
-                added += self.add_directory(p, recursive=False)
+                added += self.add_directory(p, recursive=self.recursive_cb.isChecked())
             elif p.is_file() and p.suffix.lower() in _VALID_SUFFIXES:
                 source = InputSource(path=p, side=self._side, kind=_kind_for(p))
                 if any(existing.path == source.path for existing in self._sources):
