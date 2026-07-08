@@ -69,6 +69,7 @@ from ._schema import (
     _migrate_v1_to_v2,
     _migrate_v2_to_v3,
     _migrate_v3_to_v4,
+    _migrate_v4_to_v5,
 )
 from ._submit import (
     acquire_submit_recovery,
@@ -140,6 +141,7 @@ class RunRepository:
             required = {
                 "schema_metadata", "runs", "tasks", "migration_errors",
                 "operations", "workspace_roots", "delete_operation_workspaces",
+                "submit_activity_log",
             }
             if not required.issubset(tables):
                 return False
@@ -201,6 +203,8 @@ class RunRepository:
                 current_version = 3
             if current_version == 3:
                 _migrate_v3_to_v4(connection)
+            if current_version == 4:
+                _migrate_v4_to_v5(connection)
             _import_legacy_runs(connection, self.runs_dir)
 
     def schema_version(self) -> int:
