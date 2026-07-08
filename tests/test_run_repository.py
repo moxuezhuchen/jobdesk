@@ -382,7 +382,7 @@ def test_reopening_ready_repository_skips_write_initialization(
 
     reopened = RunRepository(runs_dir)
 
-    assert reopened.schema_version() == 4
+    assert reopened.schema_version() == 5
     initialize.assert_not_called()
 
 

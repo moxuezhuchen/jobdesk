@@ -28,19 +28,20 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 Do not abandon an unverified task: submitting it again can launch a duplicate remote calculation.
 
-Schema v4 is current. Schema v2 introduced the submit/delete operation journal,
+Schema v5 is current. Schema v2 introduced the submit/delete operation journal,
 schema v3 added the trusted-workspace registry and independent delete-operation
-workspace bindings, and schema v4 added renewable submit ownership leases.
-Lease timestamps use UTC; recovery skips a live lease and may acquire only an
-ownerless legacy operation or an expired lease. Before upgrading from an older
-JobDesk version, close all JobDesk processes and copy `jobdesk.db`,
+workspace bindings, schema v4 added renewable submit ownership leases, and
+schema v5 adds a `submit_activity_log` table for persisting SubmitPage
+activity. Lease timestamps use UTC; recovery skips a live lease and may acquire
+only an ownerless legacy operation or an expired lease. Before upgrading from
+an older JobDesk version, close all JobDesk processes and copy `jobdesk.db`,
 `jobdesk.db-wal`, and `jobdesk.db-shm` as one backup set. Completed operations
 are retained for seven days during recovery cleanup; incomplete operations are
 retained until successfully replayed.
 
 ### Rolling back a failed schema upgrade
 
-JobDesk upgrades the database in place from schema v3 to v4 on first open.
+JobDesk upgrades the database in place from schema v4 to v5 on first open.
 If a migration fails (e.g. disk full, antivirus lock, schema corruption),
 JobDesk aborts startup and leaves the database untouched. To roll back:
 
