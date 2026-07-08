@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from ..core.run import RunMode, RunSource, RunSpec, chunk_sources
+from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind, chunk_sources
 from ..core.submit_payload import InputSource, SubmitPayload
 from ..core.workflow_spec import (
     ConfFlowUnavailableError,
@@ -166,6 +166,9 @@ class SubmitUseCase:
         sources = [RunSource(path=p) for p in remote_targets]
         chunks = chunk_sources(sources, batch_size=None)
         specs: list[RunSpec] = []
+        workflow_kind = (
+            WorkflowKind.orca if payload.program == "orca" else WorkflowKind.gaussian
+        )
         for chunk in chunks:
             specs.append(
                 RunSpec(
@@ -175,6 +178,7 @@ class SubmitUseCase:
                     max_parallel=payload.max_parallel,
                     mode=RunMode.selected_files,
                     sources=chunk,
+                    workflow_kind=workflow_kind,
                 )
             )
         return specs

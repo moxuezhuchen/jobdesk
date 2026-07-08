@@ -193,30 +193,37 @@ class SubmitPage(QWidget):
         self.submit_btn.setText(tr("Submit", language))
 
     def set_server_status(self, connected: bool, server_label: str = "") -> None:
-        """Update the server pill text and active state."""
+        """Update the server pill text and active state.
+
+        Adds the Remote tab on connect, removes it on disconnect. The
+        tab itself mirrors the Local tab's structure (same buttons +
+        drag/drop), so the user can pick remote paths and have them
+        flow through the same :class:`InputSource` list.
+        """
         self._server_label = server_label
         self._remote_available = connected
         self.server_pill.setText(self._server_pill_text())
-        # Refresh the input panel tabs so the Remote tab visibility
-        # toggles correctly when the user connects / disconnects.
-        was_remote_available = self.input_panel.remote_tab is not None
-        if was_remote_available != connected:
-            self.input_panel._remote_available = connected
-            # Easiest path: rebuild the tab area by toggling visibility.
-            idx = self.input_panel.tabs.indexOf(self.input_panel.remote_tab) if self.input_panel.remote_tab else -1
-            if connected and idx < 0 and self.input_panel.remote_tab is None:
-                self.input_panel.remote_tab = self.input_panel._build_tab("remote")
-                self.input_panel.remote_tab.btn_add.clicked.connect(self.input_panel._on_add_files_remote)
-                self.input_panel.remote_tab.btn_remove.clicked.connect(self.input_panel._on_remove)
-                self.input_panel.remote_tab.btn_clear.clicked.connect(self.input_panel._on_clear)
-                self.input_panel.remote_tab.recursive_cb.toggled.connect(self.input_panel._on_recursive_toggled)
-                self.input_panel.tabs.addTab(self.input_panel.remote_tab, tr("Remote", language))
-            elif not connected and self.input_panel.remote_tab is not None:
-                idx = self.input_panel.tabs.indexOf(self.input_panel.remote_tab)
-                if idx >= 0:
-                    self.input_panel.tabs.removeTab(idx)
-                self.input_panel.remote_tab.deleteLater()
-                self.input_panel.remote_tab = None
+        if connected and self.input_panel.remote_tab is None:
+            # Build a fresh remote tab; mirror the local tab wiring.
+            self.input_panel.remote_tab = self.input_panel._build_tab("remote")
+            self.input_panel.remote_tab.btn_add.clicked.connect(self.input_panel._on_add_files_remote)
+            self.input_panel.remote_tab.btn_remove.clicked.connect(self.input_panel._on_remove)
+            self.input_panel.remote_tab.btn_clear.clicked.connect(self.input_panel._on_clear)
+            self.input_panel.remote_tab.recursive_cb.toggled.connect(self.input_panel._on_recursive_toggled)
+            self.input_panel.tabs.addTab(
+                self.input_panel.remote_tab, tr("Remote", self._language)
+            )
+            # Inherit the recursive state from the local tab so the
+            # user doesn't have to re-toggle when they switch.
+            self.input_panel.remote_tab.recursive_cb.setChecked(
+                self.input_panel.local_tab.recursive_cb.isChecked()
+            )
+        elif not connected and self.input_panel.remote_tab is not None:
+            idx = self.input_panel.tabs.indexOf(self.input_panel.remote_tab)
+            if idx >= 0:
+                self.input_panel.tabs.removeTab(idx)
+            self.input_panel.remote_tab.deleteLater()
+            self.input_panel.remote_tab = None
 
     def on_submission_result(self, payload: object) -> None:
         """Called by the main window after the worker completes."""
