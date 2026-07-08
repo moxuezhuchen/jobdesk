@@ -1,45 +1,88 @@
-"""Tests for the ConfFlow wizard's i18n (Phase 12).
+"""Tests for the new Submit-page widgets' i18n (Phase 14D).
 
-Verifies that the wizard's user-visible strings flip between English and
-Chinese depending on the ``language`` constructor argument, and that the
-``tr()`` helper returns Chinese for every key that the wizard uses.
+Phase 14C.2 retired the QWizard + InputBuilderDialog. The widget bodies
+were extracted into ``CalculationWidget``, ``WorkflowWidget``,
+``InputBuilderWidget``, and ``InputSourcePanel``. This test file
+exercises the user-visible labels on those widgets and asserts they
+flip to Chinese in ``language="zh"`` mode.
 
-Run-only-no-side-effects: ``required_permissions = ["all"]`` because the
-underlying pytest plugins may need to spawn a Qt event loop.
+It also walks every ``tr()`` call in the new widget sources and asserts
+each key has a Chinese counterpart in :data:`ZH` — the same invariant
+the old wizard i18n test enforced.
 """
 from __future__ import annotations
 
-import re
+import ast
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from jobdesk_app.gui.dialogs.confflow_wizard_dialog import (
-    ConfFlowWizard,
-    _CalcPage,
-    _WorkflowPage,
-    _XyzPage,
-)
 from jobdesk_app.gui.i18n import ZH, tr
+from jobdesk_app.gui.widgets.calculation_widget import CalculationWidget
+from jobdesk_app.gui.widgets.input_builder_widget import InputBuilderWidget
+from jobdesk_app.gui.widgets.input_source_panel import InputSourcePanel
+from jobdesk_app.gui.widgets.workflow_widget import WorkflowWidget
 
 
 # --- fixtures --------------------------------------------------------------
 
 
 @pytest.fixture
-def en_wizard(qtbot):
-    wiz = ConfFlowWizard(server_id="srv", remote_dir="/tmp/r", language="en")
-    qtbot.addWidget(wiz)
-    return wiz
+def en_calc(qtbot):
+    widget = CalculationWidget(language="en")
+    qtbot.addWidget(widget)
+    return widget
 
 
 @pytest.fixture
-def zh_wizard(qtbot):
-    wiz = ConfFlowWizard(server_id="srv", remote_dir="/tmp/r", language="zh")
-    qtbot.addWidget(wiz)
-    return wiz
+def zh_calc(qtbot):
+    widget = CalculationWidget(language="zh")
+    qtbot.addWidget(widget)
+    return widget
+
+
+@pytest.fixture
+def en_workflow(qtbot):
+    widget = WorkflowWidget(language="en")
+    qtbot.addWidget(widget)
+    return widget
+
+
+@pytest.fixture
+def zh_workflow(qtbot):
+    widget = WorkflowWidget(language="zh")
+    qtbot.addWidget(widget)
+    return widget
+
+
+@pytest.fixture
+def en_panel(qtbot):
+    panel = InputSourcePanel(language="en", remote_available=False)
+    qtbot.addWidget(panel)
+    return panel
+
+
+@pytest.fixture
+def zh_panel(qtbot):
+    panel = InputSourcePanel(language="zh", remote_available=True)
+    qtbot.addWidget(panel)
+    return panel
+
+
+@pytest.fixture
+def en_input_builder(qtbot):
+    widget = InputBuilderWidget(language="en")
+    qtbot.addWidget(widget)
+    return widget
+
+
+@pytest.fixture
+def zh_input_builder(qtbot):
+    widget = InputBuilderWidget(language="zh")
+    qtbot.addWidget(widget)
+    return widget
 
 
 # --- tr() helper -----------------------------------------------------------
@@ -62,68 +105,114 @@ def test_tr_helper_with_kwargs_in_en():
 
 
 def test_tr_helper_falls_back_to_en_text_for_unknown_key():
-    """Unknown keys return the original text in zh mode (no crash)."""
     unknown = "definitely_not_a_real_key"
     assert tr(unknown, "zh") == unknown
 
 
-# --- wizard title and subtitles --------------------------------------------
+def test_tr_falls_back_to_input_when_zh_key_missing(monkeypatch):
+    sentinel = "no_such_key_12345"
+    assert tr(sentinel, "zh") == sentinel
+    assert tr(sentinel, "en") == sentinel
 
 
-def test_en_window_title(en_wizard):
-    assert en_wizard.windowTitle() == "ConfFlow Workflow Wizard"
+# --- calculation widget labels --------------------------------------------
 
 
-def test_zh_window_title(zh_wizard):
-    assert "\u5de5\u4f5c\u6d41" in zh_wizard.windowTitle()
+def test_zh_calc_form_labels(zh_calc):
+    """The form labels on CalculationWidget are translated."""
+    from PySide6.QtWidgets import QLabel
+
+    expected_labels = {
+        "\u7a0b\u5e8f:",   # Program:
+        "\u9884\u8bbe:",   # Preset:
+        "\u65b9\u6cd5:",   # Method:
+        "\u57fa\u7ec4:",   # Basis:
+        "\u7535\u8377:",   # Charge:
+        "\u81ea\u65cb\u591a\u91cd\u5ea6:",  # Multiplicity:
+        "CPU \u6838\u6570:",  # CPU cores:
+        "\u5185\u5b58:",   # Memory:
+    }
+    labels = {lbl.text() for lbl in zh_calc.findChildren(QLabel)}
+    missing = expected_labels - labels
+    assert not missing, f"missing Chinese labels: {missing}"
 
 
-def test_en_xyz_page_title(en_wizard):
-    assert en_wizard.xyz_page.title() == "Input XYZ files"
+def test_zh_calc_validation_messages(zh_calc):
+    """Empty method / basis / invalid spin produce Chinese error strings."""
+    zh_calc.method_edit.clear()
+    zh_calc.basis_edit.clear()
+    errors = zh_calc.validate()
+    assert errors["method"] == "\u65b9\u6cd5\u4e0d\u80fd\u4e3a\u7a7a\u3002"
+    assert errors["basis"] == "\u57fa\u7ec4\u4e0d\u80fd\u4e3a\u7a7a\u3002"
+
+    from unittest.mock import patch
+
+    with patch.object(zh_calc.charge_spin, "value", return_value=-99):
+        errors = zh_calc.validate()
+    assert "charge" in errors
+    assert errors["charge"] == "\u7535\u8377\u5fc5\u987b\u5728 -10 \u5230 10 \u4e4b\u95f4\u3002"
 
 
-def test_zh_xyz_page_title(zh_wizard):
-    assert zh_wizard.xyz_page.title() == "\u8f93\u5165 XYZ \u6587\u4ef6"
+def test_en_calc_validation_messages(en_calc):
+    en_calc.method_edit.clear()
+    en_calc.basis_edit.clear()
+    errors = en_calc.validate()
+    assert errors["method"] == "Method is required."
+    assert errors["basis"] == "Basis set is required."
 
 
-def test_en_calc_page_title(en_wizard):
-    assert en_wizard.calc_page.title() == "Calculation settings"
+def test_zh_orca_hint_switches(zh_calc):
+    """Selecting ORCA updates orca_hint to Chinese text."""
+    zh_calc.program_combo.setCurrentText("orca")
+    assert any('\u4e00' <= ch <= '\u9fff' for ch in zh_calc.orca_hint.text()), (
+        f"expected Chinese ORCA hint: {zh_calc.orca_hint.text()!r}"
+    )
 
 
-def test_zh_calc_page_title(zh_wizard):
-    assert zh_wizard.calc_page.title() == "\u8ba1\u7b97\u8bbe\u7f6e"
+def test_en_orca_hint_stays_english(en_calc):
+    en_calc.program_combo.setCurrentText("orca")
+    assert not any('\u4e00' <= ch <= '\u9fff' for ch in en_calc.orca_hint.text()), (
+        f"EN ORCA hint should not contain Chinese characters: {en_calc.orca_hint.text()!r}"
+    )
+    assert "ORCA" in en_calc.orca_hint.text()
 
 
-def test_en_workflow_page_title(en_wizard):
-    assert en_wizard.workflow_page.title() == "Workflow settings & preview"
+# --- workflow widget labels -----------------------------------------------
 
 
-def test_zh_workflow_page_title(zh_wizard):
-    assert zh_wizard.workflow_page.title() == "\u5de5\u4f5c\u6d41\u8bbe\u7f6e\u4e0e\u9884\u89c8"
+def test_zh_workflow_widget_labels(zh_workflow):
+    """Steps GroupBox / Work dir name label / YAML preview GroupBox switch to Chinese."""
+    from PySide6.QtWidgets import QGroupBox, QLabel
+
+    groupbox_titles = {gb.title() for gb in zh_workflow.findChildren(QGroupBox)}
+    assert "\u6b65\u9aa4" in groupbox_titles  # Steps
+    assert "YAML \u9884\u89c8" in groupbox_titles  # YAML preview
+
+    labels = {lbl.text() for lbl in zh_workflow.findChildren(QLabel)}
+    assert "\u5de5\u4f5c\u76ee\u5f55\u540d:" in labels  # Work dir name:
 
 
-def test_zh_subtitles_contain_chinese(zh_wizard):
-    """Every page's subtitle switches to Chinese."""
-    for page in (zh_wizard.xyz_page, zh_wizard.calc_page, zh_wizard.workflow_page):
-        subtitle = page.subTitle()
-        assert subtitle, "subtitle should not be empty"
-        assert any('\u4e00' <= ch <= '\u9fff' for ch in subtitle), (
-            f"expected Chinese characters in subtitle: {subtitle!r}"
-        )
+def test_zh_workflow_validation_messages(zh_workflow):
+    zh_workflow.work_dir_edit.clear()
+    errors = zh_workflow.validate()
+    assert errors["work_dir"] == "\u5de5\u4f5c\u76ee\u5f55\u540d\u4e0d\u80fd\u4e3a\u7a7a\u3002"
+
+    zh_workflow.work_dir_edit.setText("has/slash")
+    errors = zh_workflow.validate()
+    assert "/" in errors["work_dir"]
+    assert any('\u4e00' <= ch <= '\u9fff' for ch in errors["work_dir"])
 
 
-def test_en_subtitles_are_english(en_wizard):
-    for page in (en_wizard.xyz_page, en_wizard.calc_page, en_wizard.workflow_page):
-        subtitle = page.subTitle()
-        assert subtitle
-        assert subtitle.isascii(), f"expected ASCII subtitle: {subtitle!r}"
+def test_zh_duplicate_advanced_key_message(zh_workflow):
+    zh_workflow.adv_edit.setPlainText("solvent=water\nsolvent=toluene")
+    errors = zh_workflow.validate()
+    assert "\u91cd\u590d" in errors["adv"]
 
 
-# --- form labels and buttons -----------------------------------------------
+# --- input source panel labels --------------------------------------------
 
 
 def _find_button_by_text(parent, text: str):
-    """Return the first QPushButton whose text matches ``text``."""
     from PySide6.QtWidgets import QPushButton
 
     for btn in parent.findChildren(QPushButton):
@@ -132,142 +221,130 @@ def _find_button_by_text(parent, text: str):
     return None
 
 
-def test_zh_xyz_buttons_are_translated(zh_wizard):
+def test_zh_xyz_buttons_are_translated(zh_panel):
     """Add files / Add directory / Remove / Clear all switch to Chinese."""
-    page = zh_wizard.xyz_page
     translated_texts = {
         "\u6dfb\u52a0\u6587\u4ef6\u2026",  # Add files…
         "\u6dfb\u52a0\u76ee\u5f55\u2026",  # Add directory…
-        "\u79fb\u9664",  # Remove
-        "\u6e05\u7a7a",  # Clear
+        "\u79fb\u9664",                    # Remove
+        "\u6e05\u7a7a",                    # Clear
     }
-    actual = {_find_button_by_text(page, t) for t in translated_texts}
-    assert all(actual), (
-        f"missing Chinese buttons: "
-        f"{translated_texts - {b.text() for b in page.findChildren(__import__('PySide6.QtWidgets', fromlist=['QPushButton']).QPushButton) if b}}"
-    )
+    actual = {btn.text() for btn in zh_panel.findChildren(__import__(
+        "PySide6.QtWidgets", fromlist=["QPushButton"]
+    ).QPushButton)}
+    missing = translated_texts - actual
+    assert not missing, f"missing Chinese buttons: {missing}"
 
 
-def test_en_xyz_buttons_are_english(en_wizard):
-    page = en_wizard.xyz_page
-    assert _find_button_by_text(page, "Add files…")
-    assert _find_button_by_text(page, "Add directory…")
-    assert _find_button_by_text(page, "Remove")
-    assert _find_button_by_text(page, "Clear")
+def test_en_xyz_buttons_are_english(en_panel):
+    from PySide6.QtWidgets import QPushButton
+
+    actual = {btn.text() for btn in en_panel.findChildren(QPushButton)}
+    assert "Add files\u2026" in actual
+    assert "Add directory\u2026" in actual
+    assert "Remove" in actual
+    assert "Clear" in actual
 
 
-def test_zh_calc_form_labels(zh_wizard):
-    """The form labels in _CalcPage are translated."""
-    page = zh_wizard.calc_page
-    expected_labels = {
-        "\u7a0b\u5e8f:",  # Program:
-        "\u9884\u8bbe:",  # Preset:
-        "\u6700\u8fd1:",  # Recent:
-        "\u65b9\u6cd5:",  # Method:
-        "\u57fa\u7ec4:",  # Basis:
-        "\u7535\u8377:",  # Charge:
-        "\u81ea\u65cb\u591a\u91cd\u5ea6:",  # Multiplicity:
-        "CPU \u6838\u6570:",  # CPU cores:
-        "\u5185\u5b58:",  # Memory:
+def test_zh_input_source_panel_tabs(zh_panel):
+    """Local / Remote tab labels switch to Chinese when remote_available=True."""
+    assert zh_panel.tabs.tabText(0) == "\u672c\u5730"  # Local
+    assert zh_panel.tabs.tabText(1) == "\u8fdc\u7a0b"  # Remote
+
+
+def test_en_input_source_panel_tabs(en_panel):
+    """Local tab always shows 'Local'; remote tab hidden when remote_available=False."""
+    assert en_panel.tabs.tabText(0) == "Local"
+    assert en_panel.tabs.count() == 1  # no Remote tab
+
+
+# --- input builder widget labels ------------------------------------------
+
+
+def test_zh_input_builder_labels(zh_input_builder):
+    from PySide6.QtWidgets import QLabel
+
+    labels = {lbl.text() for lbl in zh_input_builder.findChildren(QLabel)}
+    expected = {
+        "XYZ \u6587\u4ef6:",          # XYZ file:
+        "\u8f6f\u4ef6:",              # Software:
+        "\u9884\u8bbe:",              # Preset:
+        "\u65b9\u6cd5/\u57fa\u7ec4:",  # Method/Basis:
+        "\u5173\u952e\u8bcd:",         # Keywords:
+        "\u591a\u91cd\u5ea6:",         # Mult:
+        "\u7535\u8377:",               # Charge:
+        "\u5185\u5b58:",               # Mem:
+        "\u8fdb\u7a0b\u6570:",         # nproc:
+        "\u8f93\u51fa:",               # Output:
     }
-    labels = {lbl.text() for lbl in page.findChildren(__import__('PySide6.QtWidgets', fromlist=['QLabel']).QLabel)}
-    missing = expected_labels - labels
+    missing = expected - labels
     assert not missing, f"missing Chinese labels: {missing}"
 
 
-def test_zh_workflow_widget_labels(zh_wizard):
-    """Steps GroupBox / Work dir name label / YAML preview GroupBox switch to Chinese."""
-    page = zh_wizard.workflow_page
-    groupbox_titles = {gb.title() for gb in page.findChildren(__import__('PySide6.QtWidgets', fromlist=['QGroupBox']).QGroupBox)}
-    assert "\u6b65\u9aa4" in groupbox_titles  # Steps
-    assert "YAML \u9884\u89c8" in groupbox_titles  # YAML preview
+def test_en_input_builder_labels(en_input_builder):
+    from PySide6.QtWidgets import QLabel
 
-    labels = {lbl.text() for lbl in page.findChildren(__import__('PySide6.QtWidgets', fromlist=['QLabel']).QLabel)}
-    assert "\u5de5\u4f5c\u76ee\u5f55\u540d:" in labels  # Work dir name:
-
-
-# --- validation error messages ---------------------------------------------
-
-
-def test_zh_calc_validation_messages(zh_wizard):
-    """Empty method / basis / invalid spin produce Chinese error strings."""
-    page: _CalcPage = zh_wizard.calc_page
-    # Clear the fields so validation fails.
-    page.method_edit.clear()
-    page.basis_edit.clear()
-    errors = page._compute_validation()
-    assert errors["method"] == "\u65b9\u6cd5\u4e0d\u80fd\u4e3a\u7a7a\u3002"  # 方法不能为空。
-    assert errors["basis"] == "\u57fa\u7ec4\u4e0d\u80fd\u4e3a\u7a7a\u3002"  # 基组不能为空。
-    # Out-of-range charge — the spinbox clamps to its range, so to trigger
-    # the charge error we have to bypass the spinbox and call _compute_validation
-    # after manually setting an invalid value via the validator path. The
-    # validation rule is "charge must be between -10 and 10"; the spinbox
-    # range is exactly that, so the error only fires if a programmatic caller
-    # sets a value out of range. Validate by patching the spin's value()
-    # to return -99.
-    from unittest.mock import patch
-
-    with patch.object(page.charge_spin, "value", return_value=-99):
-        errors = page._compute_validation()
-    assert "charge" in errors, "expected charge error when value is out of range"
-    assert errors["charge"] == "\u7535\u8377\u5fc5\u987b\u5728 -10 \u5230 10 \u4e4b\u95f4\u3002"
+    labels = {lbl.text() for lbl in en_input_builder.findChildren(QLabel)}
+    expected = {
+        "XYZ file:",
+        "Software:",
+        "Preset:",
+        "Method/Basis:",
+        "Keywords:",
+        "Mult:",
+        "Charge:",
+        "Mem:",
+        "nproc:",
+        "Output:",
+    }
+    missing = expected - labels
+    assert not missing, f"missing English labels: {missing}"
 
 
-def test_en_calc_validation_messages(en_wizard):
-    page: _CalcPage = en_wizard.calc_page
-    page.method_edit.clear()
-    page.basis_edit.clear()
-    errors = page._compute_validation()
-    assert errors["method"] == "Method is required."
-    assert errors["basis"] == "Basis set is required."
+def test_zh_input_builder_buttons(zh_input_builder):
+    expected = {
+        "\u6d4f\u89c8\u2026",   # Browse…
+        "\u53e6\u5b58\u4e3a\u2026",  # Save as…
+        "\u9884\u89c8",          # Preview
+        "\u751f\u6210",          # Generate
+        "\u5173\u95ed",          # Close
+    }
+    actual = {btn.text() for btn in zh_input_builder.findChildren(
+        __import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton
+    )}
+    missing = expected - actual
+    assert not missing, f"missing Chinese buttons: {missing}"
 
 
-def test_zh_workflow_validation_messages(zh_wizard):
-    page: _WorkflowPage = zh_wizard.workflow_page
-    page.work_dir_edit.clear()
-    page._compute_validation()
-    errors = page._compute_validation()
-    assert errors["work_dir"] == "\u5de5\u4f5c\u76ee\u5f55\u540d\u4e0d\u80fd\u4e3a\u7a7a\u3002"  # 工作目录名不能为空。
+def test_en_input_builder_buttons(en_input_builder):
+    from PySide6.QtWidgets import QPushButton
 
-    # Work dir with a slash.
-    page.work_dir_edit.setText("has/slash")
-    errors = page._compute_validation()
-    assert "/" in errors["work_dir"]
-    assert any('\u4e00' <= ch <= '\u9fff' for ch in errors["work_dir"])
+    actual = {btn.text() for btn in en_input_builder.findChildren(QPushButton)}
+    expected = {"Browse\u2026", "Save as\u2026", "Preview", "Generate", "Close"}
+    missing = expected - actual
+    assert not missing, f"missing English buttons: {missing}"
 
 
-def test_zh_duplicate_advanced_key_message(zh_wizard):
-    page: _WorkflowPage = zh_wizard.workflow_page
-    page.adv_edit.setPlainText("solvent=water\nsolvent=toluene")
-    errors = page._compute_validation()
-    assert "\u91cd\u590d" in errors["adv"]  # 重复
+def test_zh_input_builder_placeholder(zh_input_builder):
+    assert zh_input_builder.xyz_edit.placeholderText() == ".xyz \u6587\u4ef6\u8def\u5f84\u2026"
+    assert zh_input_builder.output_edit.placeholderText() == "\u7559\u7a7a\u5219\u53ea\u9884\u89c8"
 
 
-# --- ORCA hint and placeholder --------------------------------------------
+def test_en_input_builder_placeholder(en_input_builder):
+    assert en_input_builder.xyz_edit.placeholderText() == "Path to .xyz file\u2026"
+    assert en_input_builder.output_edit.placeholderText() == "Leave blank to preview only"
 
 
-def test_zh_orca_hint_switches(zh_wizard):
-    """Selecting ORCA updates orca_hint to Chinese text."""
-    page: _CalcPage = zh_wizard.calc_page
-    page.program_combo.setCurrentText("orca")
-    # The hint is updated synchronously via the currentTextChanged signal.
-    assert any('\u4e00' <= ch <= '\u9fff' for ch in page.orca_hint.text()), (
-        f"expected Chinese ORCA hint: {page.orca_hint.text()!r}"
-    )
+def test_input_builder_software_radio_labels_kept_english(zh_input_builder):
+    """Gaussian / ORCA are technical names and stay English even in zh mode."""
+    from PySide6.QtWidgets import QRadioButton
+
+    actual = {rb.text() for rb in zh_input_builder.findChildren(QRadioButton)}
+    assert any("Gaussian" in t for t in actual)
+    assert any("ORCA" in t for t in actual)
 
 
-def test_en_orca_hint_stays_english(en_wizard):
-    page: _CalcPage = en_wizard.calc_page
-    page.program_combo.setCurrentText("orca")
-    # The hint text contains a U+2014 em-dash, so it's not strictly ASCII,
-    # but it must not contain any Chinese (CJK Unified Ideographs) characters.
-    assert not any('\u4e00' <= ch <= '\u9fff' for ch in page.orca_hint.text()), (
-        f"EN ORCA hint should not contain Chinese characters: {page.orca_hint.text()!r}"
-    )
-    assert "ORCA" in page.orca_hint.text()
-
-
-# --- invariant: every wizard string has a Chinese translation --------------
+# --- invariant: every tr() key has a Chinese counterpart -----------------
 
 
 def _extract_tr_keys(path: str) -> set[str]:
@@ -275,23 +352,14 @@ def _extract_tr_keys(path: str) -> set[str]:
     argument to ``tr(...)`` calls in ``path``.
 
     Uses :mod:`ast` so it correctly handles multi-line invocations like
-
-        tr(
-            "long string",
-            self._language,
-        )
-
-    that a line-by-line regex would miss.
+    ``tr("long string", self._language)``.
     """
-    import ast
-
     src = Path(path).read_text(encoding="utf-8")
     tree = ast.parse(src)
     keys: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        # Resolve the callee name (ignoring attribute access like self.tr).
         callee = node.func
         if isinstance(callee, ast.Name):
             name = callee.id
@@ -299,9 +367,7 @@ def _extract_tr_keys(path: str) -> set[str]:
             name = callee.attr
         else:
             continue
-        if name != "tr":
-            continue
-        if not node.args:
+        if name != "tr" or not node.args:
             continue
         first = node.args[0]
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
@@ -309,17 +375,21 @@ def _extract_tr_keys(path: str) -> set[str]:
     return keys
 
 
-def test_all_wizard_tr_keys_have_zh_translations():
-    """Every English string passed to ``tr()`` in the wizard dialog must
+_NEW_WIDGET_SOURCES = (
+    "src/jobdesk_app/gui/widgets/calculation_widget.py",
+    "src/jobdesk_app/gui/widgets/workflow_widget.py",
+    "src/jobdesk_app/gui/widgets/input_builder_widget.py",
+    "src/jobdesk_app/gui/widgets/input_source_panel.py",
+    "src/jobdesk_app/gui/pages/submit_page.py",
+    "src/jobdesk_app/gui/pages/file_transfer_page.py",
+)
+
+
+@pytest.mark.parametrize("source", _NEW_WIDGET_SOURCES)
+def test_all_widget_tr_keys_have_zh_translations(source):
+    """Every English string passed to ``tr()`` in the new widgets must
     have a Chinese counterpart in :data:`ZH`."""
-    keys = _extract_tr_keys("src/jobdesk_app/gui/dialogs/confflow_wizard_dialog.py")
-    assert keys, "no tr() keys found — has the import been wired?"
+    keys = _extract_tr_keys(source)
+    assert keys, f"no tr() keys found in {source} — has the import been wired?"
     missing = keys - set(ZH.keys())
-    assert not missing, f"missing ZH translations: {missing}"
-
-
-def test_tr_falls_back_to_input_when_zh_key_missing(monkeypatch):
-    """If a tr() key is missing from ZH, tr() must return the original text."""
-    sentinel = "no_such_key_12345"
-    assert tr(sentinel, "zh") == sentinel
-    assert tr(sentinel, "en") == sentinel
+    assert not missing, f"missing ZH translations in {source}: {missing}"
