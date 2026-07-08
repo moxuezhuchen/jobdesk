@@ -1799,19 +1799,6 @@ class TestTaskDoneDebounce:
 
 
 class TestFileTransferPage:
-    def test_create_submit_use_case_delegates_to_coordinator(self, file_page, tmp_path):
-        pytest.skip("removed in v0.5.0 phase 14C — SubmitUseCase covers this path")
-        coordinator = MagicMock()
-        expected = SimpleNamespace(records=[], submit_results=[], errors=[])
-        coordinator.create_and_submit.return_value = expected
-        file_page._coordinator_factory = MagicMock(return_value=coordinator)
-        spec = MagicMock()
-
-        outcome = file_page._execute_run_use_case(spec, tmp_path, submit=True)
-
-        assert outcome is expected
-        coordinator.create_and_submit.assert_called_once_with(spec, local_dir=str(tmp_path))
-
     @staticmethod
     def _name_label_point(table, row: int):
         from PySide6.QtCore import QPoint
@@ -1840,12 +1827,6 @@ class TestFileTransferPage:
         # to SubmitPage. Refresh / open terminal stay on this page.
         assert file_page.refresh_btn.property("buttonRole") == ButtonRole.REFRESH_ACTION.value
         assert file_page.open_terminal_btn.property("buttonRole") == ButtonRole.INSTANT_ACTION.value
-
-    def test_file_transfer_run_feedback_pending_disables_run_group(self, file_page):
-        # The run / confflow / create-only buttons now live on SubmitPage.
-        # The pending feedback path is exercised there in
-        # tests/test_submit_page.py.
-        pytest.skip("run-buttons moved to SubmitPage in v0.5.0 phase 14C")
 
     def test_file_transfer_refresh_feedback_stays_pending_until_async_completion(self, file_page):
         from jobdesk_app.gui.i18n import tr
@@ -1888,10 +1869,6 @@ class TestFileTransferPage:
         assert file_page.local_table is not None
         assert file_page.local_table.columnCount() >= 4
 
-    def test_confflow_launch_button_exists(self, file_page):
-        # ConfFlow launcher moved to SubmitPage's "Build workflow" tab.
-        pytest.skip("Run ConfFlow button moved to SubmitPage in v0.5.0 phase 14C")
-
     def test_open_terminal_button_exists_on_remote_header(self, file_page):
         from jobdesk_app.gui.i18n import tr
 
@@ -1914,13 +1891,6 @@ class TestFileTransferPage:
         assert build.call_args.args[0] is server
         assert build.call_args.args[1] == "/home/xianj/qhf"
         launcher.assert_called_once_with(launch)
-
-    def test_transfer_progress_is_prominent_and_in_task_action_row(self, file_page):
-        # The progress bar moved to SubmitPage; the Files page no longer
-        # carries the run / task action row. This test is replaced by
-        # the new "submit page has visible progress" coverage in
-        # tests/test_submit_page.py.
-        pytest.skip("progress bar moved to SubmitPage in v0.5.0 phase 14C")
 
     def test_transfer_progress_shows_download_speed(self, file_page):
         worker = _FakeWorker()
@@ -2144,12 +2114,6 @@ class TestFileTransferPage:
         from jobdesk_app.core.file_transfer import OverwritePolicy
         assert service.download_path.call_args.args[2] == OverwritePolicy.overwrite
 
-    def test_confflow_invalid_input_reports_visible_error(self, file_page):
-        # Old _run_confflow() + "_selected_xyz_paths" path is gone. The
-        # equivalent validation now lives on SubmitPage and is covered
-        # in tests/test_submit_page.py::test_submit_rejects_empty_inputs.
-        pytest.skip("ConFlow run entry moved to SubmitPage in v0.5.0 phase 14C")
-
     def test_submission_emits_run_id_for_navigation(self, file_page, qtbot):
         received = []
         file_page.runs_submitted.connect(lambda run_ids: received.extend(run_ids))
@@ -2343,13 +2307,6 @@ class TestFileTransferPage:
         assert "permission denied" in errors[0][1]
         assert file_page._dirty_remote_edit_sessions()
 
-    def test_remote_generate_gjf_cleans_temp_xyz_when_upload_fails(self, file_page, tmp_path):
-        # The remote "Generate GJF" action moved to SubmitPage's
-        # InputBuilderWidget. The temp-xyz cleanup invariant is now
-        # covered in tests/test_input_builder_widget.py (a future
-        # test file) and the Submit page's worker callback.
-        pytest.skip("Remote Generate GJF moved to SubmitPage in v0.5.0 phase 14C")
-
     def test_new_local_file_uses_configured_text_editor(self, file_page, tmp_path):
         file_page.state.current_project_root = tmp_path
         file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
@@ -2448,12 +2405,6 @@ class TestFileTransferPage:
         worker.finished.emit()
         assert worker not in file_page._background_workers
 
-    def test_submit_rejects_unsafe_remote_dir_on_main_thread(self, file_page):
-        # SubmitUseCase validates server_id; the page worker owns the
-        # remote_dir safety check. Behaviour preserved — see
-        # tests/test_submit_use_case.py and tests/test_submit_page.py.
-        pytest.skip("run / unsafe-remote-dir check moved to SubmitPage in v0.5.0 phase 14C")
-
     def test_delete_remote_runs_in_background_worker(self, file_page):
         from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
 
@@ -2502,102 +2453,6 @@ class TestFileTransferPage:
         target = start_worker.call_args.kwargs["target"]
         target(MagicMock())
         assert not local_file.exists()
-
-    def test_remote_run_submission_creates_runs_in_background_worker(self, file_page):
-        pytest.skip("run worker moved to SubmitPage in v0.5.0 phase 14C")
-
-    def test_local_run_submission_uses_local_selection_even_when_remote_selection_remains(
-        self, file_page, tmp_path
-    ):
-        pytest.skip("run worker moved to SubmitPage in v0.5.0 phase 14C")
-        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
-
-        local_file = tmp_path / "a.gjf"
-        local_file.write_text("%chk=a.chk\n\n", encoding="utf-8")
-        service = MagicMock()
-        file_page._service = service
-        file_page._connected_server = SimpleNamespace(env_init_scripts=[], scheduler=None)
-        file_page._connected_server_id = "wsl"
-        file_page.state.current_project_root = tmp_path
-        file_page.command_edit.setCurrentText("g16 {name}")
-        file_page.remote_path.setText("/remote/work")
-
-        file_page.remote_table.setRowCount(1)
-        file_page.remote_table.setItem(0, 0, QTableWidgetItem("a.gjf"))
-        file_page.remote_table.setItem(0, 4, QTableWidgetItem("file"))
-        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/work/a.gjf"))
-        file_page.remote_table.selectRow(0)
-
-        file_page.local_table.setRowCount(1)
-        file_page.local_table.setItem(0, 0, QTableWidgetItem("a.gjf"))
-        file_page.local_table.setItem(0, 3, QTableWidgetItem("file"))
-        file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
-        file_page.local_table.selectRow(0)
-        file_page._last_file_selection_side = "remote"
-        file_page._schedule_selected_click_rename("local", file_page.local_table.item(0, 0))
-        file_page._cancel_selected_click_rename()
-
-        record = SimpleNamespace(run_id="run-local", manifest_path=tmp_path / "manifest.tsv")
-        execute = MagicMock(return_value=SimpleNamespace(
-            records=[record],
-            submit_results=[SimpleNamespace(batch_id="run-local", submitted_task_count=1, errors=[])],
-            errors=[],
-        ))
-
-        with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
-            return_value=QMessageBox.Yes,
-        ), patch.object(
-            file_page, "_execute_run_use_case", execute,
-        ), patch(
-            "jobdesk_app.gui.pages.file_transfer_page.RunProfileStore"
-        ), patch(
-            "jobdesk_app.gui.pages.file_transfer_page.create_ssh_client"
-        ) as create_ssh, patch(
-            "jobdesk_app.gui.pages.file_transfer_page.create_sftp_client"
-        ) as create_sftp, patch(
-            "jobdesk_app.gui.pages.file_transfer_page.start_context_worker",
-            create=True,
-        ) as start_worker:
-            create_ssh.return_value = MagicMock()
-            create_sftp.return_value = MagicMock()
-            file_page._run_selected_chunks(submit=True)
-            payload = start_worker.call_args.kwargs["target"](MagicMock())
-
-        from jobdesk_app.core.file_transfer import OverwritePolicy
-
-        service.upload_path.assert_called_once_with(
-            local_file,
-            "/remote/work/a.gjf",
-            OverwritePolicy.overwrite,
-        )
-        created_spec = execute.call_args.args[0]
-        assert created_spec.sources[0].path == "/remote/work/a.gjf"
-        assert payload["error"] is None
-
-    def test_local_run_submission_stops_when_upload_fails(self, file_page, tmp_path):
-        pytest.skip("run worker moved to SubmitPage in v0.5.0 phase 14C")
-
-    def test_auto_fill_preserves_manually_edited_command_for_next_selection(self, file_page):
-        # command_edit was removed from FileTransferPage in Phase 14C;
-        # the page now owns max_parallel and there is no per-user
-        # command history to preserve.
-        pytest.skip("command_edit removed in v0.5.0 phase 14C")
-
-    def test_saved_command_updates_matching_software_profile_template(self, file_page):
-        pytest.skip("command_edit / profile template removed in v0.5.0 phase 14C")
-
-    def test_apply_gui_settings_preserves_manually_edited_command(self, file_page):
-        pytest.skip("command_edit / _apply_gui_settings_no_folder removed in v0.5.0 phase 14C")
-
-    def test_remote_run_submit_error_preserves_created_run_state(self, file_page, tmp_path):
-        pytest.skip("run worker / batch state moved to SubmitPage in v0.5.0 phase 14C")
-
-    def test_remote_run_submit_result_errors_are_reported_as_failure(self, file_page, tmp_path):
-        pytest.skip("run worker / submit result moved to SubmitPage in v0.5.0 phase 14C")
-
-    def test_confflow_stops_when_local_upload_returns_failed_record(self, file_page, tmp_path):
-        pytest.skip("run worker / ConFlow upload moved to SubmitPage in v0.5.0 phase 14C")
 
     def test_upload_dropped_uses_non_destructive_skip_policy(self, file_page, tmp_path):
         """Ordinary drag-drop must not overwrite a remote destination silently."""
@@ -3421,12 +3276,6 @@ class TestFileTransferPage:
 
         service.close.assert_called_once_with()
         assert file_page._service is None
-
-    def test_confflow_uses_spinbox_max_parallel_not_stored_setting(self, file_page, qtbot, tmp_path):
-        # max_parallel_spin now lives on SubmitPage; the new equivalent
-        # is in tests/test_submit_use_case.py::test_max_parallel_propagates.
-        pytest.skip("max_parallel moved to SubmitPage in v0.5.0 phase 14C")
-
 
 
 class TestMainWindowExcepthook:
