@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+The current schema is **schema v5**. Schema v4 databases auto-upgrade on first open.
+
 ### Fixed
 - Fix InputSourcePanel directory-drop not honoring the recursive-scan checkbox
 
@@ -16,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.5.0] — 2026-07-08
 
-The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.
+The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0; superseded by v5 in the unreleased version). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.
 
 ### Added (Phase 14 — unified Submit page)
 - `core.submit_payload` value types: `InputSource`, `WorkflowFields`, `SubmitPayload` (frozen dataclasses, no Qt deps). `core.RunSpec.workflow_kind` is the discriminant for the page → use-case → worker boundary.
