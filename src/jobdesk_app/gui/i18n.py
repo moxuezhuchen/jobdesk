@@ -360,6 +360,26 @@ ZH: dict[str, str] = {
     "Generate": "\u751f\u6210",
     "Close": "\u5173\u95ed",
     "Manual parameters": "\u624b\u52a8\u53c2\u6570",
+    # -- Phase 14D: Submit page, InputSourcePanel, FileTransferPage right-click --
+    "Submit": "\u63d0\u4ea4",
+    "No server": "\u672a\u8fde\u670d\u52a1\u5668",
+    "Build input file": "\u751f\u6210\u8f93\u5165\u6587\u4ef6",
+    "Build workflow": "\u751f\u6210\u5de5\u4f5c\u6d41",
+    "Live preview": "\u5b9e\u65f6\u9884\u89c8",
+    "Activity log": "\u6d3b\u52a8\u8bb0\u5f55",
+    "Inputs": "\u8f93\u5165",
+    "Select input files": "\u9009\u62e9\u8f93\u5165\u6587\u4ef6",
+    "Select directory": "\u9009\u62e9\u76ee\u5f55",
+    "Add at least one input file.": "\u8bf7\u81f3\u5c0f\u6dfb\u52a0\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\u3002",
+    "XYZ path is required.": "XYZ \u8def\u5f84\u4e0d\u80fd\u4e3a\u7a7a\u3002",
+    "No inputs selected.": "\u672a\u9009\u62e9\u4efb\u4f55\u8f93\u5165\u3002",
+    "Use as input \u2192 Submit": "\u4f5c\u4e3a\u8f93\u5165 \u2192 \u63d0\u4ea4",
+    "Send to ConfFlow \u2192 Submit": "\u53d1\u9001\u5230 ConfFlow \u2192 \u63d0\u4ea4",
+    "Pushed {n} source(s) from Files page.": "\u5df2\u4ece\u6587\u4ef6\u9875\u63a8\u9001 {n} \u4e2a\u8f93\u5165\u3002",
+    "Submit failed: {e}": "\u63d0\u4ea4\u5931\u8d25\uff1a{e}",
+    "Local": "\u672c\u5730",
+    "Remote": "\u8fdc\u7a0b",
+    "Drag .xyz / .gjf / .inp files or a directory here": "\u5c06 .xyz / .gjf / .inp \u6587\u4ef6\u6216\u76ee\u5f55\u62d6\u81f3\u6b64\u5904",
 }
 
 
