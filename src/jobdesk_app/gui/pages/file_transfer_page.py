@@ -12,7 +12,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -25,23 +24,20 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QTableWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
-from ...core.run import RunMode, RunSource, RunSpec, chunk_sources
+from ...core.run import RunSpec
 from ...core.transfer import TransferStatus
 from ...remote.errors import RemotePathError
 from ...services.external_terminal import build_terminal_launch, launch_terminal
-from ...services.file_transfer_service import FileTransferService, ensure_safe_remote_path
+from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
-from ...services.program_adapters import ConfFlowAdapter
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
@@ -50,14 +46,12 @@ from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
+from ...core.submit_payload import InputSource
 from .file_transfer_helpers import (
-    choose_confflow_xyz,
-    choose_confflow_yaml,
     collect_remote_delete_roots,
     connection_status_text,
     default_remote_dir_for_server,
     file_table_headers,
-    format_command_preview_rows,
     format_file_size,
     format_modified_time,
     format_queue_summary,
@@ -69,7 +63,6 @@ from .file_transfer_helpers import (
     remote_child_path,
     remote_parent_row,
     remote_table_row,
-    run_button_reason,
 )
 from .file_transfer_widgets import (
     _clamp_column_widths,
@@ -108,6 +101,7 @@ def _format_transfer_speed(bytes_per_second: float) -> str:
 
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
+    use_as_input_received = Signal(list)  # list[InputSource]
 
     def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None):
         super().__init__()
@@ -121,7 +115,6 @@ class FileTransferPage(QWidget):
         self._connected_server_id: str | None = None
         self._connected_server = None
         self._gui_settings = GuiSettingsStore().load()
-        self._known_profile_command_templates = self._profile_command_templates()
         self._language = self._gui_settings.language
         self._remote_list_request_id = 0
         self._remote_list_fallbacks: list[str] = []
@@ -131,10 +124,9 @@ class FileTransferPage(QWidget):
         self._local_refresh_request_id = 0
         self._local_poll_running = False
         self._initialized = False
-        self._command_manually_edited = False
+        self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
         self._pending_click_rename: tuple[str, int] | None = None
         self._last_file_selection_side: str | None = None
-        self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -172,9 +164,6 @@ class FileTransferPage(QWidget):
         self.open_terminal_btn = QPushButton(tr("Open Terminal Here", self._language))
         self.open_terminal_btn.clicked.connect(self._open_terminal_here)
         self._normalize_control_heights(self.open_terminal_btn)
-
-        main_splitter = QSplitter(Qt.Vertical)
-        main_splitter.setHandleWidth(8)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -278,85 +267,10 @@ class FileTransferPage(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([500, 620])
-        main_splitter.addWidget(splitter)
 
-        run_panel = QWidget()
-        run_panel.setObjectName("RunPanel")
-        run_panel.setStyleSheet(
-            "#RunPanel { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
-            " #RunPanel QLineEdit, #RunPanel QComboBox, #RunPanel QSpinBox {"
-            " background: #f7f9fc; border: 1px solid #9aaec4; border-radius: 3px;"
-            " padding: 0 8px; min-height: 38px; max-height: 38px; }"
-            " #RunPanel QLabel { background: transparent; }"
-        )
-        run_panel.setMinimumHeight(110)
-        run_layout = QVBoxLayout(run_panel)
-        run_layout.setContentsMargins(16, 8, 16, 8)
-        run_layout.setSpacing(4)
-
-        command_row = QHBoxLayout()
-        command_row.setSpacing(6)
-        self.command_label = QLabel(tr("Command:", self._language))
-        command_row.addWidget(self.command_label)
-        self.command_edit = QComboBox()
-        self.command_edit.setEditable(True)
-        self.command_edit.setInsertPolicy(QComboBox.NoInsert)
-        self._load_command_history()
-        self.command_edit.setCurrentText(self._gui_settings.command_template)
-        if self.command_edit.lineEdit() is not None:
-            self.command_edit.lineEdit().textEdited.connect(self._mark_command_manually_edited)
-        command_row.addWidget(self.command_edit, 1)
-        self.preview_commands_btn = QPushButton(tr("Preview Commands", self._language))
-        self.preview_commands_btn.clicked.connect(self._preview_run_commands)
-        command_row.addWidget(self.preview_commands_btn)
-        run_layout.addLayout(command_row)
-
-        self.run_options_row = QHBoxLayout()
-        run_options_row = self.run_options_row
-        run_options_row.setSpacing(6)
-        self.run_mode_label = QLabel(tr("Run mode:", self._language))
-        run_options_row.addWidget(self.run_mode_label)
-        self.run_mode_combo = QComboBox()
-        self._populate_run_mode_combo()
-        run_options_row.addWidget(self.run_mode_combo)
-        self.max_parallel_label = QLabel(tr("Max parallel:", self._language))
-        run_options_row.addWidget(self.max_parallel_label)
-        self.max_parallel_spin = QSpinBox()
-        self.max_parallel_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.max_parallel_spin.setRange(1, 9999)
-        self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
-        run_options_row.addWidget(self.max_parallel_spin)
-        self.run_btn = QPushButton(tr("Run Selected", self._language))
-        self.run_btn.clicked.connect(self._run_selected)
-        run_options_row.addWidget(self.run_btn)
-        self.confflow_btn = QPushButton(tr("Run ConfFlow", self._language))
-        self.confflow_btn.clicked.connect(self._run_confflow)
-        run_options_row.addWidget(self.confflow_btn)
-        self.confflow_wizard_btn = QPushButton(tr("ConfFlow Wizard…", self._language))
-        self.confflow_wizard_btn.clicked.connect(self._open_confflow_wizard)
-        run_options_row.addWidget(self.confflow_wizard_btn)
-        self.create_only_btn = QPushButton(tr("Create tasks only", self._language))
-        self.create_only_btn.clicked.connect(self._create_only)
-        run_options_row.addWidget(self.create_only_btn)
-        run_button_group = [self.run_btn, self.confflow_btn, self.confflow_wizard_btn, self.create_only_btn]
-        self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
-        self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)
-        self._preview_feedback = ButtonFeedback(self.preview_commands_btn, role=ButtonRole.INSTANT_ACTION)
-        self._run_feedback = ButtonFeedback(
-            self.run_btn,
-            role=ButtonRole.PRIMARY_ACTION,
-            group=run_button_group,
-        )
-        self._confflow_feedback = ButtonFeedback(
-            self.confflow_btn,
-            role=ButtonRole.PRIMARY_ACTION,
-            group=run_button_group,
-        )
-        self._create_only_feedback = ButtonFeedback(
-            self.create_only_btn,
-            role=ButtonRole.PRIMARY_ACTION,
-            group=run_button_group,
-        )
+        # Progress bar — surfaces transfer progress (upload/download).  Lives
+        # outside the splitter so it doesn't steal vertical space from the
+        # file tables.  Hidden by default; flipped on by _start_transfer_worker.
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setMinimumWidth(TRANSFER_PROGRESS_MIN_WIDTH)
@@ -364,24 +278,27 @@ class FileTransferPage(QWidget):
         self.progress_bar.setMinimumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setMaximumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setTextVisible(True)
-        run_options_row.addWidget(self.progress_bar)
-        run_options_row.addStretch()
-        run_layout.addLayout(run_options_row)
+        progress_row = QHBoxLayout()
+        progress_row.setContentsMargins(0, 0, 0, 0)
+        progress_row.setSpacing(0)
+        progress_row.addStretch()
+        progress_row.addWidget(self.progress_bar)
+        progress_wrap = QWidget()
+        progress_wrap.setLayout(progress_row)
+        progress_wrap.setContentsMargins(0, 0, 0, 0)
 
-        self.command_preview = QTextEdit()
-        self.command_preview.setReadOnly(True)
-        self.command_preview.setMinimumHeight(0)
-        self.command_preview.setMaximumHeight(90)
-        self.command_preview.setVisible(False)
-        run_layout.addWidget(self.command_preview)
-
-        main_splitter.addWidget(run_panel)
+        main_splitter = QSplitter(Qt.Vertical)
+        main_splitter.setHandleWidth(8)
         main_splitter.setChildrenCollapsible(False)
-        main_splitter.setCollapsible(1, False)
-        main_splitter.setStretchFactor(0, 8)
-        main_splitter.setStretchFactor(1, 2)
-        main_splitter.setSizes([620, 100])
+        main_splitter.addWidget(splitter)
+        main_splitter.addWidget(progress_wrap)
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 0)
+        main_splitter.setSizes([100, 0])
         layout.addWidget(main_splitter, 1)
+
+        self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
+        self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)
 
         self._load_servers()
 
@@ -413,9 +330,7 @@ class FileTransferPage(QWidget):
 
     def on_activated(self):
         self._gui_settings = GuiSettingsStore().load()
-        self._known_profile_command_templates.update(self._profile_command_templates())
         self.apply_language(self._gui_settings.language)
-        self._apply_gui_settings_no_folder()
 
         first_run = not self._initialized
         if first_run:
@@ -450,23 +365,10 @@ class FileTransferPage(QWidget):
         self.refresh_btn.setText("\u27f3 " + tr("Refresh", language))
         self.open_terminal_btn.setText(tr("Open Terminal Here", language))
         self.server_label.setText(tr("Server:", language))
-        self.command_label.setText(tr("Command:", language))
-        self.preview_commands_btn.setText(tr("Preview Commands", language))
-        self.run_mode_label.setText(tr("Run mode:", language))
-        self.max_parallel_label.setText(tr("Max parallel:", language))
-        self.run_btn.setText(tr("Run Selected", language))
-        self.confflow_btn.setText(tr("Run ConfFlow", language))
-        self.confflow_wizard_btn.setText(tr("ConfFlow Wizard…", language))
-        self.create_only_btn.setText(tr("Create tasks only", language))
         self._refresh_feedback.set_idle_text(self.refresh_btn.text())
         self._terminal_feedback.set_idle_text(self.open_terminal_btn.text())
-        self._preview_feedback.set_idle_text(self.preview_commands_btn.text())
-        self._run_feedback.set_idle_text(self.run_btn.text())
-        self._confflow_feedback.set_idle_text(self.confflow_btn.text())
-        self._create_only_feedback.set_idle_text(self.create_only_btn.text())
         self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
         self.remote_table.setHorizontalHeaderLabels(self._translated_table_headers("remote"))
-        self._populate_run_mode_combo()
         self.connection_label.setText(connection_status_text(
             self._connected_server_id,
             self._service is not None,
@@ -475,17 +377,6 @@ class FileTransferPage(QWidget):
 
     def _translated_table_headers(self, kind: str) -> list[str]:
         return [tr(header, self._language) for header in file_table_headers(kind)] + ["type", "path"]
-
-    def _populate_run_mode_combo(self):
-        current = self.run_mode_combo.currentData() if hasattr(self, "run_mode_combo") else RunMode.selected_files.value
-        self.run_mode_combo.blockSignals(True)
-        self.run_mode_combo.clear()
-        self.run_mode_combo.addItem(tr("Selected files", self._language), RunMode.selected_files.value)
-        self.run_mode_combo.addItem(tr("Selected directories", self._language), RunMode.selected_directories.value)
-        self.run_mode_combo.addItem(tr("Current directory", self._language), RunMode.current_directory.value)
-        idx = self.run_mode_combo.findData(current)
-        self.run_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.run_mode_combo.blockSignals(False)
 
     def _load_servers(self):
         """Reload servers (used by tab switches after first init)."""
@@ -563,7 +454,6 @@ class FileTransferPage(QWidget):
         self._connected_server_id = server_id
         self._connected_server = server
         self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
-        self._load_remembered_profile()
         self._refresh_remote()
 
     def _current_run_tasks(self):
@@ -590,15 +480,6 @@ class FileTransferPage(QWidget):
     def _save_last_local_folder(self, path: Path) -> None:
         """Persist the current local folder so it survives restarts."""
         GuiSettingsStore().update(last_local_folder=str(path))
-
-    def _apply_gui_settings_no_folder(self):
-        """Apply settings that don't touch the local folder or remote path."""
-        if not self._command_manually_edited:
-            self.command_edit.setCurrentText(self._gui_settings.command_template)
-        self.max_parallel_spin.setValue(self._gui_settings.max_parallel)
-
-    def _mark_command_manually_edited(self, _text: str = "") -> None:
-        self._command_manually_edited = True
 
     @staticmethod
     def _build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:
@@ -916,50 +797,6 @@ class FileTransferPage(QWidget):
                 self._selected_row_count(self.remote_table),
                 self._language,
             ))
-        self._auto_fill_command()
-
-    def _selected_command_paths(self) -> list[str]:
-        paths = self._selected_remote_paths()
-        if paths:
-            return paths
-        return [str(path) for path in self._selected_local_paths()]
-
-    def _profile_command_templates(self) -> set[str]:
-        return {
-            profile.get("command_template", "")
-            for profile in (self._gui_settings.software_profiles or {}).values()
-            if profile.get("command_template", "")
-        }
-
-    def _profile_name_for_extension(self, ext: str) -> str | None:
-        profiles = self._gui_settings.software_profiles or {}
-        for name, profile in profiles.items():
-            extensions = [e.strip().lower() for e in profile.get("input_extensions", "").split(",") if e.strip()]
-            if ext in extensions:
-                return name
-        return None
-
-    def _auto_fill_command(self):
-        """Auto-fill command template based on selected file extensions."""
-        paths = self._selected_command_paths()
-        if not paths:
-            return
-        # Get extension of first file
-        ext = posixpath.splitext(paths[0])[-1].lower()
-        if not ext:
-            return
-        profiles = self._gui_settings.software_profiles or {}
-        # Only auto-fill if command box is empty or already contains a profile template
-        current_cmd = self.command_edit.currentText().strip()
-        known_templates = self._known_profile_command_templates | self._profile_command_templates()
-        if self._command_manually_edited:
-            return
-        if current_cmd and current_cmd not in known_templates:
-            return
-        profile_name = self._profile_name_for_extension(ext)
-        if profile_name:
-            self.command_edit.setCurrentText(profiles[profile_name]["command_template"])
-            return
 
     def _connect_selection_signals(self):
         self.local_table.itemSelectionChanged.connect(self._on_local_selection_changed)
@@ -984,8 +821,7 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("New File", self._language), self._new_file_local)
         menu.addAction(tr("Rename", self._language), self._rename_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
-        menu.addSeparator()
-        menu.addAction(tr("Generate GJF from XYZ...", self._language), self._local_generate_gjf)
+        self._maybe_add_use_as_input(menu, side="local")
         self._add_viewer_submenu(menu, local=True)
         menu.exec(self.local_table.viewport().mapToGlobal(pos))
 
@@ -1000,8 +836,7 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("Delete", self._language), self._delete_remote)
         menu.addSeparator()
         menu.addAction(tr("Preview", self._language), self._preview_remote)
-        menu.addSeparator()
-        menu.addAction(tr("Generate GJF from XYZ...", self._language), self._remote_generate_gjf)
+        self._maybe_add_use_as_input(menu, side="remote")
         self._add_viewer_submenu(menu, local=False)
         menu.exec(self.remote_table.viewport().mapToGlobal(pos))
 
@@ -1017,79 +852,73 @@ class FileTransferPage(QWidget):
             else:
                 sub.addAction(name, lambda _exe=exe: self._open_remote_in_viewer(_exe))
 
-    # Generate GJF
+    # Use as input → Submit (cross-page push)
 
-    def _local_generate_gjf(self):
-        row = self.local_table.currentRow()
-        path_item = self.local_table.item(row, 4) if row >= 0 else None
-        xyz_path = path_item.text() if path_item else ""
-        from ..dialogs.input_builder_dialog import InputBuilderDialog
-        dlg = InputBuilderDialog(self, xyz_path=xyz_path)
-        dlg.exec()
+    def _maybe_add_use_as_input(self, menu: QMenu, *, side: str) -> None:
+        """Right-click helper: add "Use as input → Submit" items for eligible selections.
 
-    def _remote_generate_gjf(self):
-        """Download selected remote .xyz to a temp file, open InputBuilderDialog."""
-        row = self.remote_table.currentRow()
-        path_item = self.remote_table.item(row, 5) if row >= 0 else None
-        if path_item is None or self._service is None:
+        The Submit page (``SubmitPage.push_sources``) consumes the emitted
+        ``InputSource`` list.  We always offer "Use as input → Submit"; the
+        "Send to ConfFlow → Submit" entry appears only when every selected
+        path is ``.xyz`` so the user can opt into workflow generation.
+        """
+        paths = self._selected_paths_for_side(side)
+        if not paths:
             return
-        remote_path = path_item.text()
-        if not remote_path.lower().endswith(".xyz"):
-            self._status_cb("Select a .xyz file first")
+        sources = self._build_input_sources(paths, side=side)
+        if not sources:
             return
-        import tempfile
-        f = tempfile.NamedTemporaryFile(suffix=".xyz", delete=False)
-        f.close()
-        tmp = Path(f.name)
-        service = self._service
-        assert service is not None
-
-        def _download(_ctx: WorkerContext):
-            service.download_path(remote_path, str(tmp))
-            return tmp
-
-        def _open_dialog(path: Path):
-            from ..dialogs.input_builder_dialog import InputBuilderDialog
-            dlg = InputBuilderDialog(self, xyz_path=path)
-            if not (dlg.exec() and dlg.generated_path()):
-                path.unlink(missing_ok=True)
-                return
-            gen = dlg.generated_path()
-            if gen is None:
-                path.unlink(missing_ok=True)
-                return
-            remote_dest = f"{self.remote_path.text().rstrip('/')}/{gen.name}"
-
-            def _upload(_ctx: WorkerContext):
-                try:
-                    service.upload_path(str(gen), remote_dest)
-                finally:
-                    path.unlink(missing_ok=True)
-                return remote_dest
-
-            def _uploaded(uploaded: str) -> None:
-                self._refresh_remote()
-                self._status_cb(f"Uploaded: {uploaded}")
-
-            start_context_worker(
-                self,
-                target=_upload,
-                registry_attr="_background_workers",
-                on_result=_uploaded,
-                on_error=lambda error: self._status_cb(f"Upload failed: {error.splitlines()[0]}"),
+        kinds = {source.kind for source in sources}
+        menu.addSeparator()
+        if kinds == {"xyz"}:
+            menu.addAction(
+                tr("Use as input → Submit", self._language),
+                lambda _s=sources: self.use_as_input_received.emit(list(_s)),
+            )
+            menu.addAction(
+                tr("Send to ConfFlow → Submit", self._language),
+                lambda _s=sources: self.use_as_input_received.emit(list(_s)),
+            )
+        elif kinds & {"gjf", "inp"}:
+            menu.addAction(
+                tr("Use as input → Submit", self._language),
+                lambda _s=sources: self.use_as_input_received.emit(list(_s)),
+            )
+        else:
+            # Mixed selection — show both labels; Submit page filters by kind.
+            menu.addAction(
+                tr("Use as input → Submit", self._language),
+                lambda _s=sources: self.use_as_input_received.emit(list(_s)),
+            )
+            menu.addAction(
+                tr("Send to ConfFlow → Submit", self._language),
+                lambda _s=sources: self.use_as_input_received.emit(list(_s)),
             )
 
-        def _download_failed(error: str) -> None:
-            tmp.unlink(missing_ok=True)
-            self._status_cb(f"Download failed: {error.splitlines()[0]}")
+    def _selected_paths_for_side(self, side: str) -> list[str]:
+        """Return currently selected file paths for ``side`` (``"local"`` / ``"remote"``)."""
+        if side == "local":
+            files, _dirs = self._selected_local_entries()
+            return files
+        files, _dirs = self._selected_remote_entries()
+        return files
 
-        start_context_worker(
-            self,
-            target=_download,
-            registry_attr="_background_workers",
-            on_result=_open_dialog,
-            on_error=_download_failed,
-        )
+    @staticmethod
+    def _build_input_sources(paths: list[str], *, side: str) -> list[InputSource]:
+        """Wrap ``paths`` as :class:`InputSource` instances.
+
+        ``kind`` is inferred from the file suffix (``.gjf`` → ``"gjf"``,
+        ``.inp`` → ``"inp"``, otherwise ``"xyz"``).  Unknown suffixes are
+        treated as ``"xyz"`` so the Submit page's kind filter still routes
+        them sensibly.
+        """
+        suffix_map = {".gjf": "gjf", ".inp": "inp"}
+        sources: list[InputSource] = []
+        for raw in paths:
+            p = Path(raw)
+            kind = suffix_map.get(p.suffix.lower(), "xyz")
+            sources.append(InputSource(path=p, side=side, kind=kind))  # type: ignore[arg-type]
+        return sources
 
     # Open in Viewer
 
@@ -1131,26 +960,6 @@ class FileTransferPage(QWidget):
             on_result=_open,
             on_error=lambda error: self._status_cb(f"Download failed: {error.splitlines()[0]}"),
         )
-
-    def _create_only(self):
-        """Create run record without submitting."""
-        self._run_selected_chunks(submit=False)
-
-    def _coordinator_for(self, workspace: Path) -> RunCoordinator:
-        if self._coordinator_factory is not None:
-            return self._coordinator_factory(workspace)
-        return RunCoordinator(
-            RunService(workspace),
-            server_lookup=lambda server_id: load_servers().servers[server_id],
-            ssh_factory=create_ssh_client,
-            sftp_factory=create_sftp_client,
-        )
-
-    def _execute_run_use_case(self, spec: RunSpec, workspace: Path, *, submit: bool):
-        coordinator = self._coordinator_for(workspace)
-        if submit:
-            return coordinator.create_and_submit(spec, local_dir=str(workspace))
-        return coordinator.create_run(spec, local_dir=str(workspace))
 
     def _remote_target_for_local(self, local_path: Path) -> str:
         return remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
@@ -1826,229 +1635,6 @@ class FileTransferPage(QWidget):
             on_error=lambda error: self._error_cb("Delete Error", error),
         )
 
-    def _preview_run_commands(self):
-        files, dirs = self._selected_remote_entries()
-        try:
-            rows = format_command_preview_rows(
-                files,
-                dirs,
-                self.remote_path.text().strip() or "/",
-                self.command_edit.currentText(),
-                self.run_mode_combo.currentData(),
-            )
-            self.command_preview.setPlainText("\n".join(rows) if rows else "No commands to run")
-            self.command_preview.setVisible(True)
-        except Exception as exc:
-            self._error_cb("Preview Commands Error", str(exc))
-
-    def _run_selected(self):
-        self._run_selected_chunks(submit=True)
-
-    def _run_confflow(self):
-        if self._service is None or self._connected_server is None:
-            self._status_cb(tr("Connect to a server first", self._language))
-            return
-        remote_files, _remote_dirs = self._selected_remote_entries()
-        local_files, _local_dirs = self._selected_local_entries()
-        origin, xyz_paths, error = choose_confflow_xyz(local_files, remote_files)
-        if error:
-            self._status_cb(error)
-            self._error_cb("ConfFlow Input", error)
-            return
-
-        # Resolve YAML configuration
-        remote_dir = self.remote_path.text().strip() or "/"
-        yaml_path, yaml_error = choose_confflow_yaml(remote_files, origin)
-        if yaml_error:
-            self._error_cb("ConfFlow YAML", yaml_error)
-            return
-        local_yaml_path: str = ""
-
-        if not yaml_path:
-            # Ask user for a local YAML
-            config_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select ConfFlow YAML configuration",
-                str(self.state.current_project_root or Path.cwd()),
-                "YAML files (*.yaml *.yml)",
-            )
-            if not config_path:
-                return
-            if Path(config_path).suffix.lower() not in {".yaml", ".yml"}:
-                self._status_cb("Select a ConfFlow YAML configuration file")
-                return
-            local_yaml_path = config_path
-
-        max_parallel = self.max_parallel_spin.value()
-        mol_count = len(xyz_paths)
-        yaml_desc = (
-            f"remote: {posixpath.basename(yaml_path)}" if yaml_path
-            else f"local: {Path(local_yaml_path).name}"
-        )
-        confirm_msg = (
-            f"Submit ConfFlow batch?\n\n"
-            f"Molecules: {mol_count}\n"
-            f"YAML: {yaml_desc}\n"
-            f"Remote dir: {remote_dir}\n"
-            f"Max parallel: {max_parallel}"
-        )
-        if QMessageBox.question(
-            self, "Confirm ConfFlow Batch", confirm_msg,
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-
-        local_base = self.state.current_project_root or Path.cwd()
-        config_target = yaml_path if yaml_path else remote_child_path(remote_dir, Path(local_yaml_path).name)
-        # Compute remote XYZ targets
-        if origin == "local":
-            xyz_targets = [remote_child_path(remote_dir, Path(p).name) for p in xyz_paths]
-        else:
-            xyz_targets = list(xyz_paths)
-
-        server_id = self._connected_server_id or ""
-        file_service = self._service
-
-        def _run():
-            if origin == "local":
-                for local_p, remote_t in zip(xyz_paths, xyz_targets):
-                    records = file_service.upload_path(Path(local_p), remote_t, OverwritePolicy.overwrite)
-                    _raise_if_upload_failed(records, remote_t)
-            if local_yaml_path:
-                records = file_service.upload_path(Path(local_yaml_path), config_target, OverwritePolicy.overwrite)
-                _raise_if_upload_failed(records, config_target)
-            spec = ConfFlowAdapter.build_spec(
-                server_id=server_id,
-                remote_dir=remote_dir,
-                xyz_paths=xyz_targets,
-                config_path=config_target,
-                max_parallel=max_parallel,
-            )
-            return self._execute_run_use_case(spec, Path(local_base), submit=True)
-
-        self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
-        worker = BackgroundWorker(_run)
-        worker.result.connect(self._on_confflow_done)
-        worker.error.connect(lambda error: (
-            self._confflow_feedback.error(tr("Submit failed", self._language)),
-            self._error_cb("ConfFlow Run Error", error),
-        ))
-        worker.finished.connect(
-            lambda: self._background_workers.remove(worker)
-            if worker in self._background_workers else None
-        )
-        self._background_workers.append(worker)
-        self._confflow_feedback.pending(tr("Submitting...", self._language))
-        worker.start()
-
-    def _open_confflow_wizard(self):
-        """Open the ConfFlow workflow wizard and submit the resulting run.
-
-        Mirrors ``_run_confflow``'s upload+submit flow but sources XYZ paths
-        and the workflow YAML from :class:`ConfFlowWizard` instead of the
-        file table. The wizard writes ``workflow.yaml`` next to the first
-        local XYZ file so the existing upload helper can ship it.
-        """
-        if self._service is None or self._connected_server is None:
-            self._status_cb(tr("Connect to a server first", self._language))
-            return
-        from ..dialogs.confflow_wizard_dialog import (
-            ConfFlowUnavailableError,
-            ConfFlowWizard,
-        )
-
-        remote_dir = self.remote_path.text().strip() or "/"
-        server_id = self._connected_server_id or ""
-        try:
-            wizard = ConfFlowWizard(
-                self, server_id=server_id, remote_dir=remote_dir
-            )
-        except ConfFlowUnavailableError as exc:
-            self._status_cb(str(exc))
-            self._error_cb("ConfFlow Wizard", str(exc))
-            return
-        if wizard.exec() != wizard.Accepted:
-            return
-        payload = wizard.accepted_payload()
-        if payload is None:
-            self._status_cb("Wizard did not produce a workflow")
-            return
-        max_parallel = self.max_parallel_spin.value()
-        mol_count = len(payload.xyz_paths)
-        yaml_desc = f"local: {payload.workflow_yaml_path.name}"
-        confirm_msg = (
-            f"Submit ConfFlow batch?\n\n"
-            f"Molecules: {mol_count}\n"
-            f"YAML: {yaml_desc}\n"
-            f"Remote dir: {remote_dir}\n"
-            f"Max parallel: {max_parallel}"
-        )
-        if QMessageBox.question(
-            self, "Confirm ConfFlow Batch", confirm_msg,
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        xyz_targets = [
-            remote_child_path(remote_dir, Path(p).name)
-            for p in payload.xyz_paths
-        ]
-        yaml_target = remote_child_path(
-            remote_dir, payload.workflow_yaml_path.name
-        )
-        file_service = self._service
-        local_base = self.state.current_project_root or Path.cwd()
-        spec = ConfFlowAdapter.build_spec(
-            server_id=server_id,
-            remote_dir=remote_dir,
-            xyz_paths=xyz_targets,
-            config_path=yaml_target,
-            max_parallel=max_parallel,
-        )
-
-        def _run():
-            for local_p, remote_t in zip(payload.xyz_paths, xyz_targets):
-                records = file_service.upload_path(
-                    Path(local_p), remote_t, OverwritePolicy.overwrite
-                )
-                _raise_if_upload_failed(records, remote_t)
-            records = file_service.upload_path(
-                payload.workflow_yaml_path, yaml_target, OverwritePolicy.overwrite
-            )
-            _raise_if_upload_failed(records, yaml_target)
-            return self._execute_run_use_case(spec, Path(local_base), submit=True)
-
-        self._status_cb(f"Submitting ConfFlow batch ({mol_count} molecules)...")
-        worker = BackgroundWorker(_run)
-        worker.result.connect(self._on_confflow_done)
-        worker.error.connect(lambda error: (
-            self._confflow_feedback.error(tr("Submit failed", self._language)),
-            self._error_cb("ConfFlow Run Error", error),
-        ))
-        worker.finished.connect(
-            lambda: self._background_workers.remove(worker)
-            if worker in self._background_workers else None
-        )
-        self._background_workers.append(worker)
-        self._confflow_feedback.pending(tr("Submitting...", self._language))
-        worker.start()
-
-    def _on_confflow_done(self, payload):
-        if not payload.records:
-            self._confflow_feedback.error(tr("Submit failed", self._language))
-            self._error_cb("ConfFlow Run Error", "\n".join(payload.errors))
-            return
-        record = payload.records[0]
-        self.state.current_project_root = Path(record.local_dir) if record.local_dir else self.state.current_project_root
-        self.state.current_batch_id = record.run_id
-        self.state.current_manifest_path = record.manifest_path
-        errors = list(payload.errors)
-        if errors:
-            self._confflow_feedback.error(tr("Submit failed", self._language))
-            self._error_cb("ConfFlow Run Error", "\n".join(errors))
-            return
-        self._confflow_feedback.success(tr("Submitted", self._language))
-        self._on_runs_done(payload.submit_results)
-
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
         """Return (files, dirs) of selected local paths."""
         files: list[str] = []
@@ -2068,169 +1654,6 @@ class FileTransferPage(QWidget):
                 files.append(path_item.text())
         return files, dirs
 
-    def _run_selected_chunks(self, submit: bool = True):
-        # Detect whether selection is local or remote
-        remote_files, remote_dirs = self._selected_remote_entries()
-        local_files, local_dirs = self._selected_local_entries()
-        has_remote_selection = bool(remote_files or remote_dirs)
-        has_local_selection = bool(local_files or local_dirs)
-        use_local = has_local_selection and (
-            not has_remote_selection or self._last_file_selection_side == "local"
-        )
-
-        if use_local:
-            if self._service is None or self._connected_server is None:
-                self._status_cb(tr("Connect to a server first", self._language))
-                return
-            files = []  # will be populated after upload in bg worker
-            dirs = []
-        else:
-            if has_remote_selection and has_local_selection and self._last_file_selection_side == "remote":
-                local_files = []
-                local_dirs = []
-            files = remote_files
-            dirs = remote_dirs
-
-        reason = run_button_reason(
-            self._service is not None and self._connected_server is not None,
-            len(local_files) + len(local_dirs) if use_local else
-            (len(files) + len(dirs) if self.run_mode_combo.currentData() != RunMode.current_directory.value else 1),
-            self.command_edit.currentText(),
-        )
-        if reason:
-            self._status_cb(reason)
-            return
-        if submit and QMessageBox.question(
-            self, "Confirm", tr("Submit tasks to remote server?", self._language),
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        local_base = self.state.current_project_root or Path.cwd()
-        remote_dir = self.remote_path.text().strip() or "/"
-        try:
-            ensure_safe_remote_path(remote_dir)
-        except RemotePathError as exc:
-            self._status_cb(str(exc))
-            return
-        command_template = self.command_edit.currentText().strip()
-        max_parallel = self.max_parallel_spin.value()
-        run_mode = RunMode(self.run_mode_combo.currentData())
-        server_id = self._connected_server_id or ""
-        connected_server = self._connected_server
-        file_service = self._service
-        if file_service is None or connected_server is None:
-            self._status_cb(tr("Connect to a server first", self._language))
-            return
-        feedback = self._run_feedback if submit else self._create_only_feedback
-
-        local_paths_files = list(local_files)
-        local_paths_dirs = list(local_dirs)
-        remote_files_for_run = list(files)
-        remote_dirs_for_run = list(dirs)
-
-        def _create_specs(selected_files: list[str], selected_dirs: list[str]):
-            all_sources = [RunSource(path=p, is_dir=False) for p in selected_files] + [
-                RunSource(path=p, is_dir=True) for p in selected_dirs
-            ]
-            if run_mode == RunMode.current_directory:
-                all_sources = []
-            chunks = chunk_sources(all_sources, 0)
-            if run_mode == RunMode.current_directory:
-                chunks = [[]]
-            specs = []
-            for chunk in chunks:
-                specs.append(RunSpec(
-                    server_id=server_id,
-                    remote_dir=remote_dir,
-                    command_template=command_template,
-                    max_parallel=max_parallel,
-                    mode=run_mode,
-                    sources=chunk,
-                ))
-            return specs
-
-        def _run(ctx: WorkerContext):
-            run_records = []
-            results = []
-            try:
-                selected_files = remote_files_for_run
-                selected_dirs = remote_dirs_for_run
-                if use_local:
-                    ctx.emit_log("Uploading files...")
-                    uploaded_files = []
-                    uploaded_dirs = []
-                    for local_path_text in local_paths_files:
-                        target = remote_child_path(remote_dir, Path(local_path_text).name)
-                        rec = file_service.upload_path(Path(local_path_text), target, OverwritePolicy.overwrite)
-                        _raise_if_upload_failed(rec, target)
-                        uploaded_files.append(target)
-                    for local_dir_text in local_paths_dirs:
-                        target = remote_child_path(remote_dir, Path(local_dir_text).name)
-                        rec = file_service.upload_path(Path(local_dir_text), target, OverwritePolicy.overwrite)
-                        _raise_if_upload_failed(rec, target)
-                        uploaded_dirs.append(target)
-                    selected_files = uploaded_files
-                    selected_dirs = uploaded_dirs
-
-                specs = _create_specs(selected_files, selected_dirs)
-                for spec in specs:
-                    outcome = self._execute_run_use_case(spec, Path(local_base), submit=submit)
-                    run_records.extend(outcome.records)
-                    results.extend(outcome.submit_results)
-                    if outcome.errors:
-                        return {
-                            "records": run_records,
-                            "results": results if submit else None,
-                            "error": "; ".join(outcome.errors),
-                        }
-            except Exception as exc:
-                return {"records": run_records, "results": None, "error": f"{type(exc).__name__}: {exc}"}
-            return {"records": run_records, "results": results if submit else None, "error": None}
-
-        def _on_run_worker_done(payload):
-            run_records = payload["records"]
-            if run_records:
-                first = run_records[0]
-                self.state.current_project_root = Path(local_base)
-                self.state.current_batch_id = first.run_id
-                self.state.current_manifest_path = first.manifest_path
-                self._log(f"Runs created: {', '.join(r.run_id for r in run_records)}")
-            self._save_remembered_profile()
-            self._save_command_history()
-            error = payload.get("error")
-            if error:
-                feedback.error(tr("Submit failed", self._language) if submit else tr("Create failed", self._language))
-                self._error_cb("Run Error", error)
-                return
-            results = payload["results"]
-            if results is None:
-                feedback.success(tr("Created {n}", self._language, n=len(run_records)))
-                self._status_cb(f"Created {len(run_records)} run(s)")
-            else:
-                errors = _submit_result_errors(results)
-                if errors:
-                    feedback.error(tr("Submit failed", self._language))
-                    self._error_cb("Run Error", "\n".join(errors))
-                    return
-                feedback.success(tr("Submitted {n}", self._language, n=len(results)))
-                self._on_runs_done(results)
-
-        def _on_run_worker_error(error: str) -> None:
-            feedback.error(tr("Submit failed", self._language) if submit else tr("Create failed", self._language))
-            self._error_cb("Run Error", error)
-
-        feedback.pending(tr("Submitting...", self._language) if submit else tr("Creating...", self._language))
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_log=self._status_cb,
-            on_result=_on_run_worker_done,
-            on_error=_on_run_worker_error,
-        )
-        self._status_cb("Submitting..." if submit else "Creating run(s)...")
-        return
-
     def _on_runs_done(self, results):
         for result in results:
             self._log(f"Run submitted: {result.batch_id}, tasks={result.submitted_task_count}, errors={len(result.errors)}")
@@ -2239,92 +1662,21 @@ class FileTransferPage(QWidget):
         self._status_cb(f"Submitted {len(results)} run(s)")
         self.runs_submitted.emit([result.batch_id for result in results if not result.errors])
 
-    def _save_remembered_profile(self):
-        if not self._connected_server_id:
-            return
-        RunProfileStore().save_last(
-            server_id=self._connected_server_id,
-            remote_dir=self.remote_path.text().strip() or "/",
-            command_template=self.command_edit.currentText().strip(),
-            max_parallel=self.max_parallel_spin.value(),
-            download_patterns=[],
-        )
-
-    def _save_command_history(self):
-        cmd = self.command_edit.currentText().strip()
-        if not cmd:
-            return
-        # Avoid duplicates; insert at top
-        idx = self.command_edit.findText(cmd)
-        if idx >= 0:
-            self.command_edit.removeItem(idx)
-        self.command_edit.insertItem(0, cmd)
-        self.command_edit.setCurrentIndex(0)
-        # Persist via RunProfileStore (limited to 20 entries)
-        items = [self.command_edit.itemText(i) for i in range(min(self.command_edit.count(), 20))]
-        RunProfileStore().save_command_history(items)
-        self._save_command_profile_template(cmd)
-
-    def _save_command_profile_template(self, cmd: str):
-        paths = self._selected_command_paths()
-        if not paths:
-            return
-        ext = posixpath.splitext(paths[0])[-1].lower()
-        if not ext:
-            return
-        profile_name = self._profile_name_for_extension(ext)
-        if not profile_name:
-            return
-        profiles = {
-            name: dict(profile)
-            for name, profile in (self._gui_settings.software_profiles or {}).items()
-        }
-        profile = profiles.get(profile_name)
-        if not profile or profile.get("command_template") == cmd:
-            return
-        previous_template = profile.get("command_template", "")
-        profile["command_template"] = cmd
-        GuiSettingsStore().update(software_profiles=profiles)
-        self._gui_settings = replace(self._gui_settings, software_profiles=profiles)
-        self._known_profile_command_templates.update(
-            template for template in (previous_template, cmd) if template
-        )
-
-    def _load_command_history(self):
-        history = RunProfileStore().load_command_history()
-        self.command_edit.clear()
-        for cmd in history:
-            self.command_edit.addItem(cmd)
-
-    def _load_remembered_profile(self):
-        if not self._connected_server_id:
-            return
-        profile = RunProfileStore().load_last(
-            self._connected_server_id,
-            self.remote_path.text().strip() or "/",
-        )
-        if profile is None:
-            return
-        self.command_edit.setCurrentText(profile.command_template)
-        self.max_parallel_spin.setValue(profile.max_parallel)
-
     def _allow_width_shrink(self):
         for widget in (
             self.local_path_btn,
             self.connection_label,
             self.remote_path,
-            self.command_edit,
         ):
             policy = widget.sizePolicy()
             widget.setMinimumWidth(0)
             widget.setSizePolicy(QSizePolicy.Ignored, policy.verticalPolicy())
         for widget in (
             self.server_combo,
-            self.run_mode_combo,
-            self.max_parallel_spin,
-            self.run_btn,
-            self.create_only_btn,
         ):
+            policy = widget.sizePolicy()
+            widget.setMinimumWidth(0)
+            widget.setSizePolicy(QSizePolicy.Preferred, policy.verticalPolicy())
             policy = widget.sizePolicy()
             widget.setMinimumWidth(0)
             widget.setSizePolicy(QSizePolicy.Preferred, policy.verticalPolicy())
@@ -2341,12 +1693,6 @@ class FileTransferPage(QWidget):
             self.local_path_btn,
             self.server_combo,
             self.remote_path,
-            self.command_edit,
-            self.preview_commands_btn,
-            self.run_mode_combo,
-            self.max_parallel_spin,
-            self.run_btn,
-            self.create_only_btn,
         )
 
     def shutdown(self):
