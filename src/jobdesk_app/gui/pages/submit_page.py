@@ -84,6 +84,7 @@ class SubmitPage(QWidget):
         on_error: Callable[[str, str], None] | None = None,
         remote_available: bool = False,
         server_label: str = "",
+        activity_repo: Any = None,
     ):
         super().__init__(parent)
         self.state = state
@@ -94,6 +95,8 @@ class SubmitPage(QWidget):
         self._server_label = server_label
         self._use_case = SubmitUseCase()
         self._last_batch: PreparedBatch | None = None
+        self._activity_repo = activity_repo or getattr(state, "repo", None)
+        self.load_recent_activity()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -267,15 +270,24 @@ class SubmitPage(QWidget):
             return tr("No server", self._language)
         return f"{tr('Server', self._language)}: {self._server_label}"
 
+    def load_recent_activity(self, limit: int = _ACTIVITY_LIMIT) -> None:
+        """Repopulate the activity list from the repository on startup."""
+        repo = self._activity_repo
+        if repo is None:
+            return
+        try:
+            for entry in repo.list_recent_activity(limit=limit):
+                self.activity_list.addItem(QListWidgetItem(entry["message"]))
+        except Exception:
+            pass
+
     def _log(self, message: str) -> None:
+        if self._activity_repo is not None:
+            try:
+                self._activity_repo.append_activity(level="info", message=message)
+            except Exception:
+                pass
         self.activity_list.addItem(QListWidgetItem(message))
-        items: deque = deque(maxlen=_ACTIVITY_LIMIT)
-        for idx in range(self.activity_list.count()):
-            items.append(self.activity_list.item(idx).text())
-        # Trim to last N entries.
-        if self.activity_list.count() > _ACTIVITY_LIMIT:
-            for _ in range(self.activity_list.count() - _ACTIVITY_LIMIT):
-                self.activity_list.takeItem(0)
         self._on_status(message)
 
     def _on_sources_changed(self, _sources: list[InputSource]) -> None:
