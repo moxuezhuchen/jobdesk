@@ -89,14 +89,15 @@ JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by defa
 Schema v5 is current. Schema v2 introduced the durable submit/delete operation
 journal; schema v3 added an independent trusted-workspace registry and
 delete-operation-to-workspace bindings; schema v4 added renewable submit
-ownership leases; schema v5 adds a `submit_activity_log` table that persists
-SubmitPage activity across restarts.
-
-The v2-to-v3 migration seeds workspace trust only from live run rows and
-leaves old delete operations unbound; journal payloads are never treated as
-trust anchors. Back up the complete SQLite file set before first opening an
-older database with this version. Completed journal entries are retained for
-seven days; incomplete entries are never automatically pruned.
+ownership leases (lease timestamps stored and compared in UTC); schema v5
+adds a `submit_activity_log` table that persists SubmitPage activity
+across restarts. Recovery takes over only ownerless legacy submissions or
+submissions whose lease has expired. The v2-to-v3 migration seeds
+workspace trust only from live run rows and leaves old delete operations
+unbound; journal payloads are never treated as trust anchors. Back up the
+complete SQLite file set before first opening an older database with this
+version. Completed journal entries are retained for seven days; incomplete
+entries are never automatically pruned.
 
 New runs persist their workspace as an absolute anchor. Delete preparation
 must match that live anchor; legacy rows without one require manual cleanup.

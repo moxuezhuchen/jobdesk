@@ -86,7 +86,7 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 JobDesk 默认使用 SQLite 将运行和任务状态存储在 `%APPDATA%/JobDesk/runs/jobdesk.db`。WAL 模式与事务化更新允许 GUI 与 CLI 共享状态而无需重写 manifest 文件。
 
-当前为 Schema v5。Schema v2 引入了可重放的 submit / delete 操作日志；v3 增加了独立的受信工作区注册表与 delete 操作到工作区的绑定；v4 增加了可续期的 submit 所有权租约；v5 新增 `submit_activity_log` 表，用于持久化提交页活动日志，使应用重启后活动记录得以保留。
+当前为 Schema v5。Schema v2 引入了可重放的 submit / delete 操作日志；v3 增加了独立的受信工作区注册表与 delete 操作到工作区的绑定；v4 增加了可续期的 submit 所有权租约，租约时间戳以 UTC 存储与比较；v5 新增 `submit_activity_log` 表，用于持久化提交页活动日志，使应用重启后活动记录得以保留。恢复操作仅接管无主的遗留提交或租约已过期的提交。v2 到 v3 的迁移仅从活跃 run 行种子化工作区信任，并将旧 delete 操作保留为未绑定；日志负载永远不会被视为信任锚点。在用本版本首次打开旧数据库之前，请备份完整的 SQLite 文件集。已完成的日志条目保留 7 天；未完成的条目永远不会被自动清理。
 
 新增的运行以绝对路径作为工作区锚点持久化。删除准备必须匹配该活跃锚点；没有锚点的遗留行需要手动清理。
 

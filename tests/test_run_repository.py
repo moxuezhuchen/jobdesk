@@ -242,7 +242,7 @@ def test_v3_migration_adds_nullable_submit_lease_columns(tmp_path: Path) -> None
 
     with sqlite3.connect(upgraded.database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
-    assert upgraded.schema_version() == 4
+    assert upgraded.schema_version() == 5
     assert {"owner_id", "lease_expires_at"} <= columns
 
 
@@ -398,7 +398,7 @@ def test_upgrades_v1_database_without_changing_task_state(tmp_path: Path) -> Non
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 4
+    assert upgraded.current_schema_version() == 5
     assert upgraded.load_tasks("run-1")[0].status == TaskStatus.running
     with sqlite3.connect(upgraded.database_path) as connection:
         columns = {
@@ -442,7 +442,7 @@ def test_upgrades_v2_registry_only_from_live_absolute_run_workspaces(
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 4
+    assert upgraded.current_schema_version() == 5
     assert upgraded.list_workspace_roots() == [trusted.resolve()]
     assert upgraded.delete_operation_workspace("missing") is None
 
