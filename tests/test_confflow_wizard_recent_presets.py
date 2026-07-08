@@ -1,8 +1,9 @@
 """Tests for the Calculation widget's recent-presets strip (Phase 14A refactor).
 
-The favourites strip is in-memory MRU only — no persistence. It records
-each preset the user picks via the combo, caps at 5 most-recent entries,
-and renders one ``QToolButton`` per preset in MRU order.
+Phase 9D-4 introduced the strip in-memory only. Phase 9E-1 promotes it
+to a YAML-on-disk MRU backed by :class:`PresetFavouriteStore`. Each test
+injects a fresh tmp-path store so it does not pollute the real app data
+directory.
 
 Phase 14C.2: the strip moved with the rest of the calc widget body from
 ``_CalcPage`` (QWizardPage) to ``CalculationWidget`` (QWidget).
@@ -19,11 +20,13 @@ from jobdesk_app.gui.widgets.calculation_widget import (
     _MAX_RECENT_PRESETS,
     CalculationWidget,
 )
+from jobdesk_app.services.recent_presets import PresetFavouriteStore
 
 
 @pytest.fixture
-def calc_widget(qtbot):
-    widget = CalculationWidget(language="en")
+def calc_widget(qtbot, tmp_path):
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    widget = CalculationWidget(language="en", preset_store=store)
     qtbot.addWidget(widget)
     return widget
 
@@ -116,10 +119,34 @@ def test_recent_button_click_applies_preset(calc_widget, qtbot):
     assert calc_widget.method_edit.text() == "B3LYP"
 
 
-def test_recent_presets_isolated_between_widget_instances(qtbot):
-    """Two widgets share no recent-presets state (in-memory per-instance)."""
-    wiz_a = CalculationWidget(language="en")
-    wiz_b = CalculationWidget(language="en")
+def test_recent_presets_shared_between_widget_instances(qtbot, tmp_path):
+    """Two widgets backed by the same PresetFavouriteStore share state."""
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    wiz_a = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(wiz_a)
+    _pick_preset(wiz_a, "b3lyp_631gd_opt_freq")
+    # Build wiz_b AFTER the pick so its constructor hydrates from disk.
+    wiz_b = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(wiz_b)
+    assert list(wiz_b.recent_presets.keys()) == ["b3lyp_631gd_opt_freq"]
+
+
+def test_late_widget_hydrates_existing_mru_on_construction(qtbot, tmp_path):
+    """A widget built against an already-populated store picks it up."""
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    # Manually seed (simulates a previous run of the wizard).
+    store.save(["preset_a", "preset_b"])
+    widget = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(widget)
+    assert list(widget.recent_presets.keys()) == ["preset_a", "preset_b"]
+
+
+def test_recent_presets_isolated_with_independent_stores(qtbot, tmp_path):
+    """Two widgets with **different** stores do not share MRU state."""
+    store_a = PresetFavouriteStore(tmp_path / "a.yaml")
+    store_b = PresetFavouriteStore(tmp_path / "b.yaml")
+    wiz_a = CalculationWidget(language="en", preset_store=store_a)
+    wiz_b = CalculationWidget(language="en", preset_store=store_b)
     qtbot.addWidget(wiz_a)
     qtbot.addWidget(wiz_b)
     _pick_preset(wiz_a, "b3lyp_631gd_opt_freq")
@@ -132,3 +159,78 @@ def test_apply_recent_preset_unknown_id_is_noop(calc_widget):
     calc_widget._apply_recent_preset("definitely_not_a_real_preset")
     assert calc_widget.method_edit.text() == "untouched"
     assert "definitely_not_a_real_preset" not in calc_widget.recent_presets
+
+
+# -- Phase 9E-1: persistence tests ---------------------------------------
+
+
+def test_widget_picks_persist_to_disk(calc_widget):
+    """Each preset selection writes the updated MRU back to the store."""
+    _pick_preset(calc_widget, "b3lyp_631gd_opt_freq")
+    saved = calc_widget._preset_store.load()
+    assert saved == ["b3lyp_631gd_opt_freq"]
+
+
+def test_widget_survives_corrupt_disk_store(qtbot, tmp_path):
+    """A malformed YAML file should not crash widget construction."""
+    bad = tmp_path / "recent_presets.yaml"
+    bad.write_text(": this is : not : valid :", encoding="utf-8")
+    store = PresetFavouriteStore(bad)
+    widget = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(widget)
+    assert widget.recent_presets == OrderedDict()
+
+
+def test_widget_dedupes_and_caps_on_hydration(qtbot, tmp_path):
+    """A store holding duplicates or more than ``_MAX_RECENT_PRESETS`` is sanitised."""
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    store.save(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p1"])
+    widget = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(widget)
+    keys = list(widget.recent_presets.keys())
+    assert len(keys) <= _MAX_RECENT_PRESETS
+    assert len(set(keys)) == len(keys)
+
+
+def test_widget_drops_non_string_entries_from_disk(qtbot, tmp_path):
+    """Non-string entries in the YAML file are silently filtered out."""
+    import yaml
+
+    bad = tmp_path / "recent_presets.yaml"
+    raw = {"recent_presets": ["good_preset", 42, None, "another_good"]}
+    bad.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    store = PresetFavouriteStore(bad)
+    widget = CalculationWidget(language="en", preset_store=store)
+    qtbot.addWidget(widget)
+    keys = list(widget.recent_presets.keys())
+    assert all(isinstance(k, str) for k in keys)
+    assert "good_preset" in keys
+    assert "another_good" in keys
+
+
+def test_store_round_trip_preserves_mru_order(tmp_path):
+    """Saving and reloading an MRU keeps original order (most-recent-first)."""
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    original = ["preset_a", "preset_b", "preset_c"]
+    store.save(original)
+    assert store.load() == original
+
+
+def test_store_clear_removes_disk_file(tmp_path):
+    """``clear()`` unlinks the YAML so a fresh widget sees no MRU."""
+    store = PresetFavouriteStore(tmp_path / "recent_presets.yaml")
+    store.save(["preset_a"])
+    assert store.path.exists()
+    store.clear()
+    assert not store.path.exists()
+    assert store.load() == []
+
+
+def test_default_store_path_uses_app_data_dir(monkeypatch, tmp_path):
+    """When no path is given, the store lands in the app data dir."""
+    from jobdesk_app.services import recent_presets as rp
+
+    monkeypatch.setattr(rp, "get_app_data_dir", lambda: tmp_path / "JobDesk")
+    store = PresetFavouriteStore()
+    store.save(["preset_a"])
+    assert (tmp_path / "JobDesk" / "recent_presets.yaml").exists()

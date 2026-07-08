@@ -33,6 +33,7 @@ from ...core.input_builder import (
     ORCA_PRESETS,
     preset_to_confflow_fields,
 )
+from ...services.recent_presets import PresetFavouriteStore
 from ..button_feedback import apply_button_role
 from ..i18n import tr
 
@@ -71,9 +72,19 @@ class CalculationWidget(QWidget):
 
     _hint_style = "color: #c00; font-style: italic;"
 
-    def __init__(self, parent: QWidget | None = None, language: str = "en"):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        language: str = "en",
+        *,
+        preset_store: PresetFavouriteStore | None = None,
+    ):
         super().__init__(parent)
         self._language = language
+        # Phase 9E-1: the recent-presets strip is now persisted. Callers can
+        # inject a custom store (tests use a tmp path); the default lands in
+        # the app data dir.
+        self._preset_store = preset_store or PresetFavouriteStore()
 
         # Validation state — _touched gates which fields surface inline hints,
         # so the user is not yelled at mid-typing. _was_complete tracks the
@@ -97,7 +108,8 @@ class CalculationWidget(QWidget):
 
         # Recent-presets strip — quick one-click access to the last few
         # presets the user picked. Populated lazily by
-        # :meth:`_refresh_recent_strip`; in-memory only (Phase 9D-4).
+        # :meth:`_refresh_recent_strip`; backed by PresetFavouriteStore
+        # (Phase 9E-1) so picks survive restarts.
         self.recent_strip = QHBoxLayout()
         self.recent_strip.setContentsMargins(0, 0, 0, 0)
         self.recent_strip.setSpacing(4)
@@ -187,6 +199,10 @@ class CalculationWidget(QWidget):
         self.mult_spin.valueChanged.connect(lambda _v: self._on_spin_touched("mult"))
         self.nproc_spin.valueChanged.connect(lambda _v: self._on_spin_touched("nproc"))
         self.mem_spin.valueChanged.connect(lambda _v: self._on_spin_touched("mem"))
+
+        # Phase 9E-1: hydrate the MRU strip from disk. Done last so the
+        # signals above are wired and the strip gets a chance to render.
+        self._hydrate_recent_presets()
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -338,7 +354,8 @@ class CalculationWidget(QWidget):
         """Move ``preset_name`` to the front of the recent-presets MRU list.
 
         Caps the list at :data:`_MAX_RECENT_PRESETS` so the strip never grows
-        unbounded. Ordering is most-recent-first via OrderedDict.
+        unbounded. Ordering is most-recent-first via OrderedDict. Phase 9E-1:
+        also persists the updated MRU to disk through the injected store.
         """
         if preset_name in self.recent_presets:
             self.recent_presets.move_to_end(preset_name, last=False)
@@ -347,6 +364,27 @@ class CalculationWidget(QWidget):
             self.recent_presets.move_to_end(preset_name, last=False)
         while len(self.recent_presets) > _MAX_RECENT_PRESETS:
             self.recent_presets.popitem(last=True)
+        self._preset_store.save(self.recent_presets)
+
+    def _hydrate_recent_presets(self) -> None:
+        """Populate :attr:`recent_presets` from the store, then render the strip.
+
+        Phase 9E-1: deferred to widget construction time so a freshly
+        constructed widget reflects the user's previously-saved picks.
+        Safe to call before the widget is shown (the strip stays hidden
+        when the MRU is empty).
+        """
+        saved = self._preset_store.load()
+        self.recent_presets.clear()
+        for name in saved:
+            if name in self.recent_presets:
+                continue  # dedupe in case the file was hand-edited
+            self.recent_presets[name] = None
+        # Cap defensively even if the on-disk file grew somehow.
+        while len(self.recent_presets) > _MAX_RECENT_PRESETS:
+            self.recent_presets.popitem(last=True)
+        if self.recent_presets:
+            self._refresh_recent_strip()
 
     def _refresh_recent_strip(self) -> None:
         """Rebuild the recent-presets strip from :attr:`recent_presets`."""
