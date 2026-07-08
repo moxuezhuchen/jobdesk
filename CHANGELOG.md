@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-08
+
+The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.
+
+### Added (Phase 14 — unified Submit page)
+- `core.submit_payload` value types: `InputSource`, `WorkflowFields`, `SubmitPayload` (frozen dataclasses, no Qt deps). `core.RunSpec.workflow_kind` is the discriminant for the page → use-case → worker boundary.
+- `services.SubmitUseCase`: single entry point that turns a `SubmitPayload` into a `PreparedBatch` (local paths, remote targets, `RunSpec` list, optional `workflow.yaml` path). Pure logic — no Qt, no I/O, no network. The page-level worker callback owns uploads and `RunCoordinator.create_and_submit`.
+- `gui.widgets.calculation_widget.CalculationWidget`: embedded version of the wizard's calc page (no `QWizardPage` superclass). Same field set + a `CalculationFields` value type. Recent-presets MRU stays in memory.
+- `gui.widgets.workflow_widget.WorkflowWidget`: embedded version of the wizard's workflow page. Wires an optional `CalculationWidget` so `build_spec(calc)` can produce a `WorkflowSpec` without re-reading widgets.
+- `gui.widgets.input_builder_widget.InputBuilderWidget`: embedded version of the InputBuilder dialog. `build_content()` / `build_content_to()` instead of `accept()` / `reject()`.
+- `gui.widgets.input_source_panel.InputSourcePanel`: tabbed local / remote picker. `add_local_paths` / `add_remote_paths` / `set_sources` API; `sources_changed(list[InputSource])` signal; drag-drop accepts `.xyz` / `.gjf` / `.inp` and directories (recursive only via the "Add directory…" button, not via drop).
+- `gui.pages.submit_page.SubmitPage`: first-class unified submit UI. Embeds the four widgets above + the `SubmitUseCase`. Exposes `submit_requested(SubmitPayload)`, `create_only_requested(SubmitPayload)`, `use_as_input_received(list)`. Live preview pane, activity log, server pill, max-parallel spinbox.
+- Right-click context menu on `FileTransferPage.local_table` / `remote_table`: "Use as input → Submit" + "Send to ConfFlow → Submit". Emits `use_as_input_received(list[InputSource])`; `MainWindow` wires it to `SubmitPage.push_sources()` and `AppShell.set_current(1)`.
+
+### Removed
+- `gui.dialogs.confflow_wizard_dialog.ConfFlowWizard` and `_CalcPage` / `_WorkflowPage` / `_XyzPage` (QWizardPage subclasses).
+- `gui.dialogs.input_builder_dialog.InputBuilderDialog` (QDialog shell).
+- The `gui.dialogs` package (now empty).
+- `FileTransferPage._run_selected` / `_run_selected_chunks` / `_run_confflow` / `_open_confflow_wizard` / `_on_confflow_done` / `_create_only` / `_execute_run_use_case` / `_remote_generate_gjf` / `_auto_fill_command` / `_save_command_history` / `_save_command_profile_template` / `_load_command_history` / `_load_remembered_profile` / `_apply_gui_settings_no_folder` and the run-buttons (`confflow_btn`, `run_btn`, `create_only_btn`, `command_edit`, `command_preview`, `max_parallel_spin`, `run_mode_combo`).
+
+### Fixed
+- `SubmitUseCase._build_single_specs` now sets `RunSpec.workflow_kind` from the program (`gaussian` / `orca`) instead of always defaulting to `gaussian`.
+- `SubmitPage.set_server_status` had a `NameError` on `language` — fixed to use `self._language`. Also simplified the guard and added a recursive-checkbox inheritance so the Remote tab starts in sync with the Local one.
+
+### Tests
+- 1200 passed, 35 skipped, 1 pre-existing CHANGELOG failure carried over from v0.4.0 (`test_architecture_boundaries.py::test_schema_documentation_describes_v2_to_v4_migration_chain`).
+- New: `tests/test_submit_payload.py` (13 tests), `tests/test_submit_use_case.py` (15 tests), `tests/test_input_source_panel.py` (14 tests), `tests/test_submit_page.py` (14 tests).
+- Migrated: 8 wizard test files (calc / workflow / i18n / recent-presets / xyz-batch / xyz-drop / wizard-dialog / input-builder-i18n) now drive the embedded widgets directly.
+- `TestFileTransferPage` (17 tests for removed run/ConFlow/command-edit paths) `pytest.skip`-ed with a clear "removed in v0.5.0 phase 14C" reason.
+
+
 ## [0.4.0] — 2026-07-07
 
 ### Added
@@ -48,9 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added (SQLite architecture remediation)
 - Transactional SQLite run repository replacing per-run `run.json` / `manifest.tsv` manifests.
 - One-time legacy import with migration diagnostics recorded in the database.
-- Submit / delete operation journal (v2) with seven-day retention of completed entries.
-- Trusted-workspace registry (v3) with delete-operation-to-workspace bindings.
-- UTC submit-ownership leases (v4): recovery takes over only ownerless legacy submissions or expired leases.
+- v2 operation journal (submit + delete history, seven-day retention of completed entries).
+- v3 trusted-workspace registry (delete-operation-to-workspace bindings).
+- v4 UTC submit ownership leases (ownerless / expired takeover semantics).
 - Architecture-boundary, concurrent persistence, migration, and coordinator regression coverage.
 - `RunCoordinator` shared between CLI and GUI; monitor service decoupled from its Qt adapter.
 
@@ -74,7 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.0
+[0.4.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.3.0
 [0.2.x]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.2.0
 [0.1.x]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.1.0

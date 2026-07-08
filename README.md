@@ -142,20 +142,39 @@ python -m pip install -e ".[chem]"
 pip install "git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10"
 ```
 
-### Wizard
+### Submit page (Phase 14)
 
-`ConfFlow Wizard…` next to **Run ConfFlow** opens a three-step QWizard:
+The Submit page (second tab in the GUI shell) is the unified submit
+UI. It bundles what used to be the ConfFlow wizard + the InputBuilder
+dialog into one inline widget, and adds first-class "Use as input"
+hooks from the Files page (right-click → "Use as input → Submit").
 
-1. **XYZ inputs** — pick one or more local `.xyz` files (multi-molecule batch).
-2. **Calculation settings** — program (`gaussian` / `orca`), method, basis,
-   charge, multiplicity, `nproc`, memory.
-3. **Workflow settings & preview** — step list (confgen / preopt / opt /
-   refine / sp), `work_dir` template, raw `key=value` advanced options, plus
-   a live YAML preview with round-trip validation.
+Layout (top to bottom):
 
-On accept, the wizard writes `workflow.yaml` next to the first XYZ file,
-uploads both to the configured remote, and submits a `nohup setsid
-confflow … --resume` batch through the existing scheduler.
+1. **Input source panel** — Local / Remote tabs. Pick `.xyz` /
+   `.gjf` / `.inp` files via drag-drop, "Add files…", or "Add
+   directory…" (recursive checkbox).
+2. **Mode tabs** —
+   - **Build input file**: Gaussian / ORCA input file builder
+     (preset dropdown, method / basis / keywords / nproc / memory).
+   - **Build workflow**: full ConfFlow workflow (method / basis
+     validation, step list, work_dir, advanced options, live YAML
+     preview).
+3. **Action row** — server pill, max-parallel spinbox, **Submit** /
+   **Create tasks only** / **Refresh preview**.
+4. **Live preview** — `.gjf` / `.inp` body or `workflow.yaml`.
+5. **Activity log** — last 50 status messages.
+
+Right-click on any row in the Files page's Local or Remote table
+to push it to the Submit page as an input. The page is the single
+entry point for "the user wants to submit this"; the page-level
+worker callback (in `MainWindow`) handles uploads + the
+`RunCoordinator.create_and_submit` call.
+
+On accept the Submit page writes `workflow.yaml` next to the first
+XYZ file (workflow mode), uploads the local files to the configured
+remote, and submits a `nohup setsid confflow … --resume` batch
+through the existing scheduler.
 
 ### SSH-disconnect resilience
 

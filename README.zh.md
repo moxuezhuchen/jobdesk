@@ -125,15 +125,23 @@ python -m pip install -e ".[chem]"
 pip install "git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10"
 ```
 
-### Wizard
+### 提交页（Phase 14）
 
-`Run ConfFlow` 按钮旁的 `ConfFlow Wizard…` 打开一个三步式 QWizard：
+提交页（GUI 第二个标签页）是统一的提交界面。它把过去的 ConfFlow 向导与输入文件生成器对话框整合为一个内嵌组件，并新增了从文件页"作为输入"推送的入口（在文件页右键 → "作为输入 → 提交"）。
 
-1. **XYZ 输入** — 选择一个或多个本地 `.xyz` 文件（多分子批处理）
-2. **计算设置** — 程序（`gaussian` / `orca`）、方法、基组、电荷、自旋多重度、`nproc`、内存
-3. **工作流设置与预览** — 步骤列表（confgen / preopt / opt / refine / sp）、`work_dir` 模板、原始 `key=value` 高级选项，以及带往返校验的实时 YAML 预览
+布局（自上而下）：
 
-确认后，wizard 会在第一个 XYZ 文件旁写入 `workflow.yaml`，将二者上传到已配置的远端，并通过现有的调度器以 `nohup setsid confflow … --resume` 形式提交。
+1. **输入源面板** — 本地 / 远端两个标签页。支持拖放、"添加文件…"、"添加目录…"（含递归复选框）添加 `.xyz` / `.gjf` / `.inp` 文件。
+2. **模式标签** —
+   - **生成输入文件**：Gaussian / ORCA 输入文件生成器（预设下拉、方法/基组/关键词/nproc/内存）。
+   - **生成工作流**：完整的 ConfFlow 工作流（方法/基组校验、步骤列表、`work_dir`、高级选项、实时 YAML 预览）。
+3. **操作行** — 服务器状态标签、最大并行数微调框、**提交** / **仅创建任务** / **刷新预览**。
+4. **实时预览** — `.gjf` / `.inp` 内容或 `workflow.yaml`。
+5. **活动记录** — 最近 50 条状态消息。
+
+在文件页的本地或远端表任意行上右键，即可将其作为输入推送到提交页。提交页是"用户希望提交"这一动作的唯一入口；页面级工作线程回调（位于 `MainWindow`）负责上传与 `RunCoordinator.create_and_submit` 调用。
+
+确认后（工作流模式），提交页会在第一个 XYZ 文件旁写入 `workflow.yaml`，将本地文件上传到已配置的远端，并通过现有的调度器以 `nohup setsid confflow … --resume` 形式提交。
 
 ### SSH 断连韧性
 

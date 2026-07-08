@@ -37,23 +37,39 @@ that holds session leases via `SessionPool`.
 
 ## 3-page GUI shell
 
-`gui/main_window.py` wires a `QStackedWidget` of three pages:
+`gui/main_window.py` wires a `QStackedWidget` of four pages (Phase 14):
 
 | Page | Module | Role |
 |---|---|---|
-| Files | `gui/pages/file_transfer_page.py` | SSH/SFTP browser + per-row "Run" action |
+| Files | `gui/pages/file_transfer_page.py` | SSH/SFTP browser. Right-click "Use as input → Submit" / "Send to ConfFlow → Submit" pushes paths to the Submit page. |
+| Submit | `gui/pages/submit_page.py` | Unified submit UI: input picker, mode tabs (Build input file / Build workflow), Submit / Create-tasks-only buttons, live preview, activity log. |
 | Runs & Results | `gui/pages/runs_results_page.py` | Run list, per-task status, parsed preview, ResultDetailPane |
 | Settings | `gui/pages/settings_servers_page.py` | `servers.yaml` editor + GUI preferences |
 
-A user can open the ConfFlow wizard from the Runs page (`Run ConfFlow`
-button → `gui/dialogs/confflow_wizard_dialog.py`). The wizard is a
-self-contained three-step `QWizard`:
+The Submit page (Phase 14) replaces the legacy ConfFlow wizard and
+InputBuilder dialog. It embeds four reusable widgets from
+`gui/widgets/`:
 
 ```
-XyzPage      ─►  CalcPage     ─►  WorkflowPage   ─►  accept()
-  add files       fill fields       pick steps
-                                       + YAML preview
+InputSourcePanel   ──+──►  SubmitPage  ──►  SubmitUseCase  ──►  PreparedBatch
+CalculationWidget  ──┤                       (pure logic)
+WorkflowWidget     ──┤
+InputBuilderWidget ──┘
 ```
+
+* `InputSourcePanel` — tabbed local/remote picker; `add_local_paths`,
+  `add_remote_paths`, drag-drop, `sources_changed(list[InputSource])`.
+* `CalculationWidget` — method/basis/charge/multiplicity/nproc/memory
+  form with validation hints and a recent-presets MRU strip.
+* `WorkflowWidget` — workflow steps + work_dir + advanced options +
+  YAML preview; `build_spec(calc)` produces a `WorkflowSpec`.
+* `InputBuilderWidget` — Gaussian / ORCA input file renderer
+  (`build_content()` / `build_content_to()`).
+
+The page-level worker callback (in `MainWindow`) handles the I/O:
+uploads `local_paths` to `remote_targets`, then calls
+`RunCoordinator.create_and_submit(spec, local_dir=...)`. The use case
+is intentionally framework-free.
 
 ## Run lifecycle
 
@@ -100,16 +116,19 @@ organisational; all reads / writes still flow through
 
 ## ConfFlow integration
 
-The wizard is optional; JobDesk works without it. When installed
-(`pip install -e ".[chem]"`), the wizard produces a `WorkflowSpec`
-that round-trips through ConfFlow's Pydantic models. On accept:
+The Submit page's "Build workflow" tab is the optional ConfFlow
+front-end. JobDesk works without it. When installed
+(`pip install -e ".[chem]"`), `SubmitUseCase` produces a
+`WorkflowSpec` that round-trips through ConfFlow's Pydantic models
+plus a `workflow.yaml` written next to the first XYZ input. The
+page-level worker callback then:
 
-1. `workflow.yaml` is written next to the first XYZ input.
-2. Both files are uploaded to the configured remote.
-3. A `nohup setsid confflow … --resume` batch is submitted through
-   the existing scheduler.
+1. Uploads the local XYZ inputs to the configured `remote_dir`.
+2. Uploads the rendered `workflow.yaml` alongside them.
+3. Submits the batch through the existing scheduler (`nohup setsid
+   confflow … --resume`).
 
-The wizard and the remote `confflow` binary must import the same
+The Submit page and the remote `confflow` binary must import the same
 Pydantic model version (`pyproject.toml` pins this).
 
 A ConfFlow run is observed via `services/run_monitor.py` polling the
@@ -124,7 +143,8 @@ between DONE lines.
 |---|---|
 | Add a CLI subcommand | `src/jobdesk_app/cli.py` + `services/run_coordinator.py` |
 | Add a page / tab | `gui/main_window.py` (stacked widget) + `gui/pages/<name>_page.py` |
-| Add a wizard step | `gui/dialogs/confflow_wizard_dialog.py` (mirror `_XyzPage` / `_CalcPage` / `_WorkflowPage` pattern) |
+| Tweak the Submit page | `gui/pages/submit_page.py` (layout / signals) or `gui/widgets/{input_source_panel,calculation_widget,workflow_widget,input_builder_widget}.py` (embedded widgets) |
+| Add a submit mode (kind) | `core/submit_payload.py` (`SubmitKind` literal) + `services/submit_use_case.py` (`_build_*_specs`) |
 | Tweak parser output | `core/parsers/{gaussian,orca}.py` + add a test in `tests/test_parsers.py` |
 | Add a column to the runs-results table | `gui/pages/runs_results_page.py` + `_analysis_row` helper |
 | Change the SQLite schema | `services/run_repository/_schema.py` + add a migration in `_legacy.py` |
