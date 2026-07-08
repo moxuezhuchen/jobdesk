@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ._paths import _lexical_absolute
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Re-export so the package root can expose the constant.
 __all__ = ["SCHEMA_VERSION"]
@@ -150,6 +150,30 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
         )
     connection.execute(
         "UPDATE schema_metadata SET value = '4' WHERE key = 'schema_version'"
+    )
+
+
+def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+    """Add submit_activity_log table for persisting SubmitPage activity."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS submit_activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            level TEXT NOT NULL DEFAULT 'info',
+            message TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            run_id TEXT,
+            FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS submit_activity_log_ts_idx "
+        "ON submit_activity_log(ts)"
+    )
+    connection.execute(
+        "UPDATE schema_metadata SET value = '5' WHERE key = 'schema_version'"
     )
 
 
