@@ -34,6 +34,11 @@ Gau-*.inp
 # pytest_review*.log, .public_tree.log, etc.)
 *.review.log
 .review_*.log
+.ruff_*.log
+.pytest_review*.log
+.mypy_review.log
+.public_tree.log
+*_review.log
 
 # Local one-off scripts/logs from manual validation
 m8_real_backend.py
