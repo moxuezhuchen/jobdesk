@@ -13,6 +13,7 @@ CLI entry point is in ``confflow.cli``.
 from __future__ import annotations
 
 from .config_builder import build_task_config, create_runtask_config
+from .dag import build_step_graph, resolve_step_outputs_map, topo_order
 from .engine import load_workflow_config, run_workflow
 from .helpers import (
     as_list,
@@ -44,4 +45,7 @@ __all__ = [
     "TaskStatsCollector",
     "FailureTracker",
     "Tracer",
+    "build_step_graph",
+    "topo_order",
+    "resolve_step_outputs_map",
 ]

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-"""Tests for workflow.step_handlers module."""
+"""Tests for workflow.step_handlers module (Phase 3: inputs is list[str])."""
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -63,7 +64,7 @@ class TestRunConfgenStep:
         """Multi-frame input should be copied directly to search.xyz."""
         result = run_confgen_step(
             step_dir=step_dir,
-            current_input=multi_frame_xyz,
+            inputs=[multi_frame_xyz],
             params={"chains": ["1-2"]},
             input_files=[multi_frame_xyz],
         )
@@ -84,7 +85,7 @@ class TestRunConfgenStep:
         with patch("confflow.workflow.step_handlers.confgen") as mock_confgen:
             result = run_confgen_step(
                 step_dir=step_dir,
-                current_input=single_input_xyz,
+                inputs=[single_input_xyz],
                 params={"chains": ["1-2"]},
                 input_files=[single_input_xyz, "other.xyz"],
             )
@@ -104,7 +105,7 @@ class TestRunConfgenStep:
 
         result = run_confgen_step(
             step_dir=step_dir,
-            current_input=single_input_xyz,
+            inputs=[single_input_xyz],
             params={
                 "angle_step": 60,
                 "bond_multiplier": 1.2,
@@ -132,7 +133,7 @@ class TestRunConfgenStep:
         with pytest.raises(ConfFlowError, match="confgen did not generate"):
             run_confgen_step(
                 step_dir=step_dir,
-                current_input=single_input_xyz,
+                inputs=[single_input_xyz],
                 params={"chains": ["1-2"]},
                 input_files=[single_input_xyz, "other.xyz"],
             )
@@ -151,7 +152,7 @@ class TestRunConfgenStep:
 
             run_confgen_step(
                 step_dir=step_dir,
-                current_input=single_input_xyz,
+                inputs=[single_input_xyz],
                 params={},
                 input_files=[single_input_xyz, "other.xyz"],
             )
@@ -161,6 +162,23 @@ class TestRunConfgenStep:
             assert call_kwargs["optimize"] is False
             assert call_kwargs["rotate_side"] == "left"
             assert call_kwargs["confirm"] is False
+
+    def test_fan_in_logs_warning(self, step_dir: str, single_input_xyz: str, caplog):
+        """When >1 input is supplied (fan-in), a WARNING is logged."""
+        expected = os.path.join(step_dir, "search.xyz")
+        with open(expected, "w") as f:
+            f.write("2\nin\nC 0 0 0\nH 0 0 1\n")
+
+        with caplog.at_level(logging.WARNING, logger="confflow.workflow.step_handlers"):
+            run_confgen_step(
+                step_dir=step_dir,
+                inputs=[single_input_xyz, "other1.xyz", "other2.xyz"],
+                params={},
+                input_files=[single_input_xyz],
+            )
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("fan-in is partially supported" in r.getMessage() for r in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +214,7 @@ class TestRunCalcStep:
         with patch("confflow.workflow.step_handlers.calc") as mock_calc:
             result = run_calc_step(
                 step_dir=step_dir,
-                current_input=single_input_xyz,
+                inputs=[single_input_xyz],
                 params=self.MINIMAL_PARAMS,
                 global_config=self.MINIMAL_GLOBAL,
                 root_dir=os.path.dirname(step_dir),
@@ -220,7 +238,7 @@ class TestRunCalcStep:
 
         result = run_calc_step(
             step_dir=step_dir,
-            current_input=single_input_xyz,
+            inputs=[single_input_xyz],
             params=self.MINIMAL_PARAMS,
             global_config=self.MINIMAL_GLOBAL,
             root_dir=os.path.dirname(step_dir),
@@ -251,7 +269,7 @@ class TestRunCalcStep:
 
         result = run_calc_step(
             step_dir=step_dir,
-            current_input=single_input_xyz,
+            inputs=[single_input_xyz],
             params=self.MINIMAL_PARAMS,
             global_config=self.MINIMAL_GLOBAL,
             root_dir=os.path.dirname(step_dir),
@@ -278,7 +296,7 @@ class TestRunCalcStep:
         with pytest.raises(ConfFlowError, match="did not produce expected output"):
             run_calc_step(
                 step_dir=step_dir,
-                current_input=single_input_xyz,
+                inputs=[single_input_xyz],
                 params=self.MINIMAL_PARAMS,
                 global_config=self.MINIMAL_GLOBAL,
                 root_dir=os.path.dirname(step_dir),
@@ -295,7 +313,7 @@ class TestRunCalcStep:
         single_input_xyz: str,
         failure_tracker: FailureTracker,
     ):
-        """When current_input is a list, the first file should be used."""
+        """When inputs is a list, the first file should be used."""
         output = os.path.join(step_dir, "output.xyz")
 
         def fake_run(input_xyz_file):
@@ -308,7 +326,7 @@ class TestRunCalcStep:
 
         result = run_calc_step(
             step_dir=step_dir,
-            current_input=[single_input_xyz, "other.xyz"],
+            inputs=[single_input_xyz, "other.xyz"],
             params=self.MINIMAL_PARAMS,
             global_config=self.MINIMAL_GLOBAL,
             root_dir=os.path.dirname(step_dir),
@@ -340,7 +358,7 @@ class TestRunCalcStep:
 
         result = run_calc_step(
             step_dir=step_dir,
-            current_input=single_input_xyz,
+            inputs=[single_input_xyz],
             params=self.MINIMAL_PARAMS,
             global_config=self.MINIMAL_GLOBAL,
             root_dir=os.path.dirname(step_dir),
@@ -374,7 +392,7 @@ class TestRunCalcStep:
 
         run_calc_step(
             step_dir=step_dir,
-            current_input=single_input_xyz,
+            inputs=[single_input_xyz],
             params=self.MINIMAL_PARAMS,
             global_config=self.MINIMAL_GLOBAL,
             root_dir=os.path.dirname(step_dir),
@@ -382,5 +400,56 @@ class TestRunCalcStep:
             failure_tracker=failure_tracker,
             step_name="step_02",
         )
-        # failure_tracker should have recorded the failed file
         assert os.path.exists(failure_tracker.combined_failed) or os.path.exists(failed)
+
+    def test_empty_inputs_raises_conf_flow_error(
+        self, step_dir: str, failure_tracker: FailureTracker
+    ):
+        """Empty inputs list is a programming error -> ConfFlowError."""
+        with pytest.raises(ConfFlowError, match="empty inputs list"):
+            run_calc_step(
+                step_dir=step_dir,
+                inputs=[],
+                params=self.MINIMAL_PARAMS,
+                global_config=self.MINIMAL_GLOBAL,
+                root_dir=os.path.dirname(step_dir),
+                steps=[],
+                failure_tracker=failure_tracker,
+                step_name="step_02",
+            )
+
+    @patch("confflow.workflow.step_handlers.calc")
+    def test_fan_in_logs_warning_uses_primary(
+        self,
+        mock_calc: MagicMock,
+        step_dir: str,
+        single_input_xyz: str,
+        failure_tracker: FailureTracker,
+        caplog,
+    ):
+        """Fan-in (>1 inputs) logs a warning and uses inputs[0] only."""
+        output = os.path.join(step_dir, "output.xyz")
+
+        def fake_run(input_xyz_file):
+            with open(output, "w") as f:
+                f.write("2\nout\nC 0 0 0\nH 0 0 1\n")
+
+        mock_manager = MagicMock()
+        mock_manager.run.side_effect = fake_run
+        mock_calc.ChemTaskManager.return_value = mock_manager
+
+        with caplog.at_level(logging.WARNING, logger="confflow.workflow.step_handlers"):
+            run_calc_step(
+                step_dir=step_dir,
+                inputs=[single_input_xyz, "second_ensemble.xyz"],
+                params=self.MINIMAL_PARAMS,
+                global_config=self.MINIMAL_GLOBAL,
+                root_dir=os.path.dirname(step_dir),
+                steps=[],
+                failure_tracker=failure_tracker,
+                step_name="step_03",
+            )
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("fan-in is partially supported" in r.getMessage() for r in warnings)
+        mock_manager.run.assert_called_once_with(input_xyz_file=single_input_xyz)
