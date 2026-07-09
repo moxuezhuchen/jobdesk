@@ -50,3 +50,7 @@ m8_max_parallel.py
 .antigravitycli/
 Thumbs.db
 Desktop.ini
+
+# Local workflow templates accidentally written to cwd during
+# dev/test cycles of the nodegraph editor.
+workflow.yaml
