@@ -6,11 +6,11 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
+from ..config.servers import load_servers
+from ..core.submit_payload import SubmitPayload
 from ..services.gui_settings import GuiSettingsStore
 from ..services.run_coordinator import RunCoordinator
 from ..services.run_service import RunService
-from ..config.servers import load_servers
-from ..core.submit_payload import SubmitPayload
 from .i18n import tr
 from .layouts.shell import AppShell
 from .pages.file_transfer_page import FileTransferPage
@@ -154,11 +154,10 @@ class MainWindow(QMainWindow):
 
     def _on_submit_requested(self, payload: SubmitPayload, submit: bool = True) -> None:
         """Run :class:`SubmitUseCase` in a background worker and report back."""
-        from ..services.submit_use_case import SubmitUseCase
         from ..services.file_transfer_service import (
-            FileTransferService,
             ensure_safe_remote_path,
         )
+        from ..services.submit_use_case import SubmitUseCase
 
         if payload.server_id != (self.files_page._connected_server_id or ""):
             self.show_error(
@@ -181,7 +180,6 @@ class MainWindow(QMainWindow):
             return
 
         workspace = Path(self.state.current_project_root or Path.cwd())
-        server_id = payload.server_id or self.files_page._connected_server_id or ""
 
         def _run(_ctx):
             use_case = SubmitUseCase()

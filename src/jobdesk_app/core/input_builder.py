@@ -235,15 +235,15 @@ def preset_to_confflow_fields(preset_name: str) -> dict[str, Any]:
             "memory_mb": _mem_to_mb(spec.mem),
         }
     if preset_name in ORCA_PRESETS:
-        spec = ORCA_PRESETS[preset_name]
+        orca_spec = ORCA_PRESETS[preset_name]
         # ORCA ``keywords`` starts with ``!``, then tokens like "B3LYP D3BJ def2-TZVP def2/J Opt".
-        tokens = spec.keywords.replace("!", "").split()
+        tokens = orca_spec.keywords.replace("!", "").split()
         method, basis = _split_orca_method_basis(tokens)
         return {
             "method": method,
             "basis": basis,
-            "nproc": spec.nproc,
-            "memory_mb": int(spec.mem_per_core_mb),
+            "nproc": orca_spec.nproc,
+            "memory_mb": int(orca_spec.mem_per_core_mb),
         }
     return empty
 

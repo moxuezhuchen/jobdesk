@@ -30,6 +30,11 @@ tmp60f7j8ix/
 # GAUSS_SCRDIR is misconfigured or the scratch dir is missing)
 Gau-*.inp
 
+# Release-readiness review scratch logs (ruff_review.log, mypy_review.log,
+# pytest_review*.log, .public_tree.log, etc.)
+*.review.log
+.review_*.log
+
 # Local one-off scripts/logs from manual validation
 m8_real_backend.py
 m8_max_parallel.py

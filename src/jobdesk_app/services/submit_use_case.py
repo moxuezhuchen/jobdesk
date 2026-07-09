@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind, chunk_sources
-from ..core.submit_payload import InputSource, SubmitPayload
+from ..core.submit_payload import SubmitPayload
 from ..core.workflow_spec import (
     ConfFlowUnavailableError,
     WorkflowSpec,

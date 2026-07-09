@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
@@ -51,7 +51,7 @@ class CalculationFields:
     ``WorkflowSpec`` (workflow) without re-reading Qt widgets.
     """
 
-    program: str
+    program: Literal["gaussian", "orca"]  # narrowed from program_combo.currentText() in fields()
     preset_name: str | None
     method_basis: str
     job_keywords: list[str]
@@ -232,7 +232,12 @@ class CalculationWidget(QWidget):
 
     def fields(self) -> CalculationFields:
         """Return a :class:`CalculationFields` snapshot of the current form."""
-        program = self.program_combo.currentText()
+        program_raw = self.program_combo.currentText()
+        # ``currentText`` returns ``str``; the combo only contains items
+        # from ``_PROGRAMS`` so casting is sound here.
+        program: Literal["gaussian", "orca"] = cast(
+            Literal["gaussian", "orca"], program_raw
+        )
         method = self.method_edit.text().strip()
         basis = self.basis_edit.text().strip()
         # The original wizard exposed only method/basis separately; the
@@ -391,6 +396,8 @@ class CalculationWidget(QWidget):
         # Remove all widgets after the "Recent:" label.
         while self.recent_strip.count() > 2:  # 1 = label, 2 = trailing stretch
             item = self.recent_strip.takeAt(1)
+            if item is None:
+                break
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()

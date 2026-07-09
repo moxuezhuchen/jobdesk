@@ -15,6 +15,8 @@ from pathlib import Path
 
 from jobdesk_app.core.manifest import TaskRecord
 
+from ._activity import append_activity as _append_activity
+from ._activity import list_recent_activity as _list_recent_activity
 from ._delete import (
     _record_delete_error,
     complete_delete_isolated,
@@ -87,7 +89,6 @@ from ._submit import (
 )
 from ._tasks import merge_tasks, mutate_tasks
 from ._workspaces import delete_operation_workspace, list_workspace_roots
-from ._activity import append_activity as _append_activity, list_recent_activity as _list_recent_activity
 
 
 class RunRepository:

@@ -125,8 +125,9 @@ def test_drop_directory_respects_recursive_checkbox(qtbot, tmp_path):
     Regression check — pre-refactor the wizard honoured the checkbox on drop too;
     the extracted :class:`InputSourcePanel` had hard-coded ``recursive=False``.
     """
-    from PySide6.QtCore import QMimeData, QUrl
     from unittest.mock import MagicMock
+
+    from PySide6.QtCore import QMimeData, QUrl
 
     from jobdesk_app.gui.widgets.input_source_panel import _TabBody
 

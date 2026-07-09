@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -32,21 +32,17 @@ from PySide6.QtWidgets import (
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
-from ...core.run import RunSpec
+from ...core.submit_payload import InputSource
 from ...core.transfer import TransferStatus
-from ...remote.errors import RemotePathError
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
-from ...services.run_coordinator import RunCoordinator
-from ...services.run_profiles import RunProfileStore
 from ...services.run_service import RunService
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
-from ...core.submit_payload import InputSource
 from .file_transfer_helpers import (
     collect_remote_delete_roots,
     connection_status_text,

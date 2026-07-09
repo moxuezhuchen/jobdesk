@@ -28,7 +28,6 @@ import pytest
 
 from tests.integration.conftest import g16_smoke_prerequisites
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(

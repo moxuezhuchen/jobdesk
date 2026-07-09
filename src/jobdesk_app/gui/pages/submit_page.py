@@ -33,11 +33,10 @@ Public signals:
 """
 from __future__ import annotations
 
-from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -59,7 +58,7 @@ from ...core.submit_payload import InputSource, SubmitKind, SubmitPayload, Workf
 from ...services.submit_use_case import PreparedBatch, SubmitUseCase
 from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
-from ..widgets.calculation_widget import CalculationWidget, CalculationFields
+from ..widgets.calculation_widget import CalculationWidget
 from ..widgets.input_builder_widget import InputBuilderWidget
 from ..widgets.input_source_panel import InputSourcePanel
 from ..widgets.workflow_widget import WorkflowWidget
@@ -303,6 +302,9 @@ class SubmitPage(QWidget):
             "",
             "Input files (*.xyz *.gjf *.inp);;XYZ files (*.xyz);;GJF files (*.gjf);;INP files (*.inp);;All files (*)",
         )
+        # ``add_local_paths`` / ``add_remote_paths`` both accept ``list[str]``
+        # (the dialog returns ``list[str]``); normalise both code paths so
+        # submit_page does not need to materialise ``Path`` objects itself.
         if side == "remote":
             self.input_panel.add_remote_paths(files)
         else:

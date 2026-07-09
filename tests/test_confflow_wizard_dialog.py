@@ -8,8 +8,6 @@ wizard tests covered.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")

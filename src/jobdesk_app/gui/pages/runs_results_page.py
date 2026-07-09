@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import csv
 import os
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
-from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
@@ -24,6 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+if TYPE_CHECKING:
+    from ...core.parsers import GaussianResult, OrcaResult
+
 from ...config.servers import load_servers
 from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
@@ -35,6 +40,7 @@ from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..worker_utils import WorkerContext, start_context_worker
+
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
 
@@ -82,7 +88,12 @@ class RunsResultsPage(QWidget):
         super().__init__()
         self.state = state
         self._log = log_cb
-        self._status_cb = status_cb
+        self._raw_status_cb = status_cb
+        # Wrap ``status_cb`` so every status-bar message is mirrored into
+        # the persistent activity log (Phase 16). The original call still
+        # happens — wrapping is one extra dict lookup per message and does
+        # not block the UI thread.
+        self._status_cb = self._wrap_status_cb(status_cb)
         self._coordinator_factory = coordinator_factory
         self._language = GuiSettingsStore().load().language
         self._shutting_down = False
@@ -93,6 +104,42 @@ class RunsResultsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(6)
+
+        # Persistent scrolling activity log (Phase 16). Every status-bar
+        # message the page emits via ``self._status_cb`` is *also* appended
+        # here, so the user gets the same scrollable trail as SubmitPage's
+        # activity list. Implemented as a QTextEdit with append-after-the-
+        # end (plus an autoscroll); no blocking I/O.
+        self._log_view = QTextEdit()
+        self._log_view.setReadOnly(True)
+        self._log_view.setMaximumHeight(160)
+        self._log_view.setObjectName("RunsActivityLog")
+        log_font = QFont("Consolas")
+        log_font.setStyleHint(QFont.Monospace)
+        log_font.setPointSize(9)
+        self._log_view.setFont(log_font)
+        self._log_view.setPlaceholderText(tr("Activity log — status messages and errors", self._language))
+
+        log_card = QWidget()
+        log_card.setObjectName("RunsActivityLogCard")
+        log_card.setStyleSheet(
+            "#RunsActivityLogCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+        )
+        log_card_layout = QVBoxLayout(log_card)
+        log_card_layout.setContentsMargins(10, 8, 10, 8)
+        log_card_layout.setSpacing(4)
+
+        log_header_row = QHBoxLayout()
+        self.activity_log_label = QLabel(tr("Activity log", self._language))
+        self.activity_log_label.setStyleSheet("color: #111827; font-weight: 600;")
+        log_header_row.addWidget(self.activity_log_label)
+        log_header_row.addStretch()
+        self.clear_log_btn = QPushButton(tr("Clear Log", self._language))
+        self.clear_log_btn.clicked.connect(self._clear_activity_log)
+        log_header_row.addWidget(self.clear_log_btn)
+        log_card_layout.addLayout(log_header_row)
+        log_card_layout.addWidget(self._log_view)
+        layout.addWidget(log_card)
 
         splitter = QSplitter(Qt.Vertical)
 
@@ -423,8 +470,69 @@ class RunsResultsPage(QWidget):
         self.confirm_submitted_btn.setText(tr("Confirm Submitted", language))
         self.abandon_submit_btn.setText(tr("Abandon Submit", language))
         self.result_label.setText(tr("Result Preview", language))
+        self.activity_log_label.setText(tr("Activity log", language))
+        self.clear_log_btn.setText(tr("Clear Log", language))
         self._set_headers()
         self.refresh_run_list()
+
+    # ─── Phase 16: persistent scrolling activity log ────────────────────
+
+    def _wrap_status_cb(self, status_cb):
+        """Return a status callback that forwards to the underlying widget
+        *and* records a timestamped line in the persistent activity log.
+
+        Status messages are short, single-string writes, so building the
+        formatted line and posting it via ``QTimer.singleShot(0, ...)`` is
+        cheap and never blocks the UI thread, even if dozens of status
+        messages fire in quick succession.
+        """
+        def _wrapped(message, *args, **kwargs):
+            try:
+                self._append_activity_log(message)
+            except Exception:
+                pass
+            if status_cb is not None:
+                return status_cb(message, *args, **kwargs)
+            return None
+        return _wrapped
+
+    def _append_activity_log(self, message: str) -> None:
+        """Append one timestamped line to the activity log view.
+
+        Uses ``moveCursor(QTextCursor.End)`` + ``insertPlainText`` which is
+        cheap (O(text)) and runs entirely on the GUI thread. We also call
+        ``ensureCursorVisible`` so the latest line stays in view.
+        """
+        if not message:
+            return
+        text = str(message)
+        if not hasattr(self, "_log_view") or self._log_view is None:
+            return
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        line = f"[{timestamp}] {text}"
+        # Append directly — QTextEdit is single-threaded GUI only, and
+        # all callers of ``_status_cb`` are already on the GUI thread.
+        cursor = self._log_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if self._log_view.document().characterCount() > 1:
+            cursor.insertBlock()
+        cursor.insertText(line)
+        self._log_view.setTextCursor(cursor)
+        self._log_view.ensureCursorVisible()
+        # Also forward into the abstract ``_log`` sink the page received in
+        # ``__init__`` if it is a real callable (not the dummy used during
+        # tests / non-GUI contexts).
+        log_sink = getattr(self, "_log", None)
+        if callable(log_sink):
+            try:
+                log_sink(text)
+            except Exception:
+                pass
+
+    def _clear_activity_log(self) -> None:
+        """Clear the visible log lines. Sink log and status bar are untouched."""
+        if hasattr(self, "_log_view") and self._log_view is not None:
+            self._log_view.clear()
 
     def _set_headers(self):
         self.table.setHorizontalHeaderLabels([
@@ -442,13 +550,53 @@ class RunsResultsPage(QWidget):
             (tr("Open Results", self._language), self._open_results_folder),
             (tr("Show Logs", self._language), self._show_logs),
             (tr("Show Paths", self._language), self._show_paths),
+            # Destructive action wired in Phase 17: gives a right-click way
+            # to invoke the same delete logic as the existing Delete button.
+            # Destructive labels are identified inside ``_context_menu`` so
+            # the public contract stays a 2-tuple that ``test_gui_behavior``
+            # can unpack with ``label, _callback``.
+            (tr("Delete Run", self._language), self._delete_run_from_context),
         ]
 
     def _context_menu(self, pos):
+        # Phase 17: when the user right-clicks *outside* the existing
+        # selection, the menu is built against the row under the cursor
+        # so the right-click target is what gets acted on. This mirrors
+        # how the left side ``Delete`` button behaves when the user has
+        # only one row selected.
+        row_under_cursor = self.table.indexAt(pos).row()
+        if row_under_cursor >= 0:
+            selected_rows = {idx.row() for idx in self.table.selectedIndexes()}
+            if row_under_cursor not in selected_rows:
+                # Make the right-clicked row the sole selection so
+                # ``_delete_run`` (and the other actions) operate on it.
+                self.table.selectRow(row_under_cursor)
+        # Identify destructive labels by translated string (no separate
+        # data side-channel — keeping the public 2-tuple contract intact).
+        danger_labels = {tr("Delete Run", self._language)}
         menu = QMenu(self)
         for label, callback in self._build_context_actions():
-            menu.addAction(label, callback)
+            action = QAction(label, self)
+            if label in danger_labels:
+                # Visual warning without a custom QStyle; the red
+                # foreground + bold makes the danger obvious in both
+                # light and dark themes.
+                action.setStyleSheet("color: #b91c1c; font-weight: 600;")
+            action.triggered.connect(callback)
+            menu.addAction(action)
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _delete_run_from_context(self):
+        """Invoke ``_delete_run`` from a context-menu entry.
+
+        ``_delete_run`` reads its target rows from ``self.table.selectedIndexes()``
+        which the context menu handler has already normalized (see
+        ``_context_menu``), so this is just a thin façade that also appends an
+        explanatory status-bar message so the user understands the action
+        actually ran.
+        """
+        self._append_activity_log("Delete Run invoked from context menu")
+        self._delete_run()
 
     def _refresh_all(self):
         self.refresh_run_list()
@@ -1038,7 +1186,7 @@ class RunsResultsPage(QWidget):
 
         try:
             if output_path.suffix.lower() == ".log":
-                result = parse_gaussian_log(output_path)
+                result: GaussianResult | OrcaResult = parse_gaussian_log(output_path)
             elif output_path.suffix.lower() == ".out":
                 result = parse_orca_out(output_path)
             else:

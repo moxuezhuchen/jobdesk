@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -25,8 +24,8 @@ def test_append_activity_returns_autoincrement_id(tmp_path: Path) -> None:
 
 def test_append_activity_stores_all_fields(tmp_path: Path) -> None:
     from jobdesk_app.core.lifecycle import TaskStatus
-    from jobdesk_app.services.run_repository import RunRecord
     from jobdesk_app.core.manifest import TaskRecord
+    from jobdesk_app.services.run_repository import RunRecord
 
     repository = RunRepository(tmp_path / "runs")
     # Insert a real run so the FK constraint is satisfied.
@@ -151,6 +150,7 @@ def test_auto_migrate_v4_to_v5(tmp_path: Path) -> None:
 
 def test_submit_page_loads_recent_activity_on_init(tmp_path: Path, qtbot) -> None:
     from unittest.mock import MagicMock
+
     from jobdesk_app.gui.pages.submit_page import SubmitPage
 
     repository = RunRepository(tmp_path / "runs")
@@ -180,6 +180,7 @@ def test_submit_page_loads_recent_activity_on_init(tmp_path: Path, qtbot) -> Non
 
 def test_submit_page_writes_to_repo_on_log(tmp_path: Path, qtbot) -> None:
     from unittest.mock import MagicMock
+
     from jobdesk_app.gui.pages.submit_page import SubmitPage
 
     repository = RunRepository(tmp_path / "runs")
@@ -207,6 +208,7 @@ def test_submit_page_writes_to_repo_on_log(tmp_path: Path, qtbot) -> None:
 
 def test_submit_page_gracefully_handles_missing_repo(tmp_path: Path, qtbot) -> None:
     from unittest.mock import MagicMock
+
     from jobdesk_app.gui.pages.submit_page import SubmitPage
 
     state = MagicMock()
@@ -228,6 +230,7 @@ def test_submit_page_gracefully_handles_missing_repo(tmp_path: Path, qtbot) -> N
 
 def test_submit_page_accepts_explicit_activity_repo_kwarg(tmp_path: Path, qtbot) -> None:
     from unittest.mock import MagicMock
+
     from jobdesk_app.gui.pages.submit_page import SubmitPage
 
     repo = RunRepository(tmp_path / "runs")

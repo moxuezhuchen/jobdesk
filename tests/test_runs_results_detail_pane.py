@@ -12,7 +12,6 @@ real Gaussian binary during unit tests.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +20,7 @@ import pytest
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableWidgetItem
+from PySide6.QtWidgets import QTableWidgetItem
 
 from jobdesk_app.core.parsers.gaussian import GaussianResult
 from jobdesk_app.core.parsers.orca import OrcaResult

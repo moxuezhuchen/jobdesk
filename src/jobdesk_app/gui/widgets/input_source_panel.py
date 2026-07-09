@@ -1,4 +1,4 @@
-"""Reusable :class:`InputSourcePanel` — tabbed picker for input files.
+"""Reusable :class:`InputSourcePanel` \u2014 tabbed picker for input files.
 
 Phase 14B: extracted from the body of ``_XyzPage`` (ConfFlowWizard).
 Same API surface (``set_paths`` / ``paths`` / ``add_files_requested``)
@@ -12,25 +12,25 @@ Layout:
     +---------------------------------------------------+
     |  drag .xyz/.gjf/.inp here                         |
     |  [ + Add files ]  [ + Add dir ]                   |
-    |  [ - Remove   ]  [ × Clear    ]                   |
+    |  [ - Remove   ]  [ \u00d7 Clear    ]                   |
     +---------------------------------------------------+
     |  Picked files:                                    |
-    |   • water.xyz                                     |
-    |   • methanol.xyz                                  |
+    |   * water.xyz                                     |
+    |   * methanol.xyz                                  |
     +---------------------------------------------------+
     |  [ recursive scan ] checkbox                      |
     +---------------------------------------------------+
 
 The ``add_files_requested`` signal lets embedding pages drive the file
 dialog (which can show different default dirs / filters depending on
-whether the user is picking local or remote files — and the remote
+whether the user is picking local or remote files - and the remote
 case doesn't make sense anyway since the Files page is the source).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -44,23 +44,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.submit_payload import InputSource
+from ...core.submit_payload import InputKind, InputSide, InputSource
 from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
-
 
 _VALID_SUFFIXES = {".xyz", ".gjf", ".inp"}
 
 
-def _kind_for(path: Path) -> str:
+def _kind_for(path: Path) -> InputKind:
     """Return ``"xyz"``, ``"gjf"`` or ``"inp"`` for ``path``.
 
     Unknown suffixes default to ``"xyz"`` so the picker is forgiving
     for files the wizard's drag/drop layer let through.
     """
     suffix = path.suffix.lower()
-    if suffix in _VALID_SUFFIXES:
-        return suffix.lstrip(".")
+    if suffix == ".gjf":
+        return "gjf"
+    if suffix == ".inp":
+        return "inp"
     return "xyz"
 
 
@@ -69,10 +70,18 @@ class InputSourcePanel(QWidget):
 
     Embedding pages listen to :pyattr:`sources_changed` to react to user
     edits, and :pyattr:`add_files_requested` to show a file dialog.  The
-    panel itself does not own any file dialog state — it's intentionally
+    panel itself does not own any file dialog state - it's intentionally
     test-friendly and easy to swap implementations for (e.g. a remote
     tree picker in a future release).
+
     """
+
+    # ``remote_tab`` is only populated when ``remote_available`` is True.
+    # Declared at the class level so external callers see ``_TabBody | None``
+    # instead of ``_TabBody`` (mypy would otherwise pick the first
+    # assignment in ``__init__`` as the inferred type).
+    remote_tab: _TabBody | None = None
+    local_tab: _TabBody
 
     sources_changed = Signal(list)  # list[InputSource]
     add_files_requested = Signal(str, str)  # side ("local"|"remote"), default_dir
@@ -113,7 +122,7 @@ class InputSourcePanel(QWidget):
 
         layout.addWidget(self.tabs)
 
-    # ── Public API ────────────────────────────────────────────────────────
+    # -- Public API --------------------------------------------------------
 
     def apply_language(self, language: str) -> None:
         """Re-translate tab titles + button labels."""
@@ -122,8 +131,8 @@ class InputSourcePanel(QWidget):
         if self.remote_tab is not None and self.tabs.count() > 1:
             self.tabs.setTabText(1, tr("Remote", language))
         for tab in self._all_tabs():
-            tab.btn_add.setText(tr("Add files…", language))
-            tab.btn_add_dir.setText(tr("Add directory…", language))
+            tab.btn_add.setText(tr("Add files\u2026", language))
+            tab.btn_add_dir.setText(tr("Add directory\u2026", language))
             tab.btn_remove.setText(tr("Remove", language))
             tab.btn_clear.setText(tr("Clear", language))
             tab.recursive_cb.setText(tr("Include files in subdirectories", language))
@@ -138,7 +147,7 @@ class InputSourcePanel(QWidget):
         return result
 
     def set_sources(self, sources: list[InputSource]) -> None:
-        """Replace the current list — used by the cross-page wire."""
+        """Replace the current list \u2014 used by the cross-page wire."""
         # Drop everything first; then place each source on the right tab.
         self._reset_local()
         if self.remote_tab is not None:
@@ -154,17 +163,17 @@ class InputSourcePanel(QWidget):
             tab.recursive_cb.setChecked(enabled)
 
     def is_recursive(self) -> bool:
-        # All tabs share the same toggle — return the local one.
+        # All tabs share the same toggle - return the local one.
         return self.local_tab.recursive_cb.isChecked()
 
-    # ── Internal helpers ──────────────────────────────────────────────────
+    # -- Internal helpers --------------------------------------------------
 
     def _all_tabs(self):
         yield self.local_tab
         if self.remote_tab is not None:
             yield self.remote_tab
 
-    def _build_tab(self, side: str) -> "_TabBody":
+    def _build_tab(self, side: InputSide) -> "_TabBody":
         return _TabBody(side=side, language=self._language)
 
     def _current_side(self) -> str:
@@ -226,12 +235,12 @@ class InputSourcePanel(QWidget):
 
     def _on_recursive_toggled(self, _checked: bool) -> None:
         # The toggle is informational until the next Add-directory call.
-        # No emit — the user hasn't changed the file list yet.
+        # No emit - the user hasn't changed the file list yet.
         return None
 
-    # ── Convenience for embedding pages ───────────────────────────────────
+    # -- Convenience for embedding pages -----------------------------------
 
-    def add_local_paths(self, paths: list[Path]) -> int:
+    def add_local_paths(self, paths: list[str]) -> int:
         """Add ``paths`` to the local tab; returns count of *new* items."""
         added = 0
         for raw in paths:
@@ -273,7 +282,7 @@ class InputSourcePanel(QWidget):
 class _TabBody(QWidget):
     """Body of a single tab in :class:`InputSourcePanel`."""
 
-    def __init__(self, side: str, language: str):
+    def __init__(self, side: InputSide, language: str):
         super().__init__()
         self._side = side
         self._language = language
@@ -294,12 +303,12 @@ class _TabBody(QWidget):
 
         btn_row = QHBoxLayout()
         self.btn_add = apply_button_role(
-            QPushButton(tr("Add files…", self._language)),
+            QPushButton(tr("Add files\u2026", self._language)),
             ButtonRole.INSTANT_ACTION,
         )
         btn_row.addWidget(self.btn_add)
         self.btn_add_dir = apply_button_role(
-            QPushButton(tr("Add directory…", self._language)),
+            QPushButton(tr("Add directory\u2026", self._language)),
             ButtonRole.INSTANT_ACTION,
         )
         btn_row.addWidget(self.btn_add_dir)
@@ -376,7 +385,7 @@ class _TabBody(QWidget):
         self.list_widget.clear()
         self.refresh_count(0)
 
-    # ── Drag / drop ───────────────────────────────────────────────────────
+    # -- Drag / drop -------------------------------------------------------
 
     def _dragEnterEvent(self, event):  # noqa: N802
         if event.mimeData().hasUrls() and any(

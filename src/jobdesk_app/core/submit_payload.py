@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-
 SubmitKind = Literal["single", "confflow"]
 """How the remote program should interpret this submission.
 

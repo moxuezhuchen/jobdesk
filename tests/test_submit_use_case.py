@@ -231,7 +231,6 @@ def test_prepared_batch_ok_requires_no_errors_and_specs():
     batch = PreparedBatch(errors=[], specs=[])
     assert batch.ok is False  # no specs -> not ok
 
-    from jobdesk_app.core.run import RunSource
 
     batch = PreparedBatch(
         errors=[], specs=[RunSpec(server_id="s", remote_dir="/", command_template="x",

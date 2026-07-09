@@ -25,7 +25,6 @@ from jobdesk_app.gui.widgets.input_builder_widget import InputBuilderWidget
 from jobdesk_app.gui.widgets.input_source_panel import InputSourcePanel
 from jobdesk_app.gui.widgets.workflow_widget import WorkflowWidget
 
-
 # --- fixtures --------------------------------------------------------------
 
 

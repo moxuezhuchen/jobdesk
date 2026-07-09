@@ -16,7 +16,6 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 from jobdesk_app.gui.i18n import ZH
 from jobdesk_app.gui.widgets.input_builder_widget import InputBuilderWidget
 
-
 # --- fixtures --------------------------------------------------------------
 
 

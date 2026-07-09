@@ -24,7 +24,6 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 from jobdesk_app.core.submit_payload import InputSource
 from jobdesk_app.gui.pages.submit_page import SubmitPage
 
-
 # --- fixtures -------------------------------------------------------------
 
 

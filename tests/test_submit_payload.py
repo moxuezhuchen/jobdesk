@@ -19,7 +19,6 @@ from jobdesk_app.core.submit_payload import (
     WorkflowFields,
 )
 
-
 # --- InputSource ----------------------------------------------------------
 
 
