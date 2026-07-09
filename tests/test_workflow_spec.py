@@ -116,7 +116,14 @@ def test_write_workflow_yaml_is_atomic(tmp_path: Path):
         # Final file must exist; .tmp sidecar must not leak.
         assert target.exists()
         assert not target.with_suffix(target.suffix + ".tmp").exists()
-        assert json.loads(target.read_text(encoding="utf-8")) != {}
+        # The payload is YAML, not JSON; assert it parses as YAML and contains
+        # the work_dir we set on the form. Pre-fix, this assertion used
+        # ``json.loads`` which never matched the YAML output.
+        import yaml
+
+        parsed = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+        assert parsed != {}
+        assert parsed.get("work_dir") == "x"
     else:
         # Graceful path: missing confflow raises a typed error.
         with pytest.raises(ConfFlowUnavailableError):
@@ -200,7 +207,20 @@ def test_from_form_orca_keyword_keeps_user_override():
     )
     yaml_text = spec.to_yaml()
     assert "def2-TZVP" in yaml_text
-    assert "def2-svp" not in yaml_text  # user override wins
+    # ``def2-svp`` should appear once — only as the top-level ``basis:``
+    # field. The user override wins for the ``keyword:`` block, so the
+    # auto-assembled ``B3LYP def2-svp`` must not show up under
+    # ``calc.keyword``.
+    import re
+
+    keyword_match = re.search(r"keyword:\s*([^\n]+)", yaml_text)
+    assert keyword_match is not None, "missing keyword: line in workflow YAML"
+    keyword_value = keyword_match.group(1)
+    assert "def2-TZVP" in keyword_value
+    assert "def2-svp" not in keyword_value, (
+        f"user-supplied keyword overrode the auto-assembled one; "
+        f"got keyword={keyword_value!r}"
+    )
 
 
 def test_from_form_gaussian_does_not_force_keyword():

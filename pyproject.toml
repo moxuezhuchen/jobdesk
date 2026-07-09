@@ -22,12 +22,12 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 [project.optional-dependencies]
 chem = [
     "rdkit>=2023.9",
-    # ConfFlow workflow engine. Not on PyPI (the package named ``confflow`` there
-    # is an unrelated YAML-config library); install from the archived git tag so
-    # both Windows GUI and Linux compute side import the same Pydantic models
-    # (confflow.core.models.GlobalConfigModel / CalcConfigModel) for workflow
-    # validation. See README § ConfFlow integration.
-    "confflow @ git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10",
+    # ConfFlow workflow engine is now vendored under
+    # ``src/jobdesk_app/confflow/`` (previously installed from the
+    # archived upstream tag - see CHANGELOG / Phase 14). Both the
+    # Windows GUI and the Linux compute side import the same Pydantic
+    # models (``jobdesk_app.confflow.confflow.core.models``) for
+    # workflow validation.
 ]
 package = [
     "pyinstaller>=6.0",
@@ -49,7 +49,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jobdesk_app = ["gui/resources/*.svg"]
+jobdesk_app = ["gui/resources/*.svg", "confflow/confflow/**/*.toml", "confflow/confflow/**/*.yaml", "confflow/confflow/**/*.json", "confflow/confflow/**/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -80,7 +80,7 @@ disallow_untyped_defs = false
 
 # Type-check the bodies of untyped functions in the non-GUI layers.
 [[tool.mypy.overrides]]
-module = ["jobdesk_app.core.*", "jobdesk_app.remote.*", "jobdesk_app.services.*"]
+module = ["jobdesk_app.core.*", "jobdesk_app.remote.*", "jobdesk_app.services.*", "jobdesk_app.confflow.*"]
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
@@ -114,7 +114,7 @@ module = "rdkit.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "confflow.*"
+module = "jobdesk_app.confflow.*"
 ignore_missing_imports = true
 
 # Parsers: re.search() -> Match|None pattern is safe but verbose to annotate.
