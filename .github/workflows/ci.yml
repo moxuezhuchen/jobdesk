@@ -30,6 +30,10 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Install ripgrep
+        shell: pwsh
+        run: choco install ripgrep -y --no-progress
+
       - name: Public-tree guard
         shell: pwsh
         run: powershell -File scripts/check_public_tree.ps1
