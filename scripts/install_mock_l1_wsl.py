@@ -154,7 +154,7 @@ def main() -> int:
             if not args.yes:
                 print(msg, file=sys.stderr)
                 return 3
-            print(f"WARNING: --yes given, proceeding despite tainted wrapper", file=sys.stderr)
+            print("WARNING: --yes given, proceeding despite tainted wrapper", file=sys.stderr)
         elif wrapper_kind == "SHELL":
             print(
                 f"WARNING: {WSL_WRAPPER} is a shell script but not JOBDESK_MOCK-tagged. "

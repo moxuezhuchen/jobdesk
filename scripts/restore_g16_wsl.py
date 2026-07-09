@@ -88,7 +88,7 @@ def main() -> int:
 
     if args.dry_run:
         print("dry-run: would run these steps on WSL")
-        print(f"  1. cp  /opt/g16/g16 -> /opt/g16/g16.clobbered")
+        print("  1. cp  /opt/g16/g16 -> /opt/g16/g16.clobbered")
         print(f"  2. install {SOURCE.name} ({len(payload)} bytes) -> {WSL_DEST}")
         print(f"  3. remove dangling symlink {WSL_SYMLINK} (if it points elsewhere)")
         return 0
