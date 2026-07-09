@@ -12,14 +12,18 @@ directly via ``bash``, then parses the resulting `.log`` with the real
 the integration test only depends on ``subprocess`` + ``shutil``, it
 runs on Linux CI without any WSL-specific setup.
 
-The whole file is skipped when ``bash`` isn't on PATH (i.e. native
-Windows without Git Bash). Run on WSL / Git Bash / Linux.
+This file is skipped in two cases:
+1. ``bash`` isn't on PATH (native Windows without WSL or Git Bash).
+2. Running on Windows CI where ``bash`` resolves to the WSL shim
+   (``C:\\Windows\\System32\\bash.exe``) that has no distros installed.
+CI default (``-m 'not integration'``) also skips it.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -103,11 +107,19 @@ def _run_g16(tmp_path: Path, gjf_text: str, basename: str = "methane") -> Path:
 
 # Skip everything in this file if bash isn't available. The mock l1.exe is
 # a POSIX shell script and we can't exec it on native Windows. WSL/Git Bash
-# /Linux CI all have bash.
-pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None,
-    reason="bash not on PATH (WSL or Git Bash required)",
-)
+# /Linux CI all have bash.  Also skip on Windows CI where bash resolves to
+# the WSL shim (no distros installed).
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("bash") is None,
+        reason="bash not on PATH (WSL or Git Bash required)",
+    ),
+    pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows CI bash is WSL shim with no distros; mock requires POSIX bash",
+    ),
+    pytest.mark.integration,
+]
 
 
 @pytest.mark.skipif(not MOCK_L1.exists(), reason="mock l1.exe missing from scripts/")
