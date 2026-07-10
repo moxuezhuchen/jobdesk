@@ -97,10 +97,12 @@ class SubmitPage(QWidget):
         remote_available: bool = False,
         server_label: str = "",
         activity_repo: Any = None,
+        settings_store: Any = None,
     ):
         super().__init__(parent)
         self.state = state
         self._language = language
+        self._settings_store = settings_store
         self._on_status = on_status or (lambda msg: None)
         self._on_error = on_error or (lambda title, msg: None)
         self._remote_available = remote_available
@@ -127,7 +129,7 @@ class SubmitPage(QWidget):
         # embedded in a layout. We add it with stretch=1 so it absorbs
         # the vertical space between the input panel and the action
         # row.
-        self.editor = WorkflowGraphEditor(language=language, parent=self)
+        self.editor = WorkflowGraphEditor(language=language, parent=self, settings_store=self._settings_store)
         self.editor.graph_changed.connect(self._on_graph_changed)
         layout.addWidget(self.editor, 1)
 

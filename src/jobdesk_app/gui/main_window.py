@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
             language=self.language,
             on_status=self._update_status,
             on_error=self.show_error,
+            settings_store=self._settings_store,
         )
         self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)

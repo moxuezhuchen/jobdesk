@@ -413,6 +413,13 @@ ZH: dict[str, str] = {
     "Local": "\u672c\u5730",
     "Remote": "\u8fdc\u7a0b",
     "Drag .xyz / .gjf / .inp files or a directory here": "\u5c06 .xyz / .gjf / .inp \u6587\u4ef6\u6216\u76ee\u5f55\u62d6\u81f3\u6b64\u5904",
+    # -- Phase 11.1: Node-graph onboarding --
+    "Start your workflow graph": "\u5f00\u59cb\u6784\u5efa\u5de5\u4f5c\u6d41\u56fe",
+    "Use a ready-made template, or drag nodes from the library.": "\u4f7f\u7528\u73b0\u6210\u6a21\u677f\uff0c\u6216\u4ece\u8282\u70b9\u5e93\u62d6\u5165\u8282\u70b9\u3002",
+    "Connect steps left to right, then preview the generated workflow YAML.": "\u4ece\u5de6\u5230\u53f3\u8fde\u63a5\u6b65\u9aa4\uff0c\u7136\u540e\u9884\u89c8\u751f\u6210\u7684\u5de5\u4f5c\u6d41 YAML\u3002",
+    "Use an example template": "\u4f7f\u7528\u793a\u4f8b\u6a21\u677f",
+    "Read 60-second tour": "\u9605\u8bfb 60 \u79d2\u5feb\u901f\u5bfc\u89c8",
+    "Hide forever": "\u6c38\u4e45\u9690\u85cf",
     # -- Phase 15: Workflow node-graph editor --
     "Undo": "\u64a4\u9500",
     "Redo": "\u91cd\u505a",

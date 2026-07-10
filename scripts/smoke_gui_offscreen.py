@@ -23,9 +23,10 @@ another):
     4a. ``switch_to_submit`` — flip the shell to index 1 and verify
         the page is visible.
     4b. ``editor_visible`` — verify ``SubmitPage.editor`` is visible.
-    4c. ``add_two_nodes`` — call ``editor.scene().add_node(...)`` twice
+    4c. ``onboarding_card_visible`` — verify the empty-canvas card appears.
+    4d. ``add_two_nodes`` — call ``editor.scene().add_node(...)`` twice
         for compatible kinds (``XYZ_FILE`` → ``PRE_OPT`` → ``OPT``).
-    4d. ``connect_edge`` — call ``editor.scene().add_edge_at(...)`` to
+    4e. ``connect_edge`` — call ``editor.scene().add_edge_at(...)`` to
         wire ``XYZ_FILE.out → PRE_OPT.in``.
     4e. ``graph_summary`` — verify the underlying ``NodeGraph`` has
         2 nodes and 1 edge and 0 errors that block a normal flow.
@@ -208,6 +209,8 @@ def step_main_window(app: QApplication):
     from jobdesk_app.gui.main_window import MainWindow
     window = MainWindow()
     window.setWindowTitle("JobDesk (smoke)")
+    window.show()
+    app.processEvents()
     return window
 
 
@@ -284,7 +287,19 @@ def step_editor_visible(window) -> bool:
     return True
 
 
-# ── 4c. add two nodes ────────────────────────────────────────────────────
+# ── 4c. onboarding card ──────────────────────────────────────────────────
+
+def step_onboarding_card_visible(window) -> bool:
+    editor = window.submit_page.editor
+    card = editor.onboarding_card()
+    if card is None:
+        raise RuntimeError("editor.onboarding_card() returned None")
+    app = QApplication.instance()
+    app.processEvents()
+    return card.isVisible() and card.isVisibleTo(editor)
+
+
+# ── 4d. add two nodes ────────────────────────────────────────────────────
 
 def step_add_two_nodes(window):
     from jobdesk_app.gui.nodegraph.model import NodeKind
@@ -421,6 +436,11 @@ def main() -> int:
         ok = step_editor_visible(window)
         if not ok:
             raise RuntimeError("editor is not visible")
+
+    with _step("onboarding_card_visible"):
+        ok = step_onboarding_card_visible(window)
+        if not ok:
+            raise RuntimeError("onboarding card is not visible on empty graph")
 
     ids = None
     with _step("add_two_nodes"):

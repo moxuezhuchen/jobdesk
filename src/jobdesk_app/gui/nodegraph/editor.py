@@ -27,9 +27,8 @@ Public API
 from __future__ import annotations
 
 import json
-from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -48,6 +47,7 @@ from jobdesk_app.gui.button_feedback import ButtonFeedback, ButtonRole
 from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView
 from jobdesk_app.gui.nodegraph.library import NodeLibraryPanel
+from jobdesk_app.gui.nodegraph.onboarding_card import OnboardingCard
 from jobdesk_app.gui.nodegraph.model import (
     GraphIssue,
     NodeGraph,
@@ -59,6 +59,7 @@ from jobdesk_app.gui.nodegraph.serialization import (
     from_json,
     to_json,
 )
+from jobdesk_app.services.gui_settings import GuiSettingsStore
 
 
 _DEFAULT_LIBRARY_WIDTH = 250
@@ -79,16 +80,24 @@ class WorkflowGraphEditor(QWidget):
     # edit / undo / redo / load template). UI panels that wrap this
     # editor should listen here to refresh their previews.
     graph_changed = Signal()
+    example_template_requested = Signal(str)
+    tour_requested = Signal()
 
     def __init__(
         self,
         language: str = "en",
         parent: QWidget | None = None,
+        *,
+        settings_store: GuiSettingsStore | None = None,
     ) -> None:
         super().__init__(parent)
         self._language = language
+        self._settings_store = settings_store or GuiSettingsStore()
+        self._gui_settings = self._settings_store.load()
         self._scene = GraphScene(self)
-        self._view = GraphView(self._scene, self)
+        self._canvas_area = QWidget(self)
+        self._canvas_area.setObjectName("nodegraphCanvasArea")
+        self._view = GraphView(self._scene, self._canvas_area)
         self._library = NodeLibraryPanel(language=language, parent=self)
         self._properties = PropertiesPanel(language=language, parent=self)
         self._status_pill = QLabel(self)
@@ -112,10 +121,18 @@ class WorkflowGraphEditor(QWidget):
         self._save_feedback = ButtonFeedback(self._save_btn, ButtonRole.SETTINGS_ACTION)
         self._validate_feedback = ButtonFeedback(self._validate_btn, ButtonRole.PRIMARY_ACTION)
 
+        self._onboarding_card: OnboardingCard | None = None
+        self._settings_refresh_timer = QTimer(self)
+        self._settings_refresh_timer.setInterval(1500)
+        self._settings_refresh_timer.timeout.connect(self._reload_gui_settings)
+
         self._build_layout()
+        self._build_onboarding_overlay()
         self._wire_signals()
         self.apply_language(language)
         self._refresh_status_pill(self._scene.validate())
+        self._refresh_onboarding_visibility()
+        self._settings_refresh_timer.start()
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -125,6 +142,7 @@ class WorkflowGraphEditor(QWidget):
     def set_graph(self, graph: NodeGraph) -> None:
         self._scene.set_graph(graph)
         self._library.refresh_visibility(graph)
+        self._refresh_onboarding_visibility()
         self.graph_changed.emit()
 
     def validate(self) -> list[GraphIssue]:
@@ -146,6 +164,9 @@ class WorkflowGraphEditor(QWidget):
         self._validate_btn.setText(tr("Validate", language))
         self._library.setWindowTitle(tr("Node library", language))
         self._properties.setWindowTitle(tr("Properties", language))
+        if self._onboarding_card is not None:
+            self._onboarding_card.apply_language(language)
+            self._position_onboarding_card()
         self._refresh_status_pill(self._scene.validate())
 
     def language(self) -> str:
@@ -162,6 +183,9 @@ class WorkflowGraphEditor(QWidget):
 
     def properties_panel(self) -> PropertiesPanel:
         return self._properties
+
+    def onboarding_card(self) -> OnboardingCard | None:
+        return self._onboarding_card
 
     # ── construction helpers ─────────────────────────────────────────
 
@@ -193,7 +217,11 @@ class WorkflowGraphEditor(QWidget):
         self._library.setMinimumWidth(_DEFAULT_LIBRARY_WIDTH)
         self._library.setMaximumWidth(_DEFAULT_LIBRARY_WIDTH)
         body.addWidget(self._library)
-        body.addWidget(self._view, 1)
+        canvas_layout = QVBoxLayout(self._canvas_area)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
+        canvas_layout.addWidget(self._view)
+        body.addWidget(self._canvas_area, 1)
         self._properties.setMinimumWidth(_DEFAULT_PROPERTIES_WIDTH)
         self._properties.setMaximumWidth(_DEFAULT_PROPERTIES_WIDTH)
         body.addWidget(self._properties)
@@ -202,6 +230,33 @@ class WorkflowGraphEditor(QWidget):
         status_bar = QStatusBar(self)
         status_bar.addPermanentWidget(self._status_pill, 1)
         outer.addWidget(status_bar)
+
+    def _build_onboarding_overlay(self) -> None:
+        self._onboarding_card = OnboardingCard(self._language, self._canvas_area)
+        self._onboarding_card.hide()
+        self._onboarding_card.example_template_requested.connect(
+            lambda template_id: self.example_template_requested.emit(template_id)
+        )
+        self._onboarding_card.tour_requested.connect(lambda: self.tour_requested.emit())
+        self._onboarding_card.hide_forever_requested.connect(self._hide_onboarding_forever)
+        self._canvas_area.installEventFilter(self)
+
+    def _position_onboarding_card(self) -> None:
+        if self._onboarding_card is None:
+            return
+        hint = self._onboarding_card.sizeHint()
+        area = self._canvas_area.rect()
+        width = min(max(hint.width(), 420), max(area.width() - 48, 420))
+        height = hint.height()
+        x = max(0, (area.width() - width) // 2)
+        y = max(0, (area.height() - height) // 2)
+        self._onboarding_card.setGeometry(x, y, width, height)
+        self._onboarding_card.raise_()
+
+    def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
+        if watched is self._canvas_area and event.type() == QEvent.Type.Resize:
+            self._position_onboarding_card()
+        return super().eventFilter(watched, event)
 
     def _wire_signals(self) -> None:
         self._undo_btn.clicked.connect(self._on_undo)
@@ -311,6 +366,7 @@ class WorkflowGraphEditor(QWidget):
 
     def _on_topology_changed(self) -> None:
         self._library.refresh_visibility(self._scene.graph())
+        self._refresh_onboarding_visibility()
         self.graph_changed.emit()
 
     def _on_validation_changed(self) -> None:
@@ -342,6 +398,33 @@ class WorkflowGraphEditor(QWidget):
         cmd = SetParamsCommand(self._scene.graph(), node_id, params)
         self._scene.undo_stack().push(cmd)
         self.graph_changed.emit()
+
+    # ── onboarding card ──────────────────────────────────────────────
+
+    def _reload_gui_settings(self) -> None:
+        settings = self._settings_store.load()
+        previous = self._gui_settings.show_onboarding
+        self._gui_settings = settings
+        if settings.show_onboarding != previous:
+            self._refresh_onboarding_visibility()
+
+    def _refresh_onboarding_visibility(self) -> None:
+        if self._onboarding_card is None:
+            return
+        should_show = self._gui_settings.show_onboarding and not self._scene.graph().nodes
+        self._onboarding_card.setVisible(should_show)
+        if should_show:
+            self._position_onboarding_card()
+
+    def _hide_onboarding_forever(self) -> None:
+        self._gui_settings = self._settings_store.update(show_onboarding=False)
+        self._refresh_onboarding_visibility()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._settings_refresh_timer.stop()
+        if self._onboarding_card is not None:
+            self._onboarding_card.hide()
+        super().closeEvent(event)
 
     # ── status pill ──────────────────────────────────────────────────
 
