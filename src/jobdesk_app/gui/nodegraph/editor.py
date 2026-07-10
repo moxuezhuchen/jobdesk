@@ -99,7 +99,11 @@ class WorkflowGraphEditor(QWidget):
         self._canvas_area = QWidget(self)
         self._canvas_area.setObjectName("nodegraphCanvasArea")
         self._view = GraphView(self._scene, self._canvas_area)
-        self._library = NodeLibraryPanel(language=language, parent=self)
+        self._library = NodeLibraryPanel(
+            language=language,
+            parent=self,
+            settings_store=self._settings_store,
+        )
         self._properties = PropertiesPanel(language=language, parent=self)
         self._status_pill = QLabel(self)
         self._status_pill.setObjectName("nodegraphStatusPill")
