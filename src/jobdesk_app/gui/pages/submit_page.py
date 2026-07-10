@@ -1,42 +1,49 @@
-"""SubmitPage — first-class unified submit UI.
+"""SubmitPage — first-class unified submit UI powered by the node-graph editor.
 
-Phase 14B: replaces three legacy entry points on ``FileTransferPage``
-(``_run_selected``, ``_run_confflow``, ``_open_confflow_wizard``) plus
-two modal dialogs (``InputBuilderDialog``, ``ConfFlowWizard``) with a
-single embedded widget.
+Phase 2 replaces the legacy "Build input file | Build workflow" tabs (and the
+three buttons below them) with a single :class:`WorkflowGraphEditor`. The page
+now drives everything off the editor's :class:`NodeGraph`: live preview is the
+graph serialised through :func:`to_workflow_spec`, and the only remaining
+actions are **Generate YAML** (instant) and **Submit to Remote** (primary).
 
 Layout (top to bottom):
 
     ┌─────────────────────────────────────────────────┐
     │ InputSourcePanel  (local / remote tabs)         │
     ├─────────────────────────────────────────────────┤
-    │ Mode tabs: [ Build input file | Build workflow ]│
-    │   ├ Build input file: InputBuilderWidget        │
-    │   └ Build workflow:    WorkflowWidget + calc    │
+    │ WorkflowGraphEditor (toolbar / library / canvas │
+    │   / properties / status pill)                   │
     ├─────────────────────────────────────────────────┤
-    │ [Submit] [Create tasks only] [Refresh preview]  │
-    │   server: <pill>   max parallel: <spin>         │
+    │ server pill | max parallel spin                 │
+    │ [Generate YAML]  [Submit to Remote]              │
+    │ (live YAML preview reflects graph state)        │
     ├─────────────────────────────────────────────────┤
-    │ Live preview pane (gjf | inp | workflow.yaml)   │
-    ├─────────────────────────────────────────────────┤
-    │ Activity log (last 50 status messages)           │
+    │ Activity log                                    │
     └─────────────────────────────────────────────────┘
 
 Public signals:
 
-* :pyattr:`submit_requested(SubmitPayload)` — fires on Submit click.
-* :pyattr:`create_only_requested(SubmitPayload)` — fires on Create-only.
-* :pyattr:`use_as_input_received(list)` — fires when cross-page push
-  comes in (Files page right-click menu); the page itself is the
-  consumer, so this signal is mostly informational (the main window
-  doesn't need to react, it just navigates).
+* :pyattr:`submit_requested(SubmitPayload)` — fires on "Submit to Remote".
+* :pyattr:`use_as_input_received(list)` — fires when cross-page push from
+  the Files page right-click menu flows in.
+
+The Phase 14B :pyattr:`create_only_requested` signal was removed along with
+its button in Phase 2: the wizard's "Create tasks only" path collapsed into
+the unified editor, and downstream consumers should go through the
+``submit_requested`` payload with ``kind="confflow"``.
+
+Legacy widgets (:class:`InputBuilderWidget`, :class:`CalculationWidget`,
+:class:`WorkflowWidget`) are no longer used in the new layout; they remain
+imported-disabled below for downstream consumers until the Phase 4 cleanup
+removes the wizard-style fallback paths entirely.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -48,7 +55,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSpinBox,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -58,19 +64,27 @@ from ...core.submit_payload import InputSource, SubmitKind, SubmitPayload, Workf
 from ...services.submit_use_case import PreparedBatch, SubmitUseCase
 from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
-from ..widgets.calculation_widget import CalculationWidget
-from ..widgets.input_builder_widget import InputBuilderWidget
+from ..nodegraph import (
+    WorkflowGraphPayload,
+    WorkflowSpecError,
+    to_workflow_spec,
+)
+from ..nodegraph.editor import WorkflowGraphEditor
 from ..widgets.input_source_panel import InputSourcePanel
-from ..widgets.workflow_widget import WorkflowWidget
+# Legacy widgets are no longer used in the new layout; they remain for
+# downstream consumers until Phase 4 cleanup.
+from ..widgets.calculation_widget import CalculationWidget  # noqa: F401
+from ..widgets.input_builder_widget import InputBuilderWidget  # noqa: F401
+from ..widgets.workflow_widget import WorkflowWidget  # noqa: F401
 
 _ACTIVITY_LIMIT = 50
+_PREVIEW_DEBOUNCE_MS = 150
 
 
 class SubmitPage(QWidget):
-    """Embedded unified-submit widget."""
+    """Embedded unified-submit widget driven by the node-graph editor."""
 
     submit_requested = Signal(object)  # SubmitPayload
-    create_only_requested = Signal(object)  # SubmitPayload
     use_as_input_received = Signal(list)  # list[InputSource]
 
     def __init__(
@@ -109,56 +123,54 @@ class SubmitPage(QWidget):
         self.input_panel.add_files_requested.connect(self._on_add_files_requested)
         layout.addWidget(self.input_panel)
 
-        # ── 2. Mode tabs ───────────────────────────────────────────────────
-        self.mode_tabs = QTabWidget()
-        self._build_input_tab = InputBuilderWidget(language=language)
-        self._calc_widget = CalculationWidget(language=language)
-        self._workflow_widget = WorkflowWidget(
-            language=language, calc_widget=self._calc_widget
-        )
-        self.mode_tabs.addTab(self._build_input_tab, tr("Build input file", language))
-        self.mode_tabs.addTab(self._workflow_widget, tr("Build workflow", language))
-        self.mode_tabs.currentChanged.connect(self._on_mode_tab_changed)
-        layout.addWidget(self.mode_tabs, 1)
+        # ── 2. Node-graph editor (replaces mode_tabs) ──────────────────────
+        # WorkflowGraphEditor is a QMainWindow; setting ``parent`` makes
+        # it an embeddable child window so it can sit inside the page's
+        # VBoxLayout with stretch=1.
+        self.editor = WorkflowGraphEditor(language=language, parent=self)
+        self.editor.graph_changed.connect(self._on_graph_changed)
+        layout.addWidget(self.editor, 1)
 
-        # ── 3. Run options row ─────────────────────────────────────────────
-        options_row = QHBoxLayout()
-        options_row.setSpacing(8)
-
+        # ── 3. Server + max-parallel controls (live with the buttons) ─────
+        # The Phase 14B 3-button shape is gone, but the server pill and
+        # the max-parallel spin still need a home; we keep them just
+        # above the action buttons so the user can change concurrency
+        # before submitting.
         self.server_pill = QLabel(self._server_pill_text())
         self.server_pill.setStyleSheet("padding: 4px 10px; border-radius: 10px;")
-        options_row.addWidget(self.server_pill)
-
         self.max_parallel_label = QLabel(tr("Max parallel:", language))
-        options_row.addWidget(self.max_parallel_label)
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.max_parallel_spin.setRange(1, 9999)
         self.max_parallel_spin.setValue(1)
-        options_row.addWidget(self.max_parallel_spin)
+        server_row = QHBoxLayout()
+        server_row.setSpacing(8)
+        server_row.addWidget(self.server_pill)
+        server_row.addStretch()
+        server_row.addWidget(self.max_parallel_label)
+        server_row.addWidget(self.max_parallel_spin)
+        layout.addLayout(server_row)
 
-        options_row.addStretch()
+        # ── 4. Two-button row (replaces Submit/Create-only/Refresh) ────────
+        button_row = QHBoxLayout()
+        button_row.setSpacing(8)
+        button_row.addStretch()
 
-        self.refresh_btn = apply_button_role(
-            QPushButton(tr("Refresh preview", language)),
+        self.generate_btn = apply_button_role(
+            QPushButton(tr("Generate YAML", language)),
             ButtonRole.INSTANT_ACTION,
         )
-        self.refresh_btn.clicked.connect(self._on_refresh_preview_clicked)
-        options_row.addWidget(self.refresh_btn)
+        self.generate_btn.clicked.connect(self._on_generate_clicked)
+        button_row.addWidget(self.generate_btn)
 
-        self.create_only_btn = QPushButton(tr("Create tasks only", language))
-        self.create_only_btn.clicked.connect(self._on_create_only_clicked)
-        options_row.addWidget(self.create_only_btn)
-
-        self.submit_btn = QPushButton(tr("Submit", language))
+        self.submit_btn = QPushButton(tr("Submit to Remote", language))
         self.submit_btn.setObjectName("PrimaryBtn")
         apply_button_role(self.submit_btn, ButtonRole.PRIMARY_ACTION)
         self.submit_btn.clicked.connect(self._on_submit_clicked)
-        options_row.addWidget(self.submit_btn)
+        button_row.addWidget(self.submit_btn)
+        layout.addLayout(button_row)
 
-        layout.addLayout(options_row)
-
-        # ── 4. Preview pane ────────────────────────────────────────────────
+        # ── 5. Live preview pane (workflow YAML) ───────────────────────────
         preview_box = QGroupBox(tr("Live preview", language))
         pv_layout = QVBoxLayout(preview_box)
         self.preview = QTextEdit()
@@ -170,7 +182,7 @@ class SubmitPage(QWidget):
         pv_layout.addWidget(self.preview)
         layout.addWidget(preview_box)
 
-        # ── 5. Activity log ────────────────────────────────────────────────
+        # ── 6. Activity log ────────────────────────────────────────────────
         log_box = QGroupBox(tr("Activity log", language))
         log_layout = QVBoxLayout(log_box)
         self.activity_list = QListWidget()
@@ -178,21 +190,26 @@ class SubmitPage(QWidget):
         log_layout.addWidget(self.activity_list)
         layout.addWidget(log_box)
 
+        # ── 7. Debounced live-preview refresh ─────────────────────────────
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(_PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._refresh_preview)
+
+        # ── 8. Initial validation / preview ──────────────────────────────
+        self._refresh_validation()
+        self._refresh_preview()
+
     # ── Public API ────────────────────────────────────────────────────────
 
     def apply_language(self, language: str) -> None:
         """Re-translate every static label."""
         self._language = language
         self.input_panel.apply_language(language)
-        self.mode_tabs.setTabText(0, tr("Build input file", language))
-        self.mode_tabs.setTabText(1, tr("Build workflow", language))
-        self._build_input_tab.apply_language(language)
-        self._calc_widget.apply_language(language)
-        self._workflow_widget.apply_language(language)
+        self.editor.apply_language(language)
+        self.generate_btn.setText(tr("Generate YAML", language))
+        self.submit_btn.setText(tr("Submit to Remote", language))
         self.max_parallel_label.setText(tr("Max parallel:", language))
-        self.refresh_btn.setText(tr("Refresh preview", language))
-        self.create_only_btn.setText(tr("Create tasks only", language))
-        self.submit_btn.setText(tr("Submit", language))
 
     def set_server_status(self, connected: bool, server_label: str = "") -> None:
         """Update the server pill text and active state.
@@ -206,7 +223,6 @@ class SubmitPage(QWidget):
         self._remote_available = connected
         self.server_pill.setText(self._server_pill_text())
         if connected and self.input_panel.remote_tab is None:
-            # Build a fresh remote tab; mirror the local tab wiring.
             self.input_panel.remote_tab = self.input_panel._build_tab("remote")
             self.input_panel.remote_tab.btn_add.clicked.connect(self.input_panel._on_add_files_remote)
             self.input_panel.remote_tab.btn_remove.clicked.connect(self.input_panel._on_remove)
@@ -215,8 +231,6 @@ class SubmitPage(QWidget):
             self.input_panel.tabs.addTab(
                 self.input_panel.remote_tab, tr("Remote", self._language)
             )
-            # Inherit the recursive state from the local tab so the
-            # user doesn't have to re-toggle when they switch.
             self.input_panel.remote_tab.recursive_cb.setChecked(
                 self.input_panel.local_tab.recursive_cb.isChecked()
             )
@@ -229,9 +243,6 @@ class SubmitPage(QWidget):
 
     def on_submission_result(self, payload: object) -> None:
         """Called by the main window after the worker completes."""
-        # ``payload`` is a RunOperationOutcome — extract what we need for
-        # the activity log.  We don't introspect it deeply here; the
-        # Runs page is the authority on the resulting batch.
         batch_id = ""
         errors: list[str] = []
         try:
@@ -290,9 +301,9 @@ class SubmitPage(QWidget):
         self._on_status(message)
 
     def _on_sources_changed(self, _sources: list[InputSource]) -> None:
-        # The mode-tab availability could flip based on input kind
-        # (e.g. switching between single / confflow).  We don't flip
-        # yet — the user picks the mode explicitly.
+        # Inputs may not be required for assembling the graph first; we
+        # do not gate the buttons on it here. The use case surfaces the
+        # missing-input error on submit.
         return None
 
     def _on_add_files_requested(self, side: str, _default_dir: str) -> None:
@@ -302,92 +313,92 @@ class SubmitPage(QWidget):
             "",
             "Input files (*.xyz *.gjf *.inp);;XYZ files (*.xyz);;GJF files (*.gjf);;INP files (*.inp);;All files (*)",
         )
-        # ``add_local_paths`` / ``add_remote_paths`` both accept ``list[str]``
-        # (the dialog returns ``list[str]``); normalise both code paths so
-        # submit_page does not need to materialise ``Path`` objects itself.
         if side == "remote":
             self.input_panel.add_remote_paths(files)
         else:
             self.input_panel.add_local_paths(files)
 
-    def _on_mode_tab_changed(self, _index: int) -> None:
-        # Refresh the preview whenever the user switches tabs so they
-        # always see the relevant content for the active mode.
+    def _on_graph_changed(self) -> None:
+        # Keep button enablement in lockstep with the status pill, and
+        # debounce the YAML render so dragging a node doesn't thrash.
+        self._refresh_validation()
+        self._preview_timer.start()
+
+    def _on_generate_clicked(self) -> None:
+        self._preview_timer.stop()
+        self.editor.validate()
         self._refresh_preview()
 
-    def _on_refresh_preview_clicked(self) -> None:
-        self._refresh_preview()
+    def _on_submit_clicked(self) -> None:
+        issues = self.editor.validate()
+        errors = [i for i in issues if i.severity == "error"]
+        if errors:
+            for issue in errors:
+                self._log(f"Validation [{issue.code or 'graph'}]: {issue.message}")
+            return
+        payload = self._build_payload("confflow")
+        if payload is None:
+            return
+        self.submit_requested.emit(payload)
 
     def _refresh_preview(self) -> None:
-        idx = self.mode_tabs.currentIndex()
-        if idx == 0:
-            self._refresh_input_preview()
-        else:
-            self._refresh_workflow_preview()
-
-    def _refresh_input_preview(self) -> None:
+        """Render the current graph to YAML into the preview pane."""
         try:
-            content = self._build_input_tab.build_content()
-        except Exception as exc:
-            self.preview.setPlainText(f"Error: {exc}")
+            graph = self.editor.graph()
+            payload: WorkflowGraphPayload = to_workflow_spec(graph)
+        except WorkflowSpecError as exc:
+            self.preview.setPlainText(f"Graph incomplete: {exc}")
             return
-        self.preview.setPlainText(content)
-
-    def _refresh_workflow_preview(self) -> None:
-        calc = self._calc_widget.calc_fields()
+        except Exception as exc:
+            self.preview.setPlainText(f"Preview failed: {exc}")
+            return
         try:
-            spec = self._workflow_widget.build_spec(calc)
+            yaml_text = payload.to_yaml()
         except Exception as exc:
-            self.preview.setPlainText(f"Build failed: {exc}")
+            self.preview.setPlainText(f"Render failed: {exc}")
             return
-        self._workflow_widget.render_yaml_preview(spec)
+        self.preview.setPlainText(yaml_text)
 
-    def _validate_active(self) -> dict[str, str]:
-        idx = self.mode_tabs.currentIndex()
-        if idx == 0:
-            return self._validate_input_mode()
-        return self._validate_workflow_mode()
-
-    def _validate_input_mode(self) -> dict[str, str]:
-        errors: dict[str, str] = {}
-        if not self.input_panel.sources():
-            errors["inputs"] = tr("Add at least one input file.", self._language)
-        if not self._build_input_tab.xyz_edit.text().strip():
-            errors["xyz"] = tr("XYZ path is required.", self._language)
-        return errors
-
-    def _validate_workflow_mode(self) -> dict[str, str]:
-        errors: dict[str, str] = {}
-        if not self.input_panel.sources():
-            errors["inputs"] = tr("Add at least one input file.", self._language)
-        errors.update(self._calc_widget.validate())
-        errors.update(self._workflow_widget.validate())
-        return errors
+    def _refresh_validation(self) -> None:
+        """Toggle the buttons based on whether the graph has any errors."""
+        issues = self.editor.validate()
+        has_errors = any(i.severity == "error" for i in issues)
+        self.generate_btn.setEnabled(not has_errors)
+        self.submit_btn.setEnabled(not has_errors)
 
     def _build_payload(self, kind: SubmitKind) -> SubmitPayload | None:
+        """Assemble a :class:`SubmitPayload` from the current graph state.
+
+        Returns ``None`` and logs an entry if there are no inputs — the
+        use case would otherwise reject the payload later.
+        """
         sources = self.input_panel.sources()
         if not sources:
             self._log(tr("No inputs selected.", self._language))
             return None
-        # All sources must share a directory for the workflow YAML
-        # landing pad; we pick the first one's parent.
+
         first = sources[0].path
         output_dir = first.parent if first.is_absolute() else Path(".")
-        calc = self._calc_widget.fields()
-        idx = self.mode_tabs.currentIndex()
-        if idx == 0:
-            # Build-input mode: we render via InputBuilderWidget. The
-            # use case still uses the calc widget's fields to keep the
-            # command template consistent; workflow is None.
-            workflow: WorkflowFields | None = None
-            program = self._build_input_tab.program
-        else:
-            workflow = WorkflowFields(
-                work_dir_name=self._workflow_widget.work_dir_name(),
-                steps=self._workflow_widget.steps(),
-                advanced_options=self._workflow_widget.advanced_options(),
-            )
-            program = calc.program
+        work_dir_name = _work_dir_name(first)
+
+        try:
+            graph = self.editor.graph()
+            payload = to_workflow_spec(graph)
+        except WorkflowSpecError as exc:
+            self._log(f"Validation [graph]: {exc}")
+            return None
+        except Exception as exc:
+            self._log(f"Validation [graph]: {exc}")
+            return None
+
+        calc_cfg = payload.spec.global_config.calc
+        workflow = WorkflowFields(
+            work_dir_name=work_dir_name,
+            steps=[_step_type_token(s) for s in payload.steps],
+            advanced_options={},
+        )
+        program = str(getattr(calc_cfg, "program", "orca"))
+        calc = _calc_fields_from_cfg(calc_cfg, program)
         return SubmitPayload(
             kind=kind,
             inputs=sources,
@@ -401,31 +412,92 @@ class SubmitPage(QWidget):
             max_parallel=self.max_parallel_spin.value(),
         )
 
-    def _on_submit_clicked(self) -> None:
-        self._refresh_preview()
-        errors = self._validate_active()
-        if errors:
-            for field, msg in errors.items():
-                self._log(f"Validation [{field}]: {msg}")
-        idx = self.mode_tabs.currentIndex()
-        kind: SubmitKind = "confflow" if idx == 1 else "single"
-        payload = self._build_payload(kind)
-        if payload is None:
-            return
-        self.submit_requested.emit(payload)
 
-    def _on_create_only_clicked(self) -> None:
-        self._refresh_preview()
-        errors = self._validate_active()
-        if errors:
-            for field, msg in errors.items():
-                self._log(f"Validation [{field}]: {msg}")
-        idx = self.mode_tabs.currentIndex()
-        kind: SubmitKind = "confflow" if idx == 1 else "single"
-        payload = self._build_payload(kind)
-        if payload is None:
-            return
-        self.create_only_requested.emit(payload)
+def _work_dir_name(first_path: Path) -> str:
+    """Derive the workflow's ``work_dir`` from the first selected input.
+
+    Mirrors the legacy wizard convention: ``<basename>_confflow_work``
+    when the first input has a non-empty stem, falling back to
+    ``dir_confflow_work`` for unnamed paths and ``"."`` for relative
+    inputs. Centralised here so the editor and submit code stay in
+    sync.
+    """
+    stem = first_path.stem.strip()
+    if stem:
+        return f"{stem}_confflow_work"
+    parent_name = first_path.parent.name.strip() if first_path.is_absolute() else ""
+    if parent_name and parent_name not in {".", "/"}:
+        return f"{parent_name}_confflow_work"
+    return "confflow_work"
+
+
+def _step_type_token(step: dict[str, Any]) -> str:
+    """Return the wizard's step-type token for a bridge-emitted step.
+
+    Mirrors :func:`jobdesk_app.gui.nodegraph.spec_bridge._step_type_token`
+    but kept local so the rest of Phase 2 doesn't grow a new public import.
+    """
+    step_type = step.get("type")
+    if step_type == "confgen":
+        return "confgen"
+    itask = step.get("params", {}).get("itask")
+    return f"calc:{itask}" if itask else "calc"
+
+
+def _calc_fields_from_cfg(calc_cfg: Any, program: str) -> "_CalculationFieldsShim":
+    """Build a :class:`CalculationFields` shim from the graph-derived config.
+
+    :class:`SubmitUseCase` reads ``method_basis``, ``charge``,
+    ``multiplicity``, ``nproc`` and ``mem`` off this object, so the shim
+    satisfies its duck-typed access without dragging the
+    :class:`CalculationWidget` import into runtime.
+    """
+    try:
+        method_basis = " ".join(
+            part for part in (getattr(calc_cfg, "method", "") or "",
+                              getattr(calc_cfg, "basis", "") or "")
+            if part
+        )
+    except Exception:
+        method_basis = ""
+    try:
+        nproc = int(getattr(calc_cfg, "nproc", 1) or 1)
+    except Exception:
+        nproc = 1
+    try:
+        mem_mb = int(getattr(calc_cfg, "memory_mb", 1024) or 1024)
+    except Exception:
+        mem_mb = 1024
+    return _CalculationFieldsShim(
+        program=program,  # type: ignore[arg-type]
+        preset_name=None,
+        method_basis=method_basis,
+        job_keywords=[],
+        charge=int(getattr(calc_cfg, "charge", 0) or 0),
+        multiplicity=int(getattr(calc_cfg, "multiplicity", 1) or 1),
+        nproc=nproc,
+        mem=f"{mem_mb}MB",
+    )
+
+
+@dataclass
+class _CalculationFieldsShim:
+    """Duck-typed mirror of :class:`widgets.calculation_widget.CalculationFields`.
+
+    Mirrors the attribute surface that :class:`SubmitUseCase` reads. The
+    legacy :class:`CalculationWidget` dataclass remains the source of
+    truth; this shim exists so the legacy widget module stays out of
+    the new submit page's runtime path.
+    """
+
+    program: str
+    preset_name: str | None
+    method_basis: str
+    job_keywords: list[str]
+    charge: int
+    multiplicity: int
+    nproc: int
+    mem: str
 
 
 __all__ = ["SubmitPage"]

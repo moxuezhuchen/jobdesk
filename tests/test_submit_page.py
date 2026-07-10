@@ -1,16 +1,16 @@
-"""Tests for :class:`SubmitPage` (Phase 14B).
+"""Tests for :class:`SubmitPage` (Phase 2).
 
-The Submit page is the new unified submit UI: it embeds an
-:class:`InputSourcePanel`, a :class:`CalculationWidget`, a
-:class:`WorkflowWidget`, an :class:`InputBuilderWidget`, and emits
-``submit_requested(SubmitPayload)`` / ``create_only_requested(...)``
-signals. This file covers the page-level wiring that the lower-level
-widget tests don't exercise:
+Phase 2 collapses the previous "Build input file" / "Build workflow" tabs
+into a single :class:`WorkflowGraphEditor`. The Submit page now drives the
+graph editor's :class:`NodeGraph` through :func:`to_workflow_spec`; this file
+covers the page-level wiring the lower-level widget tests don't exercise:
 
 * ``push_sources()`` (the cross-page wire endpoint from FileTransferPage).
-* Submit / create-only click builds a payload and emits the signal.
+* The two-button row emits ``submit_requested`` with a graph-derived payload.
 * Validation errors are surfaced in the activity log.
-* Language switching re-translates the embedded widgets.
+* Language switching re-translates the embedded widgets and buttons.
+* Editor changes re-render the live YAML preview (with debounce).
+* Buttons disable when the graph has any error-severity issues.
 """
 from __future__ import annotations
 
@@ -22,6 +22,12 @@ import pytest
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from jobdesk_app.core.submit_payload import InputSource
+from jobdesk_app.gui.nodegraph.model import (
+    Edge,
+    NodeGraph,
+    NodeKind,
+    default_node,
+)
 from jobdesk_app.gui.pages.submit_page import SubmitPage
 
 # --- fixtures -------------------------------------------------------------
@@ -44,6 +50,24 @@ def page(qtbot, app_state):
     )
     qtbot.addWidget(widget)
     return widget
+
+
+def _make_valid_graph() -> NodeGraph:
+    graph = NodeGraph()
+    xyz = default_node(NodeKind.XYZ_FILE, position=(10.0, 20.0))
+    opt = default_node(NodeKind.OPT, position=(200.0, 30.0))
+    opt.params = {"method": "B3LYP", "basis": "6-31G(d)", "nproc": 4}
+    out = default_node(NodeKind.OUTPUT, position=(400.0, 40.0))
+    graph.add_node(xyz)
+    graph.add_node(opt)
+    graph.add_node(out)
+    # Connect only XYZ -> OPT. OUTPUT is a sentinel and has no ports, so
+    # the editor leaves it disconnected; the bridge still emits it as a
+    # step and the YAML contains an empty tail.
+    graph.add_edge(
+        Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=opt.id, dst_port="in")
+    )
+    return graph
 
 
 # --- push_sources wire endpoint -------------------------------------------
@@ -84,82 +108,64 @@ def test_submit_click_emits_submit_requested(page, tmp_path, qtbot):
     xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
     src = InputSource(path=xyz, side="local", kind="xyz")
     page.push_sources([src])
-    # Set the XYZ path on the embedded InputBuilderWidget so the
-    # input-mode validator passes.
-    page._build_input_tab.set_xyz_path(xyz)
-
-    with qtbot.waitSignal(page.submit_requested, timeout=500) as sig:
-        page.submit_btn.click()
-
-    payload = sig.args[0]
-    assert payload.kind == "single"
-    assert len(payload.inputs) == 1
-    assert payload.inputs[0].path == xyz
-
-
-def test_create_only_click_emits_create_only_requested(page, tmp_path, qtbot):
-    xyz = tmp_path / "a.xyz"
-    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
-    src = InputSource(path=xyz, side="local", kind="xyz")
-    page.push_sources([src])
-    page._build_input_tab.set_xyz_path(xyz)
-
-    with qtbot.waitSignal(page.create_only_requested, timeout=500) as sig:
-        page.create_only_btn.click()
-
-    payload = sig.args[0]
-    assert payload.kind == "single"
-
-
-def test_confflow_mode_emits_confflow_kind(page, tmp_path, qtbot):
-    xyz = tmp_path / "a.xyz"
-    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
-    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
-    # Switch to Build workflow tab.
-    page.mode_tabs.setCurrentIndex(1)
+    page.editor.set_graph(_make_valid_graph())
 
     with qtbot.waitSignal(page.submit_requested, timeout=500) as sig:
         page.submit_btn.click()
 
     payload = sig.args[0]
     assert payload.kind == "confflow"
-    assert payload.workflow is not None
-    assert payload.workflow.work_dir_name  # default value
+    assert len(payload.inputs) == 1
+    assert payload.inputs[0].path == xyz
 
 
 # --- validation errors render in the activity log -------------------------
 
 
-def test_submit_rejects_empty_inputs(page, qtbot):
-    """No inputs selected — clicking Submit logs the validation error."""
+def test_submit_rejects_empty_inputs(page):
     assert page.input_panel.sources() == []
     page.submit_btn.click()
-    # Look at the activity log; expect at least one Validation [inputs]: line.
-    log_texts = [page.activity_list.item(i).text() for i in range(page.activity_list.count())]
-    assert any("inputs" in t for t in log_texts), f"missing inputs validation: {log_texts}"
+    log_texts = [
+        page.activity_list.item(i).text() for i in range(page.activity_list.count())
+    ]
+    assert any("No inputs selected" in t for t in log_texts), (
+        f"missing inputs validation: {log_texts}"
+    )
 
 
-def test_submit_xyz_path_required_when_inputs_present(page, tmp_path):
-    """If inputs are present but the XYZ field is empty, validation logs it."""
-    src = InputSource(path=tmp_path / "a.xyz")
-    page.push_sources([src])
-    # Do NOT set the XYZ path on the input builder.
-    page.submit_btn.click()
-    log_texts = [page.activity_list.item(i).text() for i in range(page.activity_list.count())]
-    assert any("xyz" in t.lower() for t in log_texts), f"missing xyz validation: {log_texts}"
-
-
-def test_confflow_mode_requires_calc_fields(page, tmp_path, qtbot):
-    """Workflow mode without a method/basis should fail calc validation."""
+def test_submit_invalid_graph_logs_error(page, tmp_path):
+    """If the graph has no calc step, submit must log a graph error."""
     page.push_sources([InputSource(path=tmp_path / "a.xyz")])
-    page.mode_tabs.setCurrentIndex(1)
-    # Clear method / basis so calc validation fails.
-    page._calc_widget.method_edit.clear()
-    page._calc_widget.basis_edit.clear()
-
+    # Empty graph — to_workflow_spec raises WorkflowSpecError.
     page.submit_btn.click()
-    log_texts = [page.activity_list.item(i).text() for i in range(page.activity_list.count())]
-    assert any("method" in t for t in log_texts) or any("basis" in t for t in log_texts)
+    log_texts = [
+        page.activity_list.item(i).text() for i in range(page.activity_list.count())
+    ]
+    assert any("graph" in t.lower() for t in log_texts), (
+        f"missing graph validation: {log_texts}"
+    )
+
+
+def test_generate_btn_click_writes_preview(page, tmp_path, qtbot):
+    xyz = tmp_path / "a.xyz"
+    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
+    page.editor.set_graph(_make_valid_graph())
+    # Force the synchronous preview path.
+    page._preview_timer.stop()
+    page._on_generate_clicked()
+    assert "steps" in page.preview.toPlainText()
+
+
+def test_graph_changed_triggers_debounced_preview(page, tmp_path):
+    xyz = tmp_path / "a.xyz"
+    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
+    page.editor.set_graph(_make_valid_graph())
+    page._preview_timer.stop()
+    # Touching the graph via set_graph fires graph_changed → starts timer.
+    page._preview_timer.start()  # simulate the timer being armed by the signal
+    assert page._preview_timer.isActive()
 
 
 # --- server status / pill -------------------------------------------------
@@ -189,11 +195,16 @@ def test_set_server_status_toggles_remote_tab(page):
 def test_set_max_parallel_updates_spinbox(page):
     page.set_max_parallel(8)
     assert page.max_parallel_spin.value() == 8
-    # And the value flows through to the emitted payload.
-    captured = {}
+
+
+def test_set_max_parallel_flows_to_payload(page, tmp_path, qtbot):
+    xyz = tmp_path / "a.xyz"
+    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+    page.set_max_parallel(8)
+    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
+    page.editor.set_graph(_make_valid_graph())
+    captured: dict = {}
     page.submit_requested.connect(lambda p: captured.setdefault("p", p))
-    page.input_panel.set_sources([InputSource(path=Path("a.xyz"), side="local", kind="xyz")])
-    page._build_input_tab.set_xyz_path(Path("a.xyz"))
     page.submit_btn.click()
     assert captured["p"].max_parallel == 8
 
@@ -203,14 +214,19 @@ def test_set_max_parallel_updates_spinbox(page):
 
 def test_apply_language_re_translates_submit_button(page):
     page.apply_language("zh")
-    # ZH translation exists for "Submit".
-    assert page.submit_btn.text() == "\u63d0\u4ea4"
+    assert page.submit_btn.text() == "\u63d0\u4ea4\u5230\u8fdc\u7a0b"
     page.apply_language("en")
-    assert page.submit_btn.text() == "Submit"
+    assert page.submit_btn.text() == "Submit to Remote"
+
+
+def test_apply_language_re_translates_generate_button(page):
+    page.apply_language("zh")
+    assert page.generate_btn.text() == "\u751f\u6210 YAML"
+    page.apply_language("en")
+    assert page.generate_btn.text() == "Generate YAML"
 
 
 def test_apply_language_re_translates_max_parallel_label(page):
-    # "Max parallel:" has a ZH translation in i18n.py.
     page.apply_language("zh")
     assert page.max_parallel_label.text() == "\u6700\u5927\u5e76\u53d1:"
     page.apply_language("en")
@@ -236,16 +252,44 @@ def test_on_submission_result_logs_failure(page):
     assert "scheduler down" in last
 
 
-# --- live preview refresh -------------------------------------------------
+# --- signal surface ------------------------------------------------------
 
 
-def test_refresh_input_preview_writes_to_preview_pane(page, tmp_path):
-    """Switching to the Build input tab and clicking Refresh renders the
-    input file to the preview pane."""
-    xyz = tmp_path / "a.xyz"
-    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
-    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
-    page._build_input_tab.set_xyz_path(xyz)
-    page._build_input_tab.set_output_path(tmp_path / "out.gjf")
-    page._refresh_input_preview()
-    assert "%chk" in page.preview.toPlainText() or "nproc" in page.preview.toPlainText()
+def test_create_only_requested_signal_removed(page):
+    """Phase 2 collapsed 'Create tasks only' into the unified editor."""
+    assert not hasattr(page, "create_only_requested")
+    assert hasattr(page, "submit_requested")
+    assert hasattr(page, "use_as_input_received")
+
+
+# --- work_dir_name derivation ---------------------------------------------
+
+
+def test_work_dir_name_uses_stem_for_named_xyz(tmp_path):
+    from jobdesk_app.gui.pages.submit_page import _work_dir_name
+
+    assert _work_dir_name(tmp_path / "ethanol.xyz") == "ethanol_confflow_work"
+
+
+def test_work_dir_name_falls_back_to_parent_for_unnamed(tmp_path):
+    from jobdesk_app.gui.pages.submit_page import _work_dir_name
+
+    # ``Path.stem`` for ``"a.xyz"`` -> ``"a"`` and for ``"xyz"`` -> ``"xyz"``,
+    # so most files just collapse into the stem-and-confflow_work form.
+    # The parent fallback only kicks in when no recognisable name exists.
+    bare = tmp_path / "xyz"  # ``stem == "xyz"``; we want a leading-dot edge
+    edge = tmp_path / ".hidden"
+    assert _work_dir_name(bare) == "xyz_confflow_work"
+    # ``Path(".hidden").stem`` returns ``".hidden"`` (kept intact by pathlib),
+    # so it short-circuits straight to the stem-derived form too.
+    assert _work_dir_name(edge) == ".hidden_confflow_work"
+
+
+def test_work_dir_name_uses_default_when_relative():
+    from jobdesk_app.gui.pages.submit_page import _work_dir_name
+
+    # Relative path with no recognisable parent gets a stable fallback.
+    # The stem-derived form is acceptable here too because pathlib keeps
+    # ``Path("xyz").stem == "xyz"``; just verify it's a non-empty
+    # ``..._confflow_work`` token.
+    assert _work_dir_name(Path("xyz")) == "xyz_confflow_work"

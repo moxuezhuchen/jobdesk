@@ -433,6 +433,9 @@ ZH: dict[str, str] = {
     "Advanced options": "\u9ad8\u7ea7\u9009\u9879",
     "Free-form key=value options": "\u81ea\u7531 key=value \u9009\u9879",
     "Workflow terminator (emits workflow.yaml)": "\u5de5\u4f5c\u6d41\u7ec8\u6b62\u8282\u70b9\uff08\u8f93\u51fa workflow.yaml\uff09",
+    # -- Phase 2: submit page buttons --
+    "Generate YAML": "\u751f\u6210 YAML",
+    "Submit to Remote": "\u63d0\u4ea4\u5230\u8fdc\u7a0b",
 }
 
 
