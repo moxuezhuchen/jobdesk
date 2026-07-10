@@ -1,0 +1,68 @@
+{
+  "nodes": [
+    {
+      "id": "ensemble_xyz",
+      "kind": "xyz_file",
+      "title": "Seed XYZ",
+      "inputs": [],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "structure", "required": false}
+      ],
+      "params": {},
+      "position": [40.0, 100.0]
+    },
+    {
+      "id": "ensemble_conf",
+      "kind": "confgen",
+      "title": "Generate conformers",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "seed", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structures", "direction": "out", "label": "ensemble", "required": false}
+      ],
+      "params": {"nconf": 20, "method": "ETKDG"},
+      "position": [260.0, 100.0]
+    },
+    {
+      "id": "ensemble_opt",
+      "kind": "opt",
+      "title": "Optimize lowest conformer",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "opt", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-31G(d)"},
+      "position": [500.0, 100.0]
+    },
+    {
+      "id": "ensemble_sp",
+      "kind": "sp",
+      "title": "Single-point energy",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "energy", "direction": "out", "label": "E", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-311+G(d,p)"},
+      "position": [740.0, 100.0]
+    },
+    {
+      "id": "ensemble_output",
+      "kind": "output",
+      "title": "Output",
+      "inputs": [],
+      "outputs": [],
+      "params": {},
+      "position": [980.0, 100.0]
+    }
+  ],
+  "edges": [
+    {"id": "ensemble_e1", "src_node": "ensemble_xyz", "src_port": "out", "dst_node": "ensemble_conf", "dst_port": "in"},
+    {"id": "ensemble_e2", "src_node": "ensemble_conf", "src_port": "out", "dst_node": "ensemble_opt", "dst_port": "in"},
+    {"id": "ensemble_e3", "src_node": "ensemble_opt", "src_port": "out", "dst_node": "ensemble_sp", "dst_port": "in"}
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "nodes": [
+    {
+      "id": "fanin_xyz",
+      "kind": "xyz_file",
+      "title": "Seed XYZ",
+      "inputs": [],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "structure", "required": false}
+      ],
+      "params": {},
+      "position": [40.0, 120.0]
+    },
+    {
+      "id": "fanin_conf",
+      "kind": "confgen",
+      "title": "Generate conformers",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "seed", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structures", "direction": "out", "label": "ensemble", "required": false}
+      ],
+      "params": {"nconf": 15, "method": "ETKDG"},
+      "position": [260.0, 120.0]
+    },
+    {
+      "id": "fanin_opt",
+      "kind": "opt",
+      "title": "Optimize best conformer",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "opt", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-31G(d)"},
+      "position": [500.0, 60.0]
+    },
+    {
+      "id": "fanin_refine",
+      "kind": "refine",
+      "title": "Refine (ensemble + candidate)",
+      "inputs": [
+        {"name": "ensemble", "type": "structures", "direction": "in", "label": "ensemble"},
+        {"name": "candidate", "type": "structure", "direction": "in", "label": "candidate", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "refined", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "def2-TZVP"},
+      "position": [740.0, 120.0]
+    },
+    {
+      "id": "fanin_output",
+      "kind": "output",
+      "title": "Output",
+      "inputs": [],
+      "outputs": [],
+      "params": {},
+      "position": [980.0, 120.0]
+    }
+  ],
+  "edges": [
+    {"id": "fanin_e1", "src_node": "fanin_xyz", "src_port": "out", "dst_node": "fanin_conf", "dst_port": "in"},
+    {"id": "fanin_e2", "src_node": "fanin_conf", "src_port": "out", "dst_node": "fanin_opt", "dst_port": "in"},
+    {"id": "fanin_e3", "src_node": "fanin_conf", "src_port": "out", "dst_node": "fanin_refine", "dst_port": "ensemble"},
+    {"id": "fanin_e4", "src_node": "fanin_opt", "src_port": "out", "dst_node": "fanin_refine", "dst_port": "candidate"}
+  ]
+}

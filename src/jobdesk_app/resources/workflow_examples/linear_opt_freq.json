@@ -1,0 +1,54 @@
+{
+  "nodes": [
+    {
+      "id": "linear_xyz",
+      "kind": "xyz_file",
+      "title": "XYZ input",
+      "inputs": [],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "structure", "required": false}
+      ],
+      "params": {},
+      "position": [40.0, 80.0]
+    },
+    {
+      "id": "linear_opt",
+      "kind": "opt",
+      "title": "Optimize",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "opt", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-31G(d)"},
+      "position": [260.0, 80.0]
+    },
+    {
+      "id": "linear_freq",
+      "kind": "freq",
+      "title": "Frequency",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "vibs", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-31G(d)"},
+      "position": [480.0, 80.0]
+    },
+    {
+      "id": "linear_output",
+      "kind": "output",
+      "title": "Output",
+      "inputs": [],
+      "outputs": [],
+      "params": {},
+      "position": [700.0, 80.0]
+    }
+  ],
+  "edges": [
+    {"id": "linear_e1", "src_node": "linear_xyz", "src_port": "out", "dst_node": "linear_opt", "dst_port": "in"},
+    {"id": "linear_e2", "src_node": "linear_opt", "src_port": "out", "dst_node": "linear_freq", "dst_port": "in"}
+  ]
+}

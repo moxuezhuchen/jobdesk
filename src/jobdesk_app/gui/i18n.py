@@ -401,6 +401,7 @@ ZH: dict[str, str] = {
     "Activity log \u2014 status messages and errors": "\u6d3b\u52a8\u8bb0\u5f55\u2014\u2014\u72b6\u6001\u4e0e\u9519\u8bef\u4fe1\u606f",
     "Clear Log": "\u6e05\u9664\u8bb0\u5f55",
     "Delete Run": "\u5220\u9664\u4efb\u52a1",
+    "Examples": "\u793a\u4f8b\u6a21\u677f",
     "Inputs": "\u8f93\u5165",
     "Select input files": "\u9009\u62e9\u8f93\u5165\u6587\u4ef6",
     "Select directory": "\u9009\u62e9\u76ee\u5f55",

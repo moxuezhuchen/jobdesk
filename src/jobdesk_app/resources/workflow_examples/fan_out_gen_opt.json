@@ -1,0 +1,68 @@
+{
+  "nodes": [
+    {
+      "id": "fanout_xyz",
+      "kind": "xyz_file",
+      "title": "Seed XYZ",
+      "inputs": [],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "structure", "required": false}
+      ],
+      "params": {},
+      "position": [40.0, 120.0]
+    },
+    {
+      "id": "fanout_conf",
+      "kind": "confgen",
+      "title": "Generate conformers",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "seed", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structures", "direction": "out", "label": "ensemble", "required": false}
+      ],
+      "params": {"nconf": 12, "method": "ETKDG"},
+      "position": [260.0, 120.0]
+    },
+    {
+      "id": "fanout_opt_a",
+      "kind": "opt",
+      "title": "Optimize branch A",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "opt", "required": false}
+      ],
+      "params": {"method": "B3LYP", "basis": "6-31G(d)"},
+      "position": [500.0, 20.0]
+    },
+    {
+      "id": "fanout_opt_b",
+      "kind": "opt",
+      "title": "Optimize branch B",
+      "inputs": [
+        {"name": "in", "type": "structure", "direction": "in", "label": "in", "required": true}
+      ],
+      "outputs": [
+        {"name": "out", "type": "structure", "direction": "out", "label": "opt", "required": false}
+      ],
+      "params": {"method": "PBE0", "basis": "def2-SVP"},
+      "position": [500.0, 220.0]
+    },
+    {
+      "id": "fanout_output",
+      "kind": "output",
+      "title": "Output",
+      "inputs": [],
+      "outputs": [],
+      "params": {},
+      "position": [760.0, 120.0]
+    }
+  ],
+  "edges": [
+    {"id": "fanout_e1", "src_node": "fanout_xyz", "src_port": "out", "dst_node": "fanout_conf", "dst_port": "in"},
+    {"id": "fanout_e2", "src_node": "fanout_conf", "src_port": "out", "dst_node": "fanout_opt_a", "dst_port": "in"},
+    {"id": "fanout_e3", "src_node": "fanout_conf", "src_port": "out", "dst_node": "fanout_opt_b", "dst_port": "in"}
+  ]
+}

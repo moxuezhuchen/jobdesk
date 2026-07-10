@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 from jobdesk_app.gui.button_feedback import ButtonFeedback, ButtonRole
 from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView
+from jobdesk_app.gui.nodegraph.examples_drawer import ExamplesDrawer, get_example
 from jobdesk_app.gui.nodegraph.library import NodeLibraryPanel
 from jobdesk_app.gui.nodegraph.onboarding_card import OnboardingCard
 from jobdesk_app.gui.nodegraph.model import (
@@ -110,6 +111,7 @@ class WorkflowGraphEditor(QWidget):
         self._clear_btn = QPushButton(self)
         self._load_btn = QPushButton(self)
         self._save_btn = QPushButton(self)
+        self._examples_btn = ExamplesDrawer(language=language, parent=self)
         self._validate_btn = QPushButton(self)
 
         self._undo_feedback = ButtonFeedback(self._undo_btn, ButtonRole.INSTANT_ACTION)
@@ -119,6 +121,7 @@ class WorkflowGraphEditor(QWidget):
         self._clear_feedback = ButtonFeedback(self._clear_btn, ButtonRole.DANGER_ACTION)
         self._load_feedback = ButtonFeedback(self._load_btn, ButtonRole.SETTINGS_ACTION)
         self._save_feedback = ButtonFeedback(self._save_btn, ButtonRole.SETTINGS_ACTION)
+        self._examples_feedback = ButtonFeedback(self._examples_btn, ButtonRole.SETTINGS_ACTION)
         self._validate_feedback = ButtonFeedback(self._validate_btn, ButtonRole.PRIMARY_ACTION)
 
         self._onboarding_card: OnboardingCard | None = None
@@ -162,6 +165,7 @@ class WorkflowGraphEditor(QWidget):
         self._load_btn.setText(tr("Load\u2026", language))
         self._save_btn.setText(tr("Save\u2026", language))
         self._validate_btn.setText(tr("Validate", language))
+        self._examples_btn.set_language(language)
         self._library.setWindowTitle(tr("Node library", language))
         self._properties.setWindowTitle(tr("Properties", language))
         if self._onboarding_card is not None:
@@ -206,6 +210,7 @@ class WorkflowGraphEditor(QWidget):
             self._grid_btn,
             self._clear_btn,
             self._load_btn,
+            self._examples_btn,
             self._save_btn,
             self._validate_btn,
         ):
@@ -235,7 +240,7 @@ class WorkflowGraphEditor(QWidget):
         self._onboarding_card = OnboardingCard(self._language, self._canvas_area)
         self._onboarding_card.hide()
         self._onboarding_card.example_template_requested.connect(
-            lambda template_id: self.example_template_requested.emit(template_id)
+            self._on_examples_selected
         )
         self._onboarding_card.tour_requested.connect(lambda: self.tour_requested.emit())
         self._onboarding_card.hide_forever_requested.connect(self._hide_onboarding_forever)
@@ -268,6 +273,7 @@ class WorkflowGraphEditor(QWidget):
         self._clear_btn.clicked.connect(self._on_clear)
         self._load_btn.clicked.connect(self._on_load_template)
         self._save_btn.clicked.connect(self._on_save_template)
+        self._examples_btn.selected.connect(self._on_examples_selected)
         self._validate_btn.clicked.connect(self._on_validate)
         self._scene.topology_changed.connect(self._on_topology_changed)
         self._scene.validation_changed.connect(self._on_validation_changed)
@@ -348,6 +354,19 @@ class WorkflowGraphEditor(QWidget):
             return
         self.set_graph(graph)
         self._load_feedback.success(tr("Loaded", self._language))
+
+    def _on_examples_selected(self, template_id: str) -> None:
+        """Toolbar Examples → load the named built-in template into the editor."""
+        try:
+            tpl = get_example(template_id)
+        except KeyError:
+            return
+        try:
+            graph = tpl.load_graph()
+        except (FileNotFoundError, ValueError, OSError):
+            return
+        self.set_graph(graph)
+        self.example_template_requested.emit(template_id)
 
     def _on_validate(self) -> None:
         issues = self.validate()
