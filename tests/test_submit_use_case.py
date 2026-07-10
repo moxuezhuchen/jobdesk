@@ -299,6 +299,33 @@ def test_confflow_kind_builds_single_spec_and_writes_yaml(tmp_path):
     assert batch.yaml_local_path.parent == src_dir
 
 
+def test_confflow_yaml_lands_next_to_first_input_even_when_output_dir_is_cwd(tmp_path):
+    """Regression: the legacy ``_payload_confflow`` helper passes
+    ``output_dir=Path(".")`` so the YAML used to land in the repo root
+    during tests. ``_resolve_yaml_dir`` must fall back to the first
+    input's parent instead, so the YAML always lives next to the
+    user's first XYZ file regardless of what ``output_dir`` says.
+    """
+    from jobdesk_app.core import workflow_spec
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    src_dir = tmp_path / "molecules"
+    src_dir.mkdir()
+    inputs = [InputSource(path=src_dir / "water.xyz", side="local", kind="xyz")]
+    # output_dir explicitly the cwd — the broken pre-fix behaviour
+    # would write workflow.yaml into the repo root.
+    payload = _payload_confflow(inputs=inputs, remote_dir="/work")
+    payload_dict = payload.__dict__
+    payload_dict["output_dir"] = Path(".")
+    payload = type(payload)(**payload_dict)
+    batch = SubmitUseCase().execute(payload)
+    assert batch.ok, batch.errors
+    assert batch.yaml_local_path is not None
+    assert batch.yaml_local_path.parent == src_dir, (
+        f"yaml landed in {batch.yaml_local_path.parent}, expected {src_dir}"
+    )
+
+
 # --- PreparedBatch.ok property --------------------------------------------
 
 

@@ -202,7 +202,7 @@ class SubmitUseCase:
         """
         assert payload.workflow is not None  # checked in execute()
         workflow = payload.workflow
-        first_xyz = payload.output_dir
+        first_xyz = _resolve_yaml_dir(payload)
         yaml_local = first_xyz / "workflow.yaml"
 
         calc = payload.calc
@@ -252,7 +252,7 @@ class SubmitUseCase:
         """
         assert payload.dag is not None  # checked in execute()
         dag = payload.dag
-        first_xyz = payload.output_dir
+        first_xyz = _resolve_yaml_dir(payload)
         yaml_local = first_xyz / "workflow.yaml"
 
         calc = payload.calc
@@ -355,6 +355,37 @@ def _render_dag_yaml(spec: WorkflowSpec, steps: list[dict]) -> str:
     data = spec.global_config.model_dump(mode="json", exclude_none=True)
     data["steps"] = list(steps)
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
+def _resolve_yaml_dir(payload: SubmitPayload) -> Path:
+    """Pick the directory where ``workflow.yaml`` should land on disk.
+
+    The legacy wizard wrote the YAML next to the first input XYZ, so the
+    SFTP uploader could ship it as a sibling file. The submit page
+    mirrors this through ``payload.output_dir`` but only sets it from
+    the first input's parent when the path is absolute — relative
+    inputs leave it as ``Path(".")``, which then drops ``workflow.yaml``
+    into the repository root during tests.
+
+    Phase 11.1 — fix the contract: the YAML must live next to the first
+    *local* input's parent directory. ``payload.output_dir`` is only
+    used as a fallback for legacy callers that pre-set it explicitly
+    (e.g. jobs originating from the Files page where output_dir is a
+    user-chosen project root).
+    """
+    local_inputs = [s for s in payload.inputs if s.side == "local"]
+    if local_inputs:
+        candidate = local_inputs[0].path.parent
+        # ``Path(".")`` (or any empty / non-absolute path that is just
+        # the cwd placeholder) is unreliable; prefer the explicit input
+        # parent so the YAML lands where the user expects it.
+        if candidate and candidate != Path("."):
+            return candidate
+    if payload.output_dir and payload.output_dir != Path("."):
+        return payload.output_dir
+    # Last resort — keep cwd so we don't regress the original behaviour
+    # for callers that legitimately want the YAML in the workspace root.
+    return payload.output_dir
 
 
 __all__ = ["PreparedBatch", "SubmitUseCase", "remote_child_path"]
