@@ -128,3 +128,100 @@ def test_library_panel_greyed_output_without_calc_nodes(qtbot):
     # Without calc nodes, OUTPUT is still shown but disabled.
     assert NodeKind.OUTPUT in panel.shown_kinds()
     assert panel.is_kind_enabled(NodeKind.OUTPUT) is False
+
+
+# ── Phase 10.3: tooltip content (port semantics for fan-out/fan-in) ─────
+
+
+def test_tooltip_confgen_mentions_fan_out(qtbot):
+    """CONF_GEN tooltip advertises the fan-out capability."""
+    panel = NodeLibraryPanel(language="en")
+    qtbot.addWidget(panel)
+    panel.show()
+    tip = panel._buttons[NodeKind.CONF_GEN].toolTip()
+    assert "STRUCTURES" in tip
+    assert "fan" in tip.lower()
+
+
+def test_tooltip_calc_kinds_advertise_input_structure(qtbot):
+    """PRE_OPT/OPT/SP/FREQ/TS/REFINE tooltips all mention STRUCTURE input."""
+    panel = NodeLibraryPanel(language="en")
+    qtbot.addWidget(panel)
+    panel.show()
+    for kind in (
+        NodeKind.PRE_OPT,
+        NodeKind.OPT,
+        NodeKind.SINGLE_POINT,
+        NodeKind.FREQUENCY,
+        NodeKind.TS,
+        NodeKind.REFINE,
+    ):
+        tip = panel._buttons[kind].toolTip()
+        assert "STRUCTURE" in tip, f"kind={kind} tip={tip!r}"
+
+
+def test_tooltip_output_mentions_aggregating_upstream(qtbot):
+    """OUTPUT tooltip says it aggregates all upstream paths."""
+    panel = NodeLibraryPanel(language="en")
+    qtbot.addWidget(panel)
+    panel.show()
+    tip = panel._buttons[NodeKind.OUTPUT].toolTip()
+    assert "upstream" in tip.lower()
+    assert "terminator" in tip.lower() or "workflow.yaml" in tip.lower()
+
+
+def test_tooltips_translate_to_chinese(qtbot):
+    """The Chinese tooltip strings exist and contain port names."""
+    from jobdesk_app.gui.i18n import tr as _tr
+
+    en_conf = _tr(
+        "Generate a conformational ensemble (Output: STRUCTURES, fans out to multiple OPTs / SPs)",
+        "en",
+    )
+    zh_conf = _tr(
+        "Generate a conformational ensemble (Output: STRUCTURES, fans out to multiple OPTs / SPs)",
+        "zh",
+    )
+    assert en_conf != zh_conf
+    assert "STRUCTURES" in zh_conf
+    en_opt = _tr(
+        "DFT / ab-initio geometry optimization; Input: STRUCTURE",
+        "en",
+    )
+    zh_opt = _tr(
+        "DFT / ab-initio geometry optimization; Input: STRUCTURE",
+        "zh",
+    )
+    assert en_opt != zh_opt
+    assert "STRUCTURE" in zh_opt
+
+
+def test_refresh_visibility_does_not_hide_calc_when_fanout(qtbot):
+    """An OUTPUT plus an existing PRE_OPT must not hide the OTHER calc kinds.
+
+    The library panel buttons stay visible/enabled for the user's
+    next drop — only ``OUTPUT`` is unique in the graph (one per
+    workflow).
+    """
+    panel = NodeLibraryPanel(language="en")
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: panel.isVisible(), timeout=500)
+    g = NodeGraph()
+    xyz = default_node(NodeKind.XYZ_FILE, position=(0, 0))
+    pre = default_node(NodeKind.PRE_OPT, position=(200, 0))
+    out = default_node(NodeKind.OUTPUT, position=(600, 0))
+    g.add_node(xyz)
+    g.add_node(pre)
+    g.add_node(out)
+    from jobdesk_app.gui.nodegraph.model import Edge
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
+                    dst_node=pre.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=pre.id, src_port="out",
+                    dst_node=out.id, dst_port="in"))
+    panel.refresh_visibility(g)
+    # PRE_OPT/OPT/SP etc. are not hidden by an existing pre-opt.
+    assert NodeKind.PRE_OPT in panel.shown_kinds()
+    assert NodeKind.OPT in panel.shown_kinds()
+    # Only OUTPUT is hidden because one is already in the graph.
+    assert NodeKind.OUTPUT not in panel.shown_kinds()

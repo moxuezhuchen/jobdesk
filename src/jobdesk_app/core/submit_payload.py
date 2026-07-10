@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-SubmitKind = Literal["single", "confflow"]
+SubmitKind = Literal["single", "confflow", "dag"]
 """How the remote program should interpret this submission.
 
 * ``"single"`` — one quantum-chemistry binary invocation per input
@@ -34,6 +34,10 @@ SubmitKind = Literal["single", "confflow"]
 * ``"confflow"`` — ConfFlow workflow engine runs over a YAML config plus
   one or more XYZ inputs.  Produces a :class:`RunSpec` whose
   ``workflow_kind`` is ``confflow`` plus the supporting workflow.yaml.
+* ``"dag"`` — Phase 10.5: same remote command / engine as ``"confflow"``,
+  but the YAML's per-step ``inputs`` lists (Phase 10.1–10.4) declare a
+  DAG topology (fan-in / fan-out).  Produces a :class:`RunSpec` whose
+  ``workflow_kind`` is ``dag`` plus the supporting workflow.yaml.
 """
 
 
@@ -60,14 +64,37 @@ class InputSource:
 class WorkflowFields:
     """Plain value type for the workflow form.
 
-    Mirrors the dict the embedded :class:`WorkflowWidget` already exposes
-    via its public API (``work_dir_name``, ``steps``, ``advanced_options``).
-    We keep it as a dataclass so the use case can pass it through without
-    touching Qt widgets.
+    Mirrors the public shape the workflow side of the legacy ConfFlow
+    wizard used to expose via ``work_dir_name`` / ``steps`` /
+    ``advanced_options``. We keep it as a dataclass so the use case can
+    pass it through without touching Qt widgets.
     """
 
     work_dir_name: str
     steps: list[str] = field(default_factory=list)
+    advanced_options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DagWorkflowFields:
+    """Plain value type for the Phase 10.5 ``kind="dag"`` submit path.
+
+    The editor's :class:`NodeGraph` already serialises itself into a list
+    of per-step dicts via :func:`jobdesk_app.gui.nodegraph.spec_bridge.to_workflow_spec`
+    (each dict carries ``name``, ``type``, ``params``, ``inputs``).  The
+    use case hands that list straight to the confflow workflow YAML —
+    no per-step type re-definition is required, the engine reads the
+    same schema it already understood for linear workflows, just with
+    non-empty ``inputs`` arrays.
+
+    ``work_dir_name`` mirrors :class:`WorkflowFields.work_dir_name` so the
+    YAML's ``work_dir:`` key is populated; ``steps`` is the serialised
+    graph and ``advanced_options`` is merged into the workflow-level
+    config the same way the legacy wizard did.
+    """
+
+    work_dir_name: str
+    steps: list[dict[str, Any]] = field(default_factory=list)
     advanced_options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -79,10 +106,16 @@ class SubmitPayload:
     on :pyattr:`SubmitPage.submit_requested`.  The main window drives the
     background worker off this payload.
 
-    ``calc`` carries the :class:`CalculationFields` value type from the
-    embedded :class:`CalculationWidget`.  ``workflow`` is ``None`` for
-    :pyattr:`SubmitKind` ``"single"`` and a :class:`WorkflowFields` for
-    ``"confflow"``.
+    ``calc`` carries the calculation-field values used by :class:`SubmitUseCase`
+    (program / method_basis / charge / multiplicity / nproc / mem).  ``workflow``
+    is ``None`` for :pyattr:`SubmitKind` ``"single"`` and a :class:`WorkflowFields`
+    for ``"confflow"``.
+
+    ``dag`` is the Phase 10.5 parallel slot for ``"dag"`` payloads — it is
+    populated from the editor's :class:`NodeGraph` via the bridge's
+    :func:`to_workflow_spec` and carries the full per-step dict list
+    (including ``inputs: [...]`` for fan-out / fan-in) along with a
+    ``work_dir_name`` that mirrors :class:`WorkflowFields`.
 
     ``output_paths`` is a convenience list the page pre-resolves (e.g. a
     freshly generated ``.gjf`` written next to the input XYZ).  Workers
@@ -104,9 +137,11 @@ class SubmitPayload:
     server_id: str = ""
     remote_dir: str = "/"
     max_parallel: int = 1
+    dag: DagWorkflowFields | None = None
 
 
 __all__ = [
+    "DagWorkflowFields",
     "InputKind",
     "InputSide",
     "InputSource",

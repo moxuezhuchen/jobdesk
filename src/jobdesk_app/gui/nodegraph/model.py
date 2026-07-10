@@ -264,13 +264,43 @@ class NodeGraph:
                         if e.src_node == node_id or e.dst_node == node_id]:
             del self.edges[edge_id]
 
-    def add_edge(self, edge: Edge) -> None:
+    def add_edge(
+        self,
+        edge: Edge,
+        *,
+        allow_duplicate: bool = False,
+    ) -> None:
+        """Insert ``edge`` into the graph.
+
+        By default the bridge rejects exact 4-tuple duplicates
+        (``(src_node, src_port, dst_node, dst_port)``) so the editor
+        cannot accidentally draw the same wire twice. ``fan-out`` and
+        ``fan-in`` are *intentionally* allowed — only the literal
+        fourth-tuple collision is blocked.
+
+        The optional ``allow_duplicate`` flag is for callers that
+        know better (e.g. an undo stack replay): pass it to insert
+        an edge even if a matching tuple already exists.
+        """
         if edge.id in self.edges:
             raise ValueError(f"edge id collision: {edge.id}")
         if edge.src_node not in self.nodes:
             raise KeyError(f"edge src node missing: {edge.src_node}")
         if edge.dst_node not in self.nodes:
             raise KeyError(f"edge dst node missing: {edge.dst_node}")
+        if not allow_duplicate:
+            for existing in self.edges.values():
+                if (
+                    existing.src_node == edge.src_node
+                    and existing.src_port == edge.src_port
+                    and existing.dst_node == edge.dst_node
+                    and existing.dst_port == edge.dst_port
+                ):
+                    raise ValueError(
+                        f"edge {edge.id} is a duplicate of {existing.id} "
+                        f"({edge.src_node}:{edge.src_port} -> "
+                        f"{edge.dst_node}:{edge.dst_port})"
+                    )
         self.edges[edge.id] = edge
 
     def remove_edge(self, edge_id: str) -> None:

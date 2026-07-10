@@ -284,11 +284,35 @@ ZH: dict[str, str] = {
     "Submitting...": "\u63d0\u4ea4\u4e2d...",
     "Submit failed": "\u63d0\u4ea4\u5931\u8d25",
     "Submit failed: {e}": "\u63d0\u4ea4\u5931\u8d25: {e}",
+    "Validation [{code}]: {message}": "\u6821\u9a8c [{code}]: {message}",
+    "Validation [graph]: {exc}": "\u6821\u9a8c [\u56fe]: {exc}",
+    "Graph incomplete: {exc}": "\u56fe\u4e0d\u5b8c\u6574: {exc}",
+    "Preview failed: {exc}": "\u9884\u89c8\u5931\u8d25: {exc}",
     "Creating...": "\u521b\u5efa\u4e2d...",
     "Create failed": "\u521b\u5efa\u5931\u8d25",
     "Created {n}": "\u5df2\u521b\u5efa {n}",
     "Submitted {n}": "\u5df2\u63d0\u4ea4 {n}",
     "Submitted: {batch_id}": "\u5df2\u63d0\u4ea4: {batch_id}",
+    "Submitted.": "\u5df2\u63d0\u4ea4\u3002",
+    "Connect to a server first.": "\u8bf7\u5148\u8fde\u63a5\u670d\u52a1\u5668",
+    "Delete run {run_id} record?": "\u5220\u9664\u8fd0\u884c {run_id} \u7684\u8bb0\u5f55\uff1f",
+    "Delete {n} run records?": "\u5220\u9664 {n} \u6761\u8fd0\u884c\u8bb0\u5f55\uff1f",
+    "Download done: {n} files, failed: {f}": "\u4e0b\u8f7d\u5b8c\u6210: \u6210\u529f {n} \u4e2a\uff0c\u5931\u8d25 {f} \u4e2a",
+    "No tasks awaiting download": "\u6ca1\u6709\u53ef\u4e0b\u8f7d\u7684\u4efb\u52a1",
+    "Open Results": "\u6253\u5f00\u7ed3\u679c",
+    "Operation recovery failed": "\u542f\u52a8\u6062\u590d\u5931\u8d25",
+    "Output file not found": "\u627e\u4e0d\u5230\u8f93\u51fa\u6587\u4ef6",
+    "Parse error": "\u89e3\u6790\u9519\u8bef",
+    "Preview failed: {e}": "\u9884\u89c8\u5931\u8d25: {e}",
+    "Refresh failed: {e}": "\u5237\u65b0\u5931\u8d25: {e}",
+    "Remote operation already in progress": "\u8fdc\u7a0b\u64cd\u4f5c\u8fdb\u884c\u4e2d",
+    "Result Preview - Auto Analysis": "\u7ed3\u679c\u9884\u89c8 - \u81ea\u52a8\u5206\u6790",
+    "Result Preview - Local Files": "\u7ed3\u679c\u9884\u89c8 - \u672c\u5730\u6587\u4ef6",
+    "Results directory not found": "\u627e\u4e0d\u5230\u7ed3\u679c\u76ee\u5f55",
+    "Select SSH Key": "\u9009\u62e9 SSH \u5bc6\u94a5",
+    "Select a task to see details": "\u8bf7\u9009\u62e9\u4e00\u4e2a\u4efb\u52a1\u67e5\u770b\u8be6\u60c5",
+    "Submitting": "\u63d0\u4ea4\u4e2d",
+    "Test failed": "\u6d4b\u8bd5\u5931\u8d25",
     "Tested": "\u5df2\u6d4b\u8bd5",
     "Saving...": "\u4fdd\u5b58\u4e2d...",
     "Saved": "\u5df2\u4fdd\u5b58",
@@ -418,24 +442,64 @@ ZH: dict[str, str] = {
     "Input XYZ geometry": "\u8f93\u5165 XYZ \u51e0\u4f55\u7ed3\u6784",
     "Conformer generation": "\u6784\u8c61\u4e0d\u5f02\u6784\u4f53\u751f\u6210",
     "Generate a conformational ensemble": "\u751f\u6210\u4e00\u7ec4\u6784\u8c61\u5f02\u6784\u4f53",
+    "Generate a conformational ensemble (Output: STRUCTURES, fans out to multiple OPTs / SPs)": (
+        "\u751f\u6210\u4e00\u7ec4\u6784\u8c61\u5f02\u6784\u4f53\uff08\u8f93\u51fa\uff1aSTRUCTURES\uff0c\u53ef\u6248\u5f0f\u8fde\u63a5\u591a\u4e2a OPT \u6216 SP\uff09"
+    ),
     "Pre-optimization": "\u9884\u4f18\u5316",
     "Cheap pre-optimization (force field)": "\u4f7f\u7528\u529b\u573a\u8fdb\u884c\u5feb\u901f\u9884\u4f18\u5316",
+    "Cheap pre-optimization (force field); Input: STRUCTURE": (
+        "\u4f7f\u7528\u529b\u573a\u8fdb\u884c\u5feb\u901f\u9884\u4f18\u5316\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
     "Geometry optimization": "\u51e0\u4f55\u4f18\u5316",
     "DFT / ab-initio geometry optimization": "DFT / \u4ece\u5934\u8ba1\u7b97\u51e0\u4f55\u4f18\u5316",
+    "DFT / ab-initio geometry optimization; Input: STRUCTURE": (
+        "DFT / \u4ece\u5934\u8ba1\u7b97\u51e0\u4f55\u4f18\u5316\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
     "Single point": "\u5355\u70b9\u80fd\u91cf",
     "Single-point energy": "\u5355\u70b9\u80fd\u91cf\u8ba1\u7b97",
+    "Single-point energy; Input: STRUCTURE": (
+        "\u5355\u70b9\u80fd\u91cf\u8ba1\u7b97\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
     "Frequency": "\u9891\u7387",
     "Vibrational frequency": "\u632f\u52a8\u9891\u7387\u8ba1\u7b97",
+    "Vibrational frequency; Input: STRUCTURE": (
+        "\u632f\u52a8\u9891\u7387\u8ba1\u7b97\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
     "Transition state": "\u8fc7\u6e21\u6001",
     "Transition state search": "\u8fc7\u6e21\u6001\u641c\u7d22",
+    "Transition state search; Input: STRUCTURE": (
+        "\u8fc7\u6e21\u6001\u641c\u7d22\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
     "Refine": "\u7cbe\u70bc",
     "Refine best conformer with high accuracy": "\u4ee5\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u6700\u4f73\u6784\u8c61",
+    "Refine best conformer with high accuracy; Input: STRUCTURE + ensemble": (
+        "\u4ee5\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u6700\u4f73\u6784\u8c61\uff08\u8f93\u5165\uff1aSTRUCTURE \u4e0e ensemble\uff09"
+    ),
     "Advanced options": "\u9ad8\u7ea7\u9009\u9879",
     "Free-form key=value options": "\u81ea\u7531 key=value \u9009\u9879",
     "Workflow terminator (emits workflow.yaml)": "\u5de5\u4f5c\u6d41\u7ec8\u6b62\u8282\u70b9\uff08\u8f93\u51fa workflow.yaml\uff09",
+    "Output": "\u8f93\u51fa",
+    "Aggregate all upstream paths into workflow.yaml terminator": (
+        "\u5c06\u4e0a\u6e38\u6240\u6709\u5206\u652f\u5408\u5e76\u5230 workflow.yaml \u7ec8\u6b62\u8282\u70b9"
+    ),
+    "Inputs: {names} ({n} incoming edges)": (
+        "\u8f93\u5165: {names}\uff08{n} \u6761\u8f93\u5165\u8fb9\uff09"
+    ),
+    "Inputs: {names} (1 incoming edge)": (
+        "\u8f93\u5165: {names}\uff081 \u6761\u8f93\u5165\u8fb9\uff09"
+    ),
+    "Inputs: {names}": "\u8f93\u5165: {names}",
+    "Inputs: 0 incoming edges": "\u8f93\u5165: 0 \u6761\u8f93\u5165\u8fb9",
     # -- Phase 2: submit page buttons --
     "Generate YAML": "\u751f\u6210 YAML",
     "Submit to Remote": "\u63d0\u4ea4\u5230\u8fdc\u7a0b",
+    # -- Phase 10 polish: RunsResultsPage hard-coded status messages --
+    "Automatic refresh failed: {e}": "\u81ea\u52a8\u5237\u65b0\u5931\u8d25: {e}",
+    "Automatic refresh failed: {errors}": "\u81ea\u52a8\u5237\u65b0\u5931\u8d25: {errors}",
+    "Run complete; results downloaded: {run_id}": "\u8fd0\u884c\u5b8c\u6210\uff0c\u7ed3\u679c\u5df2\u4e0b\u8f7d: {run_id}",
+    "Run complete; results downloaded: {ids}": "\u8fd0\u884c\u5b8c\u6210\uff0c\u7ed3\u679c\u5df2\u4e0b\u8f7d: {ids}",
+    "Operation recovery failed: {error}": "\u542f\u52a8\u6062\u590d\u5931\u8d25: {error}",
+    "Delete Run invoked from context menu": "\u4ece\u53f3\u952e\u83dc\u5355\u8c03\u7528\u5220\u9664\u4efb\u52a1",
 }
 
 

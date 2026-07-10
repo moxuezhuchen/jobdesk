@@ -11,12 +11,14 @@ Why a separate module
 imports both the nodegraph model *and* the confflow-vendored
 ``WorkflowSpec`` so it deserves its own home.
 
-Phase 1 limitation: only linear workflows are supported. The
-confflow engine itself gained fan-out / fan-in in Phase 3
-(``graphlib.TopologicalSorter``-based dispatch), but the **editor**
-in Phase 1 only allows one node to feed one successor. This bridge
-mirrors that constraint: anything more elaborate raises
-:class:`WorkflowSpecError`.
+Phase 10 widens the bridge so the editor can author DAG workflows.
+``StepConfig.inputs`` is a list of upstream step names and is now
+written verbatim into each ``step`` dict. ``XYZ_FILE`` is no longer
+a pre-wired edge to the first step in the dict (its ``inputs`` list
+just stays empty); ``OUTPUT`` is still injected as a sentinel but is
+connected to every "leaf" step (no outgoing calc edges), which for
+linear chains is just the last step. The confflow engine itself has
+understood ``StepConfig.inputs`` since ``1dff20f``.
 
 Mapping
 -------
@@ -132,9 +134,11 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     Raises
     ------
     WorkflowSpecError
-        When the graph is empty, has cycles, has fan-out / fan-in
-        (Phase 1 limitation), references a kind that cannot be
-        expressed as a workflow step, or any node has no ``title``.
+        When the graph is empty, has cycles, references a kind that
+        cannot be expressed as a workflow step, has ``XYZ_FILE``
+        connected to anything, has ``OUTPUT`` feeding something,
+        fans into a single ``STRUCTURE`` input port of a calc /
+        confgen node, or any node has no ``title``.
     ConfFlowUnavailableError
         Propagated from :func:`require_confflow` when the vendored
         confflow package is missing (the GUI runs in a developer
@@ -150,8 +154,7 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     cycle = [i for i in issues if i.code == "CYCLE_DETECTED"]
     if cycle:
         raise WorkflowSpecError(
-            "graph contains a cycle; only linear (acyclic) workflows are "
-            "supported in Phase 1.6"
+            "graph contains a cycle; only acyclic workflows are supported"
         )
     port_issues = [i for i in issues if i.code in {"INVALID_PORT_TYPE", "MISSING_REQUIRED_INPUT"}]
     if port_issues:
@@ -163,10 +166,20 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     # ``validate`` already flagged, so this is safe.
     ordered_nodes = graph.topological_order()
 
-    # Sanity-check fan-in / fan-out. Phase 1 only allows one incoming
-    # edge per non-root calc/confgen node and one outgoing edge per
-    # non-terminal node.
-    _assert_linear_topology(graph, ordered_nodes)
+    # Sanity-check terminal / fan-in limits beyond what ``validate``
+    # already covers (cycle, port types, required inputs).
+    _assert_well_formed(graph, ordered_nodes)
+
+    # Map each emitting step to its deterministic step name; indexable
+    # by node so we can resolve ``step["inputs"]`` later.
+    used_names: set[str] = set()
+    step_name_by_node_id: dict[str, str] = {}
+    for node in ordered_nodes:
+        if node.kind not in _STEP_EMITTING_KINDS:
+            continue
+        step_name = _unique_step_name(node, used_names)
+        used_names.add(step_name)
+        step_name_by_node_id[node.id] = step_name
 
     # Pull out the advanced-options bundle (any number of ADVANCED
     # nodes; their ``params`` dicts are merged in declaration order).
@@ -180,14 +193,12 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     )
 
     # Build steps list in topological order, naming each step uniquely.
-    used_names: set[str] = set()
     steps: list[dict[str, Any]] = []
     for node in ordered_nodes:
         if node.kind not in _STEP_EMITTING_KINDS:
             continue
-        step_name = _unique_step_name(node, used_names)
-        used_names.add(step_name)
-        step_dict = _build_step_dict(graph, node, step_name)
+        step_name = step_name_by_node_id[node.id]
+        step_dict = _build_step_dict(graph, node, step_name, step_name_by_node_id)
         steps.append(step_dict)
 
     # Pull out the first step's name as the work_dir hint? We deliberately
@@ -213,14 +224,19 @@ def from_workflow_spec(
     """Rebuild a :class:`NodeGraph` from a payload or a raw YAML dict.
 
     Used by "Load template…" to recover a saved graph. Each step in
-    ``payload.steps`` becomes one node; ``inputs`` (the Phase 3 DAG
-    hint) is honoured when present and the order in ``steps`` defines
-    a linear chain otherwise.
+    ``payload.steps`` becomes one node; its ``inputs`` field is honoured
+    when present and the bridge wires back the original (DAG) topology.
+    For backward compatibility the bridge still tolerates the linear
+    shape produced by Phase 1.6 (no ``inputs`` field, plain list of
+    calc steps).
 
-    Unknown step types raise :class:`WorkflowSpecError`. The bridge
-    also injects a single ``XYZ_FILE`` sentinel at the front and a
-    single ``OUTPUT`` sentinel at the end so the resulting graph is
-    immediately user-editable.
+    The bridge also injects a single ``XYZ_FILE`` sentinel at the
+    front and a single ``OUTPUT`` sentinel at the end so the resulting
+    graph is immediately user-editable. ``OUTPUT`` becomes the
+    successor of every "leaf" step (steps with no outgoing calc
+    edges); for linear graphs this is just the last step. The
+    ``XYZ_FILE`` sentinel is only wired to a step that consumes the
+    global XYZ input — typically a ``CONF_GEN`` root.
     """
     require_confflow()
 
@@ -231,19 +247,18 @@ def from_workflow_spec(
         steps = list(payload.get("steps", []))
         extra = _extract_extra(payload)
 
-    if not steps:
-        # An empty workflow is still a valid graph (with the sentinels).
-        pass
-
     graph = NodeGraph()
 
-    # First pass: emit one node per step in declaration order.
-    step_node_ids: list[str] = []
+    # First pass: emit one node per step in declaration order. We do
+    # *not* rely on the YAML order to wire edges later: the bridge
+    # reads ``step.get("inputs", [])`` and reverses the names back to
+    # node ids.
+    step_node_by_name: dict[str, str] = {}
     for step in steps:
         kind = _step_kind(step)
         node = default_node_for_step(kind, step)
         graph.add_node(node)
-        step_node_ids.append(node.id)
+        step_node_by_name[node.title] = node.id
 
     # Inject XYZ_FILE + OUTPUT sentinels so the graph is round-trippable.
     from jobdesk_app.gui.nodegraph.model import default_node
@@ -253,19 +268,54 @@ def from_workflow_spec(
     out_node = default_node(NodeKind.OUTPUT, position=(620.0, 60.0))
     graph.add_node(out_node)
 
-    # Second pass: linear chain. XYZ_FILE -> first step -> ... -> last
-    # step -> OUTPUT. We deliberately ignore the ``inputs`` array for
-    # Phase 1.6; Phase 3+ will read it for true DAG wiring.
-    if step_node_ids:
-        first_step_id = step_node_ids[0]
-        last_step_id = step_node_ids[-1]
-        graph.add_edge(_make_linear_edge(graph, xyz_node.id, first_step_id))
-        prev_id: str | None = None
-        for nid in step_node_ids:
-            if prev_id is not None:
-                graph.add_edge(_make_linear_edge(graph, prev_id, nid))
-            prev_id = nid
-        graph.add_edge(_make_linear_edge(graph, last_step_id, out_node.id))
+    # Second pass: re-wire edges from ``step["inputs"]``. Each step
+    # that lists non-empty ``inputs`` gets an edge per upstream name;
+    # the first step (or any step with empty ``inputs``) gets wired
+    # to the ``XYZ_FILE`` sentinel instead.
+    has_dag_wiring = False
+    for step in steps:
+        step_name = str(step.get("name", ""))
+        dst_id = step_node_by_name.get(step_name)
+        if dst_id is None:
+            continue
+        upstream_names = _normalize_inputs(step.get("inputs", []))
+        if upstream_names:
+            for upstream_name in upstream_names:
+                src_id = step_node_by_name.get(upstream_name)
+                if src_id is None or src_id == dst_id:
+                    continue
+                graph.add_edge(_make_dag_edge(graph, src_id, dst_id))
+                has_dag_wiring = True
+        elif step is steps[0]:
+            # First step in declaration order consumes the global XYZ
+            # file unless it explicitly named upstream steps above.
+            graph.add_edge(_make_dag_edge(graph, xyz_node.id, dst_id, dst_port="in"))
+
+    if has_dag_wiring:
+        # DAG path: every "leaf" step (no outgoing calc/confgen
+        # successor) feeds the OUTPUT sentinel. For an N-sink DAG this
+        # attaches each sink to output.
+        outgoing_by_node: dict[str, int] = {
+            nid: 0 for nid in step_node_by_name.values()
+        }
+        for edge in graph.edges.values():
+            if edge.src_node in outgoing_by_node:
+                outgoing_by_node[edge.src_node] += 1
+        for leaf_id, count in outgoing_by_node.items():
+            if count == 0:
+                graph.add_edge(
+                    _make_dag_edge(graph, leaf_id, out_node.id, src_port="out")
+                )
+    elif step_node_by_name:
+        # Phase 1.6 linear path: explicit chain plus a final output
+        # edge. This branch only runs when the YAML did not declare
+        # any ``inputs`` list at all.
+        ordered_ids = list(step_node_by_name.values())
+        for prev_id, cur_id in zip(ordered_ids[:-1], ordered_ids[1:]):
+            graph.add_edge(_make_dag_edge(graph, prev_id, cur_id))
+        graph.add_edge(
+            _make_dag_edge(graph, ordered_ids[-1], out_node.id, src_port="out")
+        )
 
     # Carry any ADVANCED / extra_options as a synthetic ADVANCED node.
     if extra:
@@ -276,31 +326,110 @@ def from_workflow_spec(
     return graph
 
 
+def _normalize_inputs(raw: Any) -> list[str]:
+    """Coerce ``step["inputs"]`` into a list of unique step names."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, (list, tuple)):
+        seen: set[str] = set()
+        out: list[str] = []
+        for value in raw:
+            name = str(value).strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            out.append(name)
+        return out
+    return []
+
+
+def _make_dag_edge(
+    graph: NodeGraph,
+    src_node_id: str,
+    dst_node_id: str,
+    *,
+    src_port: str | None = None,
+    dst_port: str | None = None,
+) -> "Edge":
+    """Build an Edge using the canonical output / input ports of each node."""
+    from jobdesk_app.gui.nodegraph.model import Edge
+
+    src_node = graph.nodes[src_node_id]
+    dst_node = graph.nodes[dst_node_id]
+    src_p = src_port if src_port is not None else _canonical_output(src_node)
+    dst_p = dst_port if dst_port is not None else _canonical_input(dst_node)
+    return Edge(
+        id=Edge.new_id(),
+        src_node=src_node_id,
+        src_port=src_p,
+        dst_node=dst_node_id,
+        dst_port=dst_p,
+    )
+
+
 # ── helpers ─────────────────────────────────────────────────────────────
 
 
-def _assert_linear_topology(graph: NodeGraph, ordered: list[Node]) -> None:
-    """Phase 1.6 only allows linear chains; reject fan-in / fan-out."""
-    for node in ordered:
-        if node.kind in (NodeKind.XYZ_FILE, NodeKind.OUTPUT, NodeKind.ADVANCED):
-            continue
-        in_edges = graph.incoming_edges(node.id)
-        if len(in_edges) > 1:
-            raise WorkflowSpecError(
-                f"node '{node.title or node.kind.value}' has {len(in_edges)} "
-                f"incoming edges; Phase 1.6 supports at most one predecessor"
-            )
-        if _kind_emits_step(node.kind):
-            out_edges = [
-                e for e in graph.outgoing_edges(node.id)
-                if _kind_emits_step(graph.nodes[e.dst_node].kind)
-            ]
-            if len(out_edges) > 1:
+def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
+    """Apply bridge-specific topology rules beyond :meth:`NodeGraph.validate`.
+
+    Rules
+    -----
+
+    * ``XYZ_FILE`` has no incoming edges (it is the only place a step
+      can be sourced from, and any extra wiring would mean the user
+      mis-dragged).
+    * ``OUTPUT`` has no outgoing edges.
+    * Each ``STRUCTURE`` input port of a calc / confgen / refine
+      node accepts **at most one** incoming edge. ``STRUCTURES`` is
+      the only port type that allows many-to-one fan-in (e.g. two
+      parallel optimizer runs feeding a ``Refine``'s ensemble
+      socket).
+    * Self-loops and cycles are flagged by ``graph.validate``
+      (``CYCLE_DETECTED``) and we short-circuit there.
+    """
+    label = lambda n: n.title or n.kind.value  # noqa: E731
+
+    for node in graph.nodes.values():
+        if node.kind is NodeKind.XYZ_FILE:
+            incoming = graph.incoming_edges(node.id)
+            if incoming:
                 raise WorkflowSpecError(
-                    f"node '{node.title or node.kind.value}' fans out to "
-                    f"{len(out_edges)} calc/confgen successors; Phase 1.6 "
-                    f"supports linear chains only"
+                    f"{label(node)} (XYZ_FILE) must not have incoming edges; "
+                    f"found {len(incoming)}"
                 )
+            continue
+        if node.kind is NodeKind.OUTPUT:
+            outgoing = graph.outgoing_edges(node.id)
+            if outgoing:
+                raise WorkflowSpecError(
+                    f"{label(node)} (OUTPUT) must not have outgoing edges; "
+                    f"found {len(outgoing)}"
+                )
+            continue
+        if node.kind in (NodeKind.ADVANCED,):
+            continue
+
+    # Many-to-one fan-in is only allowed on ``STRUCTURES``-typed input
+    # ports. For every other port type we expect ≤ 1 incoming edge.
+    from jobdesk_app.gui.nodegraph.model import PortType
+    for node in ordered:
+        if node.kind not in _STEP_EMITTING_KINDS:
+            continue
+        for port in node.inputs:
+            incoming = graph.incoming_edges(node.id, port.name)
+            if len(incoming) <= 1:
+                continue
+            if port.type is PortType.STRUCTURES:
+                continue
+            raise WorkflowSpecError(
+                f"{label(node)} port '{port.label or port.name}' "
+                f"({port.type.value}) accepts at most one predecessor; "
+                f"found {len(incoming)} (STRUCTURES ports are the only "
+                f"type that permits fan-in)"
+            )
 
 
 def _kind_emits_step(kind: NodeKind) -> bool:
@@ -386,17 +515,85 @@ def _unique_step_name(node: Node, used: set[str]) -> str:
     return candidate
 
 
-def _build_step_dict(graph: NodeGraph, node: Node, step_name: str) -> dict[str, Any]:
-    """Build the per-step dict that will live under ``steps:`` in YAML."""
+def _build_step_dict(
+    graph: NodeGraph,
+    node: Node,
+    step_name: str,
+    step_name_by_node_id: dict[str, str],
+) -> dict[str, Any]:
+    """Build the per-step dict that will live under ``steps:`` in YAML.
+
+    The new ``inputs`` field is a list of upstream step names wired to
+    this node via the graph's incoming edges. Roots (no predecessors)
+    emit ``inputs: []``; a node can declare any number of upstream
+    names (the DAG engine reads each one and pulls the corresponding
+    step result into its ``inputs`` mapping).
+
+    The list is deduped and ordered by the upstream node's
+    ``topological_order`` position so the YAML output is stable across
+    runs.
+    """
+    input_names = _upstream_step_names(graph, node, step_name_by_node_id)
     params = dict(node.params)
     if node.kind is NodeKind.CONF_GEN:
-        return {"name": step_name, "type": "confgen", "params": params}
+        return {"name": step_name, "type": "confgen", "params": params, "inputs": list(input_names)}
     itask = _CALC_ITASK_BY_KIND[node.kind]
-    step: dict[str, Any] = {"name": step_name, "type": "calc", "params": params}
+    step: dict[str, Any] = {"name": step_name, "type": "calc", "params": params, "inputs": list(input_names)}
     # ``itask`` is a top-level param key in confflow's calc config; we
     # place it explicitly so the workflow is self-describing.
     step["params"]["itask"] = itask
     return step
+
+
+def _upstream_step_names(
+    graph: NodeGraph,
+    node: Node,
+    step_name_by_node_id: dict[str, str],
+) -> list[str]:
+    """Return the upstream step names (deduped, topologically ordered)."""
+    name_pos: dict[str, int] = {nid: idx for idx, nid in enumerate(_node_id_topological_order(graph))}
+    ordered_names: list[str] = []
+    seen: set[str] = set()
+    for edge in graph.incoming_edges(node.id):
+        upstream_name = step_name_by_node_id.get(edge.src_node)
+        if upstream_name is None or upstream_name in seen:
+            continue
+        seen.add(upstream_name)
+        # Binary insertion to keep the list sorted by topological position.
+        upstream_pos = name_pos.get(edge.src_node, len(name_pos))
+        insert_at = len(ordered_names)
+        for idx, existing in enumerate(ordered_names):
+            existing_pos = name_pos.get(
+                next(
+                    src for src, name in step_name_by_node_id.items() if name == existing
+                ),
+                len(name_pos),
+            )
+            if upstream_pos < existing_pos:
+                insert_at = idx
+                break
+        ordered_names.insert(insert_at, upstream_name)
+    return ordered_names
+
+
+def _node_id_topological_order(graph: NodeGraph) -> list[str]:
+    """Return node ids in topological order (sources first)."""
+    if any(issue.code == "CYCLE_DETECTED" for issue in graph._check_cycles()):
+        raise ValueError("cannot topologically sort a graph with a cycle")
+    visited: set[str] = set()
+    order: list[str] = []
+
+    def visit(nid: str) -> None:
+        if nid in visited:
+            return
+        visited.add(nid)
+        for edge in graph.incoming_edges(nid):
+            visit(edge.src_node)
+        order.append(nid)
+
+    for nid in list(graph.nodes):
+        visit(nid)
+    return order
 
 
 def _step_type_token(step: dict[str, Any]) -> str:
@@ -457,19 +654,18 @@ def _make_linear_edge(
     port: str | None = None,
     dst_port: str | None = None,
 ) -> "Edge":
-    """Create an edge between the canonical output / input ports."""
-    from jobdesk_app.gui.nodegraph.model import Edge
+    """Create an edge between the canonical output / input ports.
 
-    src_node = graph.nodes[src_node_id]
-    dst_node = graph.nodes[dst_node_id]
-    src_port = port if port is not None else _canonical_output(src_node)
-    dst_p = dst_port if dst_port is not None else _canonical_input(dst_node)
-    return Edge(
-        id=Edge.new_id(),
-        src_node=src_node_id,
-        src_port=src_port,
-        dst_node=dst_node_id,
-        dst_port=dst_p,
+    Kept as a thin alias of :func:`_make_dag_edge` so existing call
+    sites (and historical tests) that named the helper specifically
+    continue to work.
+    """
+    return _make_dag_edge(
+        graph,
+        src_node_id,
+        dst_node_id,
+        src_port=port,
+        dst_port=dst_port,
     )
 
 

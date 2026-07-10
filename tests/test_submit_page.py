@@ -293,3 +293,102 @@ def test_work_dir_name_uses_default_when_relative():
     # ``Path("xyz").stem == "xyz"``; just verify it's a non-empty
     # ``..._confflow_work`` token.
     assert _work_dir_name(Path("xyz")) == "xyz_confflow_work"
+
+
+# --- Phase 10.5: DAG routing -----------------------------------------------
+
+
+def _make_fanout_graph() -> NodeGraph:
+    """A 4-node graph: XYZ_FILE -> CONF_GEN -> {SP, FREQ} -> OUTPUT.
+
+    The two SP / FREQ sinks both have non-empty ``inputs`` lists, so the
+    SubmitPage auto-detect chooses ``kind="dag"``.
+    """
+    graph = NodeGraph()
+    xyz = default_node(NodeKind.XYZ_FILE, position=(10.0, 20.0))
+    conf = default_node(NodeKind.CONF_GEN, position=(200.0, 30.0))
+    conf.params = {"nconf": 3}
+    sp = default_node(NodeKind.SINGLE_POINT, position=(400.0, 0.0))
+    sp.params = {"method": "B3LYP", "basis": "6-31G(d)"}
+    freq = default_node(NodeKind.FREQUENCY, position=(400.0, 80.0))
+    out = default_node(NodeKind.OUTPUT, position=(600.0, 40.0))
+    for n in (xyz, conf, sp, freq, out):
+        graph.add_node(n)
+    graph.add_edge(
+        Edge(id="e1", src_node=xyz.id, src_port="out",
+             dst_node=conf.id, dst_port="in")
+    )
+    graph.add_edge(
+        Edge(id="e2", src_node=conf.id, src_port="out",
+             dst_node=sp.id, dst_port="in")
+    )
+    graph.add_edge(
+        Edge(id="e3", src_node=conf.id, src_port="out",
+             dst_node=freq.id, dst_port="in")
+    )
+    return graph
+
+
+def test_submit_click_with_dag_graph_routes_to_dag_kind(page, tmp_path, qtbot):
+    """A graph with non-empty step ``inputs`` lists must submit as kind=dag.
+
+    Phase 10.5: the editor → bridge path already serialises the per-step
+    ``inputs`` arrays (Phase 10.1-10.4).  The page's auto-detect must
+    pick that up so the submit use case writes the ``dag`` workflow YAML
+    (Phase 10.5 plumbing).
+    """
+    xyz = tmp_path / "a.xyz"
+    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
+    page.editor.set_graph(_make_fanout_graph())
+
+    with qtbot.waitSignal(page.submit_requested, timeout=500) as sig:
+        page.submit_btn.click()
+
+    payload = sig.args[0]
+    assert payload.kind == "dag"
+    assert payload.workflow is None
+    assert payload.dag is not None
+    assert payload.dag.work_dir_name.endswith("_confflow_work")
+    # The bridge-emitted steps include a non-empty ``inputs`` list on SP.
+    sp_step = next(s for s in payload.dag.steps if s["name"] == "sp")
+    assert sp_step["inputs"] == ["confgen"]
+
+
+def test_submit_click_with_linear_graph_keeps_confflow_kind(page, tmp_path, qtbot):
+    """A linear graph (no fan-in) still emits kind=confflow for backward compat.
+
+    The Phase 10.5 auto-detect rule: any step with a non-empty ``inputs``
+    list flips to ``dag``; otherwise the legacy ``confflow`` path stays
+    so the wizard-style flow continues to work.
+    """
+    xyz = tmp_path / "a.xyz"
+    xyz.write_text("1\nmol\nH 0 0 0\n", encoding="utf-8")
+    page.push_sources([InputSource(path=xyz, side="local", kind="xyz")])
+    page.editor.set_graph(_make_valid_graph())
+
+    with qtbot.waitSignal(page.submit_requested, timeout=500) as sig:
+        page.submit_btn.click()
+
+    payload = sig.args[0]
+    assert payload.kind == "confflow"
+    assert payload.dag is None
+    assert payload.workflow is not None
+
+
+def test_detect_payload_kind_helper():
+    """The auto-detect helper is the test seam: a list with any non-empty
+    ``inputs`` flips to ``dag``; otherwise it returns None (caller decides)."""
+    from jobdesk_app.gui.pages.submit_page import _detect_payload_kind
+
+    assert _detect_payload_kind([]) is None
+    # Linear: all steps have empty ``inputs``.
+    assert _detect_payload_kind([
+        {"name": "a", "type": "calc", "params": {}, "inputs": []},
+        {"name": "b", "type": "calc", "params": {}, "inputs": ["a"]},
+    ]) == "dag"
+    # Pure fan-out case: the sink names a predecessor.
+    assert _detect_payload_kind([
+        {"name": "a", "type": "confgen", "params": {}, "inputs": []},
+        {"name": "b", "type": "calc", "params": {}, "inputs": []},
+    ]) is None

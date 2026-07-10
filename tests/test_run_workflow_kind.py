@@ -33,4 +33,4 @@ def test_workflow_kind_can_be_set_to_confflow():
 
 
 def test_workflow_kind_distinct_values():
-    assert {w.value for w in WorkflowKind} == {"gaussian", "orca", "confflow"}
+    assert {w.value for w in WorkflowKind} == {"gaussian", "orca", "confflow", "dag"}

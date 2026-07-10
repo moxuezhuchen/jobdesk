@@ -46,25 +46,21 @@ that holds session leases via `SessionPool`.
 | Runs & Results | `gui/pages/runs_results_page.py` | Run list, per-task status, parsed preview, ResultDetailPane |
 | Settings | `gui/pages/settings_servers_page.py` | `servers.yaml` editor + GUI preferences |
 
-The Submit page (Phase 14) replaces the legacy ConfFlow wizard and
-InputBuilder dialog. It embeds four reusable widgets from
-`gui/widgets/`:
+The Submit page (Phase 2) replaces the legacy ConfFlow wizard and
+InputBuilder dialog. It embeds a single reusable widget from `gui/widgets/`
+plus the `WorkflowGraphEditor` from `gui/nodegraph/`:
 
 ```
-InputSourcePanel   ──+──►  SubmitPage  ──►  SubmitUseCase  ──►  PreparedBatch
-CalculationWidget  ──┤                       (pure logic)
-WorkflowWidget     ──┤
-InputBuilderWidget ──┘
+InputSourcePanel  ──+──►  SubmitPage  ──►  SubmitUseCase  ──►  PreparedBatch
+WorkflowGraphEditor ─┘                       (pure logic)
 ```
 
 * `InputSourcePanel` — tabbed local/remote picker; `add_local_paths`,
   `add_remote_paths`, drag-drop, `sources_changed(list[InputSource])`.
-* `CalculationWidget` — method/basis/charge/multiplicity/nproc/memory
-  form with validation hints and a recent-presets MRU strip.
-* `WorkflowWidget` — workflow steps + work_dir + advanced options +
-  YAML preview; `build_spec(calc)` produces a `WorkflowSpec`.
-* `InputBuilderWidget` — Gaussian / ORCA input file renderer
-  (`build_content()` / `build_content_to()`).
+* `WorkflowGraphEditor` — node-graph editor driving the Submit preview and
+  payload (`to_workflow_spec(...)` / `from_workflow_spec(...)`). Replaces
+  the Phase 14A `CalculationWidget` / `WorkflowWidget` / `InputBuilderWidget`,
+  which were retired in Phase 10.6.
 
 The page-level worker callback (in `MainWindow`) handles the I/O:
 uploads `local_paths` to `remote_targets`, then calls

@@ -105,6 +105,9 @@ class InputSourcePanel(QWidget):
         self.local_tab.btn_add_dir.clicked.connect(self._on_add_directory)
         self.local_tab.btn_add.clicked.connect(self._on_add_files_local)
         self.local_tab.btn_remove.clicked.connect(self._on_remove)
+        # Phase 11.1 — F4 fix. Tab mutations bubble up to the panel,
+        # which re-emits sources_changed for embedding pages.
+        self.local_tab.contents_changed.connect(self._relay_sources_changed)
         self.local_tab.btn_clear.clicked.connect(self._on_clear)
         self.local_tab.recursive_cb.toggled.connect(self._on_recursive_toggled)
         self.tabs.addTab(self.local_tab, tr("Local", self._language))
@@ -116,6 +119,8 @@ class InputSourcePanel(QWidget):
             self.remote_tab.btn_remove.clicked.connect(self._on_remove)
             self.remote_tab.btn_clear.clicked.connect(self._on_clear)
             self.remote_tab.recursive_cb.toggled.connect(self._on_recursive_toggled)
+            # Phase 11.1 — F4 fix. Mirror the bubble-up connection.
+            self.remote_tab.contents_changed.connect(self._relay_sources_changed)
             self.tabs.addTab(self.remote_tab, tr("Remote", self._language))
         else:
             self.remote_tab = None
@@ -175,6 +180,15 @@ class InputSourcePanel(QWidget):
 
     def _build_tab(self, side: InputSide) -> "_TabBody":
         return _TabBody(side=side, language=self._language)
+
+    def _relay_sources_changed(self) -> None:
+        """Re-emit :pyattr:`sources_changed` from a tab's ``contents_changed``.
+
+        Phase 11.1 — F4 fix. The drop path lives on the tab body and
+        cannot reach the panel's signal directly, so tabs publish a
+        local ``contents_changed`` signal that the panel forwards.
+        """
+        self.sources_changed.emit(self.sources())
 
     def _current_side(self) -> str:
         idx = self.tabs.currentIndex()
@@ -281,6 +295,14 @@ class InputSourcePanel(QWidget):
 
 class _TabBody(QWidget):
     """Body of a single tab in :class:`InputSourcePanel`."""
+
+    # Phase 11.1 — F4 fix. Tabs now bubble up their own "I changed"
+    # notifications; the parent :class:`InputSourcePanel` listens and
+    # re-emits ``sources_changed`` so embedding pages always see one
+    # signal regardless of which tab mutated. The bug was that drops
+    # only mutated the tab's internal list and never notified the
+    # panel, so live previews stayed stale.
+    contents_changed = Signal()
 
     def __init__(self, side: InputSide, language: str):
         super().__init__()
@@ -429,6 +451,12 @@ class _TabBody(QWidget):
         if added > 0:
             event.acceptProposedAction()
             self.refresh_count(added)
+            # Phase 11.1 — F4 fix. Notify the parent panel so live
+            # preview / validation refresh immediately. Without this,
+            # drag-and-drop silently mutated the internal list with no
+            # signal, leaving the Submit page's preview one step
+            # behind the user's action.
+            self.contents_changed.emit()
         else:
             event.ignore()
 

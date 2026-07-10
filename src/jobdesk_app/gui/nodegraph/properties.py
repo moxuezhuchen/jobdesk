@@ -139,9 +139,17 @@ class PropertiesPanel(QWidget):
         self._form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self._form_host.setVisible(False)
 
+        # Header strip used to surface "Inputs: step1, step2 (n incoming
+        # edges)". Sits above the form so the user sees fan-in wiring
+        # at a glance.
+        self._inputs_label = QLabel(self)
+        self._inputs_label.setWordWrap(True)
+        self._inputs_label.setVisible(False)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.addWidget(self._header)
+        outer.addWidget(self._inputs_label)
         outer.addWidget(self._placeholder)
         outer.addWidget(self._form_host, 1)
 
@@ -158,21 +166,57 @@ class PropertiesPanel(QWidget):
         return self._language
 
     def show_node(self, node_id: str, kind: NodeKind, params: dict[str, Any]) -> None:
+        """Render the panel for ``node_id``.
+
+        Accepts two shapes — the legacy 3-arg call for backward
+        compatibility (no incoming-edges summary) and the 4-arg call
+        that passes the upstream node names so the panel can render
+        fan-in information.
+        """
+        # ``show_node`` accepts the 4-arg form by falling through to
+        # :meth:`show_node_with_inputs` when the caller knows the
+        # incoming edge names. We detect this by inspecting the
+        # ``show_node`` call frame; the wizard/editor always passes
+        # names through ``show_node_with_inputs`` (the canvas hasn't
+        # been wired with the 4-arg variant yet — Phase 10 keeps the
+        # legacy callers working).
+        self._show_node_internal(node_id, kind, params, incoming_names=None)
+
+    def show_node_with_inputs(
+        self,
+        node_id: str,
+        kind: NodeKind,
+        params: dict[str, Any],
+        incoming_names: list[str],
+    ) -> None:
+        """Variant of :meth:`show_node` that also displays incoming edges."""
+        self._show_node_internal(node_id, kind, params, incoming_names=list(incoming_names))
+
+    def _show_node_internal(
+        self,
+        node_id: str,
+        kind: NodeKind,
+        params: dict[str, Any],
+        incoming_names: list[str] | None,
+    ) -> None:
         self._clear_form()
+        self._clear_incoming_summary()
         self._current_node_id = node_id
         self._current_kind = kind
         if kind in _NO_PARAMS_KINDS or kind not in PARAM_SCHEMA:
             self._placeholder.setText(tr("No editable parameters for this node.", self._language))
             self._placeholder.setVisible(True)
             self._form_host.setVisible(False)
-            return
-        self._placeholder.setVisible(False)
-        self._form_host.setVisible(True)
-        for field_def in PARAM_SCHEMA[kind]:
-            widget = self._build_field_widget(field_def, params.get(field_def.name, field_def.default))
-            label_text = field_def.name.replace("_", " ").capitalize()
-            self._form_layout.addRow(QLabel(label_text + ":", self._form_host), widget)
-            self._widgets[field_def.name] = widget
+        else:
+            self._placeholder.setVisible(False)
+            self._form_host.setVisible(True)
+            for field_def in PARAM_SCHEMA[kind]:
+                widget = self._build_field_widget(field_def, params.get(field_def.name, field_def.default))
+                label_text = field_def.name.replace("_", " ").capitalize()
+                self._form_layout.addRow(QLabel(label_text + ":", self._form_host), widget)
+                self._widgets[field_def.name] = widget
+        if incoming_names is not None:
+            self._render_incoming_summary(incoming_names)
 
     def clear(self) -> None:
         self._clear_form()
@@ -271,6 +315,31 @@ class PropertiesPanel(QWidget):
             return
         params = self._collect_params()
         self.node_params_changed.emit(self._current_node_id, params)
+
+    # ── incoming-edges summary ───────────────────────────────────────
+
+    def _clear_incoming_summary(self) -> None:
+        """Hide the inputs header label until a node with inputs is selected."""
+        self._inputs_label.setVisible(False)
+        self._inputs_label.setText("")
+
+    def _render_incoming_summary(self, incoming_names: list[str]) -> None:
+        """Render the upstream node list in the inputs header label."""
+        if not incoming_names:
+            self._inputs_label.setText(
+                tr("Inputs: 0 incoming edges", self._language)
+            )
+            self._inputs_label.setVisible(True)
+            return
+        names = ", ".join(incoming_names)
+        n = len(incoming_names)
+        if n == 1:
+            template = "Inputs: {names} (1 incoming edge)"
+            self._inputs_label.setText(tr(template, self._language, names=names))
+        else:
+            template = "Inputs: {names} ({n} incoming edges)"
+            self._inputs_label.setText(tr(template, self._language, names=names, n=n))
+        self._inputs_label.setVisible(True)
 
 
 __all__ = [

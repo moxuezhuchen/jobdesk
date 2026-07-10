@@ -30,12 +30,10 @@ Public signals:
 The Phase 14B :pyattr:`create_only_requested` signal was removed along with
 its button in Phase 2: the wizard's "Create tasks only" path collapsed into
 the unified editor, and downstream consumers should go through the
-``submit_requested`` payload with ``kind="confflow"``.
-
-Legacy widgets (:class:`InputBuilderWidget`, :class:`CalculationWidget`,
-:class:`WorkflowWidget`) are no longer used in the new layout; they remain
-imported-disabled below for downstream consumers until the Phase 4 cleanup
-removes the wizard-style fallback paths entirely.
+``submit_requested`` payload with ``kind="confflow"``. The Phase 10.6
+cleanup removed the legacy :class:`InputBuilderWidget` /
+:class:`CalculationWidget` / :class:`WorkflowWidget` modules; this page
+is now driven entirely by the node-graph editor.
 """
 from __future__ import annotations
 
@@ -60,7 +58,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.submit_payload import InputSource, SubmitKind, SubmitPayload, WorkflowFields
+from ...core.submit_payload import (
+    DagWorkflowFields,
+    InputSource,
+    SubmitKind,
+    SubmitPayload,
+    WorkflowFields,
+)
 from ...services.submit_use_case import PreparedBatch, SubmitUseCase
 from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
@@ -71,11 +75,6 @@ from ..nodegraph import (
 )
 from ..nodegraph.editor import WorkflowGraphEditor
 from ..widgets.input_source_panel import InputSourcePanel
-# Legacy widgets are no longer used in the new layout; they remain for
-# downstream consumers until Phase 4 cleanup.
-from ..widgets.calculation_widget import CalculationWidget  # noqa: F401
-from ..widgets.input_builder_widget import InputBuilderWidget  # noqa: F401
-from ..widgets.workflow_widget import WorkflowWidget  # noqa: F401
 
 _ACTIVITY_LIMIT = 50
 _PREVIEW_DEBOUNCE_MS = 150
@@ -123,10 +122,11 @@ class SubmitPage(QWidget):
         self.input_panel.add_files_requested.connect(self._on_add_files_requested)
         layout.addWidget(self.input_panel)
 
-        # ── 2. Node-graph editor (replaces mode_tabs) ──────────────────────
-        # WorkflowGraphEditor is a QMainWindow; setting ``parent`` makes
-        # it an embeddable child window so it can sit inside the page's
-        # VBoxLayout with stretch=1.
+        # ── 2. Node-graph editor ───────────────────────────────────────
+        # ``WorkflowGraphEditor`` is a plain QWidget designed to be
+        # embedded in a layout. We add it with stretch=1 so it absorbs
+        # the vertical space between the input panel and the action
+        # row.
         self.editor = WorkflowGraphEditor(language=language, parent=self)
         self.editor.graph_changed.connect(self._on_graph_changed)
         layout.addWidget(self.editor, 1)
@@ -171,8 +171,8 @@ class SubmitPage(QWidget):
         layout.addLayout(button_row)
 
         # ── 5. Live preview pane (workflow YAML) ───────────────────────────
-        preview_box = QGroupBox(tr("Live preview", language))
-        pv_layout = QVBoxLayout(preview_box)
+        self._preview_box = QGroupBox(tr("Live preview", language))
+        pv_layout = QVBoxLayout(self._preview_box)
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
         font = QFont("Courier New")
@@ -180,15 +180,15 @@ class SubmitPage(QWidget):
         self.preview.setFont(font)
         self.preview.setMinimumHeight(160)
         pv_layout.addWidget(self.preview)
-        layout.addWidget(preview_box)
+        layout.addWidget(self._preview_box)
 
         # ── 6. Activity log ────────────────────────────────────────────────
-        log_box = QGroupBox(tr("Activity log", language))
-        log_layout = QVBoxLayout(log_box)
+        self._log_box = QGroupBox(tr("Activity log", language))
+        log_layout = QVBoxLayout(self._log_box)
         self.activity_list = QListWidget()
         self.activity_list.setMaximumHeight(120)
         log_layout.addWidget(self.activity_list)
-        layout.addWidget(log_box)
+        layout.addWidget(self._log_box)
 
         # ── 7. Debounced live-preview refresh ─────────────────────────────
         self._preview_timer = QTimer(self)
@@ -210,6 +210,12 @@ class SubmitPage(QWidget):
         self.generate_btn.setText(tr("Generate YAML", language))
         self.submit_btn.setText(tr("Submit to Remote", language))
         self.max_parallel_label.setText(tr("Max parallel:", language))
+        # Phase 11.1 — F5 fix. Group titles and the server pill are
+        # also static text; without these lines a runtime language
+        # switch left half the page in the previous language.
+        self.server_pill.setText(self._server_pill_text())
+        self._preview_box.setTitle(tr("Live preview", language))
+        self._log_box.setTitle(tr("Activity log", language))
 
     def set_server_status(self, connected: bool, server_label: str = "") -> None:
         """Update the server pill text and active state.
@@ -253,18 +259,18 @@ class SubmitPage(QWidget):
         except Exception:
             pass
         if errors:
-            self._log(f"Submit failed: {'; '.join(errors)}")
+            self._log(tr("Submit failed: {e}", self._language, e="; ".join(errors)))
             return
         if batch_id:
-            self._log(f"Submitted: {batch_id}")
+            self._log(tr("Submitted: {batch_id}", self._language, batch_id=batch_id))
         else:
-            self._log("Submitted.")
+            self._log(tr("Submitted.", self._language))
 
     def push_sources(self, sources: list[InputSource]) -> None:
         """Wire endpoint for the cross-page right-click menu."""
         self.input_panel.set_sources(list(sources))
         self.use_as_input_received.emit(list(sources))
-        self._log(f"Pushed {len(sources)} source(s) from Files page.")
+        self._log(tr("Pushed {n} source(s) from Files page.", self._language, n=len(sources)))
 
     def set_max_parallel(self, value: int) -> None:
         self.max_parallel_spin.setValue(int(value))
@@ -334,7 +340,10 @@ class SubmitPage(QWidget):
         errors = [i for i in issues if i.severity == "error"]
         if errors:
             for issue in errors:
-                self._log(f"Validation [{issue.code or 'graph'}]: {issue.message}")
+                self._log(
+                    tr("Validation [{code}]: {message}", self._language,
+                       code=issue.code or "graph", message=issue.message)
+                )
             return
         payload = self._build_payload("confflow")
         if payload is None:
@@ -347,15 +356,15 @@ class SubmitPage(QWidget):
             graph = self.editor.graph()
             payload: WorkflowGraphPayload = to_workflow_spec(graph)
         except WorkflowSpecError as exc:
-            self.preview.setPlainText(f"Graph incomplete: {exc}")
+            self.preview.setPlainText(tr("Graph incomplete: {exc}", self._language, exc=exc))
             return
         except Exception as exc:
-            self.preview.setPlainText(f"Preview failed: {exc}")
+            self.preview.setPlainText(tr("Preview failed: {exc}", self._language, exc=exc))
             return
         try:
             yaml_text = payload.to_yaml()
         except Exception as exc:
-            self.preview.setPlainText(f"Render failed: {exc}")
+            self.preview.setPlainText(tr("Render failed: {exc}", self._language, exc=exc))
             return
         self.preview.setPlainText(yaml_text)
 
@@ -385,20 +394,48 @@ class SubmitPage(QWidget):
             graph = self.editor.graph()
             payload = to_workflow_spec(graph)
         except WorkflowSpecError as exc:
-            self._log(f"Validation [graph]: {exc}")
+            self._log(tr("Validation [graph]: {exc}", self._language, exc=exc))
             return None
         except Exception as exc:
-            self._log(f"Validation [graph]: {exc}")
+            self._log(tr("Validation [graph]: {exc}", self._language, exc=exc))
             return None
 
         calc_cfg = payload.spec.global_config.calc
+        program = str(getattr(calc_cfg, "program", "orca"))
+        calc = _calc_fields_from_cfg(calc_cfg, program)
+
+        # Phase 10.5: auto-detect DAG vs linear. Any step with a non-empty
+        # ``inputs`` list (Phase 10.1-10.4 wiring) means the graph declares
+        # a multi-input edge, which the legacy linear ``confflow`` path
+        # can't model. ``kind`` is overridden locally; the caller's ``kind``
+        # argument is used as a fallback so tests can force a path.
+        detected_kind: SubmitKind = _detect_payload_kind(payload.steps) or kind
+
+        if detected_kind == "dag":
+            dag = _DagWorkflowFieldsShim(
+                work_dir_name=work_dir_name,
+                steps=list(payload.steps),
+                advanced_options={},
+            )
+            return SubmitPayload(
+                kind="dag",
+                inputs=sources,
+                program=program,
+                calc=calc,
+                workflow=None,
+                dag=dag,
+                output_dir=output_dir,
+                output_paths=[],
+                server_id=self._server_label or "",
+                remote_dir="/",
+                max_parallel=self.max_parallel_spin.value(),
+            )
+
         workflow = WorkflowFields(
             work_dir_name=work_dir_name,
             steps=[_step_type_token(s) for s in payload.steps],
             advanced_options={},
         )
-        program = str(getattr(calc_cfg, "program", "orca"))
-        calc = _calc_fields_from_cfg(calc_cfg, program)
         return SubmitPayload(
             kind=kind,
             inputs=sources,
@@ -445,12 +482,12 @@ def _step_type_token(step: dict[str, Any]) -> str:
 
 
 def _calc_fields_from_cfg(calc_cfg: Any, program: str) -> "_CalculationFieldsShim":
-    """Build a :class:`CalculationFields` shim from the graph-derived config.
+    """Build a :class:`CalculationFields`-shaped object from the graph-derived config.
 
     :class:`SubmitUseCase` reads ``method_basis``, ``charge``,
     ``multiplicity``, ``nproc`` and ``mem`` off this object, so the shim
-    satisfies its duck-typed access without dragging the
-    :class:`CalculationWidget` import into runtime.
+    satisfies its duck-typed access without dragging a calc UI into the
+    submit page's runtime path.
     """
     try:
         method_basis = " ".join(
@@ -482,12 +519,12 @@ def _calc_fields_from_cfg(calc_cfg: Any, program: str) -> "_CalculationFieldsShi
 
 @dataclass
 class _CalculationFieldsShim:
-    """Duck-typed mirror of :class:`widgets.calculation_widget.CalculationFields`.
+    """Plain value object that satisfies :class:`SubmitUseCase`'s duck-typed access.
 
-    Mirrors the attribute surface that :class:`SubmitUseCase` reads. The
-    legacy :class:`CalculationWidget` dataclass remains the source of
-    truth; this shim exists so the legacy widget module stays out of
-    the new submit page's runtime path.
+    Mirrors the attribute surface :class:`SubmitUseCase` reads
+    (``method_basis``, ``charge``, ``multiplicity``, ``nproc``, ``mem``,
+    plus ``program`` / ``preset_name`` / ``job_keywords`` for completeness).
+    Keeps the submit page free of any Qt-widget dep in its data path.
     """
 
     program: str
@@ -498,6 +535,37 @@ class _CalculationFieldsShim:
     multiplicity: int
     nproc: int
     mem: str
+
+
+@dataclass
+class _DagWorkflowFieldsShim(DagWorkflowFields):
+    """Thin wrapper around :class:`DagWorkflowFields` for the Phase 10.5 page.
+
+    Kept separate from ``_CalculationFieldsShim`` so the page's two
+    build-paths (linear / DAG) read top-to-bottom without conditionals
+    scattered around. Inherits from :class:`DagWorkflowFields` so the
+    use case's duck-typed access (``work_dir_name`` / ``steps`` /
+    ``advanced_options``) keeps working unchanged.
+    """
+
+    pass
+
+
+def _detect_payload_kind(steps: list[dict[str, Any]]) -> SubmitKind | None:
+    """Return ``"dag"`` when any step declares non-empty ``inputs``.
+
+    Phase 10.5 rule: a graph whose per-step ``inputs`` arrays are all
+    empty is a linear workflow (Phase 1.6 / 14B style) and is submitted
+    as ``kind="confflow"`` for backward compatibility.  Any step that
+    names an upstream predecessor is a DAG fan-in and forces
+    ``kind="dag"`` so the submit path writes ``StepConfig.inputs`` to
+    the YAML.
+    """
+    for step in steps:
+        inputs = step.get("inputs") or []
+        if inputs:
+            return "dag"
+    return None
 
 
 __all__ = ["SubmitPage"]

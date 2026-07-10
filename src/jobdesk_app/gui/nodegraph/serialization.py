@@ -254,14 +254,15 @@ class RemoveNodeCommand(_GraphMutation):
 class AddEdgeCommand(_GraphMutation):
     """Add an :class:`Edge` to the graph (idempotent on redo)."""
 
-    def __init__(self, graph: NodeGraph, edge: Edge) -> None:
+    def __init__(self, graph: NodeGraph, edge: Edge, *, allow_duplicate: bool = False) -> None:
         super().__init__("Connect ports")
         self._graph = graph
         self._edge = edge
+        self._allow_duplicate = allow_duplicate
 
     def apply(self) -> None:
         if self._edge.id not in self._graph.edges:
-            self._graph.add_edge(self._edge)
+            self._graph.add_edge(self._edge, allow_duplicate=self._allow_duplicate)
 
     def revert(self) -> None:
         if self._edge.id in self._graph.edges:

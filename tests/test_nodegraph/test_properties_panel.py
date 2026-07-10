@@ -82,3 +82,54 @@ def test_panel_for_kind_without_schema_shows_placeholder(qtbot):
     # assertion because QLabel.isVisible() depends on a visible parent
     # which the test does not establish.
     assert panel._form_host.isVisible() is False
+
+
+# ── Phase 10.3: incoming-edges summary in properties panel ────────────
+
+
+def test_panel_shows_incoming_edges_summary(qtbot):
+    scene, _view, panel = _make_editor(qtbot)
+    node = scene.add_node(NodeKind.OPT, (10.0, 10.0))
+    model_node = scene.graph().nodes[node.node_id]
+    panel.show_node_with_inputs(
+        model_node.id,
+        model_node.kind,
+        dict(model_node.params),
+        ["step1", "step2"],
+    )
+    # The summary header has been populated; Qt's ``isVisible()`` is
+    # unreliable without a shown parent chain, so we assert on the
+    # text it carries instead.
+    text = panel._inputs_label.text()
+    assert "step1" in text and "step2" in text
+    assert "incoming" in text
+
+
+def test_panel_summary_uses_singular_for_one_predecessor(qtbot):
+    scene, _view, panel = _make_editor(qtbot)
+    node = scene.add_node(NodeKind.OPT, (10.0, 10.0))
+    model_node = scene.graph().nodes[node.node_id]
+    panel.show_node_with_inputs(
+        model_node.id,
+        model_node.kind,
+        dict(model_node.params),
+        ["step1"],
+    )
+    text = panel._inputs_label.text()
+    assert "step1" in text
+    # Just one edge: the plural form should not be used.
+    assert "1 incoming edge" in text
+
+
+def test_panel_summary_zero_incoming(qtbot):
+    scene, _view, panel = _make_editor(qtbot)
+    node = scene.add_node(NodeKind.OPT, (10.0, 10.0))
+    model_node = scene.graph().nodes[node.node_id]
+    panel.show_node_with_inputs(
+        model_node.id,
+        model_node.kind,
+        dict(model_node.params),
+        [],
+    )
+    text = panel._inputs_label.text()
+    assert "0 incoming" in text

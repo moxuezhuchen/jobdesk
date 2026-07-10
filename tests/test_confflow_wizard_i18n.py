@@ -1,14 +1,15 @@
-"""Tests for the new Submit-page widgets' i18n (Phase 14D).
+"""Tests for the new Submit-page widgets' i18n (Phase 14D + Phase 10.6).
 
-Phase 14C.2 retired the QWizard + InputBuilderDialog. The widget bodies
-were extracted into ``CalculationWidget``, ``WorkflowWidget``,
-``InputBuilderWidget``, and ``InputSourcePanel``. This test file
-exercises the user-visible labels on those widgets and asserts they
-flip to Chinese in ``language="zh"`` mode.
+After Phase 10.6 the Submit page embeds ``InputSourcePanel`` plus the
+``WorkflowGraphEditor`` (which is exercised by its own test files under
+``tests/test_nodegraph/``). The Phase 14A ``CalculationWidget`` /
+``WorkflowWidget`` / ``InputBuilderWidget`` were retired, so this file
+focuses on:
 
-It also walks every ``tr()`` call in the new widget sources and asserts
-each key has a Chinese counterpart in :data:`ZH` — the same invariant
-the old wizard i18n test enforced.
+* the ``tr()`` helper behaviour (EN / ZH / fallback / kwargs);
+* ``InputSourcePanel`` user-visible labels switching to Chinese;
+* the **invariant** that every ``tr()`` key in the still-live widget /
+  page sources has a Chinese counterpart in :data:`ZH`.
 """
 from __future__ import annotations
 
@@ -20,40 +21,9 @@ import pytest
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from jobdesk_app.gui.i18n import ZH, tr
-from jobdesk_app.gui.widgets.calculation_widget import CalculationWidget
-from jobdesk_app.gui.widgets.input_builder_widget import InputBuilderWidget
 from jobdesk_app.gui.widgets.input_source_panel import InputSourcePanel
-from jobdesk_app.gui.widgets.workflow_widget import WorkflowWidget
 
 # --- fixtures --------------------------------------------------------------
-
-
-@pytest.fixture
-def en_calc(qtbot):
-    widget = CalculationWidget(language="en")
-    qtbot.addWidget(widget)
-    return widget
-
-
-@pytest.fixture
-def zh_calc(qtbot):
-    widget = CalculationWidget(language="zh")
-    qtbot.addWidget(widget)
-    return widget
-
-
-@pytest.fixture
-def en_workflow(qtbot):
-    widget = WorkflowWidget(language="en")
-    qtbot.addWidget(widget)
-    return widget
-
-
-@pytest.fixture
-def zh_workflow(qtbot):
-    widget = WorkflowWidget(language="zh")
-    qtbot.addWidget(widget)
-    return widget
 
 
 @pytest.fixture
@@ -68,20 +38,6 @@ def zh_panel(qtbot):
     panel = InputSourcePanel(language="zh", remote_available=True)
     qtbot.addWidget(panel)
     return panel
-
-
-@pytest.fixture
-def en_input_builder(qtbot):
-    widget = InputBuilderWidget(language="en")
-    qtbot.addWidget(widget)
-    return widget
-
-
-@pytest.fixture
-def zh_input_builder(qtbot):
-    widget = InputBuilderWidget(language="zh")
-    qtbot.addWidget(widget)
-    return widget
 
 
 # --- tr() helper -----------------------------------------------------------
@@ -114,100 +70,6 @@ def test_tr_falls_back_to_input_when_zh_key_missing(monkeypatch):
     assert tr(sentinel, "en") == sentinel
 
 
-# --- calculation widget labels --------------------------------------------
-
-
-def test_zh_calc_form_labels(zh_calc):
-    """The form labels on CalculationWidget are translated."""
-    from PySide6.QtWidgets import QLabel
-
-    expected_labels = {
-        "\u7a0b\u5e8f:",   # Program:
-        "\u9884\u8bbe:",   # Preset:
-        "\u65b9\u6cd5:",   # Method:
-        "\u57fa\u7ec4:",   # Basis:
-        "\u7535\u8377:",   # Charge:
-        "\u81ea\u65cb\u591a\u91cd\u5ea6:",  # Multiplicity:
-        "CPU \u6838\u6570:",  # CPU cores:
-        "\u5185\u5b58:",   # Memory:
-    }
-    labels = {lbl.text() for lbl in zh_calc.findChildren(QLabel)}
-    missing = expected_labels - labels
-    assert not missing, f"missing Chinese labels: {missing}"
-
-
-def test_zh_calc_validation_messages(zh_calc):
-    """Empty method / basis / invalid spin produce Chinese error strings."""
-    zh_calc.method_edit.clear()
-    zh_calc.basis_edit.clear()
-    errors = zh_calc.validate()
-    assert errors["method"] == "\u65b9\u6cd5\u4e0d\u80fd\u4e3a\u7a7a\u3002"
-    assert errors["basis"] == "\u57fa\u7ec4\u4e0d\u80fd\u4e3a\u7a7a\u3002"
-
-    from unittest.mock import patch
-
-    with patch.object(zh_calc.charge_spin, "value", return_value=-99):
-        errors = zh_calc.validate()
-    assert "charge" in errors
-    assert errors["charge"] == "\u7535\u8377\u5fc5\u987b\u5728 -10 \u5230 10 \u4e4b\u95f4\u3002"
-
-
-def test_en_calc_validation_messages(en_calc):
-    en_calc.method_edit.clear()
-    en_calc.basis_edit.clear()
-    errors = en_calc.validate()
-    assert errors["method"] == "Method is required."
-    assert errors["basis"] == "Basis set is required."
-
-
-def test_zh_orca_hint_switches(zh_calc):
-    """Selecting ORCA updates orca_hint to Chinese text."""
-    zh_calc.program_combo.setCurrentText("orca")
-    assert any('\u4e00' <= ch <= '\u9fff' for ch in zh_calc.orca_hint.text()), (
-        f"expected Chinese ORCA hint: {zh_calc.orca_hint.text()!r}"
-    )
-
-
-def test_en_orca_hint_stays_english(en_calc):
-    en_calc.program_combo.setCurrentText("orca")
-    assert not any('\u4e00' <= ch <= '\u9fff' for ch in en_calc.orca_hint.text()), (
-        f"EN ORCA hint should not contain Chinese characters: {en_calc.orca_hint.text()!r}"
-    )
-    assert "ORCA" in en_calc.orca_hint.text()
-
-
-# --- workflow widget labels -----------------------------------------------
-
-
-def test_zh_workflow_widget_labels(zh_workflow):
-    """Steps GroupBox / Work dir name label / YAML preview GroupBox switch to Chinese."""
-    from PySide6.QtWidgets import QGroupBox, QLabel
-
-    groupbox_titles = {gb.title() for gb in zh_workflow.findChildren(QGroupBox)}
-    assert "\u6b65\u9aa4" in groupbox_titles  # Steps
-    assert "YAML \u9884\u89c8" in groupbox_titles  # YAML preview
-
-    labels = {lbl.text() for lbl in zh_workflow.findChildren(QLabel)}
-    assert "\u5de5\u4f5c\u76ee\u5f55\u540d:" in labels  # Work dir name:
-
-
-def test_zh_workflow_validation_messages(zh_workflow):
-    zh_workflow.work_dir_edit.clear()
-    errors = zh_workflow.validate()
-    assert errors["work_dir"] == "\u5de5\u4f5c\u76ee\u5f55\u540d\u4e0d\u80fd\u4e3a\u7a7a\u3002"
-
-    zh_workflow.work_dir_edit.setText("has/slash")
-    errors = zh_workflow.validate()
-    assert "/" in errors["work_dir"]
-    assert any('\u4e00' <= ch <= '\u9fff' for ch in errors["work_dir"])
-
-
-def test_zh_duplicate_advanced_key_message(zh_workflow):
-    zh_workflow.adv_edit.setPlainText("solvent=water\nsolvent=toluene")
-    errors = zh_workflow.validate()
-    assert "\u91cd\u590d" in errors["adv"]
-
-
 # --- input source panel labels --------------------------------------------
 
 
@@ -228,9 +90,12 @@ def test_zh_xyz_buttons_are_translated(zh_panel):
         "\u79fb\u9664",                    # Remove
         "\u6e05\u7a7a",                    # Clear
     }
-    actual = {btn.text() for btn in zh_panel.findChildren(__import__(
-        "PySide6.QtWidgets", fromlist=["QPushButton"]
-    ).QPushButton)}
+    actual = {
+        btn.text()
+        for btn in zh_panel.findChildren(
+            __import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton
+        )
+    }
     missing = translated_texts - actual
     assert not missing, f"missing Chinese buttons: {missing}"
 
@@ -255,92 +120,6 @@ def test_en_input_source_panel_tabs(en_panel):
     """Local tab always shows 'Local'; remote tab hidden when remote_available=False."""
     assert en_panel.tabs.tabText(0) == "Local"
     assert en_panel.tabs.count() == 1  # no Remote tab
-
-
-# --- input builder widget labels ------------------------------------------
-
-
-def test_zh_input_builder_labels(zh_input_builder):
-    from PySide6.QtWidgets import QLabel
-
-    labels = {lbl.text() for lbl in zh_input_builder.findChildren(QLabel)}
-    expected = {
-        "XYZ \u6587\u4ef6:",          # XYZ file:
-        "\u8f6f\u4ef6:",              # Software:
-        "\u9884\u8bbe:",              # Preset:
-        "\u65b9\u6cd5/\u57fa\u7ec4:",  # Method/Basis:
-        "\u5173\u952e\u8bcd:",         # Keywords:
-        "\u591a\u91cd\u5ea6:",         # Mult:
-        "\u7535\u8377:",               # Charge:
-        "\u5185\u5b58:",               # Mem:
-        "\u8fdb\u7a0b\u6570:",         # nproc:
-        "\u8f93\u51fa:",               # Output:
-    }
-    missing = expected - labels
-    assert not missing, f"missing Chinese labels: {missing}"
-
-
-def test_en_input_builder_labels(en_input_builder):
-    from PySide6.QtWidgets import QLabel
-
-    labels = {lbl.text() for lbl in en_input_builder.findChildren(QLabel)}
-    expected = {
-        "XYZ file:",
-        "Software:",
-        "Preset:",
-        "Method/Basis:",
-        "Keywords:",
-        "Mult:",
-        "Charge:",
-        "Mem:",
-        "nproc:",
-        "Output:",
-    }
-    missing = expected - labels
-    assert not missing, f"missing English labels: {missing}"
-
-
-def test_zh_input_builder_buttons(zh_input_builder):
-    expected = {
-        "\u6d4f\u89c8\u2026",   # Browse…
-        "\u53e6\u5b58\u4e3a\u2026",  # Save as…
-        "\u9884\u89c8",          # Preview
-        "\u751f\u6210",          # Generate
-        "\u5173\u95ed",          # Close
-    }
-    actual = {btn.text() for btn in zh_input_builder.findChildren(
-        __import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton
-    )}
-    missing = expected - actual
-    assert not missing, f"missing Chinese buttons: {missing}"
-
-
-def test_en_input_builder_buttons(en_input_builder):
-    from PySide6.QtWidgets import QPushButton
-
-    actual = {btn.text() for btn in en_input_builder.findChildren(QPushButton)}
-    expected = {"Browse\u2026", "Save as\u2026", "Preview", "Generate", "Close"}
-    missing = expected - actual
-    assert not missing, f"missing English buttons: {missing}"
-
-
-def test_zh_input_builder_placeholder(zh_input_builder):
-    assert zh_input_builder.xyz_edit.placeholderText() == ".xyz \u6587\u4ef6\u8def\u5f84\u2026"
-    assert zh_input_builder.output_edit.placeholderText() == "\u7559\u7a7a\u5219\u53ea\u9884\u89c8"
-
-
-def test_en_input_builder_placeholder(en_input_builder):
-    assert en_input_builder.xyz_edit.placeholderText() == "Path to .xyz file\u2026"
-    assert en_input_builder.output_edit.placeholderText() == "Leave blank to preview only"
-
-
-def test_input_builder_software_radio_labels_kept_english(zh_input_builder):
-    """Gaussian / ORCA are technical names and stay English even in zh mode."""
-    from PySide6.QtWidgets import QRadioButton
-
-    actual = {rb.text() for rb in zh_input_builder.findChildren(QRadioButton)}
-    assert any("Gaussian" in t for t in actual)
-    assert any("ORCA" in t for t in actual)
 
 
 # --- invariant: every tr() key has a Chinese counterpart -----------------
@@ -374,21 +153,20 @@ def _extract_tr_keys(path: str) -> set[str]:
     return keys
 
 
-_NEW_WIDGET_SOURCES = (
-    "src/jobdesk_app/gui/widgets/calculation_widget.py",
-    "src/jobdesk_app/gui/widgets/workflow_widget.py",
-    "src/jobdesk_app/gui/widgets/input_builder_widget.py",
+# Sources that still ship in Phase 10.6 — the legacy widgets are gone, but
+# the live InputSourcePanel + Submit page are still here.
+_LIVE_WIDGET_SOURCES = (
     "src/jobdesk_app/gui/widgets/input_source_panel.py",
     "src/jobdesk_app/gui/pages/submit_page.py",
     "src/jobdesk_app/gui/pages/file_transfer_page.py",
 )
 
 
-@pytest.mark.parametrize("source", _NEW_WIDGET_SOURCES)
+@pytest.mark.parametrize("source", _LIVE_WIDGET_SOURCES)
 def test_all_widget_tr_keys_have_zh_translations(source):
-    """Every English string passed to ``tr()`` in the new widgets must
-    have a Chinese counterpart in :data:`ZH`."""
+    """Every English string passed to ``tr()`` in the live widget sources
+    must have a Chinese counterpart in :data:`ZH`."""
     keys = _extract_tr_keys(source)
-    assert keys, f"no tr() keys found in {source} — has the import been wired?"
+    assert keys, f"no tr() keys found in {source} \u2014 has the import been wired?"
     missing = keys - set(ZH.keys())
     assert not missing, f"missing ZH translations in {source}: {missing}"

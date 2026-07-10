@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QTableWidgetItem
 
 from jobdesk_app.core.parsers.gaussian import GaussianResult
 from jobdesk_app.core.parsers.orca import OrcaResult
+from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.pages.runs_results_page import (
     ResultDetailPane,
     RunsResultsPage,
@@ -307,10 +308,16 @@ def test_render_detail_for_task_uses_cache(runs_page, tmp_path):
 
 
 def test_render_detail_for_task_handles_missing_output(runs_page, tmp_path):
-    """No output file → pane shows 'Output file not found' in red."""
+    """No output file → pane shows the 'Output file not found' status in red."""
     task = _make_task(task_dir=str(tmp_path / "empty"))
     runs_page._render_detail_for_task("missing", task, tmp_path)
-    assert "not found" in runs_page.detail_pane.status_label.text().lower()
+    # The exact label depends on the user's GUI language; assert against the
+    # canonical tr() output rather than a hard-coded English substring so this
+    # test is deterministic across `language: en` / `language: zh`.
+    assert (
+        runs_page.detail_pane.status_label.text()
+        == tr("Output file not found", runs_page._language)
+    )
     assert "#b91c1c" in runs_page.detail_pane.status_label.styleSheet()
 
 
@@ -327,7 +334,10 @@ def test_render_detail_for_task_handles_parser_exception(runs_page, tmp_path):
     ):
         runs_page._render_detail_for_task("broken", task, tmp_path)
 
-    assert "Parse error" in runs_page.detail_pane.status_label.text()
+    assert (
+        runs_page.detail_pane.status_label.text()
+        == tr("Parse error", runs_page._language)
+    )
     assert runs_page.detail_pane.error_value.isVisibleTo(runs_page.detail_pane) is True
     assert "boom" in runs_page.detail_pane.error_value.text()
 

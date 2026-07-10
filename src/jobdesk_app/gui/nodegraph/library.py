@@ -73,15 +73,15 @@ _RAW_TITLE: dict[NodeKind, str] = {
 
 _RAW_TOOLTIP: dict[NodeKind, str] = {
     NodeKind.XYZ_FILE: "Input XYZ geometry",
-    NodeKind.CONF_GEN: "Generate a conformational ensemble",
-    NodeKind.PRE_OPT: "Cheap pre-optimization (force field)",
-    NodeKind.OPT: "DFT / ab-initio geometry optimization",
-    NodeKind.SINGLE_POINT: "Single-point energy",
-    NodeKind.FREQUENCY: "Vibrational frequency",
-    NodeKind.TS: "Transition state search",
-    NodeKind.REFINE: "Refine best conformer with high accuracy",
+    NodeKind.CONF_GEN: "Generate a conformational ensemble (Output: STRUCTURES, fans out to multiple OPTs / SPs)",
+    NodeKind.PRE_OPT: "Cheap pre-optimization (force field); Input: STRUCTURE",
+    NodeKind.OPT: "DFT / ab-initio geometry optimization; Input: STRUCTURE",
+    NodeKind.SINGLE_POINT: "Single-point energy; Input: STRUCTURE",
+    NodeKind.FREQUENCY: "Vibrational frequency; Input: STRUCTURE",
+    NodeKind.TS: "Transition state search; Input: STRUCTURE",
+    NodeKind.REFINE: "Refine best conformer with high accuracy; Input: STRUCTURE + ensemble",
     NodeKind.ADVANCED: "Free-form key=value options",
-    NodeKind.OUTPUT: "Workflow terminator (emits workflow.yaml)",
+    NodeKind.OUTPUT: "Aggregate all upstream paths into workflow.yaml terminator",
 }
 
 

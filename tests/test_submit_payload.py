@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from jobdesk_app.core.submit_payload import (
+    DagWorkflowFields,
     InputSource,
     SubmitPayload,
     WorkflowFields,
@@ -75,10 +76,27 @@ def test_workflow_fields_is_mutable():
 
 
 def test_submit_payload_minimal_construction():
-    """A SubmitPayload with only required fields defaults the rest."""
-    from jobdesk_app.gui.widgets.calculation_widget import CalculationFields
+    """A SubmitPayload with only required fields defaults the rest.
 
-    calc = CalculationFields(
+    Phase 10.6 retired the ``CalculationWidget`` module; this test mirrors
+    the duck-typed contract by constructing a simple :class:`dataclasses`
+    instance inline (any object with the right attribute surface will do
+    for the :class:`SubmitPayload` constructor).
+    """
+    from dataclasses import dataclass
+
+    @dataclass
+    class _StubCalc:
+        program: str
+        preset_name: str | None
+        method_basis: str
+        job_keywords: list
+        charge: int
+        multiplicity: int
+        nproc: int
+        mem: str
+
+    calc = _StubCalc(
         program="gaussian",
         preset_name=None,
         method_basis="B3LYP/6-31G(d)",
@@ -133,3 +151,94 @@ def test_submit_payload_distinguishes_kinds():
     assert single.kind == "single"
     assert confflow.kind == "confflow"
     assert confflow.workflow is not None
+
+
+# --- DagWorkflowFields (Phase 10.5) ---------------------------------------
+
+
+def test_dag_workflow_fields_defaults():
+    """Empty steps / empty advanced_options by default."""
+    dag = DagWorkflowFields(work_dir_name="fanout_run")
+    assert dag.work_dir_name == "fanout_run"
+    assert dag.steps == []
+    assert dag.advanced_options == {}
+
+
+def test_dag_workflow_fields_accepts_serialised_steps():
+    """Each step is a dict from to_workflow_spec() with name/type/inputs."""
+    dag = DagWorkflowFields(
+        work_dir_name="fanout_run",
+        steps=[
+            {"name": "confgen", "type": "confgen", "params": {}, "inputs": []},
+            {"name": "sp", "type": "calc", "params": {"itask": "sp"}, "inputs": ["confgen"]},
+            {"name": "freq", "type": "calc", "params": {"itask": "freq"}, "inputs": ["confgen"]},
+        ],
+    )
+    assert len(dag.steps) == 3
+    assert dag.steps[1]["inputs"] == ["confgen"]
+    assert dag.steps[2]["inputs"] == ["confgen"]
+
+
+def test_submit_payload_accepts_dag_kind():
+    """A SubmitPayload for kind=dag carries the dag slot and may have workflow=None."""
+    src = InputSource(path=Path("a.xyz"))
+    dag = DagWorkflowFields(work_dir_name="fanout_run")
+    payload = SubmitPayload(
+        kind="dag", inputs=[src], program="orca", calc=None,
+        workflow=None, output_dir=Path("."), dag=dag,
+    )
+    assert payload.kind == "dag"
+    assert payload.dag is not None
+    assert payload.workflow is None
+    assert payload.dag.work_dir_name == "fanout_run"
+
+
+def test_submit_payload_dag_defaults_to_none():
+    """A legacy confflow/single payload keeps dag=None by default."""
+    src = InputSource(path=Path("a.xyz"))
+    payload = SubmitPayload(
+        kind="confflow", inputs=[src], program="gaussian", calc=None,
+        workflow=WorkflowFields(work_dir_name="x"), output_dir=Path("."),
+    )
+    assert payload.dag is None
+
+
+def test_dag_workflow_payload_serializes_yaml():
+    """``WorkflowGraphPayload.to_yaml()`` already includes the DAG ``inputs`` list.
+
+    Phase 10.5 plumbing accepts that YAML verbatim on the submit side;
+    this test is the contract: serialise a fan-out graph and assert
+    every step's ``inputs`` field survives.
+    """
+    import yaml
+
+    from jobdesk_app.core import workflow_spec
+
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    from jobdesk_app.gui.nodegraph.spec_bridge import to_workflow_spec
+    from tests.test_nodegraph.test_spec_bridge import _make_fanout_graph
+
+    graph = _make_fanout_graph()
+    spec_payload = to_workflow_spec(graph)
+    yaml_text = spec_payload.to_yaml()
+    parsed = yaml.safe_load(yaml_text)
+    by_name = {step["name"]: step for step in parsed["steps"]}
+    # Both fan-out sinks must name "confgen" in their inputs list.
+    assert by_name["sp"]["inputs"] == ["confgen"]
+    assert by_name["freq"]["inputs"] == ["confgen"]
+    # The root step still has an empty inputs list (it consumes global XYZ).
+    assert by_name["confgen"]["inputs"] == []
+
+
+def test_workflow_kind_dag_round_trip():
+    """``WorkflowKind.dag`` survives the str round-trip and equals ``'dag'``."""
+    from jobdesk_app.core.run import WorkflowKind
+
+    assert WorkflowKind.dag.value == "dag"
+    # String round-trip: ``RunSpec.workflow_kind`` accepts both forms.
+    assert WorkflowKind("dag") is WorkflowKind.dag
+    # The legacy kinds are untouched.
+    assert WorkflowKind.confflow.value == "confflow"
+    assert WorkflowKind.gaussian.value == "gaussian"
+    assert WorkflowKind.orca.value == "orca"

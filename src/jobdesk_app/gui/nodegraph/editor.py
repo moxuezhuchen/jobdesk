@@ -32,11 +32,9 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QDockWidget,
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QMainWindow,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -67,8 +65,15 @@ _DEFAULT_LIBRARY_WIDTH = 250
 _DEFAULT_PROPERTIES_WIDTH = 300
 
 
-class WorkflowGraphEditor(QMainWindow):
-    """A drop-in :class:`QMainWindow` that hosts the node-graph editor."""
+class WorkflowGraphEditor(QWidget):
+    """A drop-in :class:`QWidget` that hosts the node-graph editor.
+
+    Phase 11.1 — used to inherit :class:`QMainWindow`, but Qt refuses to
+    silently embed a top-level window as a child layout item, so the
+    Submit page rendered an empty editor area. Now a plain ``QWidget``
+    with a ``QVBoxLayout`` that stacks toolbar / body / status bar, so
+    it slots into ``SubmitPage``'s VBoxLayout cleanly.
+    """
 
     # Emitted whenever the underlying graph changed (add / remove /
     # edit / undo / redo / load template). UI panels that wrap this
@@ -80,9 +85,6 @@ class WorkflowGraphEditor(QMainWindow):
         language: str = "en",
         parent: QWidget | None = None,
     ) -> None:
-        # We accept being embedded as a child widget too: if a non-None
-        # ``parent`` is passed we still construct a QMainWindow but we
-        # expose ``self.root_widget`` (a plain QWidget) for embedding.
         super().__init__(parent)
         self._language = language
         self._scene = GraphScene(self)
@@ -164,11 +166,13 @@ class WorkflowGraphEditor(QMainWindow):
     # ── construction helpers ─────────────────────────────────────────
 
     def _build_layout(self) -> None:
-        central = QWidget(self)
-        outer = QVBoxLayout(central)
+        # The whole editor is a single QVBoxLayout on ``self`` — no
+        # central widget / no dock plumbing. Toolbar / body / status
+        # bar stack vertically.
+        outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        toolbar = QToolBar(central)
+        toolbar = QToolBar(self)
         toolbar.setMovable(False)
         toolbar.setIconSize(toolbar.iconSize())
         for button in (
@@ -195,10 +199,9 @@ class WorkflowGraphEditor(QMainWindow):
         body.addWidget(self._properties)
         outer.addLayout(body, 1)
         # Status bar with a coloured pill.
-        status_bar = QStatusBar(central)
+        status_bar = QStatusBar(self)
         status_bar.addPermanentWidget(self._status_pill, 1)
         outer.addWidget(status_bar)
-        self.setCentralWidget(central)
 
     def _wire_signals(self) -> None:
         self._undo_btn.clicked.connect(self._on_undo)
@@ -322,7 +325,18 @@ class WorkflowGraphEditor(QMainWindow):
         if node is None:
             self._properties.clear()
             return
-        self._properties.show_node(node.id, node.kind, dict(node.params))
+        # Surface fan-in info: walk the graph's incoming edges for this
+        # node and collect the upstream node titles. The properties
+        # panel renders the list in its "Inputs:" header strip.
+        graph = self._scene.graph()
+        incoming_names = [
+            graph.nodes[edge.src_node].title
+            for edge in graph.edges.values()
+            if edge.dst_node == node.id and edge.src_node in graph.nodes
+        ]
+        self._properties.show_node_with_inputs(
+            node.id, node.kind, dict(node.params), incoming_names
+        )
 
     def _on_params_changed(self, node_id: str, params: dict) -> None:
         cmd = SetParamsCommand(self._scene.graph(), node_id, params)

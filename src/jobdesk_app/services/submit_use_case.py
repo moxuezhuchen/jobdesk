@@ -36,10 +36,11 @@ from pathlib import Path
 from typing import Callable
 
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind, chunk_sources
-from ..core.submit_payload import SubmitPayload
+from ..core.submit_payload import DagWorkflowFields, SubmitPayload
 from ..core.workflow_spec import (
     ConfFlowUnavailableError,
     WorkflowSpec,
+    require_confflow,
     write_workflow_yaml,
 )
 from .program_adapters import ConfFlowAdapter
@@ -103,6 +104,9 @@ class SubmitUseCase:
         if payload.kind == "confflow" and payload.workflow is None:
             errors.append("Workflow fields are required for ConfFlow submission")
             return PreparedBatch(errors=errors)
+        if payload.kind == "dag" and payload.dag is None:
+            errors.append("DAG workflow fields are required for DAG submission")
+            return PreparedBatch(errors=errors)
         if payload.kind == "single" and payload.program not in ("gaussian", "orca"):
             errors.append(f"Unsupported program: {payload.program!r}")
             return PreparedBatch(errors=errors)
@@ -131,6 +135,8 @@ class SubmitUseCase:
         try:
             if payload.kind == "confflow":
                 specs, yaml_path = self._build_confflow_specs(payload, remote_targets)
+            elif payload.kind == "dag":
+                specs, yaml_path = self._build_dag_specs(payload, remote_targets)
             else:
                 specs = self._build_single_specs(payload, remote_targets)
                 yaml_path = None
@@ -225,6 +231,60 @@ class SubmitUseCase:
         )
         return [run_spec], yaml_local
 
+    def _build_dag_specs(
+        self,
+        payload: SubmitPayload,
+        remote_targets: list[str],
+    ) -> tuple[list[RunSpec], Path]:
+        """Phase 10.5: render the editor's DAG workflow to YAML and submit.
+
+        The :class:`DagWorkflowFields` carries the already-serialised step
+        list produced by :func:`jobdesk_app.gui.nodegraph.spec_bridge.to_workflow_spec`
+        — each step dict has ``name`` / ``type`` / ``params`` / ``inputs``.
+        We rebuild a fresh :class:`WorkflowSpec` from the calc-side fields
+        so the workflow-level config (program / method / basis / charge /
+        multiplicity / nproc / memory_mb) stays validated, then drop the
+        bridge-produced ``steps`` list verbatim onto it before serialising.
+
+        The remote command is the same ``confflow {name} -c yaml ...`` the
+        legacy ``confflow`` adapter uses; the engine reads ``StepConfig.inputs``
+        via ``graphlib.TopologicalSorter`` since Phase 3.
+        """
+        assert payload.dag is not None  # checked in execute()
+        dag = payload.dag
+        first_xyz = payload.output_dir
+        yaml_local = first_xyz / "workflow.yaml"
+
+        calc = payload.calc
+        method, basis = _split_method_basis(getattr(calc, "method_basis", ""))
+        spec = WorkflowSpec.from_form(
+            work_dir_name=dag.work_dir_name,
+            program=payload.program,
+            method=method,
+            basis=basis,
+            charge=calc.charge,
+            multiplicity=calc.multiplicity,
+            nproc=calc.nproc,
+            memory_mb=_parse_mem_mb(calc.mem),
+            steps=("dag",),  # placeholder; we overwrite via to_yaml_payload below
+            extra_options=dag.advanced_options or None,
+        )
+        yaml_text = _render_dag_yaml(spec, dag.steps)
+        yaml_local.parent.mkdir(parents=True, exist_ok=True)
+        tmp = yaml_local.with_suffix(yaml_local.suffix + ".tmp")
+        tmp.write_text(yaml_text, encoding="utf-8")
+        tmp.replace(yaml_local)
+        yaml_target = remote_child_path(payload.remote_dir, yaml_local.name)
+        run_spec = ConfFlowAdapter.build_dag_spec(
+            server_id=payload.server_id,
+            remote_dir=payload.remote_dir,
+            xyz_paths=remote_targets,
+            config_path=yaml_target,
+            max_parallel=payload.max_parallel,
+            resume=False,
+        )
+        return [run_spec], yaml_local
+
 
 def remote_child_path(remote_dir: str, name: str) -> str:
     """Mirror :func:`file_transfer_helpers.remote_child_path` (no GUI dep)."""
@@ -278,6 +338,23 @@ def _split_method_basis(method_basis: str) -> tuple[str, str]:
         return text, ""
     method, basis = text.split("/", 1)
     return method.strip(), basis.strip()
+
+
+def _render_dag_yaml(spec: WorkflowSpec, steps: list[dict]) -> str:
+    """Serialise ``spec`` plus an editor-derived ``steps`` list to YAML.
+
+    The :class:`WorkflowSpec` owns the workflow-level config; the
+    per-step list is the bridge's output and must be written verbatim so
+    each step's ``inputs: [...]`` field (Phase 10.1) survives. The
+    confflow engine reads ``StepConfig.inputs`` since Phase 3 to
+    walk the DAG via ``graphlib.TopologicalSorter``.
+    """
+    import yaml
+
+    require_confflow()
+    data = spec.global_config.model_dump(mode="json", exclude_none=True)
+    data["steps"] = list(steps)
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
 __all__ = ["PreparedBatch", "SubmitUseCase", "remote_child_path"]

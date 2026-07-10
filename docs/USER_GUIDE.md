@@ -14,6 +14,141 @@ Gaussian/ORCA 等计算任务。
 5. Runs 页自动刷新状态、下载结果（通过 SSH tail -f 实时监听）
 6. Results 页查看分析输出
 
+## Submitting workflows (Phase 2 + Phase 10)
+
+The Submit page drives **everything** workflow-related — there is no
+longer a separate ConfFlow Builder / Input Builder / wizard. The page
+embeds a single unified editor and the same Submit button routes the
+graph through either the legacy confflow path or the new `dag` path,
+depending on the topology you have drawn.
+
+### The unified editor
+
+The editor is the **WorkflowGraphEditor** (`gui/nodegraph/`). The
+legacy "ConfFlow Builder" tab (the Phase 14A `workflow_widget.py` /
+`input_builder_widget.py` / `input_source_panel.py` triplet) was
+retired in Phase 10.6 — the Submit page is the only place you build
+workflows now.
+
+You build a workflow visually:
+
+1. Drag node kinds from the **node library** (left panel) onto the
+   canvas. Available kinds: `XYZ_FILE` (input sentinel), `CONF_GEN`,
+   `PRE_OPT`, `OPT`, `REFINE`, `SINGLE_POINT`, `FREQUENCY`, `TS`,
+   `ADVANCED`, `OUTPUT` (terminal sentinel).
+2. Hover a node in the library to see its **port names** in the
+   tooltip — both incoming and outgoing ports are listed so you know
+   what each kind can connect to.
+3. Wire ports by dragging from a node's output to another node's
+   input. The editor validates the wiring live (cycle detection,
+   required-input checks, port-type compatibility).
+4. Click a node to open the **properties panel** (right side). It
+   shows the node's parameters plus a list of its **incoming edges**
+   — i.e. which upstream steps feed into this one.
+5. The page renders a live YAML preview as you edit.
+
+### DAG mode (Phase 10)
+
+The editor supports DAGs, not just linear chains:
+
+- **Fan-out** — one node's output connects to multiple downstream
+  nodes' inputs. For example, an `OPT` step that feeds both a
+  `FREQUENCY` step and a `SINGLE_POINT` step.
+- **Fan-in** — multiple upstream nodes' outputs converge into a
+  single downstream node's **STRUCTURES** input. (Fan-in is only
+  allowed on `STRUCTURES`-typed ports; the `STRUCTURE`-typed port
+  on calc/confgen nodes accepts exactly one predecessor.)
+
+To build a DAG:
+
+1. Draw the parallel branches in the editor (e.g. Generate →
+   {Optimize → Frequency, Optimize → SinglePoint}).
+2. Drag a second wire from the upstream output to the second
+   downstream input (fan-out). For fan-in, drag multiple wires
+   into a `STRUCTURES` port.
+3. The graph is acyclic by construction; the editor rejects cycles
+   with a red issue marker before you can submit.
+
+### Submit to Remote: linear vs DAG auto-detection
+
+The Submit page inspects the per-step `inputs` arrays before
+serialising the workflow:
+
+- **Linear graph** (every step has empty `inputs` — i.e. the editor
+  produced the Phase 1.6 / 14B chain shape) → uses the legacy
+  `confflow` command path. The YAML is written to `workflow.yaml`
+  next to the first XYZ and shipped to the remote server; the
+  confflow engine runs the steps in declaration order.
+- **DAG graph** (at least one step has a non-empty `inputs` list —
+  i.e. you have fan-out / fan-in) → uses the new `kind="dag"` path.
+  The same `workflow.yaml` is written but now contains per-step
+  `inputs: [...]` arrays, and `RunSpec.workflow_kind` is
+  `WorkflowKind.dag`. The confflow engine reads `StepConfig.inputs`
+  via `graphlib.TopologicalSorter` (Phase 3 of the confflow engine)
+  and walks the DAG accordingly. The remote command template is
+  identical to the linear case — only the YAML shape differs.
+
+The page's `_detect_payload_kind()` helper flips `kind` from
+`"confflow"` to `"dag"` automatically; you don't need to choose
+yourself.
+
+### Workflow round-trip
+
+The editor ↔ YAML bridge is faithful both ways:
+
+- **Forward** (editor → YAML): `to_workflow_spec(graph)` writes a
+  `WorkflowGraphPayload` with one dict per step. Each dict carries
+  `name`, `type`, `params`, and an `inputs: [...]` list reflecting
+  the fan-in / fan-out topology. The bridge sorts incoming step
+  names by topological order so the YAML is byte-identical across
+  runs.
+- **Reverse** (YAML → editor): `from_workflow_spec(payload)` rebuilds
+  a `NodeGraph` from the same per-step dict list, wires back the
+  fan-in / fan-out edges from each step's `inputs` field, and
+  injects a single `XYZ_FILE` sentinel at the front and a single
+  `OUTPUT` sentinel at the end. Every "leaf" step (no outgoing calc
+  edges) feeds the `OUTPUT` sentinel — for an N-sink DAG every sink
+  gets attached.
+
+This means a workflow saved from the editor loads back into the
+editor with the same DAG topology (modulo UUID node-ids and
+canvas positions, which are preserved when saving the template).
+
+### Language toggle
+
+The i18n toggle (zh-CN / en) on the Submit page and on the Runs /
+Results page is unchanged from Phase 14B. Switch the language from
+the Settings page; the editor and the activity log both pick up the
+new strings on next render. See `src/jobdesk_app/gui/i18n.py` for
+the catalogue.
+
+### Runs / Results page — detail pane
+
+The Runs / Results page has a per-run **detail pane** (right side)
+that opens when you click a run in the list. It carries:
+
+- **Analysis table** with named columns: Task, File, Program,
+  Energy, Gibbs, ZPE, Imag. Freq., Diagnosis. (Column names are
+  defined as module-level constants on `runs_results_page`; rows
+  are built by a `_placeholder_analysis_row` helper so missing
+  data renders as `—` instead of empty cells.)
+- **Activity log** with a chronological feed of submit / refresh /
+  download / analyse events for the run.
+- **Downloaded files** list — the SFTP-pulled outputs under
+  `results/<run_id>/<task_id>/`.
+- **Remote-side work dir** path and the rendered command that was
+  run.
+
+### Related design notes
+
+`docs/PHASE10_NODEGRAPH_DAG_PLAN.md` records the design intent for
+Phase 10 (multi-port edges, fan-in / fan-out, `inputs: [...]`
+list, `WorkflowKind.dag` separation). The end-to-end behaviour is
+covered by `tests/test_nodegraph/` (bridge + properties + library
+drag) and `tests/test_submit_use_case.py` (the `dag` path), and
+re-exercised by `scripts/smoke_confflow_dag_round_trip.py` against
+the real vendored confflow engine.
+
 ## 重要文件
 
 ```text
