@@ -65,8 +65,8 @@ class NodeKind(str, enum.Enum):
     """Concrete node types shipped with the editor.
 
     String values mirror confflow's ``type`` field so that
-    :meth:`NodeGraph.to_workflow_spec` can serialize without a mapping
-    table.
+    :func:`jobdesk_app.gui.nodegraph.to_workflow_spec` can serialize
+    without a mapping table.
     """
 
     XYZ_FILE = "xyz_file"  # input node; carries a single STRUCTURE

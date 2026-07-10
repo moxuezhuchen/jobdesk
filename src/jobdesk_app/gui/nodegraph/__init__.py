@@ -37,4 +37,16 @@ topology *is* the workflow.
 """
 from __future__ import annotations
 
-__all__: list[str] = []
+from jobdesk_app.gui.nodegraph.spec_bridge import (
+    WorkflowGraphPayload,
+    WorkflowSpecError,
+    from_workflow_spec,
+    to_workflow_spec,
+)
+
+__all__: list[str] = [
+    "WorkflowGraphPayload",
+    "WorkflowSpecError",
+    "from_workflow_spec",
+    "to_workflow_spec",
+]
