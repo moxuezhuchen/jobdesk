@@ -34,6 +34,15 @@ from ._operations import (
     recover_legacy_orphan_submit_tasks,
 )
 from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
+
+# Seconds a non-leader worker will wait for another worker that just
+# authored the ``files_isolated`` journal advance to finish the cleanup
+# (rmtree + advance-to-files_deleted + advance-to-completed) before
+# taking over. Chosen to be well above normal local-filesystem rmtree
+# latency while still bounded so a paused/abandoned leader does not pin
+# the operation at ``files_isolated`` indefinitely.
+_DELETE_CLEANUP_LEADER_GRACE_SECONDS = 0.2
+
 from ._paths import (
     _lexical_absolute as _lexical_absolute,
 )

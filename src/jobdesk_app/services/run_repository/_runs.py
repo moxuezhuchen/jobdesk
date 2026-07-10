@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
+import time as _time
 from pathlib import Path
 
 from ._operations_types import RunRecord
 from ._runs_helpers import _insert_run, _row_to_record, _run_exists
 from ._tasks_helpers import _load_tasks, _replace_tasks
+from . import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
 
 
 def create_run(
@@ -15,18 +17,43 @@ def create_run(
     record: RunRecord,
     tasks: list,
 ) -> RunRecord:
-    """Create a run and its tasks atomically, erroring if a deletion is in progress."""
-    connection.execute("BEGIN IMMEDIATE")
-    tombstone = connection.execute(
-        """SELECT 1 FROM operations
-           WHERE run_id = ? AND kind = 'delete' AND completed_at IS NULL
-           LIMIT 1""",
-        (record.run_id,),
-    ).fetchone()
-    if tombstone is not None:
-        raise ValueError(
-            f"run_id {record.run_id!r} cannot be reused while delete is incomplete"
-        )
+    """Create a run and its tasks atomically, erroring if a deletion is in progress.
+
+    A concurrent ``recover_delete_operations`` may briefly leave an
+    in-progress tombstone at ``phase = 'files_isolated'`` between the
+    isolation commit and the final ``advance_operation(..., complete=True)``
+    that sets ``completed_at``. The writer lock is released between those
+    two SQL steps, so a freshly-submitted ``create_run`` can acquire the
+    lock in that window and (incorrectly) observe the tombstone. To avoid
+    that spurious failure we wait for ``_DELETE_CLEANUP_LEADER_GRACE_SECONDS``
+    after acquiring the writer lock and seeing an incomplete tombstone,
+    releasing the lock between polls so the leader can finish. Stuck
+    leaders fail the wait cleanly with the original ``ValueError``.
+    """
+    deadline: float | None = None
+    while True:
+        connection.execute("BEGIN IMMEDIATE")
+        tombstone = connection.execute(
+            """SELECT 1 FROM operations
+               WHERE run_id = ? AND kind = 'delete' AND completed_at IS NULL
+               LIMIT 1""",
+            (record.run_id,),
+        ).fetchone()
+        if tombstone is None:
+            break
+        # We hold the writer lock — leader cannot progress while we do.
+        # Drop it so the leader can finish its cleanup, then retry.
+        connection.rollback()
+        # First time we see a tombstone we anchor the grace window to
+        # *this* moment, not to the start of ``create_run`` (which may
+        # have been blocked on the writer lock for the entire pause).
+        if deadline is None:
+            deadline = _time.monotonic() + _DELETE_CLEANUP_LEADER_GRACE_SECONDS
+        if _time.monotonic() >= deadline:
+            raise ValueError(
+                f"run_id {record.run_id!r} cannot be reused while delete is incomplete"
+            )
+        _time.sleep(0.01)
     _insert_run(connection, record)
     _replace_tasks(connection, record.run_id, tasks)
     return record
