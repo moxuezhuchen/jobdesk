@@ -107,6 +107,51 @@ def test_zh_dict_covers_every_tr_call_key():
     assert missing == [], f"tr() call keys missing from ZH dict: {missing!r}"
 
 
+# ── IMP-11 i18n parity pass ─────────────────────────────────────────────────
+
+# Some English tokens are intentionally passthrough because they are
+# proper nouns (protocol directives, software brand names). The
+# parity test below skips these on purpose; if you add a new entry
+# here, leave a one-line comment explaining why it stays English-only.
+_PASSTHROUGH_WHITELIST: frozenset[str] = frozenset({
+    # The English word "English" in a language picker stays English.
+    "English",
+    # SSH config directives; the convention is to keep them verbatim.
+    "ProxyCommand:",
+    "ProxyJump:",
+    # Brand-name file-type tags.
+    "Gaussian (.gjf)",
+    "ORCA (.inp)",
+})
+
+
+def test_i18n_all_zh_keys_have_translations():
+    """Walk every ``tr(...)`` call site and assert the ZH entry is
+    a real translation (``ZH[text] != text``).
+
+    The whitelist holds the few English-only tokens that exist for
+    branding or protocol reasons. Anything else that ships through
+    ``tr()`` must have an actual Chinese counterpart in
+    :data:`jobdesk_app.gui.i18n.ZH`.
+    """
+    used = _tr_call_keys()
+    passthrough = sorted(used & _PASSTHROUGH_WHITELIST)
+    # Items NOT in the ZH dict are caught by the prior test; this one
+    # focuses on "key exists but the dict value is a passthrough".
+    in_zh = [k for k in used if k in i18n.ZH]
+    passthrough_leaks = sorted(
+        k for k in in_zh if k not in _PASSTHROUGH_WHITELIST and i18n.ZH[k] == k
+    )
+    assert passthrough_leaks == [], (
+        "tr() keys whose ZH value is still English-only "
+        f"(add a real translation or whitelist with a comment): "
+        f"{passthrough_leaks!r}"
+    )
+    assert passthrough == sorted(passthrough), (
+        "whitelist drift: " f"{passthrough!r}"
+    )
+
+
 # -- Phase 10.3 added keys ---------------------------------------------
 
 

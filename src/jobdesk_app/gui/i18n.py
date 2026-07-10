@@ -37,6 +37,25 @@ ZH: dict[str, str] = {
     "Download files:": "\u4e0b\u8f7d\u6587\u4ef6:",
     "Edit": "\u7f16\u8f91",
     "English": "English",
+    "Calcs": "\u8ba1\u7b97",
+    "Sentinels": "\u7ec8\u6b62",
+    "Linear OPT + FREQ": "\u7ebf\u6027 OPT + FREQ",
+    "Conformer ensemble + SP": "\u6784\u8c61\u4f53\u96c6 + SP",
+    "Fan-out: two OPT branches": "\u6248\u51fa\uff1a\u4e24\u4e2a OPT \u5206\u652f",
+    "Fan-in: REFINE": "\u6248\u5165\uff1aREFINE",
+    "3-step backbone: optimize, then frequency analysis.": (
+        "\u4e09\u6b65\u4e3b\u7ebf\uff1a\u51e0\u4f55\u4f18\u5316\u540e\u63a5\u9891\u7387\u5206\u6790\u3002"
+    ),
+    "Generate conformers, optimize the lowest, then single-point.": (
+        "\u751f\u6210\u6784\u8c61\u7fa4\u4f53\uff0c\u4f18\u5316\u80fd\u91cf\u6700\u4f4e\u8005\uff0c"
+        "\u518d\u8ba1\u7b97\u5355\u70b9\u80fd\u3002"
+    ),
+    "Same conformer ensemble feeds two parallel optimizations.": (
+        "\u540c\u4e00\u4e2a\u6784\u8c61\u7fa4\u4f53\u540c\u65f6\u9970\u5165\u4e24\u4e2a\u5e76\u884c\u4f18\u5316\u3002"
+    ),
+    "Optimize a candidate, refine with the conformer ensemble.": (
+        "\u4f18\u5316\u5019\u9009\u7ed3\u6784\uff0c\u518d\u4ee5\u6784\u8c61\u7fa4\u4f53\u8fdb\u884c\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u3002"
+    ),
     "Files": "\u6587\u4ef6",
     "Files:": "\u6587\u4ef6:",
     "Home": "\u4e3b\u9875",
