@@ -39,6 +39,7 @@ from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
@@ -96,6 +97,16 @@ def _format_row(record: RunRecord, language: str = "en") -> list[str]:
 class RunsResultsPage(QWidget):
     startup_recovery_failed = Signal(str)
     startup_recovery_finished = Signal()
+    # Phase 2.1: emitted when the empty-runs hint asks the shell to swap
+    # to Submit. MainWindow will be wired in a later phase. Same pattern
+    # as ``open_settings_requested`` on FileTransferPage.
+    go_to_submit_requested = Signal()
+    # Phase 2.1 follow-up: the "Show example templates" button needs to
+    # land on Submit AND open the Examples drawer so the user can pick a
+    # template. Same destination as ``go_to_submit_requested`` but with
+    # extra intent carried over the signal so MainWindow can chain the
+    # editor's ``open_examples_menu`` call after the page-switch.
+    go_to_submit_with_examples_requested = Signal()
 
     def __init__(self, state, log_cb, status_cb, coordinator_factory=None):
         super().__init__()
@@ -153,6 +164,26 @@ class RunsResultsPage(QWidget):
         log_card_layout.addLayout(log_header_row)
         log_card_layout.addWidget(self._log_view)
         layout.addWidget(log_card)
+
+        # -- Phase 2.1: empty-state hint for "no runs yet" --
+        # Shows when the runs list is empty; action buttons route to
+        # the Submit page via the go_to_submit_requested signal.
+        self._empty_hint = EmptyStateHint(
+            title_key="No runs yet",
+            body_key=(
+                "Build a workflow on the Submit tab and click Submit to Remote. "
+                "Your runs will appear here."
+            ),
+            action_texts=(
+                ("go_to_submit", "Go to Submit"),
+                ("show_examples", "Show example templates"),
+            ),
+            language=self._language,
+            parent=self,
+        )
+        self._empty_hint.action_requested.connect(self._on_empty_action)
+        self._empty_hint.setVisible(False)
+        layout.addWidget(self._empty_hint)
 
         splitter = QSplitter(Qt.Vertical)
 
@@ -439,6 +470,12 @@ class RunsResultsPage(QWidget):
         self.refresh_run_list()
         self._start_monitoring()
         self._refresh_timer.start()
+        # Phase 2.1: explicitly set hint visibility for the initial load.
+        # refresh_run_list already does this, but the deferred path may
+        # race with status updates coming from _start_monitoring; keeping
+        # the toggle here too keeps the empty-state intent obvious.
+        if self.table.rowCount() == 0:
+            self._empty_hint.setVisible(True)
 
     def start_startup_recovery(self) -> None:
         """Replay interrupted operations once, independently of page activation."""
@@ -495,6 +532,8 @@ class RunsResultsPage(QWidget):
         # pane so its placeholder text re-translates on the fly.
         if hasattr(self, "detail_pane") and self.detail_pane is not None:
             self.detail_pane.apply_language(language)
+        # Phase 2.1: retranslate the empty-state hint copy.
+        self._empty_hint.apply_language(language)
 
     # ─── Phase 16: persistent scrolling activity log ────────────────────
 
@@ -625,6 +664,22 @@ class RunsResultsPage(QWidget):
         if row >= 0:
             self._refresh_status()
 
+    def _on_empty_action(self, action_id: str) -> None:
+        """Route the Runs-page empty-state buttons.
+
+        ``go_to_submit`` simply lands the user on the Submit page so
+        they can drag nodes from the library. ``show_examples`` does
+        the same destination but also signals that the Examples drawer
+        should pop open so the user can pick a template directly --
+        otherwise the button would merely navigate and the user would
+        have to click the toolbar Examples button again, which is a
+        broken promise given the button text.
+        """
+        if action_id == "go_to_submit":
+            self.go_to_submit_requested.emit()
+        elif action_id == "show_examples":
+            self.go_to_submit_with_examples_requested.emit()
+
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
         runs = RunService(workspace).list_runs()
@@ -657,6 +712,10 @@ class RunsResultsPage(QWidget):
             self.table.setCurrentCell(target_row, 0)
         self._update_uncertain_actions()
         self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
+        # Phase 2.1: toggle the empty-state hint whenever the run list
+        # is refreshed. The hint lives outside the splitter so this only
+        # affects the layout above the run table.
+        self._empty_hint.setVisible(not runs)
 
     def _current_run_id(self) -> str | None:
         row = self.table.currentRow()

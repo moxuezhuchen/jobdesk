@@ -41,6 +41,7 @@ from ...services.run_service import RunService
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_helpers import (
@@ -87,6 +88,32 @@ class _RemoteEditSession:
     uploading_signature: str | None = None
 
 
+class ConfigUnreadable(Exception):
+    """Raised when the user's existing config file cannot be parsed.
+
+    The Files page "Import sample" button is the most common way a
+    user recovers from a broken servers.yaml -- they hit it because
+    the empty-state hint is up. The original file is therefore the
+    user's best chance to repair whatever is wrong (typo, half-
+    written crash, encoding glitch). Overwriting it with a sample
+    turns a recoverable failure into a permanent loss, so we raise
+    this exception instead and let the caller show a clear error.
+
+    Attributes:
+        path: Path to the file we refused to overwrite.
+        cause: The original parse failure (yaml.YAMLError or any
+            non-mapping root). Surfaced verbatim in the dialog so the
+            user can act on the actual error.
+    """
+
+    def __init__(self, path: Path, cause: BaseException) -> None:
+        super().__init__(
+            f"servers.yaml at {path} could not be parsed: {cause}"
+        )
+        self.path = path
+        self.cause = cause
+
+
 def _format_transfer_speed(bytes_per_second: float) -> str:
     if bytes_per_second >= 1024 * 1024:
         return f"{bytes_per_second / 1024 / 1024:.1f} MB/s"
@@ -95,9 +122,53 @@ def _format_transfer_speed(bytes_per_second: float) -> str:
     return f"{bytes_per_second:.0f} B/s"
 
 
+def _load_existing_servers_data(path: Path) -> dict:
+    """Read ``path`` and return the existing mapping root, with guards.
+
+    Returns an empty dict when ``path`` does not exist. Raises
+    :class:`ConfigUnreadable` when the file exists but cannot be
+    parsed (or its top level is not a mapping) -- the caller is
+    responsible for surfacing the error to the user, but the file
+    on disk is NOT modified by this function.
+
+    Review-fix: extracted from ``FileTransferPage._import_sample_servers_yaml``
+    so tests can drive it without instantiating a full QWidget page.
+    """
+    import yaml
+
+    if not path.exists():
+        return {}
+    raw = path.read_text(encoding="utf-8")
+    try:
+        loaded = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        # Preserve the broken file exactly as it was; surface a clear
+        # error rather than overwrite it with a sample.
+        raise ConfigUnreadable(path, exc) from exc
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        # The file parses (it's YAML) but the top-level isn't a mapping
+        # -- e.g. someone wrote a list or a scalar. Same data-safety
+        # rule: do not silently overwrite.
+        raise ConfigUnreadable(
+            path,
+            ValueError(
+                f"servers.yaml top-level is {type(loaded).__name__}, "
+                "expected a mapping"
+            ),
+        )
+    return loaded
+
+
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
     use_as_input_received = Signal(list)  # list[InputSource]
+    # Phase 2.1: emitted when the empty-state hint asks the shell to switch
+    # to Settings (or any other page that wants to handle nav-up requests).
+    # MainWindow wires this in a later phase; pages are responsible only for
+    # raising the signal — never for calling a navigator directly.
+    open_settings_requested = Signal()
 
     def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None):
         super().__init__()
@@ -126,6 +197,38 @@ class FileTransferPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+
+        # -- Phase 2.1: empty-state hints (no server / connected-but-empty) --
+        # Both start hidden; visibility is toggled in on_activated once the
+        # page knows whether a remote service is connected and the current
+        # remote directory has any entries.
+        self._no_server_hint = EmptyStateHint(
+            title_key="No server connected",
+            body_key="Add a Linux SSH server from the Settings tab to browse and transfer files.",
+            action_texts=(
+                ("open_settings", "Open Settings"),
+                ("import_sample", "Import sample servers.yaml"),
+            ),
+            language=self._language,
+            parent=self,
+        )
+        self._no_server_hint.action_requested.connect(self._on_no_server_action)
+        self._no_server_hint.setVisible(False)
+        layout.addWidget(self._no_server_hint)
+
+        self._empty_dir_hint = EmptyStateHint(
+            title_key="Browse a remote directory",
+            body_key=(
+                "Pick a folder on the right, then drop .xyz / .gjf / .inp "
+                "files into the input list below."
+            ),
+            action_texts=(("refresh", "Refresh"),),
+            language=self._language,
+            parent=self,
+        )
+        self._empty_dir_hint.action_requested.connect(self._on_empty_dir_action)
+        self._empty_dir_hint.setVisible(False)
+        layout.addWidget(self._empty_dir_hint)
 
         self._apply_default_local_folder()
         self.local_path_btn = QPushButton(str(self.state.current_project_root or Path.cwd()))
@@ -355,6 +458,23 @@ class FileTransferPage(QWidget):
                     self.remote_path.setText(last_path)
                 self._auto_connect_selected_server()
         self._refresh_local()
+        self._update_empty_state_visibility()
+
+    def _update_empty_state_visibility(self) -> None:
+        """Toggle the two empty-state hints based on connection status.
+
+        Shown when there is no remote service. Hides itself once a
+        service is available. The second hint (connected but empty dir)
+        only shows once a service exists AND the remote table has 0 rows
+        — we treat ``self.remote_table`` as the source of truth.
+        """
+        no_service = self._service is None
+        self._no_server_hint.setVisible(no_service)
+        has_service = self._service is not None
+        empty_remote = (
+            has_service and self.remote_table.rowCount() <= 1
+        )  # row 0 may be the synthetic ".."
+        self._empty_dir_hint.setVisible(has_service and empty_remote)
 
     def apply_language(self, language: str):
         self._language = language
@@ -370,6 +490,9 @@ class FileTransferPage(QWidget):
             self._service is not None,
             language=language,
         ))
+        # -- Phase 2.1: retranslate empty-state hints --
+        self._no_server_hint.apply_language(language)
+        self._empty_dir_hint.apply_language(language)
 
     def _translated_table_headers(self, kind: str) -> list[str]:
         return [tr(header, self._language) for header in file_table_headers(kind)] + ["type", "path"]
@@ -451,6 +574,9 @@ class FileTransferPage(QWidget):
         self._connected_server = server
         self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
         self._refresh_remote()
+        # Phase 2.1: refresh empty-state hints now that the connection
+        # state flipped from "none" to "connected".
+        self._update_empty_state_visibility()
 
     def _current_run_tasks(self):
         run_id = getattr(self.state, "current_batch_id", None)
@@ -576,6 +702,113 @@ class FileTransferPage(QWidget):
         self.local_table.clearSelection()
         self.local_table.setCurrentCell(-1, -1)
 
+    def _on_no_server_action(self, action_id: str) -> None:
+        """Route the Files-page empty-state buttons.
+
+        "open_settings" emits ``open_settings_requested`` so MainWindow can
+        flip the sidebar (wired in the cross-page nav helper in main_window).
+        "import_sample" merges a copy-paste-ready YAML snippet into the
+        user's default ``servers.yaml`` so the empty Files page gets a
+        real first server in one click, then refreshes the Files server
+        combo / Settings table so the user sees the new entry immediately.
+        """
+        if action_id == "open_settings":
+            self.open_settings_requested.emit()
+            return
+        if action_id == "import_sample":
+            try:
+                self._import_sample_servers_yaml()
+            except ConfigUnreadable as exc:
+                # Data-safety branch: never overwrite a broken file. Show
+                # the original parse error inline so the user knows what
+                # to fix.
+                self._error_cb(
+                    tr("Cannot import sample", self._language),
+                    tr(
+                        "{path} could not be parsed. Fix the file manually "
+                        "(or move it aside) and try again.\n\n{err}",
+                        self._language,
+                        path=str(exc.path),
+                        err=str(exc.cause),
+                    ),
+                )
+            except Exception as exc:
+                self._error_cb(
+                    tr("Import sample failed", self._language),
+                    str(exc),
+                )
+            return
+
+    def _import_sample_servers_yaml(self) -> None:
+        """Drop a working sample server into the user's servers.yaml.
+
+        Generates a UNIQUE sample id (so re-running does not conflict),
+        merges it into the existing servers dict if the file already
+        exists, writes atomically, and refreshes the visible server
+        list. The placeholder values are deliberately conservative
+        (127.0.0.1, myuser) -- the user is expected to edit them in
+        the Settings tab right after import.
+
+        Review-fix (data safety): if the existing file cannot be parsed
+        (syntax error, encoding problem, half-written crash recovery)
+        or its top-level is not a mapping, we MUST NOT overwrite it.
+        The original config is the user's best chance to repair
+        whatever is wrong; clobbering it would turn a recoverable
+        failure into a permanent loss. Instead we raise
+        :class:`ConfigUnreadable` so the caller can show a clear error
+        dialog pointing the user at the broken file path and
+        recommending a manual edit. No YAML is written in that branch.
+        """
+        import yaml
+
+        from ...config.servers import get_default_servers_path
+        from ...core.atomic_write import atomic_write_text
+
+        # Build a unique id so multiple clicks don't collide.
+        base_id = "my_linux_box"
+        sid = base_id
+        suffix = 1
+        path = get_default_servers_path()
+        # Review-fix: pull the merge-data through a dedicated helper
+        # that raises ``ConfigUnreadable`` for any unparseable file,
+        # rather than swallowing parse errors and continuing with an
+        # empty dict -- the latter would overwrite a broken config
+        # the user is most likely trying to recover.
+        data = _load_existing_servers_data(path)
+        servers = data.setdefault("servers", {})
+        while sid in servers:
+            suffix += 1
+            sid = f"{base_id}_{suffix}"
+
+        servers[sid] = {
+            "host": "127.0.0.1",
+            "port": 22,
+            "username": "myuser",
+            "auth_method": "key",
+            "key_path": "~/.ssh/id_ed25519",
+        }
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(
+            path,
+            yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        )
+
+        # Refresh the Files page's server_combo + Settings table so the
+        # new entry shows up without restarting the app.
+        self._load_servers()
+        self._status_cb(
+            tr(
+                "Imported sample server '{sid}'. Edit host/key in Settings.",
+                self._language,
+                sid=sid,
+            )
+        )
+
+    def _on_empty_dir_action(self, action_id: str) -> None:
+        if action_id == "refresh":
+            self._refresh_all()
+
     def _refresh_all(self):
         self._refresh_feedback.pending(tr("Refreshing...", self._language))
         self._refresh_local_async()
@@ -679,6 +912,10 @@ class FileTransferPage(QWidget):
         if self.refresh_btn.property("feedbackState") == "pending":
             self._refresh_feedback.success(tr("Refreshed", self._language))
         self._status_cb(f"Remote listed: {remote_dir} ({len(rows)} entries)")
+        # Phase 2.1: re-evaluate empty-state hints now that the remote
+        # table has just been (re)populated. Without this call, the
+        # "connected but empty dir" hint never reappears once hidden.
+        self._update_empty_state_visibility()
 
     def _on_remote_list_error(self, request_id: int, error: str):
         if request_id != self._remote_list_request_id:

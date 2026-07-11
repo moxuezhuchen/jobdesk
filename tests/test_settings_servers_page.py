@@ -7,7 +7,7 @@ import yaml
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPushButton
 
 from jobdesk_app.config.servers import load_servers as load_servers_from_path
 from jobdesk_app.gui.button_feedback import ButtonRole
@@ -30,6 +30,33 @@ def _make_settings_page(qtbot, tmp_path):
         "    auth_method: key\n",
         encoding="utf-8",
     )
+    settings_store = MagicMock()
+    settings_store.load.return_value = GuiSettings()
+    statuses: list[str] = []
+
+    with patch(
+        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+        return_value=settings_store,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+        return_value=servers_path,
+    ), patch(
+        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+        side_effect=lambda: load_servers_from_path(servers_path),
+    ):
+        page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
+        qtbot.addWidget(page)
+
+    return page, settings_store, statuses
+
+
+def _make_empty_settings_page(qtbot, tmp_path):
+    """Like ``_make_settings_page`` but with NO servers configured.
+
+    Used by Phase 2.1 empty-state tests so the empty hint is visible.
+    """
+    servers_path = tmp_path / "servers.yaml"
+    servers_path.write_text("servers: {}\n", encoding="utf-8")
     settings_store = MagicMock()
     settings_store.load.return_value = GuiSettings()
     statuses: list[str] = []
@@ -562,3 +589,62 @@ def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
     assert set(saved) == {"wsl"}
     assert saved["wsl"]["host"] == "127.0.0.1"
     assert statuses == ["Server ID already exists: wsl"]
+
+
+
+# -- Phase 2.1: empty-state hint tests --
+
+
+def test_empty_hint_visible_when_no_servers(qtbot, tmp_path):
+    """The empty-state hint shows when servers.yaml has no entries.
+
+    Constructs the page with an empty servers file (no patches over
+    load_servers that hide the empty-state branch), then asserts
+    the hint was *unhidden* by _load_servers() and carries the
+    expected English title. Note: ``isVisible()`` requires the parent
+    widget tree to be ``show()``n, so we assert the more deterministic
+    ``not isHidden()`` instead.
+    """
+    page, _, _ = _make_empty_settings_page(qtbot, tmp_path)
+    page.show()
+    QApplication.processEvents()
+
+    assert page._empty_hint.isHidden() is False
+    assert page._empty_hint.isVisible() is True
+    assert "Add a server to get started" in page._empty_hint._title_label.text()
+
+
+def test_empty_hint_hidden_when_servers_present(qtbot, tmp_path):
+    """Sanity counterpart to test_empty_hint_visible_when_no_servers.
+
+    With the default factory's single-server YAML the hint must NOT be
+    visible -- otherwise the empty-state would overlap the populated
+    server table.
+    """
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+    page.show()
+    QApplication.processEvents()
+
+    assert page._empty_hint.isVisible() is False
+
+
+def test_copy_sample_writes_to_clipboard(qtbot, tmp_path):
+    """Clicking copy_sample drops a YAML snippet on the clipboard.
+
+    _on_empty_action uses QApplication.clipboard() to push a
+    small server-template snippet; we assert both that the snippet
+    contains the canonical 'servers:' prefix and that the status
+    callback was invoked with the i18n'd success string.
+    """
+    page, _, statuses = _make_empty_settings_page(qtbot, tmp_path)
+
+    clipboard = QApplication.clipboard()
+    clipboard.clear()
+
+    page._on_empty_action("copy_sample")
+
+    text = clipboard.text()
+    assert "servers:" in text
+    assert "host: my-linux.example.edu" in text
+    assert statuses  # at least one status callback fired
+    assert any("clipboard" in status for status in statuses)

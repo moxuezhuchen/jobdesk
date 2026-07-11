@@ -32,6 +32,7 @@ from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..i18n import tr
 from ..session import ssh_session
+from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
 from .settings_servers_helpers import validate_server_id_change
 
@@ -195,6 +196,27 @@ class SettingsServersPage(QWidget):
         self._page_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
         layout.addWidget(self._page_title)
         layout.addSpacing(8)
+
+        # -- Phase 2.1: empty-state hint for "no servers" --
+        # Visible whenever the server table is empty. Lives above the
+        # server profiles card so a first-time user is greeted by it
+        # before scrolling through the other settings.
+        self._empty_hint = EmptyStateHint(
+            title_key="Add a server to get started",
+            body_key=(
+                "JobDesk uses SSH to talk to your Linux compute server. "
+                "You need host, port, username, and an auth method."
+            ),
+            action_texts=(
+                ("add_server", "+ Add server"),
+                ("copy_sample", "Copy sample YAML"),
+            ),
+            language=self._language,
+            parent=self,
+        )
+        self._empty_hint.action_requested.connect(self._on_empty_action)
+        self._empty_hint.setVisible(False)
+        layout.addWidget(self._empty_hint)
 
         # ─── 本地目录 ───
         folder_ctrl = QWidget()
@@ -443,6 +465,8 @@ class SettingsServersPage(QWidget):
         self.server_table.setHorizontalHeaderLabels([
             "ID", tr("Host", language), tr("Port", language), tr("User", language), tr("Status", language)
         ])
+        # Phase 2.1: retranslate the empty-state hint alongside the rest.
+        self._empty_hint.apply_language(language)
 
     def _load_servers(self):
         try:
@@ -460,6 +484,41 @@ class SettingsServersPage(QWidget):
             self.server_table.setItem(r, 3, QTableWidgetItem(srv.username))
             self.server_table.setItem(r, 4, QTableWidgetItem(""))
         self._fit_table_height(self.server_table)
+        # Phase 2.1: toggle the empty-state hint based on the freshly
+        # loaded server count. The hint lives in the layout above the
+        # server profiles card so users see it before the table.
+        self._empty_hint.setVisible(not servers)
+
+    def _on_empty_action(self, action_id: str) -> None:
+        """Route the Settings-page empty-state buttons.
+
+        "add_server" delegates to the existing "Add" button slot —
+        which is the same code-path the toolbar uses to launch the
+        server dialog — so no logic is duplicated. "copy_sample"
+        drops a small, copy-paste-ready YAML snippet onto the system
+        clipboard so the user can paste it directly into servers.yaml.
+        """
+        if action_id == "add_server":
+            self._add_server()
+            return
+        if action_id == "copy_sample":
+            sample = (
+                "servers:\n"
+                "  my_linux_box:\n"
+                "    host: my-linux.example.edu\n"
+                "    port: 22\n"
+                "    username: myuser\n"
+                "    auth_method: key\n"
+                "    key_path: ~/.ssh/id_ed25519\n"
+                "    env_init_scripts:\n"
+                "      - /opt/g16/bsd/g16.profile\n"
+            )
+            from PySide6.QtWidgets import QApplication
+            QApplication.clipboard().setText(sample)
+            self._status_cb(
+                tr("Sample YAML copied to clipboard", self._language)
+            )
+            return
 
     def _test_connection(self):
         try:
@@ -758,7 +817,26 @@ class SettingsServersPage(QWidget):
         idx = auth_combo.findText(srv.get("auth_method", "key"))
         if idx >= 0:
             auth_combo.setCurrentIndex(idx)
+        else:
+            auth_combo.setCurrentText("key")
+        auth_combo.setToolTip(tr(
+            "Key-based SSH authentication. Password auth is not supported.",
+            self._language,
+        ))
         key_edit = QLineEdit(srv.get("key_path", ""))
+        # Phase 3.2: tooltips for the most-confusing fields. The dialog
+        # labels themselves stay short; the hover-time tooltip explains
+        # what to type and falls back to placeholder text first.
+        host_edit.setToolTip(tr(
+            "The hostname or IP address of the remote server. Examples: "
+            "login.cluster.example.org or 10.0.0.42.", self._language))
+        user_edit.setToolTip(tr(
+            "Your SSH username on the remote server (the one you would "
+            "type at the Password: prompt).", self._language))
+        key_edit.setToolTip(tr(
+            "Absolute path to your SSH private key. Use ~ for your home "
+            "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
+            "viewer shows known keys under %USERPROFILE%\\.ssh\\.", self._language))
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
@@ -840,10 +918,27 @@ class SettingsServersPage(QWidget):
         port_edit.setValue(22)
         user_edit = QLineEdit()
         user_edit.setPlaceholderText("如: root")
-        auth_combo = QComboBox()
-        auth_combo.addItems(["key"])
+        # Phase 3.2: tooltips parallel to the edit dialog
+        host_edit.setToolTip(host_edit.placeholderText())
+        user_edit.setToolTip(user_edit.placeholderText())
         key_edit = QLineEdit()
         key_edit.setPlaceholderText("~/.ssh/id_ed25519")
+        key_edit.setToolTip(tr(
+            "Absolute path to your SSH private key. Use ~ for your home "
+            "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
+            "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
+            self._language))
+        # -- Auth method combo --
+        # JobDesk only supports key-based SSH auth today (ServerConfig
+        # rejects password auth); the combo is built explicitly so the
+        # default selection on a fresh dialog is "key" rather than blank.
+        auth_combo = QComboBox()
+        auth_combo.addItems(["key"])
+        auth_combo.setCurrentText("key")
+        auth_combo.setToolTip(tr(
+            "Key-based SSH authentication. Password auth is not supported.",
+            self._language,
+        ))
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)

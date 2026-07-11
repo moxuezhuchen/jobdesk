@@ -223,6 +223,7 @@ ZH: dict[str, str] = {
     "User": "\u7528\u6237",
     "Status": "\u72b6\u6001",
     "Discard": "\u653e\u5f03\u66f4\u6539",
+    "Dismiss": "\u5173\u95ed",
     "Testing...": "\u6d4b\u8bd5\u4e2d...",
     "Error:": "\u9519\u8bef:",
     "Test failed:": "\u6d4b\u8bd5\u5931\u8d25:",
@@ -439,6 +440,12 @@ ZH: dict[str, str] = {
     "Connect steps left to right, then preview the generated workflow YAML.": "\u4ece\u5de6\u5230\u53f3\u8fde\u63a5\u6b65\u9aa4\uff0c\u7136\u540e\u9884\u89c8\u751f\u6210\u7684\u5de5\u4f5c\u6d41 YAML\u3002",
     "Use an example template": "\u4f7f\u7528\u793a\u4f8b\u6a21\u677f",
     "Read 60-second tour": "\u9605\u8bfb 60 \u79d2\u5feb\u901f\u5bfc\u89c8",
+    # Review-fix: the previous "Quick start: load a single OPT template"
+    # wording was misleading - the underlying template is ``linear_opt_freq``
+    # which is a three-step OPT -> Frequency chain. The new key
+    # "Quick start: load Linear OPT + FREQ" is registered below; the
+    # old entry is removed so a stale call to ``tr()`` returns the
+    # English string instead of a stale zh translation.
     "Hide forever": "\u6c38\u4e45\u9690\u85cf",
     # -- Phase 15: Workflow node-graph editor --
     "Undo": "\u64a4\u9500",
@@ -527,6 +534,171 @@ ZH: dict[str, str] = {
     "Run complete; results downloaded: {ids}": "\u8fd0\u884c\u5b8c\u6210\uff0c\u7ed3\u679c\u5df2\u4e0b\u8f7d: {ids}",
     "Operation recovery failed: {error}": "\u542f\u52a8\u6062\u590d\u5931\u8d25: {error}",
     "Delete Run invoked from context menu": "\u4ece\u53f3\u952e\u83dc\u5355\u8c03\u7528\u5220\u9664\u4efb\u52a1",
+    # -- Phase 19: WorkflowTour --
+    "Workflow tour": "\u5de5\u4f5c\u6d41\u5bfc\u89c8",
+    "Back": "\u4e0a\u4e00\u9875",
+    "Next": "\u4e0b\u4e00\u9875",
+    "Slide {n} of {total}": "\u7b2c {n} \u9875\uff0c\u5171 {total} \u9875",
+    "Set up a server": "\u914d\u7f6e\u670d\u52a1\u5668",
+    "Connect & browse": "\u8fde\u63a5\u4e0e\u6d4f\u89c8",
+    "Pick your inputs": "\u9009\u62e9\u8f93\u5165\u6587\u4efb",
+    "Build a workflow": "\u6784\u5efa\u5de5\u4f5c\u6d41",
+    "Submit & monitor": "\u63d0\u4ea4\u4e0e\u76d1\u63a7",
+    "Read results": "\u67e5\u770b\u7ed3\u679c",
+    (
+        "Open the Settings tab and add a Linux SSH server. You need:\n"
+        "  - host, port, username\n"
+        "  - auth method (key-based SSH)\n"
+        "  - absolute path to your SSH private key\n"
+        "JobDesk only supports key authentication today; passwords\n"
+        "are not accepted, and the server dialog's auth combo offers\n"
+        "key only. JobDesk stores these in servers.yaml under your\n"
+        "user app data folder so they persist across launches."
+    ): (
+        "\u8fdb\u5165\u8bbe\u7f6e\u9875\u6dfb\u52a0\u4e00\u4e2a Linux SSH \u670d\u52a1\u5668\u3002\u9700\u8981\uff1a\n"
+        "  - \u4e3b\u673a\u3001\u7aef\u53e3\u3001\u7528\u6237\u540d\n"
+        "  - \u8ba4\u8bc1\u65b9\u5f0f\uff08\u5bc6\u94a5 SSH\uff09\n"
+        "  - SSH \u79c1\u94a5\u7684\u7edd\u5bf9\u8def\u5f84\n"
+        "\u76ee\u524d\u4ec5\u652f\u6301\u5bc6\u94a5\u8ba4\u8bc1\uff0c\u4e0d\u63a5\u53d7\u5bc6\u7801\u3002\n"
+        "\u670d\u52a1\u5668\u5bf9\u8bdd\u6846\u7684\u8ba4\u8bc1\u4e0b\u62e9\u53ea\u63d0\u4f9b\u5bc6\u94a5\u9009\u9879\u3002\n"
+        "\u4fe1\u606f\u4f1a\u4ee5 servers.yaml \u4fdd\u5b58\u5230\u7528\u6237\u6570\u636e\u76ee\u5f55\uff0c"
+        "\u91cd\u542f\u540e\u4ecd\u53ef\u7528\u3002"
+    ),
+    (
+        "On the Files tab, pick the server you just added and click\n"
+        "Connect. Once connected you can browse the remote directory\n"
+        "on the right. Look for .xyz, .gjf, and .inp files -- these\n"
+        "are the inputs JobDesk can run."
+    ): (
+        "\u5728\u6587\u4ef6\u9875\u9009\u4e2d\u521a\u6dfb\u52a0\u7684\u670d\u52a1\u5668\u540e\u70b9\u51fb\u8fde\u63a5\u3002\n"
+        "\u8fde\u63a5\u6210\u529f\u5373\u53ef\u5728\u53f3\u4fa7\u6d4f\u89c8\u8fdc\u7a0b\u76ee\u5f55\uff0c\n"
+        "\u5173\u6ce8 .xyz\u3001.gjf \u4e0e .inp \u6587\u4ef6\uff0c\u8fd9\u4e9b\u662f JobDesk\n"
+        "\u53ef\u63d0\u4ea4\u8fd0\u884c\u7684\u8f93\u5165\u3002"
+    ),
+    (
+        "Right-click one or more remote files and choose\n"
+        "  Use as input -> Submit\n"
+        "JobDesk jumps to the Submit tab with those files pre-loaded.\n"
+        "You can also drop files into the local panel."
+    ): (
+        "\u53f3\u952e\u8fdc\u7a0b\u6587\u4ef6\uff0c\u9009\u62e9\u300c\u4f5c\u4e3a\u8f93\u5165 \u2192 \u63d0\u4ea4\u300d\u3002\n"
+        "JobDesk \u4f1a\u8df3\u8f6c\u5230\u63d0\u4ea4\u9875\u5e76\u9884\u586b\u6587\u4ef6\uff0c\n"
+        "\u4e5f\u53ef\u76f4\u63a5\u62d6\u5165\u672c\u5730\u9762\u677f\u3002"
+    ),
+    (
+        "Drag node types from the left library onto the canvas.\n"
+        "Typical chain:\n"
+        "  XYZ file -> Conformer generation (optional)\n"
+        "            -> Geometry optimization\n"
+        "            -> Frequency\n"
+        "            -> Output\n"
+        "Wire them by dragging from one node's output port to\n"
+        "another's input port."
+    ): (
+        "\u4ece\u5de6\u4fa7\u8282\u70b9\u5e93\u62d6\u5165\u8282\u70b9\u5230\u753b\u5e03\u3002\n"
+        "\u5e38\u89c1\u94fe\u6761\uff1a\n"
+        "  XYZ -> \u6784\u8c61\u751f\u6210\uff08\u53ef\u9009\uff09-> \u51e0\u4f55\u4f18\u5316\n"
+        "      -> \u9891\u7387 -> \u8f93\u51fa\n"
+        "\u4ece\u4e00\u4e2a\u8282\u70b9\u7684\u8f93\u51fa\u7aef\u53e3\u62d6\u5230\u53e6\u4e00\u4e2a\n"
+        "\u8282\u70b9\u7684\u8f93\u5165\u7aef\u53e3\u5373\u53ef\u8fde\u63a5\u3002"
+    ),
+    (
+        "Click Submit to Remote. JobDesk uploads your input files\n"
+        "and the workflow spec to the server, then starts a remote\n"
+        "run. You will be auto-jumped to the Runs tab where status\n"
+        "updates flow in via SSH."
+    ): (
+        "\u70b9\u51fb\u300c\u63d0\u4ea4\u5230\u8fdc\u7a0b\u300d\u540e\uff0cJobDesk \u4f1a\u4e0a\u4f20\n"
+        "\u8f93\u5165\u6587\u4ef6\u4e0e\u5de5\u4f5c\u6d41\u89c4\u8303\u5230\u670d\u52a1\u5668\uff0c\n"
+        "\u5e76\u542f\u52a8\u8fdc\u7a0b\u8fd0\u884c\uff0c\u7136\u540e\u81ea\u52a8\u8df3\u8f6c\u5230\n"
+        "\u4efb\u52a1\u9875\uff0c\u901a\u8fc7 SSH \u63a8\u9001\u72b6\u6001\u3002"
+    ),
+    (
+        "Select a finished run and double-click any row in the\n"
+        "result table to see parsed energy, ZPE, Gibbs free energy,\n"
+        "vibrational frequencies and the final geometry.\n"
+        "Compare runs by selecting multiple rows and choosing\n"
+        "  Compare Selected."
+    ): (
+        "\u9009\u4e2d\u5df2\u5b8c\u6210\u7684\u4efb\u52a1\uff0c\u53cc\u51fb\u7ed3\u679c\u8868\u4efb\u4e00\u884c\n"
+        "\u5373\u53ef\u67e5\u770b\u80fd\u91cf\u3001ZPE\u3001\u5409\u5e03\u65af\u81ea\u7531\u80fd\u3001\n"
+        "\u632f\u52a8\u9891\u7387\u4e0e\u6700\u7ec8\u51e0\u4f55\u3002\u9009\u4e2d\u591a\u884c\u540e\n"
+        "\u9009\u62e9\u300c\u5bf9\u6bd4\u6240\u9009\u300d\u53ef\u8fdb\u884c\u8de8\u4efb\u52a1\u5bf9\u6bd4\u3002"
+    ),
+    # -- Phase 19: Empty-state hints (Files / Runs / Settings pages) --
+    "No server connected": "\u672a\u8fde\u63a5\u670d\u52a1\u5668",
+    (
+        "Add a Linux SSH server from the Settings tab to browse and transfer files."
+    ): (
+        "\u8bf7\u5148\u5728\u8bbe\u7f6e\u9875\u6dfb\u52a0 Linux SSH \u670d\u52a1\u5668\uff0c"
+        "\u624d\u80fd\u6d4f\u89c8\u548c\u4f20\u8f93\u6587\u4ef6\u3002"
+    ),
+    "Open Settings": "\u6253\u5f00\u8bbe\u7f6e",
+    "Import sample servers.yaml": "\u5bfc\u5165\u793a\u4f8b servers.yaml",
+    "Browse a remote directory": "\u6d4f\u89c8\u8fdc\u7a0b\u76ee\u5f55",
+    (
+        "Pick a folder on the right, then drop .xyz / .gjf / .inp files into "
+        "the input list below."
+    ): (
+        "\u5728\u53f3\u4fa7\u9009\u62e9\u4e00\u4e2a\u6587\u4ef6\u5939\uff0c"
+        "\u7136\u540e\u628a .xyz / .gjf / .inp \u6587\u4ef6\u62d6\u5230\u4e0b\u9762\u7684\u8f93\u5165\u5217\u8868\u3002"
+    ),
+    "No runs yet": "\u5c1a\u65e0\u8fd0\u884c\u8bb0\u5f55",
+    (
+        "Build a workflow on the Submit tab and click Submit to Remote. "
+        "Your runs will appear here."
+    ): (
+        "\u8bf7\u5728\u63d0\u4ea4\u9875\u6784\u5efa\u5de5\u4f5c\u6d41\u5e76\u70b9\u51fb\u63d0\u4ea4\u5230\u8fdc\u7a0b\uff0c"
+        "\u8fd0\u884c\u8bb0\u5f55\u4f1a\u51fa\u73b0\u5728\u8fd9\u91cc\u3002"
+    ),
+    "Go to Submit": "\u8d70\u5230\u63d0\u4ea4\u9875",
+    "Show example templates": "\u67e5\u770b\u793a\u4f8b\u6a21\u677f",
+    "Add a server to get started": "\u5148\u6dfb\u52a0\u4e00\u4e2a\u670d\u52a1\u5668",
+    (
+        "JobDesk uses SSH to talk to your Linux compute server. "
+        "You need host, port, username, and an auth method."
+    ): (
+        "JobDesk \u901a\u8fc7 SSH \u8fde\u63a5 Linux \u8ba1\u7b97\u670d\u52a1\u5668\uff0c"
+        "\u9700\u8981 host\u3001port\u3001username \u548c\u8ba4\u8bc1\u65b9\u5f0f\u3002"
+    ),
+    "+ Add server": "+\u6dfb\u52a0\u670d\u52a1\u5668",
+    "Copy sample YAML": "\u590d\u5236\u793a\u4f8b YAML",
+    "Sample YAML copied to clipboard": "\u793a\u4f8b YAML \u5df2\u590d\u5236\u5230\u526a\u8d34\u677f",
+    "Imported sample server '{sid}'. Edit host/key in Settings.": "\u5df2\u5bfc\u5165\u793a\u4f8b\u670d\u52a1\u5668 '{sid}'\u3002\u8bf7\u5230\u8bbe\u7f6e\u9875\u7f16\u8f91\u4e3b\u673a/\u5bc6\u94a5\u3002",
+    "Import sample failed": "\u5bfc\u5165\u793a\u4f8b\u5931\u8d25",
+    "Cannot import sample": "\u65e0\u6cd5\u5bfc\u5165\u793a\u4f8b",
+    "{path} could not be parsed. Fix the file manually "
+    "(or move it aside) and try again.\n\n{err}": (
+        "{path} \u65e0\u6cd5\u88ab\u89e3\u6790\u3002\u8bf7\u624b\u52a8\u4fee\u590d\u6587\u4ef6"
+        "\uff08\u6216\u5148\u79fb\u5230\u522b\u5904\uff09\u540e\u91cd\u8bd5\u3002\n\n{err}"
+    ),
+    "Key-based SSH authentication. Password auth is not supported.": "\u4ec5\u652f\u6301\u57fa\u4e8e\u5bc6\u94a5\u7684 SSH \u8ba4\u8bc1\uff0c\u4e0d\u652f\u6301\u5bc6\u7801\u8ba4\u8bc1\u3002",
+    "Empty canvas": "\u753b\u5e03\u4e3a\u7a7a",
+    "Add a node from the library to start your workflow.": "\u8bf7\u4ece\u5de6\u4fa7\u8282\u70b9\u5e93\u62d6\u5165\u4e00\u4e2a\u8282\u70b9\u4ee5\u5f00\u59cb\u3002",
+    "Add a node to start your workflow.": "\u8bf7\u6dfb\u52a0\u4e00\u4e2a\u8282\u70b9\u4ee5\u5f00\u59cb\u6784\u5efa\u5de5\u4f5c\u6d41\u3002",
+    "Quick start: load Linear OPT + FREQ": "\u5feb\u901f\u5f00\u59cb\uff1a\u52a0\u8f7d\u7ebf\u6027 OPT + FREQ",
+    "\u2192 {target}": "\u2192 \u8fdc\u7aef\u76ee\u6807\uff1a{target}",
+    "The hostname or IP address of the remote server. Examples: "
+    "login.cluster.example.org or 10.0.0.42.": (
+        "\u8fdc\u7a0b\u670d\u52a1\u5668\u7684\u4e3b\u673a\u540d\u6216 IP \u5730\u5740\u3002\u4f8b\u5982\uff1a"
+        "login.cluster.example.org \u6216 10.0.0.42\u3002"
+    ),
+    "Your SSH username on the remote server (the one you would "
+    "type at the Password: prompt).": (
+        "\u8fdc\u7a0b\u670d\u52a1\u5668\u4e0a\u7684 SSH \u7528\u6237\u540d\uff08\u5728\u5bc6\u7801\u63d0\u793a\u4e0b\u8f93\u5165\u7684\u90a3\u4e2a\uff09\u3002"
+    ),
+    "Absolute path to your SSH private key. Use ~ for your home "
+    "folder \u2014 e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
+    "viewer shows known keys under %USERPROFILE%\\.ssh\\.": (
+        "SSH \u79c1\u94a5\u7684\u7edd\u5bf9\u8def\u5f84\u3002\u53ef\u4f7f\u7528 ~ \u4ee3\u8868\u5bb6\u76ee\u5f55"
+        "\u2014\u5982 ~/.ssh/id_ed25519\u3002\u5728 Windows \u4e0a\uff0c"
+        "\u5bf9\u8bdd\u6846\u5728 %USERPROFILE%\\.ssh\\ \u4e0b\u663e\u793a\u5df2\u77e5\u5bc6\u94a5\u3002"
+    ),
+    (
+        "Import sample: see docs/USER_GUIDE.md#sample-yaml"
+    ): (
+        "\u5bfc\u5165\u793a\u4f8b\uff1a\u8bf7\u53c2\u9605 docs/USER_GUIDE.md#sample-yaml"
+    ),
 }
 
 

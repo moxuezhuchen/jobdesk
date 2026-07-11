@@ -60,8 +60,10 @@ def test_onboarding_actions_emit_expected_signals(qtbot, tmp_path):
     card = _card(editor)
     example_btn = card.findChild(QPushButton, "nodegraphOnboardingExampleButton")
     tour_btn = card.findChild(QPushButton, "nodegraphOnboardingTourButton")
+    quick_btn = card.findChild(QPushButton, "nodegraphOnboardingQuickStartButton")
     assert example_btn is not None
     assert tour_btn is not None
+    assert quick_btn is not None
 
     with qtbot.waitSignal(editor.example_template_requested, timeout=500) as example_signal:
         qtbot.mouseClick(example_btn, Qt.MouseButton.LeftButton)
@@ -70,3 +72,8 @@ def test_onboarding_actions_emit_expected_signals(qtbot, tmp_path):
     with qtbot.waitSignal(editor.tour_requested, timeout=500) as tour_signal:
         qtbot.mouseClick(tour_btn, Qt.MouseButton.LeftButton)
     assert tour_signal.args == []
+
+    # Quick start button: same as example → loads linear_opt_freq
+    with qtbot.waitSignal(editor.example_template_requested, timeout=500) as qs_signal:
+        qtbot.mouseClick(quick_btn, Qt.MouseButton.LeftButton)
+    assert qs_signal.args == [DEFAULT_EXAMPLE_TEMPLATE_ID]

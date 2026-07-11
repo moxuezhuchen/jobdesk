@@ -143,11 +143,47 @@ class WorkflowGraphEditor(QWidget):
     def graph(self) -> NodeGraph:
         return self._scene.graph()
 
+    def is_empty(self) -> bool:
+        """True when the canvas has no nodes.
+
+        Lets surrounding widgets (Submit page, empty-state card) tell
+        the difference between "user has not started" and "graph has
+        nodes but is broken". The two states must render differently
+        so the user never sees "Graph incomplete" while the page
+        already claims "Workflow OK" with zero steps in the canvas.
+        """
+        return not bool(self._scene.graph().nodes)
+
     def set_graph(self, graph: NodeGraph) -> None:
         self._scene.set_graph(graph)
         self._library.refresh_visibility(graph)
         self._refresh_onboarding_visibility()
         self.graph_changed.emit()
+
+    def open_examples_menu(self) -> None:
+        """Pop the toolbar Examples menu without requiring a click.
+
+        Used by MainWindow when the Runs-page empty-state "Show example
+        templates" button is pressed: we land on Submit and want the
+        drawer to open immediately so the user can pick a template in
+        one step instead of clicking the toolbar button a second time.
+
+        Falls back silently if the drawer isn't built yet (e.g. during
+        very early construction) so callers don't need to guard.
+        """
+        drawer = getattr(self, "_examples_btn", None)
+        if drawer is None:
+            return
+        drawer.popup()
+
+    def open_tour(self) -> None:
+        """Emit :attr:`tour_requested` from external code.
+
+        Lets MainWindow re-launch the 60-second tour dialog when the
+        user clicks "Read 60-second tour" in the empty-state hint,
+        instead of forcing them to find the toolbar button.
+        """
+        self.tour_requested.emit()
 
     def validate(self) -> list[GraphIssue]:
         issues = self._scene.validate()
@@ -245,6 +281,9 @@ class WorkflowGraphEditor(QWidget):
         )
         self._onboarding_card.tour_requested.connect(lambda: self.tour_requested.emit())
         self._onboarding_card.hide_forever_requested.connect(self._hide_onboarding_forever)
+        self._onboarding_card.quick_start_requested.connect(
+            lambda: self._on_examples_selected("linear_opt_freq")
+        )
         self._canvas_area.installEventFilter(self)
 
     def _position_onboarding_card(self) -> None:
@@ -449,6 +488,20 @@ class WorkflowGraphEditor(QWidget):
     # ── status pill ──────────────────────────────────────────────────
 
     def _refresh_status_pill(self, issues: list[GraphIssue]) -> None:
+        # Review-fix: an empty canvas is a neutral "Start by adding a
+        # node" state — NOT a green "Workflow OK" and NOT a red
+        # "graph incomplete" warning. The previous code flipped both
+        # the pill green and the preview to "graph incomplete" at the
+        # same time, which contradicted each other. Empty canvas now
+        # has its own styling so the user sees a coherent "nothing to
+        # validate yet" message.
+        if self.is_empty():
+            self._status_pill.setText(tr("Empty canvas", self._language))
+            self._status_pill.setStyleSheet(
+                "background-color: #eef1f5; color: #4b5563; padding: 4px 12px;"
+                " border-radius: 10px; font-weight: 600;"
+            )
+            return
         n_err = sum(1 for i in issues if i.severity == "error")
         n_warn = sum(1 for i in issues if i.severity == "warning")
         if n_err > 0:

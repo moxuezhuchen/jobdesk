@@ -168,6 +168,19 @@ class ExamplesDrawer(QPushButton):
     # ── private helpers ─────────────────────────────────────────────
 
     def _on_click(self) -> None:
+        self._on_clicked()
+
+    def popup(self) -> None:
+        """Programmatically show the templates menu.
+
+        Used when an external entry point -- typically the Runs-page
+        empty-state "Show example templates" button -- needs the same
+        behaviour as a click on this button. The menu is rebuilt every
+        open so language changes show up without a parent-driven refresh.
+        """
+        self._on_clicked()
+
+    def _on_clicked(self) -> None:
         menu = self._ensure_menu()
         # ``exec_`` runs its own event loop so we don't tie up the GUI
         # thread; the menu is rebuilt every open so language changes

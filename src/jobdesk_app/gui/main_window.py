@@ -79,9 +79,36 @@ class MainWindow(QMainWindow):
         # Phase 2: only ``submit_requested`` remains; the legacy
         # ``create_only_requested`` path collapsed into the unified editor.
         self.submit_page.submit_requested.connect(self._on_submit_requested)
+        # Phase 1.1: forward the nodegraph editor's tour_requested signal up
+        # to a top-level dialog so the "Read 60-second tour" button on the
+        # empty canvas actually does something.
+        if hasattr(self.submit_page, "editor") and hasattr(self.submit_page.editor, "tour_requested"):
+            self.submit_page.editor.tour_requested.connect(self._show_workflow_tour)
         # Cross-page push from Files page right-click menu.
         if hasattr(self.files_page, "use_as_input_received"):
             self.files_page.use_as_input_received.connect(self._on_use_as_input_received)
+        # Phase 2.1 (review-round 2): empty-state cards raise navigation
+        # signals; MainWindow owns the only public surface for switching
+        # pages so we funnel every request through ``_switch_page`` and
+        # keep the sidebar / page-stack in lockstep.
+        if hasattr(self.files_page, "open_settings_requested"):
+            self.files_page.open_settings_requested.connect(
+                lambda: self._switch_page(3)
+            )
+        if hasattr(self.runs_page, "go_to_submit_requested"):
+            self.runs_page.go_to_submit_requested.connect(
+                lambda: self._switch_page(1)
+            )
+        # Review-fix: the Runs-page "Show example templates" button needs
+        # the same destination as ``go_to_submit_requested`` PLUS a
+        # request to pop the editor's Examples drawer, otherwise the
+        # button only navigates and the user is still one click away
+        # from a template -- the old behaviour was effectively a
+        # duplicate "Go to Submit" button.
+        if hasattr(self.runs_page, "go_to_submit_with_examples_requested"):
+            self.runs_page.go_to_submit_with_examples_requested.connect(
+                self._on_go_to_submit_with_examples
+            )
         self.runs_page.startup_recovery_failed.connect(self._on_startup_recovery_failed)
         self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
 
@@ -121,6 +148,62 @@ class MainWindow(QMainWindow):
             )
             page.set_max_parallel(self.files_page.max_parallel_spin.value()
                                   if hasattr(self.files_page, "max_parallel_spin") else 1)
+            # Review-fix: push the Files page's current remote directory
+            # into Submit so the payload points at the same folder the
+            # user just browsed. Without this line Submit silently
+            # hardcoded ``"/"`` which broke for users without root
+            # write permission. Defensive getattr for the rare case the
+            # helper is renamed.
+            page.set_remote_dir(
+                (self.files_page.remote_path.text().strip() or "/")
+                if hasattr(self.files_page, "remote_path")
+                else "/"
+            )
+
+    def _switch_page(self, index: int) -> None:
+        """Centralised page switcher for cross-page signals.
+
+        Reviews caught two empty-state buttons (``Files → Open Settings``
+        and ``Runs → Go to Submit``) that emitted navigation requests
+        into the void because nothing listened. Funnel both through this
+        helper so the sidebar / page-stack / language reload / page
+        activation all stay in lockstep with the manual-click path.
+        Mirrors the existing ``_on_use_as_input_received`` flow.
+        """
+        try:
+            target = self.shell.pages.widget(index)
+        except Exception:
+            return
+        if target is None:
+            return
+        # Block the sidebar's user signal so the existing _on_nav path
+        # does not fire twice; we drive setCurrentIndex + page_changed
+        # manually to keep semantics identical to a click.
+        self.shell.sidebar.blockSignals(True)
+        self.shell.sidebar.set_current(index)
+        self.shell.sidebar.blockSignals(False)
+        self.shell.pages.setCurrentIndex(index)
+        self.shell.page_changed.emit(index)
+
+    def _on_go_to_submit_with_examples(self) -> None:
+        """Land on Submit and pop the editor's Examples drawer.
+
+        Triggered by the Runs-page empty-state "Show example templates"
+        button. We use ``QTimer.singleShot(0, ...)`` because the drawer
+        is a modal menu driven by ``QMenu.exec_``: popping it before the
+        page actually finishes switching would steal the event loop from
+        the sidebar click handler. Deferring it lets the ``page_changed``
+        signal propagate first so the user sees the editor frame render
+        before the menu opens.
+        """
+        self._switch_page(1)
+        editor = getattr(self.submit_page, "editor", None)
+        if editor is None:
+            return
+        QTimer.singleShot(
+            0,
+            lambda: getattr(editor, "open_examples_menu", lambda: None)(),
+        )
 
     def _apply_language(self):
         self.language = self._settings_store.load().language
@@ -230,12 +313,33 @@ class MainWindow(QMainWindow):
         worker.error.connect(_err)
         worker.start()
 
+    def _show_workflow_tour(self) -> None:
+        """Open the 6-slide workflow tour dialog (Phase 1.1)."""
+        # Lazy import keeps the dialog module out of the import-time
+        # graph; gui/dialogs/__init__.py is intentionally not created.
+        from .dialogs.workflow_tour_dialog import WorkflowTourDialog
+
+        dialog = WorkflowTourDialog(parent=self, language=self.language)
+        dialog.exec()
+
     def _on_use_as_input_received(self, sources: list) -> None:
         """Cross-page wire: Files right-click → Submit page."""
         try:
             self.submit_page.push_sources(list(sources))
         except Exception:
             return
+        # Review-fix: same remote_dir inheritance as in _on_nav — the
+        # right-click navigation should land on Submit with the Files
+        # page's current browsing path, otherwise the user immediately
+        # sees a different (or invalid) target directory and gets
+        # confused.
+        try:
+            if hasattr(self.files_page, "remote_path"):
+                self.submit_page.set_remote_dir(
+                    self.files_page.remote_path.text().strip() or "/"
+                )
+        except Exception:
+            pass
         # Navigate to the Submit page (index 1).
         self.shell.sidebar.blockSignals(True)
         self.shell.sidebar.set_current(1)

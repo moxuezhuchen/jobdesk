@@ -15,6 +15,7 @@ class OnboardingCard(QFrame):
     example_template_requested = Signal(str)
     tour_requested = Signal()
     hide_forever_requested = Signal()
+    quick_start_requested = Signal()
 
     def __init__(self, language: str = "en", parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -44,12 +45,16 @@ class OnboardingCard(QFrame):
         )
         self._tour_btn.clicked.connect(lambda _checked=False: self.tour_requested.emit())
         self._hide_btn.clicked.connect(lambda _checked=False: self.hide_forever_requested.emit())
+        self._quick_start_btn = QPushButton(self)
+        self._quick_start_btn.setObjectName("nodegraphOnboardingQuickStartButton")
+        self._quick_start_btn.clicked.connect(lambda _checked=False: self.quick_start_requested.emit())
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 8, 0, 0)
         actions.setSpacing(8)
         actions.addWidget(self._example_btn)
         actions.addWidget(self._tour_btn)
+        actions.addWidget(self._quick_start_btn)
         actions.addWidget(self._hide_btn)
 
         layout = QVBoxLayout(self)
@@ -75,6 +80,16 @@ class OnboardingCard(QFrame):
         self._hint.setText(tr("Connect steps left to right, then preview the generated workflow YAML.", language))
         self._example_btn.setText(tr("Use an example template", language))
         self._tour_btn.setText(tr("Read 60-second tour", language))
+        # Review-fix: the button used to read "Quick start: load a single
+        # OPT template" but it actually wires ``linear_opt_freq`` which
+        # is a three-step Geometry optimization → Frequency chain, not a
+        # bare OPT. The label was misleading new users into thinking
+        # the chain contained exactly one step. The new wording mirrors
+        # the model label that NodeLibraryPanel already exposes, so the
+        # button does what the label says.
+        self._quick_start_btn.setText(
+            tr("Quick start: load Linear OPT + FREQ", language)
+        )
         self._hide_btn.setText(tr("Hide forever", language))
 
 

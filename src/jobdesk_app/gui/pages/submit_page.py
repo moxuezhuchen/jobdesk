@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -74,6 +74,7 @@ from ..nodegraph import (
     to_workflow_spec,
 )
 from ..nodegraph.editor import WorkflowGraphEditor
+from ..widgets import InlineBanner
 from ..widgets.input_source_panel import InputSourcePanel
 
 _ACTIVITY_LIMIT = 50
@@ -107,6 +108,15 @@ class SubmitPage(QWidget):
         self._on_error = on_error or (lambda title, msg: None)
         self._remote_available = remote_available
         self._server_label = server_label
+        # Phase 14D→review-fix: track the Files page's current remote
+        # directory so the Submit payload points at the same place the
+        # user is browsing. Defaults to "/" only if nothing has been
+        # pushed yet; set_remote_dir() (called from MainWindow when the
+        # user navigates here) overrides it. Users normally cannot
+        # upload to "/" anyway, so inheriting the browsing context
+        # avoids the common "submit fails because root is not writable"
+        # mistake called out in review.
+        self._remote_dir = "/"
         self._use_case = SubmitUseCase()
         self._last_batch: PreparedBatch | None = None
         self._activity_repo = activity_repo or getattr(state, "repo", None)
@@ -124,6 +134,14 @@ class SubmitPage(QWidget):
         self.input_panel.add_files_requested.connect(self._on_add_files_requested)
         layout.addWidget(self.input_panel)
 
+        # ── 1b. Inline banner (Phase 3.1) — surfaces non-modal warnings/errors
+        # such as "preview failed" or "validation errors" right below the
+        # input panel so the user notices without having to look at the
+        # activity log. The banner is hidden until something calls
+        # ``show_warning`` / ``show_error`` on it.
+        self._banner = InlineBanner(language=language, parent=self)
+        layout.addWidget(self._banner)
+
         # ── 2. Node-graph editor ───────────────────────────────────────
         # ``WorkflowGraphEditor`` is a plain QWidget designed to be
         # embedded in a layout. We add it with stretch=1 so it absorbs
@@ -140,17 +158,38 @@ class SubmitPage(QWidget):
         # before submitting.
         self.server_pill = QLabel(self._server_pill_text())
         self.server_pill.setStyleSheet("padding: 4px 10px; border-radius: 10px;")
+        # Phase 1.2: small in-page hint shown when the user has inputs but no
+        # server is currently selected. Not a gate — the submit button stays
+        # clickable so the existing MainWindow path ("Connect to a server
+        # first.") still surfaces a real error if the user presses submit.
+        # This is a heads-up so the user sees the disconnect *before* clicking.
+        self.server_hint = QLabel(self)
+        self.server_hint.setObjectName("SubmitServerHint")
+        self.server_hint.setStyleSheet("color: #b54708; font-style: italic;")
+        self.server_hint.setVisible(False)
         self.max_parallel_label = QLabel(tr("Max parallel:", language))
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.max_parallel_spin.setRange(1, 9999)
         self.max_parallel_spin.setValue(1)
+        # Review-fix: surface the currently-inherited remote target so
+        # the user can see exactly where the workflow will land before
+        # clicking Submit. The label starts blank until
+        # ``set_remote_dir`` is called from MainWindow.
+        self.remote_target_label = QLabel("", self)
+        self.remote_target_label.setObjectName("SubmitRemoteTargetLabel")
+        self.remote_target_label.setStyleSheet("color: #4b5563; font-size: 9pt;")
+        self.remote_target_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         server_row = QHBoxLayout()
         server_row.setSpacing(8)
         server_row.addWidget(self.server_pill)
+        server_row.addWidget(self.server_hint, 1)
         server_row.addStretch()
         server_row.addWidget(self.max_parallel_label)
         server_row.addWidget(self.max_parallel_spin)
+        server_row.addWidget(self.remote_target_label, 0)
         layout.addLayout(server_row)
 
         # ── 4. Two-button row (replaces Submit/Create-only/Refresh) ────────
@@ -199,6 +238,7 @@ class SubmitPage(QWidget):
         self._preview_timer.timeout.connect(self._refresh_preview)
 
         # ── 8. Initial validation / preview ──────────────────────────────
+        self._refresh_remote_target_label()
         self._refresh_validation()
         self._refresh_preview()
 
@@ -216,8 +256,14 @@ class SubmitPage(QWidget):
         # also static text; without these lines a runtime language
         # switch left half the page in the previous language.
         self.server_pill.setText(self._server_pill_text())
+        if not self._server_label:
+            self.server_hint.setText(tr("Connect to a server first.", self._language))
+        else:
+            self.server_hint.setText("")
         self._preview_box.setTitle(tr("Live preview", language))
         self._log_box.setTitle(tr("Activity log", language))
+        self._refresh_remote_target_label()
+        self._banner.apply_language(language)
 
     def set_server_status(self, connected: bool, server_label: str = "") -> None:
         """Update the server pill text and active state.
@@ -230,6 +276,7 @@ class SubmitPage(QWidget):
         self._server_label = server_label
         self._remote_available = connected
         self.server_pill.setText(self._server_pill_text())
+        self._refresh_server_hint()
         if connected and self.input_panel.remote_tab is None:
             self.input_panel.remote_tab = self.input_panel._build_tab("remote")
             self.input_panel.remote_tab.btn_add.clicked.connect(self.input_panel._on_add_files_remote)
@@ -281,12 +328,52 @@ class SubmitPage(QWidget):
         self._server_label = server_id
         self.server_pill.setText(self._server_pill_text())
 
+    def set_remote_dir(self, remote_dir: str) -> None:
+        """Inherit the Files page's current remote directory.
+
+        Review-fix: Submit used to hardcode ``remote_dir="/"`` which
+        broke for users without root write permission. The MainWindow
+        pushes the Files page's current ``remote_path`` here whenever
+        the user navigates to the Submit tab so the submitted run
+        lands in the same folder the user just browsed.
+        """
+        if remote_dir:
+            self._remote_dir = remote_dir
+        self._refresh_remote_target_label()
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     def _server_pill_text(self) -> str:
         if not self._server_label:
             return tr("No server", self._language)
         return f"{tr('Server', self._language)}: {self._server_label}"
+
+    def _refresh_remote_target_label(self) -> None:
+        """Show the inherited remote target so users can see where the
+        workflow will be uploaded.
+
+        Review-fix: keeps the user from being surprised when the Files
+        page was on ``/home/me/scratch`` and the Submit payload still
+        inherited ``"/"``. The label is plain text and intentionally
+        short to stay in one line with the server pill.
+        """
+        target = self._remote_dir or "/"
+        self.remote_target_label.setText(
+            tr("\u2192 {target}", self._language, target=target)
+        )
+
+    def _refresh_server_hint(self) -> None:
+        """Phase 1.2: show a hint next to the server pill when inputs are
+        added but no server is currently selected.
+
+        Visibility rule: hint is visible iff the user has at least one
+        input source AND ``_server_label`` is empty. The submit button
+        stays enabled — the existing MainWindow path produces a real
+        error dialog if the user presses Submit anyway.
+        """
+        has_sources = bool(self.input_panel.sources())
+        has_server = bool(self._server_label)
+        self.server_hint.setVisible(has_sources and not has_server)
 
     def load_recent_activity(self, limit: int = _ACTIVITY_LIMIT) -> None:
         """Repopulate the activity list from the repository on startup."""
@@ -312,6 +399,7 @@ class SubmitPage(QWidget):
         # Inputs may not be required for assembling the graph first; we
         # do not gate the buttons on it here. The use case surfaces the
         # missing-input error on submit.
+        self._refresh_server_hint()
         return None
 
     def _on_add_files_requested(self, side: str, _default_dir: str) -> None:
@@ -334,10 +422,39 @@ class SubmitPage(QWidget):
 
     def _on_generate_clicked(self) -> None:
         self._preview_timer.stop()
+        # Review-fix: empty canvas surfaces a friendly hint in the
+        # activity log instead of a yellow "Graph incomplete" banner
+        # that contradicts the green pill. Same friendly short-circuit
+        # for Submit.
+        if self.editor.is_empty():
+            self._log(
+                tr(
+                    "Add a node from the library to start your workflow.",
+                    self._language,
+                )
+            )
+            return
         self.editor.validate()
         self._refresh_preview()
 
     def _on_submit_clicked(self) -> None:
+        # Review-fix: handle the empty-canvas case explicitly so the
+        # user gets a clear "Add a node first" message instead of the
+        # confusing "No inputs selected" path.
+        if self.editor.is_empty():
+            self._log(
+                tr(
+                    "Add a node from the library to start your workflow.",
+                    self._language,
+                )
+            )
+            self._banner.show_warning(
+                tr(
+                    "Add a node from the library to start your workflow.",
+                    self._language,
+                )
+            )
+            return
         issues = self.editor.validate()
         errors = [i for i in issues if i.severity == "error"]
         if errors:
@@ -346,32 +463,88 @@ class SubmitPage(QWidget):
                     tr("Validation [{code}]: {message}", self._language,
                        code=issue.code or "graph", message=issue.message)
                 )
+            # Phase 3.1: surface the first validation error in the inline
+            # banner so the user sees it without scrolling the activity log.
+            first = errors[0]
+            self._banner.show_error(
+                tr("Validation [{code}]: {message}", self._language,
+                   code=first.code or "graph", message=first.message)
+            )
             return
+        self._banner.dismiss()
         payload = self._build_payload("confflow")
         if payload is None:
             return
         self.submit_requested.emit(payload)
 
     def _refresh_preview(self) -> None:
-        """Render the current graph to YAML into the preview pane."""
+        """Render the current graph to YAML into the preview pane.
+
+        Review-fix: an empty canvas used to raise ``WorkflowSpecError
+        ("graph is empty; ...")`` which got surfaced as a yellow
+        "Graph incomplete" banner. The status pill simultaneously
+        flashed green "Workflow OK" because the topology validation
+        passed on zero nodes. The result was a contradictory
+        neutral/green/yellow state at startup. We now check
+        ``editor.is_empty()`` first and render a single, neutral
+        "Add a node to start your workflow" message that pairs with
+        the editor's "Empty canvas" pill.
+        """
         try:
+            if self.editor.is_empty():
+                self.preview.setPlainText(
+                    tr(
+                        "Add a node from the library to start your workflow.",
+                        self._language,
+                    )
+                )
+                self._banner.dismiss()
+                return
             graph = self.editor.graph()
             payload: WorkflowGraphPayload = to_workflow_spec(graph)
         except WorkflowSpecError as exc:
             self.preview.setPlainText(tr("Graph incomplete: {exc}", self._language, exc=exc))
+            self._banner.show_warning(
+                tr("Graph incomplete: {exc}", self._language, exc=exc)
+            )
             return
         except Exception as exc:
             self.preview.setPlainText(tr("Preview failed: {exc}", self._language, exc=exc))
+            self._banner.show_error(
+                tr("Preview failed: {exc}", self._language, exc=exc)
+            )
             return
         try:
             yaml_text = payload.to_yaml()
         except Exception as exc:
             self.preview.setPlainText(tr("Render failed: {exc}", self._language, exc=exc))
+            self._banner.show_error(
+                tr("Render failed: {exc}", self._language, exc=exc)
+            )
             return
         self.preview.setPlainText(yaml_text)
+        # Successful preview — dismiss any previous warning/error banner.
+        self._banner.dismiss()
 
     def _refresh_validation(self) -> None:
-        """Toggle the buttons based on whether the graph has any errors."""
+        """Toggle the buttons based on whether the graph has any errors.
+
+        Review-fix: an empty canvas is a neutral state — neither OK
+        nor a validation error. We keep both buttons enabled so the
+        user can still press Submit / Generate from the empty canvas
+        and receive a friendly "Add a node first" hint in the
+        activity log; previously the buttons were enabled but the
+        message said "No inputs selected", which contradicted both
+        the green OK pill and the Graph incomplete banner.
+        """
+        if self.editor.is_empty():
+            # Leave both buttons enabled; we let _on_submit_clicked /
+            # _on_generate_clicked surface the empty-canvas hint so
+            # clicking feels responsive rather than mysteriously
+            # silent.
+            self.generate_btn.setEnabled(True)
+            self.submit_btn.setEnabled(True)
+            return
         issues = self.editor.validate()
         has_errors = any(i.severity == "error" for i in issues)
         self.generate_btn.setEnabled(not has_errors)
@@ -429,7 +602,12 @@ class SubmitPage(QWidget):
                 output_dir=output_dir,
                 output_paths=[],
                 server_id=self._server_label or "",
-                remote_dir="/",
+                # Review-fix: Submit used to hardcode remote_dir="/" which
+                # broke submissions to non-writable roots. The Files page
+                # pushes its current remote directory into us via
+                # ``set_remote_dir``; fall back to "/" only when nothing
+                # has been pushed yet (legacy / unconfigured path).
+                remote_dir=self._remote_dir or "/",
                 max_parallel=self.max_parallel_spin.value(),
             )
 
@@ -447,7 +625,7 @@ class SubmitPage(QWidget):
             output_dir=output_dir,
             output_paths=[],
             server_id=self._server_label or "",
-            remote_dir="/",
+            remote_dir=self._remote_dir or "/",
             max_parallel=self.max_parallel_spin.value(),
         )
 
