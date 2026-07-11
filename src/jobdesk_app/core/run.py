@@ -20,14 +20,19 @@ class WorkflowKind(str, Enum):
     ``gaussian`` / ``orca`` invoke a single-shot quantum-chemistry binary
     (.gjf / .inp execution). ``confflow`` invokes the ConfFlow workflow engine
     over one or more XYZ inputs against a workflow YAML; the wizard emits the
-    YAML and ``program_adapters.ConfFlowAdapter`` renders the command. This
-    field lives on RunSpec only — not RunRecord — so introducing it needs no
+    YAML and ``program_adapters.ConfFlowAdapter`` renders the command.
+    ``dag`` is a multi-step variant of ``confflow``: the same YAML schema is
+    used, but the per-step ``inputs`` lists (Phase 10.1-10.4) declare a DAG
+    topology that the engine resolves via ``graphlib.TopologicalSorter``.
+    The remote command is identical; the difference is purely data-shape.
+    This field lives on RunSpec only — not RunRecord — so introducing it needs no
     schema migration on existing rows.
     """
 
     gaussian = "gaussian"
     orca = "orca"
     confflow = "confflow"
+    dag = "dag"
 
 
 @dataclass(frozen=True)

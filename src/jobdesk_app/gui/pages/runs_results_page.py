@@ -43,6 +43,19 @@ from ..worker_utils import WorkerContext, start_context_worker
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
+# Column indices for the analysis result table built by ``_show_analysis_rows``.
+# Order matches the header list at the call site and the row produced by
+# ``_analysis_row``: task id, file name, program, energy, gibbs, ZPE,
+# imaginary frequency count, diagnosis.
+COL_TASK = 0
+COL_FILE = 1
+COL_PROGRAM = 2
+COL_ENERGY = 3
+COL_GIBBS = 4
+COL_ZPE = 5
+COL_IMAG_FREQ = 6
+COL_DIAGNOSIS = 7
+
 
 def _format_status(summary: dict[str, int], language: str = "en") -> str:
     if not summary:
@@ -374,9 +387,13 @@ class RunsResultsPage(QWidget):
             patterns = self._get_download_patterns(record)
             outcome = self._execute_refresh_use_case(record, patterns, download=has_done)
             if outcome.errors:
-                return "Automatic refresh failed: " + "; ".join(outcome.errors)
+                return tr(
+                    "Automatic refresh failed: {errors}",
+                    self._language,
+                    errors="; ".join(outcome.errors),
+                )
             if has_done and outcome.transfer_records:
-                return f"Run complete; results downloaded: {run_id}"
+                return tr("Run complete; results downloaded: {run_id}", self._language, run_id=run_id)
             return None
 
         class _FakeEvent:
@@ -388,7 +405,7 @@ class RunsResultsPage(QWidget):
         from ..workers import BackgroundWorker
         w = BackgroundWorker(_run)
         w.result.connect(lambda message: self._status_cb(message) if message else None)
-        w.error.connect(lambda error: self._status_cb(f"Automatic refresh failed: {error}"))
+        w.error.connect(lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error)))
         w.finished.connect(lambda: self._on_monitor_refresh_done(evt))
         w.finished.connect(lambda: self._in_progress.discard(run_id))
         w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
@@ -447,13 +464,13 @@ class RunsResultsPage(QWidget):
             return
         if outcome.errors:
             error = "; ".join(outcome.errors)
-            self._status_cb("Operation recovery failed: " + error)
+            self._status_cb(tr("Operation recovery failed: {error}", self._language, error=error))
             self.startup_recovery_failed.emit(error)
 
     def _apply_startup_recovery_error(self, error: str) -> None:
         if self._shutting_down:
             return
-        self._status_cb(f"Operation recovery failed: {error}")
+        self._status_cb(tr("Operation recovery failed: {error}", self._language, error=error))
         self.startup_recovery_failed.emit(error)
 
     def _finish_startup_recovery(self) -> None:
@@ -474,6 +491,10 @@ class RunsResultsPage(QWidget):
         self.clear_log_btn.setText(tr("Clear Log", language))
         self._set_headers()
         self.refresh_run_list()
+        # Phase 11.1 — F5 fix. Forward language to the result detail
+        # pane so its placeholder text re-translates on the fly.
+        if hasattr(self, "detail_pane") and self.detail_pane is not None:
+            self.detail_pane.apply_language(language)
 
     # ─── Phase 16: persistent scrolling activity log ────────────────────
 
@@ -595,7 +616,7 @@ class RunsResultsPage(QWidget):
         explanatory status-bar message so the user understands the action
         actually ran.
         """
-        self._append_activity_log("Delete Run invoked from context menu")
+        self._append_activity_log(tr("Delete Run invoked from context menu", self._language))
         self._delete_run()
 
     def _refresh_all(self):
@@ -975,24 +996,36 @@ class RunsResultsPage(QWidget):
             log_file = workspace / f"{stem}.log"
             if log_file.is_file():
                 if _too_large_for_preview(log_file):
-                    rows.append([task.task_id, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", "", "", ""])
+                    rows.append(_placeholder_analysis_row(
+                        task.task_id, log_file.name, "Gaussian",
+                        tr("File too large for preview", self._language),
+                    ))
                 else:
                     try:
                         r = parse_gaussian_log(log_file)
                         rows.append(_analysis_row(task.task_id, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
-                        rows.append([task.task_id, log_file.name, "Gaussian", tr("Parse Error", self._language), "", "", "", ""])
+                        rows.append(_placeholder_analysis_row(
+                            task.task_id, log_file.name, "Gaussian",
+                            tr("Parse Error", self._language),
+                        ))
             # Check .out (ORCA)
             out_file = workspace / f"{stem}.out"
             if out_file.is_file():
                 if _too_large_for_preview(out_file):
-                    rows.append([task.task_id, out_file.name, "ORCA", tr("File too large for preview", self._language), "", "", "", ""])
+                    rows.append(_placeholder_analysis_row(
+                        task.task_id, out_file.name, "ORCA",
+                        tr("File too large for preview", self._language),
+                    ))
                 else:
                     try:
                         ro = parse_orca_out(out_file)
                         rows.append(_analysis_row(task.task_id, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
-                        rows.append([task.task_id, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
+                        rows.append(_placeholder_analysis_row(
+                            task.task_id, out_file.name, "ORCA",
+                            tr("Parse Error", self._language),
+                        ))
         return rows
 
     def _auto_analyze(self, result_dir: Path) -> list[list[str]]:
@@ -1014,24 +1047,36 @@ class RunsResultsPage(QWidget):
             log_file = task_dir / f"{stem}.log"
             if log_file.is_file():
                 if _too_large_for_preview(log_file):
-                    rows.append([stem, log_file.name, "Gaussian", tr("File too large for preview", self._language), "", "", "", ""])
+                    rows.append(_placeholder_analysis_row(
+                        stem, log_file.name, "Gaussian",
+                        tr("File too large for preview", self._language),
+                    ))
                 else:
                     try:
                         r = parse_gaussian_log(log_file)
                         rows.append(_analysis_row(stem, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
-                        rows.append([stem, log_file.name, "Gaussian", tr("Parse Error", self._language), "", "", "", ""])
+                        rows.append(_placeholder_analysis_row(
+                            stem, log_file.name, "Gaussian",
+                            tr("Parse Error", self._language),
+                        ))
             # ORCA .out
             out_file = task_dir / f"{stem}.out"
             if out_file.is_file():
                 if _too_large_for_preview(out_file):
-                    rows.append([stem, out_file.name, "ORCA", tr("File too large for preview", self._language), "", "", "", ""])
+                    rows.append(_placeholder_analysis_row(
+                        stem, out_file.name, "ORCA",
+                        tr("File too large for preview", self._language),
+                    ))
                 else:
                     try:
                         ro = parse_orca_out(out_file)
                         rows.append(_analysis_row(stem, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
-                        rows.append([stem, out_file.name, "ORCA", tr("Parse Error", self._language), "", "", "", ""])
+                        rows.append(_placeholder_analysis_row(
+                            stem, out_file.name, "ORCA",
+                            tr("Parse Error", self._language),
+                        ))
         self._analyze_cache[key] = (sig, rows)
         return rows
 
@@ -1235,8 +1280,8 @@ class RunsResultsPage(QWidget):
         for r, row in enumerate(rows):
             for c, val in enumerate(row):
                 item = QTableWidgetItem(val)
-                if c == 0:
-                    task_id = str(row[0]) if row else ""
+                if c == COL_TASK:
+                    task_id = str(row[COL_TASK]) if row else ""
                     item.setData(
                         Qt.UserRole,
                         {
@@ -1332,9 +1377,17 @@ class RunsResultsPage(QWidget):
                 self._download_backoff = {}
             self._download_backoff.update(dl_failures)
             if downloaded:
-                self._status_cb("Run complete; results downloaded: " + ", ".join(downloaded))
+                self._status_cb(
+                    tr(
+                        "Run complete; results downloaded: {ids}",
+                        self._language,
+                        ids=", ".join(downloaded),
+                    )
+                )
             if errors:
-                self._status_cb("Automatic refresh failed: " + "; ".join(errors))
+                self._status_cb(
+                    tr("Automatic refresh failed: {errors}", self._language, errors="; ".join(errors))
+                )
 
         worker.result.connect(_report)
 
@@ -1928,12 +1981,49 @@ def _dir_parse_signature(result_dir: Path) -> tuple:
 
 
 def _analysis_row(task_id: str, file_name: str, program: str, result, diagnosis: str | None, language: str) -> list[str]:
-    """Build an 8-column analysis row from a parsed Gaussian/ORCA result."""
+    """Build an 8-column analysis row from a parsed Gaussian/ORCA result.
+
+    Column order matches the ``COL_*`` constants at the top of this module
+    and the header list in :py:meth:`RunsResultsPage._show_analysis_rows`.
+    """
     energy = f"{result.final_energy_au:.6f}" if result.final_energy_au else ""
     gibbs = f"{result.gibbs_au:.6f}" if result.gibbs_au else ""
     zpe = f"{result.zpe_au:.6f}" if result.zpe_au else ""
     imag = str(result.imaginary_freq_count)
-    return [task_id, file_name, program, energy, gibbs, zpe, imag, diagnosis or tr("OK", language)]
+    return [
+        task_id,
+        file_name,
+        program,
+        energy,
+        gibbs,
+        zpe,
+        imag,
+        diagnosis or tr("OK", language),
+    ]
+
+
+def _placeholder_analysis_row(
+    task_id: str,
+    file_name: str,
+    program: str,
+    diagnosis: str,
+) -> list[str]:
+    """Build an 8-column analysis row when parsing failed or the file is too large.
+
+    Fills the energy / gibbs / zpe / imag columns with empty strings so the
+    row width matches :func:`_analysis_row` and the ``COL_*`` constants at
+    the top of this module continue to line up.
+    """
+    return [
+        task_id,
+        file_name,
+        program,
+        diagnosis,
+        "",
+        "",
+        "",
+        "",
+    ]
 
 
 class ResultDetailPane(QWidget):
@@ -1953,6 +2043,7 @@ class ResultDetailPane(QWidget):
             " #ResultDetailPane QTextEdit { background: #ffffff; border: 1px solid #c5d2e3; }"
         )
         self._program = "—"
+        self._language = "en"  # updated via apply_language()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -2037,7 +2128,10 @@ class ResultDetailPane(QWidget):
 
     def clear(self) -> None:
         self._program = "—"
-        self.title_label.setText(tr("Select a task to see details", "en"))
+        # Phase 11.1 — F5 fix. Use the active language instead of
+        # pinning to English; the detail pane must follow the
+        # application-wide language setting.
+        self.title_label.setText(tr("Select a task to see details", self._language))
         self.status_label.setText("—")
         self.status_label.setStyleSheet("font-weight: 600; color: #475569;")
         self.energy_value.setText("—")
@@ -2050,6 +2144,12 @@ class ResultDetailPane(QWidget):
         self.error_value.setText("")
         self.error_value.setVisible(False)
         self.geometry_view.setPlainText("")
+
+    def apply_language(self, language: str) -> None:
+        """Re-translate the placeholder shown when no task is selected."""
+        self._language = language
+        if not self.title_label.text() or self.title_label.text() == tr("Select a task to see details", language):
+            self.title_label.setText(tr("Select a task to see details", language))
 
     def _status_text(self, result) -> tuple[str, str]:
         """Return ``(display_text, css_color)`` describing the result status."""

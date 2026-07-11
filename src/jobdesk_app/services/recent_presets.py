@@ -27,7 +27,7 @@ _KEY = "recent_presets"
 class PresetFavouriteStore:
     """Disk-backed store for the most-recently-used calculation presets.
 
-    Each wizard/CalculationWidget instance reads its MRU from disk on
+    Each wizard / calculator instance reads its MRU from disk on
     construction and writes back after each pick. Reads never block or
     raise (a missing / corrupted file yields an empty list, which the
     widget treats as "first run"). Writes silently skip on permission

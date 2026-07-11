@@ -650,9 +650,32 @@ class RunService:
     def _recover_delete_operation(
         self, operation: OperationRecord, *, raise_errors: bool = False
     ) -> bool:
+        """Resume a single incomplete delete operation to ``completed``.
+
+        Concurrency model:
+
+        * The first writer to acquire ``BEGIN IMMEDIATE`` for a given
+          ``operation_id`` commits the ``metadata_deleted → files_isolated``
+          advance; all other workers observe the operation in
+          ``files_isolated`` phase.
+        * When a worker enters the ``files_isolated`` cleanup branch but did
+          not author the isolation commit itself (``isolation_done_by_us`` is
+          ``False``), the recovery waits up to ``_RECOVERY_LEADER_GRACE``
+          seconds for the in-progress leader to land ``completed_at``. If
+          the operation is still in-flight after the grace window the worker
+          takes over, ensuring a paused/abandoned leader cannot leave an
+          operation permanently stuck at ``files_isolated``.
+        * The wait is skipped when this worker *did* commit the isolation
+          itself — there is no leader to wait for.
+        """
         import shutil
 
+        from ..services.run_repository import (
+            _DELETE_CLEANUP_LEADER_GRACE_SECONDS,
+        )
+
         phase = operation.phase
+        isolation_done_by_us = False
         try:
             self._authorized_delete_workspace(operation)
             if phase == "files_deleted":
@@ -693,8 +716,22 @@ class RunService:
                     operation.operation_id, isolate_files
                 ):
                     return False
+                isolation_done_by_us = True
                 phase = "files_isolated"
             if phase == "files_isolated":
+                if not isolation_done_by_us:
+                    # The operation is at ``files_isolated`` but we did
+                    # not author the isolation commit ourselves. Another
+                    # worker is (or was, and is now stuck on filesystem
+                    # cleanup) responsible for the final advances. Give
+                    # them a short window to finish; if they don't, we
+                    # take over so the operation cannot stay stuck here
+                    # forever.
+                    if not self._wait_for_files_isolated_leader(
+                        operation.operation_id,
+                        grace_seconds=_DELETE_CLEANUP_LEADER_GRACE_SECONDS,
+                    ):
+                        return False
                 for trash, label in (
                     (trash_results_dir, "results"),
                     (trash_run_dir, "run directory"),
@@ -724,6 +761,43 @@ class RunService:
             if raise_errors:
                 raise
             return False
+
+    def _wait_for_files_isolated_leader(
+        self,
+        operation_id: str,
+        *,
+        grace_seconds: float,
+    ) -> bool:
+        """Give an in-progress ``files_isolated`` leader a chance to finish.
+
+        Returns ``True`` if the operation is still at ``files_isolated``
+        after the grace window — i.e. the caller should proceed with the
+        cleanup. Returns ``False`` if the phase moved past
+        ``files_isolated`` (the leader finished, another worker won the
+        race, or the operation was already ``completed``) — i.e. the caller
+        should bail.
+        """
+        import time as _time
+
+        deadline = _time.monotonic() + grace_seconds
+        # Poll every 10ms — short enough that normal cleanup latency
+        # rounds to nothing, long enough that we do not spin.
+        poll_interval = 0.01
+        while True:
+            row = next(
+                (
+                    op for op in self.repository.list_operations()
+                    if op.operation_id == operation_id
+                ),
+                None,
+            )
+            if row is None:
+                return False
+            if row.completed_at is not None or row.phase != "files_isolated":
+                return False
+            if _time.monotonic() >= deadline:
+                return True
+            _time.sleep(poll_interval)
 
     def _authorized_delete_workspace(self, operation: OperationRecord) -> Path:
         """Validate independent delete authorization before filesystem mutation."""

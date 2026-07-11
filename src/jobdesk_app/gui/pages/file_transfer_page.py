@@ -315,7 +315,7 @@ class FileTransferPage(QWidget):
             QTimer.singleShot(0, self._auto_connect_selected_server)
 
     def _choose_local_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Local Folder")
+        path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language))
         if not path:
             return
         self.state.current_project_root = Path(path)

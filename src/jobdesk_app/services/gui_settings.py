@@ -38,6 +38,12 @@ class GuiSettings:
     notify_enabled: bool = False
     download_patterns: str = "*.log, *.out, .jobdesk_submit.log"
     hide_dotfiles: bool = True
+    # Node-graph onboarding state
+    show_onboarding: bool = True
+    # Node-graph library group collapsed state (IMP-04). Keys are the
+    # stable ids from ``jobdesk_app.gui.nodegraph.library.GROUPS``,
+    # e.g. ``"calcs"``. Persisted across launches.
+    collapsed_library_groups: tuple[str, ...] = ()
     # Per-software profiles: input_extensions, command_template, download_patterns
     software_profiles: dict[str, dict[str, str]] | None = None
 
@@ -82,6 +88,8 @@ class GuiSettingsStore:
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "*.log, *.out, .jobdesk_submit.log")),
             hide_dotfiles=bool(raw.get("hide_dotfiles", True)),
+            show_onboarding=bool(raw.get("show_onboarding", True)),
+            collapsed_library_groups=tuple(raw.get("collapsed_library_groups", []) or []),
             software_profiles=self._load_profiles(raw),
         )
 
@@ -126,6 +134,8 @@ class GuiSettingsStore:
                 "notify_enabled": settings.notify_enabled,
                 "download_patterns": settings.download_patterns,
                 "hide_dotfiles": settings.hide_dotfiles,
+                "show_onboarding": settings.show_onboarding,
+                "collapsed_library_groups": list(settings.collapsed_library_groups),
                 "software_profiles": settings.software_profiles or {},
             }
             atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))

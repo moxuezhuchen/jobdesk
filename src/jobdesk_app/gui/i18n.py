@@ -37,6 +37,25 @@ ZH: dict[str, str] = {
     "Download files:": "\u4e0b\u8f7d\u6587\u4ef6:",
     "Edit": "\u7f16\u8f91",
     "English": "English",
+    "Calcs": "\u8ba1\u7b97",
+    "Sentinels": "\u7ec8\u6b62",
+    "Linear OPT + FREQ": "\u7ebf\u6027 OPT + FREQ",
+    "Conformer ensemble + SP": "\u6784\u8c61\u4f53\u96c6 + SP",
+    "Fan-out: two OPT branches": "\u6248\u51fa\uff1a\u4e24\u4e2a OPT \u5206\u652f",
+    "Fan-in: REFINE": "\u6248\u5165\uff1aREFINE",
+    "3-step backbone: optimize, then frequency analysis.": (
+        "\u4e09\u6b65\u4e3b\u7ebf\uff1a\u51e0\u4f55\u4f18\u5316\u540e\u63a5\u9891\u7387\u5206\u6790\u3002"
+    ),
+    "Generate conformers, optimize the lowest, then single-point.": (
+        "\u751f\u6210\u6784\u8c61\u7fa4\u4f53\uff0c\u4f18\u5316\u80fd\u91cf\u6700\u4f4e\u8005\uff0c"
+        "\u518d\u8ba1\u7b97\u5355\u70b9\u80fd\u3002"
+    ),
+    "Same conformer ensemble feeds two parallel optimizations.": (
+        "\u540c\u4e00\u4e2a\u6784\u8c61\u7fa4\u4f53\u540c\u65f6\u9970\u5165\u4e24\u4e2a\u5e76\u884c\u4f18\u5316\u3002"
+    ),
+    "Optimize a candidate, refine with the conformer ensemble.": (
+        "\u4f18\u5316\u5019\u9009\u7ed3\u6784\uff0c\u518d\u4ee5\u6784\u8c61\u7fa4\u4f53\u8fdb\u884c\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u3002"
+    ),
     "Files": "\u6587\u4ef6",
     "Files:": "\u6587\u4ef6:",
     "Home": "\u4e3b\u9875",
@@ -284,11 +303,35 @@ ZH: dict[str, str] = {
     "Submitting...": "\u63d0\u4ea4\u4e2d...",
     "Submit failed": "\u63d0\u4ea4\u5931\u8d25",
     "Submit failed: {e}": "\u63d0\u4ea4\u5931\u8d25: {e}",
+    "Validation [{code}]: {message}": "\u6821\u9a8c [{code}]: {message}",
+    "Validation [graph]: {exc}": "\u6821\u9a8c [\u56fe]: {exc}",
+    "Graph incomplete: {exc}": "\u56fe\u4e0d\u5b8c\u6574: {exc}",
+    "Preview failed: {exc}": "\u9884\u89c8\u5931\u8d25: {exc}",
     "Creating...": "\u521b\u5efa\u4e2d...",
     "Create failed": "\u521b\u5efa\u5931\u8d25",
     "Created {n}": "\u5df2\u521b\u5efa {n}",
     "Submitted {n}": "\u5df2\u63d0\u4ea4 {n}",
     "Submitted: {batch_id}": "\u5df2\u63d0\u4ea4: {batch_id}",
+    "Submitted.": "\u5df2\u63d0\u4ea4\u3002",
+    "Connect to a server first.": "\u8bf7\u5148\u8fde\u63a5\u670d\u52a1\u5668",
+    "Delete run {run_id} record?": "\u5220\u9664\u8fd0\u884c {run_id} \u7684\u8bb0\u5f55\uff1f",
+    "Delete {n} run records?": "\u5220\u9664 {n} \u6761\u8fd0\u884c\u8bb0\u5f55\uff1f",
+    "Download done: {n} files, failed: {f}": "\u4e0b\u8f7d\u5b8c\u6210: \u6210\u529f {n} \u4e2a\uff0c\u5931\u8d25 {f} \u4e2a",
+    "No tasks awaiting download": "\u6ca1\u6709\u53ef\u4e0b\u8f7d\u7684\u4efb\u52a1",
+    "Open Results": "\u6253\u5f00\u7ed3\u679c",
+    "Operation recovery failed": "\u542f\u52a8\u6062\u590d\u5931\u8d25",
+    "Output file not found": "\u627e\u4e0d\u5230\u8f93\u51fa\u6587\u4ef6",
+    "Parse error": "\u89e3\u6790\u9519\u8bef",
+    "Preview failed: {e}": "\u9884\u89c8\u5931\u8d25: {e}",
+    "Refresh failed: {e}": "\u5237\u65b0\u5931\u8d25: {e}",
+    "Remote operation already in progress": "\u8fdc\u7a0b\u64cd\u4f5c\u8fdb\u884c\u4e2d",
+    "Result Preview - Auto Analysis": "\u7ed3\u679c\u9884\u89c8 - \u81ea\u52a8\u5206\u6790",
+    "Result Preview - Local Files": "\u7ed3\u679c\u9884\u89c8 - \u672c\u5730\u6587\u4ef6",
+    "Results directory not found": "\u627e\u4e0d\u5230\u7ed3\u679c\u76ee\u5f55",
+    "Select SSH Key": "\u9009\u62e9 SSH \u5bc6\u94a5",
+    "Select a task to see details": "\u8bf7\u9009\u62e9\u4e00\u4e2a\u4efb\u52a1\u67e5\u770b\u8be6\u60c5",
+    "Submitting": "\u63d0\u4ea4\u4e2d",
+    "Test failed": "\u6d4b\u8bd5\u5931\u8d25",
     "Tested": "\u5df2\u6d4b\u8bd5",
     "Saving...": "\u4fdd\u5b58\u4e2d...",
     "Saved": "\u5df2\u4fdd\u5b58",
@@ -377,6 +420,7 @@ ZH: dict[str, str] = {
     "Activity log \u2014 status messages and errors": "\u6d3b\u52a8\u8bb0\u5f55\u2014\u2014\u72b6\u6001\u4e0e\u9519\u8bef\u4fe1\u606f",
     "Clear Log": "\u6e05\u9664\u8bb0\u5f55",
     "Delete Run": "\u5220\u9664\u4efb\u52a1",
+    "Examples": "\u793a\u4f8b\u6a21\u677f",
     "Inputs": "\u8f93\u5165",
     "Select input files": "\u9009\u62e9\u8f93\u5165\u6587\u4ef6",
     "Select directory": "\u9009\u62e9\u76ee\u5f55",
@@ -389,6 +433,100 @@ ZH: dict[str, str] = {
     "Local": "\u672c\u5730",
     "Remote": "\u8fdc\u7a0b",
     "Drag .xyz / .gjf / .inp files or a directory here": "\u5c06 .xyz / .gjf / .inp \u6587\u4ef6\u6216\u76ee\u5f55\u62d6\u81f3\u6b64\u5904",
+    # -- Phase 11.1: Node-graph onboarding --
+    "Start your workflow graph": "\u5f00\u59cb\u6784\u5efa\u5de5\u4f5c\u6d41\u56fe",
+    "Use a ready-made template, or drag nodes from the library.": "\u4f7f\u7528\u73b0\u6210\u6a21\u677f\uff0c\u6216\u4ece\u8282\u70b9\u5e93\u62d6\u5165\u8282\u70b9\u3002",
+    "Connect steps left to right, then preview the generated workflow YAML.": "\u4ece\u5de6\u5230\u53f3\u8fde\u63a5\u6b65\u9aa4\uff0c\u7136\u540e\u9884\u89c8\u751f\u6210\u7684\u5de5\u4f5c\u6d41 YAML\u3002",
+    "Use an example template": "\u4f7f\u7528\u793a\u4f8b\u6a21\u677f",
+    "Read 60-second tour": "\u9605\u8bfb 60 \u79d2\u5feb\u901f\u5bfc\u89c8",
+    "Hide forever": "\u6c38\u4e45\u9690\u85cf",
+    # -- Phase 15: Workflow node-graph editor --
+    "Undo": "\u64a4\u9500",
+    "Redo": "\u91cd\u505a",
+    "Fit": "\u9002\u914d",
+    "Grid": "\u7f51\u683c",
+    "Load\u2026": "\u52a0\u8f7d\u2026",
+    "Save\u2026": "\u4fdd\u5b58\u4e3a\u2026",
+    "Validate": "\u6821\u9a8c",
+    "Loaded": "\u5df2\u52a0\u8f7d",
+    "Workflow OK": "\u5de5\u4f5c\u6d41\u6b63\u5e38",
+    "Properties": "\u5c5e\u6027",
+    "Node library": "\u8282\u70b9\u5e93",
+    "Search nodes": "\u641c\u7d22\u8282\u70b9",
+    "Select a node to edit its parameters.": "\u8bf7\u9009\u62e9\u4e00\u4e2a\u8282\u70b9\u4ee5\u7f16\u8f91\u5176\u53c2\u6570\u3002",
+    "No editable parameters for this node.": "\u8be5\u8282\u70b9\u6ca1\u6709\u53ef\u7f16\u8f91\u7684\u53c2\u6570\u3002",
+    "Add at least one calculation node first.": "\u8bf7\u5148\u6dfb\u52a0\u81f3\u5c11\u4e00\u4e2a\u8ba1\u7b97\u8282\u70b9\u3002",
+    "Clear graph": "\u6e05\u7a7a\u56fe",
+    "Remove every node from the graph?": "\u786e\u5b9a\u79fb\u9664\u56fe\u4e2d\u7684\u6240\u6709\u8282\u70b9\uff1f",
+    "Save workflow template": "\u4fdd\u5b58\u5de5\u4f5c\u6d41\u6a21\u677f",
+    "Load workflow template": "\u52a0\u8f7d\u5de5\u4f5c\u6d41\u6a21\u677f",
+    "Load failed": "\u52a0\u8f7d\u5931\u8d25",
+    "Workflow templates (*.json)": "\u5de5\u4f5c\u6d41\u6a21\u677f (*.json)",
+    "{n} error(s), {m} warning(s)": "{n} \u4e2a\u9519\u8bef\uff0c{m} \u4e2a\u8b66\u544a",
+    "{n} error(s) \u2014 see properties panel": "{n} \u4e2a\u9519\u8bef\u2014\u2014\u8be6\u89c1\u5c5e\u6027\u9762\u677f",
+    "{n} warning(s)": "{n} \u4e2a\u8b66\u544a",
+    "XYZ file": "XYZ \u6587\u4ef6",
+    "Input XYZ geometry": "\u8f93\u5165 XYZ \u51e0\u4f55\u7ed3\u6784",
+    "Conformer generation": "\u6784\u8c61\u4e0d\u5f02\u6784\u4f53\u751f\u6210",
+    "Generate a conformational ensemble": "\u751f\u6210\u4e00\u7ec4\u6784\u8c61\u5f02\u6784\u4f53",
+    "Generate a conformational ensemble (Output: STRUCTURES, fans out to multiple OPTs / SPs)": (
+        "\u751f\u6210\u4e00\u7ec4\u6784\u8c61\u5f02\u6784\u4f53\uff08\u8f93\u51fa\uff1aSTRUCTURES\uff0c\u53ef\u6248\u5f0f\u8fde\u63a5\u591a\u4e2a OPT \u6216 SP\uff09"
+    ),
+    "Pre-optimization": "\u9884\u4f18\u5316",
+    "Cheap pre-optimization (force field)": "\u4f7f\u7528\u529b\u573a\u8fdb\u884c\u5feb\u901f\u9884\u4f18\u5316",
+    "Cheap pre-optimization (force field); Input: STRUCTURE": (
+        "\u4f7f\u7528\u529b\u573a\u8fdb\u884c\u5feb\u901f\u9884\u4f18\u5316\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
+    "Geometry optimization": "\u51e0\u4f55\u4f18\u5316",
+    "DFT / ab-initio geometry optimization": "DFT / \u4ece\u5934\u8ba1\u7b97\u51e0\u4f55\u4f18\u5316",
+    "DFT / ab-initio geometry optimization; Input: STRUCTURE": (
+        "DFT / \u4ece\u5934\u8ba1\u7b97\u51e0\u4f55\u4f18\u5316\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
+    "Single point": "\u5355\u70b9\u80fd\u91cf",
+    "Single-point energy": "\u5355\u70b9\u80fd\u91cf\u8ba1\u7b97",
+    "Single-point energy; Input: STRUCTURE": (
+        "\u5355\u70b9\u80fd\u91cf\u8ba1\u7b97\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
+    "Frequency": "\u9891\u7387",
+    "Vibrational frequency": "\u632f\u52a8\u9891\u7387\u8ba1\u7b97",
+    "Vibrational frequency; Input: STRUCTURE": (
+        "\u632f\u52a8\u9891\u7387\u8ba1\u7b97\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
+    "Transition state": "\u8fc7\u6e21\u6001",
+    "Transition state search": "\u8fc7\u6e21\u6001\u641c\u7d22",
+    "Transition state search; Input: STRUCTURE": (
+        "\u8fc7\u6e21\u6001\u641c\u7d22\uff08\u8f93\u5165\uff1aSTRUCTURE\uff09"
+    ),
+    "Refine": "\u7cbe\u70bc",
+    "Refine best conformer with high accuracy": "\u4ee5\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u6700\u4f73\u6784\u8c61",
+    "Refine best conformer with high accuracy; Input: STRUCTURE + ensemble": (
+        "\u4ee5\u9ad8\u7cbe\u5ea6\u7cbe\u70bc\u6700\u4f73\u6784\u8c61\uff08\u8f93\u5165\uff1aSTRUCTURE \u4e0e ensemble\uff09"
+    ),
+    "Advanced options": "\u9ad8\u7ea7\u9009\u9879",
+    "Free-form key=value options": "\u81ea\u7531 key=value \u9009\u9879",
+    "Workflow terminator (emits workflow.yaml)": "\u5de5\u4f5c\u6d41\u7ec8\u6b62\u8282\u70b9\uff08\u8f93\u51fa workflow.yaml\uff09",
+    "Output": "\u8f93\u51fa",
+    "Aggregate all upstream paths into workflow.yaml terminator": (
+        "\u5c06\u4e0a\u6e38\u6240\u6709\u5206\u652f\u5408\u5e76\u5230 workflow.yaml \u7ec8\u6b62\u8282\u70b9"
+    ),
+    "Inputs: {names} ({n} incoming edges)": (
+        "\u8f93\u5165: {names}\uff08{n} \u6761\u8f93\u5165\u8fb9\uff09"
+    ),
+    "Inputs: {names} (1 incoming edge)": (
+        "\u8f93\u5165: {names}\uff081 \u6761\u8f93\u5165\u8fb9\uff09"
+    ),
+    "Inputs: {names}": "\u8f93\u5165: {names}",
+    "Inputs: 0 incoming edges": "\u8f93\u5165: 0 \u6761\u8f93\u5165\u8fb9",
+    # -- Phase 2: submit page buttons --
+    "Generate YAML": "\u751f\u6210 YAML",
+    "Submit to Remote": "\u63d0\u4ea4\u5230\u8fdc\u7a0b",
+    # -- Phase 10 polish: RunsResultsPage hard-coded status messages --
+    "Automatic refresh failed: {e}": "\u81ea\u52a8\u5237\u65b0\u5931\u8d25: {e}",
+    "Automatic refresh failed: {errors}": "\u81ea\u52a8\u5237\u65b0\u5931\u8d25: {errors}",
+    "Run complete; results downloaded: {run_id}": "\u8fd0\u884c\u5b8c\u6210\uff0c\u7ed3\u679c\u5df2\u4e0b\u8f7d: {run_id}",
+    "Run complete; results downloaded: {ids}": "\u8fd0\u884c\u5b8c\u6210\uff0c\u7ed3\u679c\u5df2\u4e0b\u8f7d: {ids}",
+    "Operation recovery failed: {error}": "\u542f\u52a8\u6062\u590d\u5931\u8d25: {error}",
+    "Delete Run invoked from context menu": "\u4ece\u53f3\u952e\u83dc\u5355\u8c03\u7528\u5220\u9664\u4efb\u52a1",
 }
 
 

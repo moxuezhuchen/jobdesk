@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
             language=self.language,
             on_status=self._update_status,
             on_error=self.show_error,
+            settings_store=self._settings_store,
         )
         self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
@@ -75,10 +76,9 @@ class MainWindow(QMainWindow):
             lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
         )
         # Submit page → coordinator (background worker, like _run_selected_chunks)
+        # Phase 2: only ``submit_requested`` remains; the legacy
+        # ``create_only_requested`` path collapsed into the unified editor.
         self.submit_page.submit_requested.connect(self._on_submit_requested)
-        self.submit_page.create_only_requested.connect(
-            lambda payload: self._on_submit_requested(payload, submit=False)
-        )
         # Cross-page push from Files page right-click menu.
         if hasattr(self.files_page, "use_as_input_received"):
             self.files_page.use_as_input_received.connect(self._on_use_as_input_received)

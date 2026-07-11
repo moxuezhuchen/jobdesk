@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from confflow.core.models import CalcConfigModel, GlobalConfigModel
+    from jobdesk_app.confflow.confflow.core.models import CalcConfigModel, GlobalConfigModel
     _CONFFLOW_AVAILABLE = True
-except ImportError:  # confflow not installed (chem extra missing)
-    CalcConfigModel = None  # type: ignore[assignment]
-    GlobalConfigModel = None  # type: ignore[assignment]
+except ImportError:  # vendored confflow not present (developer forgot to subtree pull)
+    CalcConfigModel = None  # type: ignore[misc,assignment]
+    GlobalConfigModel = None  # type: ignore[misc,assignment]
     _CONFFLOW_AVAILABLE = False
 
 

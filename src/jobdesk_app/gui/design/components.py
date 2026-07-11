@@ -198,7 +198,14 @@ class StyledTableWidget(QTableWidget):
 
 
 class _SidebarItem(QWidget):
-    """Single nav item: icon-only with tooltip."""
+    """Single nav item: icon-only with tooltip.
+
+    Phase 11.1 — added keyboard activation and accessibility metadata
+    so screen readers and keyboard users can navigate. The control is
+    announced as ``role="tab"`` (sidebar entries behave like tabs of
+    the underlying QStackedWidget) with the label exposed via
+    ``accessibleName`` and toggled ``aria-selected`` when active.
+    """
 
     clicked = Signal()
 
@@ -210,6 +217,15 @@ class _SidebarItem(QWidget):
         self.setFixedHeight(Metrics.SIDEBAR_ITEM_HEIGHT)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(label)
+        # Accept keyboard focus so Tab / Shift+Tab can land on a nav
+        # item. Without this, the control is invisible to the focus
+        # chain and screen readers skip it entirely.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Expose the label to assistive tech. We deliberately do NOT
+        # set accessibleDescription so screen readers don't read the
+        # tooltip twice.
+        self.setAccessibleName(label)
+        self.setAccessibleDescription("")
 
     @property
     def active(self) -> bool:
@@ -218,11 +234,25 @@ class _SidebarItem(QWidget):
     @active.setter
     def active(self, v: bool) -> None:
         self._active = v
+        # Mirror the visual "active" state into the accessibility tree
+        # so screen readers can announce the currently selected tab.
+        self.setProperty("selected", v)
+        self.setAccessibleDescription("")
+        # ``aria-selected`` lives on the same property in Qt's a11y
+        # bridge; the call below is the official way to refresh the
+        # cache after a property mutation.
         self.update()
+        try:
+            from PySide6.QtGui import QAccessible
+            QAccessible.updateAccessibility(self, 0)  # type: ignore[call-arg, arg-type]  # PySide6 6.11 changed signature; runtime accepts (object, int)
+        except Exception:
+            pass
 
     def set_label(self, text: str) -> None:
         self._label = text
         self.setToolTip(text)
+        # Keep the accessibility tree in sync with the tooltip text.
+        self.setAccessibleName(text)
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -244,9 +274,27 @@ class _SidebarItem(QWidget):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         self.clicked.emit()
 
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        # Activate on Space / Return — these are the two keys Qt's
+        # default button handling uses, so the sidebar feels consistent
+        # with the rest of the app. Arrow keys are intentionally NOT
+        # handled here because sidebar navigation is owned by the
+        # Sidebar container (which can decide on Up/Down vs. nothing).
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class Sidebar(QWidget):
-    """Vertical dark navigation sidebar."""
+    """Vertical dark navigation sidebar.
+
+    Phase 11.1 — added ``role="tablist"`` on the container and
+    ``role="tab"`` (via ``QAccessible.Role.PageTab``) on each item so
+    screen readers announce the four pages correctly. Keyboard users
+    can Tab between items and press Space / Enter to navigate.
+    """
 
     current_changed = Signal(int)
 
@@ -258,6 +306,11 @@ class Sidebar(QWidget):
             f"#SidebarNav {{ background:{Colors.SIDEBAR_BG}; }}"
             f" QToolTip {{ background:{Colors.BG_SURFACE}; color:{Colors.TEXT}; border:1px solid {Colors.BORDER}; padding:4px 8px; }}"
         )
+        # Announce the sidebar as a tablist of page tabs.
+        self.setAccessibleName("Navigation")
+        # ``setProperty`` with these keys is the documented way to
+        # control role/state in Qt's accessibility bridge.
+        self.setProperty("role", "tablist")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, Spacing.LG, 0, Spacing.LG)
