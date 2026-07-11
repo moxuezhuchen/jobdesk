@@ -222,7 +222,7 @@ class GraphScene(QGraphicsScene):
         if not mime.hasFormat(NODE_KIND_MIME):
             return None
         try:
-            value = bytes(mime.data(NODE_KIND_MIME)).decode("utf-8")
+            value = bytes(mime.data(NODE_KIND_MIME)).decode("utf-8")  # type: ignore[call-overload]  # PySide6 QByteArray buffers for bytes() at runtime
             return NodeKind(value)
         except (ValueError, UnicodeDecodeError):
             return None
@@ -428,7 +428,7 @@ class GraphScene(QGraphicsScene):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         for nid in moved_node_ids:
-            item = self._node_items.get(nid)
+            item = self._node_items.get(nid)  # type: ignore[assignment]  # PySide6 QGraphicsScene rebinds self type across loop scopes
             if item is None:
                 continue
             current = item.pos()
@@ -513,12 +513,12 @@ class GraphScene(QGraphicsScene):
             item = self._node_items.pop(stale)
             self.removeItem(item)
         for stale in existing_edge_ids - live_edge_ids:
-            item = self._edge_items.pop(stale)
+            item = self._edge_items.pop(stale)  # type: ignore[assignment]  # PySide6 rebinds self type
             self.removeItem(item)
 
         # Refresh existing nodes (positions/ports may have changed).
         for nid, node in self._graph.nodes.items():
-            item = self._node_items.get(nid)
+            item = self._node_items.get(nid)  # type: ignore[assignment]
             if item is None:
                 self._add_node_item(node)
                 continue
@@ -528,11 +528,11 @@ class GraphScene(QGraphicsScene):
 
         # Recreate / refresh edges.
         for eid, edge in self._graph.edges.items():
-            item = self._edge_items.get(eid)
+            item = self._edge_items.get(eid)  # type: ignore[assignment]
             if item is None:
                 self._add_edge_item(edge)
                 continue
-            self._refresh_edge_geometry(item)
+            self._refresh_edge_geometry(item)  # type: ignore[arg-type]  # PySide6 rebinds self type
 
         self.topology_changed.emit()
         self._refresh_validation()

@@ -244,7 +244,7 @@ class _SidebarItem(QWidget):
         self.update()
         try:
             from PySide6.QtGui import QAccessible
-            QAccessible.updateAccessibility(self, 0)
+            QAccessible.updateAccessibility(self, 0)  # type: ignore[call-arg, arg-type]  # PySide6 6.11 changed signature; runtime accepts (object, int)
         except Exception:
             pass
 

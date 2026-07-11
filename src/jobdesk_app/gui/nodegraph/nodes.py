@@ -152,7 +152,7 @@ class NodeItem(QGraphicsRectItem):
         self._ports.clear()
         # Remove previously-attached port items; they were children.
         for child in list(self.childItems()):
-            child.setParentItem(None)
+            child.setParentItem(None)  # type: ignore[arg-type]  # runtime accepts None
         # Input ports along the left edge.
         for idx, port in enumerate(self._node.inputs):
             y = NODE_TITLE_HEIGHT + idx * NODE_PORT_ROW + NODE_PORT_ROW / 2.0

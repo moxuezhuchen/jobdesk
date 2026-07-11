@@ -39,7 +39,7 @@ class ParamField:
     name: str
     type: type  # noqa: A003 - intentional shadow for "what kind of value"
     default: Any = None
-    spinbox: type | None = None  # QSpinBox | QDoubleSpinBox
+    spinbox: type | None = None  # type: ignore[valid-type]  # QSpinBox | QDoubleSpinBox
     min: float | None = None
     max: float | None = None
     suffix: str = ""
@@ -230,6 +230,8 @@ class PropertiesPanel(QWidget):
     def _clear_form(self) -> None:
         while self._form_layout.count():
             item = self._form_layout.takeAt(0)
+            if item is None:
+                continue
             widget = item.widget()
             if widget is not None:
                 widget.setParent(None)
