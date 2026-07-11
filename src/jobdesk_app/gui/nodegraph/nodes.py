@@ -46,7 +46,6 @@ from PySide6.QtWidgets import (
 
 from jobdesk_app.gui.nodegraph.model import Node, PortType
 
-
 # Geometry constants — kept here so the whole scene shares them.
 NODE_WIDTH = 180.0
 NODE_TITLE_HEIGHT = 24.0

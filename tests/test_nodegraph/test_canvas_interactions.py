@@ -13,9 +13,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QGraphicsSceneMouseEvent
 
 from jobdesk_app.gui.nodegraph.model import (
-    Edge,
     NodeKind,
-    default_node,
 )
 
 
@@ -60,7 +58,7 @@ def test_port_click_compatible_creates_edge(graph_scene):
 def test_port_click_incompatible_does_not_create_edge(graph_scene):
     scene, _view = graph_scene
     xyz = scene.add_node(NodeKind.XYZ_FILE, (40.0, 60.0))
-    opt = scene.add_node(NodeKind.OPT, (260.0, 60.0))
+    scene.add_node(NodeKind.OPT, (260.0, 60.0))
     src_port = xyz.port_item("out")  # STRUCTURE output
     scene.begin_wire_from(src_port)
     # Release over an empty scene position to force a cancel.

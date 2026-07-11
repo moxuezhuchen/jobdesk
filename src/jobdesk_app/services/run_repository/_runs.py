@@ -9,7 +9,6 @@ from pathlib import Path
 from ._operations_types import RunRecord
 from ._runs_helpers import _insert_run, _row_to_record, _run_exists
 from ._tasks_helpers import _load_tasks, _replace_tasks
-from . import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
 
 
 def create_run(
@@ -47,7 +46,15 @@ def create_run(
         # First time we see a tombstone we anchor the grace window to
         # *this* moment, not to the start of ``create_run`` (which may
         # have been blocked on the writer lock for the entire pause).
+        # ``_DELETE_CLEANUP_LEADER_GRACE_SECONDS`` is defined in
+        # ``run_repository.__init__`` *after* all the sibling-module
+        # imports (intentional, to keep ruff happy), so we reach for it
+        # through the package object rather than via a top-level
+        # ``from . import`` (which would resolve before the constant
+        # exists and raise ``ImportError``).
         if deadline is None:
+            from . import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
+
             deadline = _time.monotonic() + _DELETE_CLEANUP_LEADER_GRACE_SECONDS
         if _time.monotonic() >= deadline:
             raise ValueError(

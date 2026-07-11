@@ -19,7 +19,6 @@ import pytest
 
 from jobdesk_app.gui.nodegraph.model import (
     Edge,
-    Node,
     NodeGraph,
     NodeKind,
     default_node,
@@ -30,7 +29,6 @@ from jobdesk_app.gui.nodegraph.spec_bridge import (
     from_workflow_spec,
     to_workflow_spec,
 )
-
 
 # ── helpers ──────────────────────────────────────────────────────────────
 

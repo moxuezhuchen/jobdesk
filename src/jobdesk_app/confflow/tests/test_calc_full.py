@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Tests for confflow.calc (full integration)."""
+
 from __future__ import annotations
 
 import pytest

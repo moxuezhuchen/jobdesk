@@ -42,8 +42,7 @@ Notes
 """
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any, Iterable
+from typing import Any
 
 from PySide6.QtGui import QUndoCommand
 
@@ -55,7 +54,6 @@ from jobdesk_app.gui.nodegraph.model import (
     Port,
     PortType,
 )
-
 
 # ── JSON round-trip ────────────────────────────────────────────────────
 

@@ -29,14 +29,12 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QStatusBar,
     QToolBar,
     QVBoxLayout,
@@ -48,12 +46,12 @@ from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView
 from jobdesk_app.gui.nodegraph.examples_drawer import ExamplesDrawer, get_example
 from jobdesk_app.gui.nodegraph.library import NodeLibraryPanel
-from jobdesk_app.gui.nodegraph.onboarding_card import OnboardingCard
 from jobdesk_app.gui.nodegraph.model import (
     GraphIssue,
     NodeGraph,
     NodeKind,
 )
+from jobdesk_app.gui.nodegraph.onboarding_card import OnboardingCard
 from jobdesk_app.gui.nodegraph.properties import PropertiesPanel
 from jobdesk_app.gui.nodegraph.serialization import (
     SetParamsCommand,
@@ -61,7 +59,6 @@ from jobdesk_app.gui.nodegraph.serialization import (
     to_json,
 )
 from jobdesk_app.services.gui_settings import GuiSettingsStore
-
 
 _DEFAULT_LIBRARY_WIDTH = 250
 _DEFAULT_PROPERTIES_WIDTH = 300

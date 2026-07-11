@@ -25,13 +25,12 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from jobdesk_app.core.submit_payload import InputSource
 from jobdesk_app.gui.design.components import Sidebar, _SidebarItem
+from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.editor import WorkflowGraphEditor
+from jobdesk_app.gui.nodegraph.model import NodeKind, default_node
+from jobdesk_app.gui.nodegraph.properties import PropertiesPanel
 from jobdesk_app.gui.pages.submit_page import SubmitPage
 from jobdesk_app.gui.widgets.input_source_panel import InputSourcePanel
-from jobdesk_app.gui.nodegraph.properties import PropertiesPanel
-from jobdesk_app.gui.nodegraph.model import NodeKind, default_node
-from jobdesk_app.gui.i18n import tr
-
 
 # ── F1: editor is a real QWidget and lays out with positive geometry ──────────
 

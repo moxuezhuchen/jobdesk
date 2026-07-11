@@ -73,7 +73,6 @@ from jobdesk_app.gui.nodegraph.serialization import (
     RemoveNodeCommand,
 )
 
-
 NODE_KIND_MIME = "application/x-jobdesk-node-kind"
 
 GRID_SIZE = 20
@@ -315,7 +314,6 @@ class GraphScene(QGraphicsScene):
     ) -> None:
         if self._wire_drag is None:
             return
-        pending = self._wire_drag.pending_edge
         src_node_id = self._wire_drag.src_node_id
         src_port = self._wire_drag.src_port
         src_port_type = self._wire_drag.src_port_type
@@ -692,5 +690,4 @@ __all__ = [
     "ZOOM_MIN",
     "make_blank_brush",
     "make_grid_brush",
-    "mime_data_for_node_kind",
 ]

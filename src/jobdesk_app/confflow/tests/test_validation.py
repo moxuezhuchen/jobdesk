@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Tests for confflow.core.validation."""
+
 from __future__ import annotations
 
 import pytest

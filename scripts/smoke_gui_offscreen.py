@@ -47,7 +47,7 @@ import os
 import sys
 import traceback
 from contextlib import contextmanager
-from typing import Callable, Iterator
+from typing import Iterator
 
 # ── 1. Qt platform MUST be set before importing PySide6 ───────────────────
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -93,7 +93,7 @@ def _step(name: str) -> Iterator[list[list[traceback.FrameSummary]]]:
     holder: list[list[traceback.FrameSummary]] = []
     try:
         yield holder
-    except Exception as exc:
+    except Exception:
         tb = traceback.format_exc()
         _record(name, False, tb)
         print(f"        full traceback:\n{tb}")
@@ -305,7 +305,6 @@ def step_add_two_nodes(window):
     from jobdesk_app.gui.nodegraph.model import NodeKind
 
     scene = window.submit_page.editor.scene()
-    graph = scene.graph()
 
     # XYZ_FILE is a source: out=STRUCTURE. PRE_OPT accepts STRUCTURE in.
     n1 = scene.add_node(NodeKind.XYZ_FILE, (-200.0, 0.0))
@@ -386,7 +385,6 @@ def step_snapshot(window) -> str:
 
 def _is_all_black(image) -> bool:
     """Return True if every visible pixel of ``image`` is black."""
-    from PySide6.QtGui import QImage
     if image.isNull():
         return True
     w, h = image.width(), image.height()

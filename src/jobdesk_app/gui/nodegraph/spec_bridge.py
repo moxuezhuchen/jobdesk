@@ -47,11 +47,11 @@ from jobdesk_app.core.workflow_spec import (
     require_confflow,
 )
 from jobdesk_app.gui.nodegraph.model import (
+    Edge,
     Node,
     NodeGraph,
     NodeKind,
 )
-
 
 # A confflow calc ``itask`` is one of: preopt, opt, sp, freq, ts, refine, opt_freq.
 _CALC_ITASK_BY_KIND: dict[NodeKind, str] = {
@@ -354,8 +354,6 @@ def _make_dag_edge(
     dst_port: str | None = None,
 ) -> "Edge":
     """Build an Edge using the canonical output / input ports of each node."""
-    from jobdesk_app.gui.nodegraph.model import Edge
-
     src_node = graph.nodes[src_node_id]
     dst_node = graph.nodes[dst_node_id]
     src_p = src_port if src_port is not None else _canonical_output(src_node)

@@ -51,7 +51,9 @@ class TestTaskContext:
         assert ctx2 == ctx
 
     def test_missing_required_field_raises(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
             TaskContext(job_name="j")  # type: ignore[call-arg]
 
 

@@ -20,8 +20,8 @@ from jobdesk_app.gui.nodegraph.library import (
     GROUP_INPUTS,
     GROUP_SENTINELS,
     GROUPS,
-    NodeLibraryPanel,
     PALETTE_ORDER,
+    NodeLibraryPanel,
 )
 from jobdesk_app.gui.nodegraph.model import NodeKind
 from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore

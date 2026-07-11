@@ -37,6 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $candidates = @(
+            "dist\JobDesk.exe",
             "dist\JobDesk\JobDesk.exe",
             "dist\jobdesk-gui\jobdesk-gui.exe"
           )

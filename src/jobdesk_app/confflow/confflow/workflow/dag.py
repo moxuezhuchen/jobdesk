@@ -13,7 +13,6 @@ unit test.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from graphlib import CycleError, TopologicalSorter
 from typing import Any
 

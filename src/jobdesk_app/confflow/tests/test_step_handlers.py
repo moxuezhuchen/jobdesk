@@ -12,9 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from confflow.core.exceptions import ConfFlowError
-from confflow.workflow.step_handlers import run_calc_step, run_confgen_step
 from confflow.workflow.stats import FailureTracker
-
+from confflow.workflow.step_handlers import run_calc_step, run_confgen_step
 
 # ---------------------------------------------------------------------------
 # Fixtures

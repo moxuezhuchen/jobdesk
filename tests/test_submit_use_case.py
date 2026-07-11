@@ -448,8 +448,8 @@ def test_dag_kind_writes_yaml_at_output_dir(tmp_path):
 
 def test_dag_kind_remote_targets_pair_with_inputs(tmp_path):
     """DAG kind pairs local inputs to remote_targets the same way confflow does."""
+
     from jobdesk_app.core import workflow_spec
-    from pathlib import Path as _P
 
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")

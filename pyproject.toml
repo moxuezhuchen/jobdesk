@@ -69,8 +69,17 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# run_repository/__init__.py defines a module-level constant
+# (``_DELETE_CLEANUP_LEADER_GRACE_SECONDS``) before the sibling-module
+# imports so that ``_runs`` can do ``from . import
+# _DELETE_CLEANUP_LEADER_GRACE_SECONDS``. Refactoring that ordering is
+# out of scope for lint cleanup; ignore ``E402`` here only.
+"src/jobdesk_app/services/run_repository/__init__.py" = ["E402"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["jobdesk_app"]
+
 
 [tool.mypy]
 python_version = "3.11"
@@ -116,6 +125,22 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "jobdesk_app.confflow.*"
 ignore_missing_imports = true
+
+# Vendored confflow ships a stale ``tests/`` tree with imports in the
+# pre-vendored (``import confflow``) style that no longer resolves
+# under jobdesk's monorepo layout. These files are *not* collected by
+# pytest (``testpaths = ["tests"]`` excludes them), so mypy is the only
+# CI step that sees them. Tell mypy to ignore everything for both
+# subtrees rather than rewriting 30+ upstream-style imports or wiring
+# extra ``# type: ignore`` markers into vendored code.
+[[tool.mypy.overrides]]
+module = "jobdesk_app.confflow.confflow.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "jobdesk_app.confflow.tests.*"
+ignore_missing_imports = true
+ignore_errors = true
 
 # Parsers: re.search() -> Match|None pattern is safe but verbose to annotate.
 [[tool.mypy.overrides]]

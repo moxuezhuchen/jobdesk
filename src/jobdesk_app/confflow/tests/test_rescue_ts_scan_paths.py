@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Tests for confflow TS rescue scan paths."""
+
 from __future__ import annotations
 
 import os

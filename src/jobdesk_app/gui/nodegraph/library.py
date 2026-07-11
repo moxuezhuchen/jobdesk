@@ -22,16 +22,11 @@ them. State persists through :class:`GuiSettingsStore`.
 """
 from __future__ import annotations
 
-from typing import Iterable
-
-from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QDrag, QIcon, QMouseEvent, QPixmap
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QDrag, QMouseEvent
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidgetItem,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QToolButton,
@@ -40,10 +35,8 @@ from PySide6.QtWidgets import (
 )
 
 from jobdesk_app.gui.i18n import tr
-from jobdesk_app.gui.nodegraph.canvas import NODE_KIND_MIME
 from jobdesk_app.gui.nodegraph.model import NodeGraph, NodeKind
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
-
+from jobdesk_app.services.gui_settings import GuiSettingsStore
 
 # Order shown in the panel — chosen so the typical input → calc →
 # output flow reads top-to-bottom.
@@ -330,11 +323,6 @@ class NodeLibraryPanel(QWidget):
             header.blockSignals(True)
             header.setChecked(gid not in self._collapsed_groups)
             header.blockSignals(False)
-            any_shown = any(
-                not (self._buttons[k].isHidden() if self._buttons.get(k) else True)
-                for k in kinds
-                if k in self._buttons
-            )
             # Headers are always shown so the user can re-expand a
             # collapsed group; their checked/arrow state communicates
             # whether the rows below them are currently visible.

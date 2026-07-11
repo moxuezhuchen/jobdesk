@@ -10,7 +10,6 @@ import pytest
 
 from jobdesk_app.gui.nodegraph.model import (
     Edge,
-    Node,
     NodeGraph,
     NodeKind,
     default_node,

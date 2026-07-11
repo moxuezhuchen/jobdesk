@@ -669,7 +669,6 @@ class RunService:
           itself — there is no leader to wait for.
         """
         import shutil
-        import time as _time
 
         from ..services.run_repository import (
             _DELETE_CLEANUP_LEADER_GRACE_SECONDS,

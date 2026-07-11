@@ -17,14 +17,12 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView  # noqa: E402
 from jobdesk_app.gui.nodegraph.model import (  # noqa: E402
     Edge,
-    Node,
-    NodeKind,
     NodeGraph,
+    NodeKind,
     default_node,
 )
 from jobdesk_app.gui.nodegraph.serialization import to_json  # noqa: E402

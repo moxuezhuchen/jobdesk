@@ -94,7 +94,6 @@ from jobdesk_app.gui.nodegraph.spec_bridge import (  # noqa: E402
 )
 from jobdesk_app.services.submit_use_case import SubmitUseCase  # noqa: E402
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
 
 

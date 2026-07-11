@@ -13,7 +13,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sqlite3
@@ -26,7 +25,6 @@ import yaml
 from confflow.core.exceptions import ConfFlowError
 from confflow.workflow.dag import build_step_graph, topo_order
 from confflow.workflow.engine import DagCycleError, run_workflow
-
 
 # ---------------------------------------------------------------------------
 # Pure DAG helper tests

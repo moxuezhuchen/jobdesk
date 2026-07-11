@@ -11,8 +11,8 @@ so the panel never goes blank.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -27,8 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from jobdesk_app.gui.i18n import tr
-from jobdesk_app.gui.nodegraph.model import Node, NodeKind
-
+from jobdesk_app.gui.nodegraph.model import NodeKind
 
 # ── schema definition ─────────────────────────────────────────────────
 

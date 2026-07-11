@@ -307,7 +307,6 @@ class Sidebar(QWidget):
             f" QToolTip {{ background:{Colors.BG_SURFACE}; color:{Colors.TEXT}; border:1px solid {Colors.BORDER}; padding:4px 8px; }}"
         )
         # Announce the sidebar as a tablist of page tabs.
-        from PySide6.QtGui import QAccessible
         self.setAccessibleName("Navigation")
         # ``setProperty`` with these keys is the documented way to
         # control role/state in Qt's accessibility bridge.

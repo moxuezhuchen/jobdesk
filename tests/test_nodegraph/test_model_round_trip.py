@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from jobdesk_app.gui.nodegraph.model import (
     Edge,
-    NodeKind,
     NodeGraph,
+    NodeKind,
     default_node,
 )
 from jobdesk_app.gui.nodegraph.serialization import from_json, to_json
