@@ -35,6 +35,18 @@ package = [
 dev = [
     "build>=1.2",
     "mypy>=1.10",
+    # Vendored confflow's top-level __init__ transitively imports
+    # numpy, so the CI runner needs a numpy wheel. Two constraints
+    # conflict on a single version pin:
+    #   1. numpy 1.x supports Python 3.9-3.12 only; on 3.13 it has
+    #      no proper support.
+    #   2. numpy 2.x ships a .pyi stub using Python 3.12+'s `type`
+    #      statement, which the mypy process running on the 3.11/3.12
+    #      matrix entries cannot parse.
+    # Pin via environment marker so each matrix entry gets the right
+    # numpy generation.
+    "numpy>=1.24,<2; python_version<'3.13'",
+    "numpy>=2.1,<2.4; python_version>='3.13'",
     "pytest>=8.0",
     "pytest-qt>=4.4",
     "ruff>=0.4",
