@@ -699,6 +699,58 @@ ZH: dict[str, str] = {
     ): (
         "\u5bfc\u5165\u793a\u4f8b\uff1a\u8bf7\u53c2\u9605 docs/USER_GUIDE.md#sample-yaml"
     ),
+    # -- 2.0: Workflow Builder + Submit dual entry --
+    "Workflow": "\u5de5\u4f5c\u6d41",
+    "Workflow presets": "\u5de5\u4f5c\u6d41\u9884\u8bbe",
+    "Built-in": "\u5185\u7f6e",
+    "New workflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41",
+    "Save as user preset": "\u4fdd\u5b58\u4e3a\u7528\u6237\u9884\u8bbe",
+    "Preset name:": "\u9884\u8bbe\u540d\u79f0:",
+    "Preset name cannot be empty.": "\u9884\u8bbe\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a\u3002",
+    "Add Confgen": "\u6dfb\u52a0\u6784\u8c61\u751f\u6210",
+    "Add Calculation": "\u6dfb\u52a0\u8ba1\u7b97\u6b65\u9aa4",
+    "Use this preset for submit": "\u7528\u6b64\u9884\u8bbe\u63d0\u4ea4",
+    "Open in builder": "\u5728\u7f16\u8f91\u5668\u4e2d\u6253\u5f00",
+    "Delete preset": "\u5220\u9664\u9884\u8bbe",
+    "Rename preset": "\u91cd\u547d\u540d\u9884\u8bbe",
+    "Edit workflow": "\u7f16\u8f91\u5de5\u4f5c\u6d41",
+    "Workflow builder": "\u5de5\u4f5c\u6d41\u7f16\u8f91\u5668",
+    "Workflow builder closed without saving.": "\u5de5\u4f5c\u6d41\u7f16\u8f91\u5668\u5df2\u53d6\u6d88\u3002",
+    "Workflow saved.": "\u5de5\u4f5c\u6d41\u5df2\u4fdd\u5b58\u3002",
+    "Workflow failed to save: {message}": "\u5de5\u4f5c\u6d41\u4fdd\u5b58\u5931\u8d25\uff1a{message}",
+    "Preset \"{name}\" already exists. Overwrite?": "\u9884\u8bbe \"{name}\" \u5df2\u5b58\u5728\u3002\u662f\u5426\u8986\u76d6\uff1f",
+    "Workflow preset loaded: {name}": "\u5df2\u52a0\u8f7d\u5de5\u4f5c\u6d41\u9884\u8bbe\uff1a{name}",
+    "Loaded workflow preset.": "\u5df2\u52a0\u8f7d\u5de5\u4f5c\u6d41\u9884\u8bbe\u3002",
+    "Submit for calculation": "\u63d0\u4ea4\u8ba1\u7b97\u4efb\u52a1",
+    "Selected files ({n})": "\u5df2\u9009\u6587\u4ef6 ({n})",
+    "Selected files (1)": "\u5df2\u9009\u6587\u4ef6 (1)",
+    "Selected files (0)": "\u672a\u9009\u6587\u4ef6",
+    "Mode:": "\u6a21\u5f0f:",
+    "Workflow:": "\u5de5\u4f5c\u6d41\uff1a",
+    "Save": "\u4fdd\u5b58",
+    "Single calculation": "\u5355\u6b65\u8ba1\u7b97",
+    "Workflow required for .xyz inputs": ".xyz \u8f93\u5165\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
+    "Workflow required for non-Gaussian/ORCA inputs": "\u975e .gjf/.inp \u8f93\u5165\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
+    "Submit \u25b6": "\u63d0\u4ea4 \u25b6",
+    "Submitted successfully.": "\u63d0\u4ea4\u6210\u529f\u3002",
+    "Submission failed: {message}": "\u63d0\u4ea4\u5931\u8d25\uff1a{message}",
+    "Server pill: {label}": "\u670d\u52a1\u5668: {label}",
+    "Submit (selected files)": "\u63d0\u4ea4 (\u9009\u4e2d\u6587\u4ef6)",
+    "Pick a preset first.": "\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u9884\u8bbe\u3002",
+    "Add a step first.": "\u8bf7\u5148\u6dfb\u52a0\u4e00\u4e2a\u6b65\u9aa4\u3002",
+    # Phase 2.0 dual-entry follow-ups: the SubmitDialog tolerates an
+    # empty source list (the Workflow-page "Use this preset for
+    # submit" button and the Runs-page empty-state "Go to Submit"
+    # button both open the dialog without prior file selection).
+    "Pick at least one input file in the Files page, then "
+    "reopen this dialog. Until then the dialog stays open "
+    "so you can still pick a workflow preset and queue a "
+    "submission later.":
+        "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
+        "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002\u672a\u9009\u62e9\u6587\u4ef6\u65f6\u5bf9\u8bdd\u6846\u4fdd\u6301\u6253\u5f00\uff0c"
+        "\u4f60\u4ecd\u53ef\u4ee5\u9884\u9009\u5de5\u4f5c\u6d41\u9884\u8bbe\u4ee5\u4fbf\u4ee5\u540e\u63d0\u4ea4\u3002",
+    "Workflow required while no input files are selected":
+        "\u672a\u9009\u62e9\u8f93\u5165\u6587\u4ef6\u65f6\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
 }
 
 

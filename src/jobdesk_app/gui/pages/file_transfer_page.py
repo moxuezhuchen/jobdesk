@@ -38,7 +38,7 @@ from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunService
-from ..button_feedback import ButtonFeedback, ButtonRole
+from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
@@ -164,6 +164,10 @@ def _load_existing_servers_data(path: Path) -> dict:
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
     use_as_input_received = Signal(list)  # list[InputSource]
+    # Phase 2.0: emitted when the user clicks the Files-page [Submit] button.
+    # MainWindow opens the SubmitDialog and forwards the resulting
+    # SubmitPayload to the use case.
+    submit_requested_with_files = Signal(list)  # list[InputSource]
     # Phase 2.1: emitted when the empty-state hint asks the shell to switch
     # to Settings (or any other page that wants to handle nav-up requests).
     # MainWindow wires this in a later phase; pages are responsible only for
@@ -386,6 +390,26 @@ class FileTransferPage(QWidget):
         progress_wrap.setLayout(progress_row)
         progress_wrap.setContentsMargins(0, 0, 0, 0)
 
+        # Phase 2.0: primary [Submit] button — must exist before the
+        # action_row below adds it to the layout.
+        self.submit_btn = QPushButton(tr("Submit (selected files)", self._language))
+        self.submit_btn.setObjectName("FilesSubmitBtn")
+        apply_button_role(self.submit_btn, ButtonRole.PRIMARY_ACTION)
+        self.submit_btn.setEnabled(False)
+        self._normalize_control_heights(self.submit_btn)
+        self.submit_btn.clicked.connect(self._on_submit_clicked)
+
+        # Phase 2.0: action row surfaces the selection summary + Submit.
+        self.selection_label = QLabel(format_selection_summary(0, 0, self._language))
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
+        action_row.addWidget(self.selection_label, 1)
+        action_row.addWidget(self.submit_btn, 0)
+        action_wrap = QWidget()
+        action_wrap.setLayout(action_row)
+        action_wrap.setContentsMargins(0, 0, 0, 0)
+
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.setHandleWidth(8)
         main_splitter.setChildrenCollapsible(False)
@@ -395,9 +419,13 @@ class FileTransferPage(QWidget):
         main_splitter.setStretchFactor(1, 0)
         main_splitter.setSizes([100, 0])
         layout.addWidget(main_splitter, 1)
+        layout.addWidget(action_wrap, 0)
 
         self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
         self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)
+
+        # (Phase 2.0 Files-page [Submit] button is created earlier in __init__
+        # so the action row above can pick it up.)
 
         self._load_servers()
 
@@ -481,6 +509,8 @@ class FileTransferPage(QWidget):
         self.refresh_btn.setText("\u27f3 " + tr("Refresh", language))
         self.open_terminal_btn.setText(tr("Open Terminal Here", language))
         self.server_label.setText(tr("Server:", language))
+        if hasattr(self, "submit_btn"):
+            self.submit_btn.setText(tr("Submit (selected files)", language))
         self._refresh_feedback.set_idle_text(self.refresh_btn.text())
         self._terminal_feedback.set_idle_text(self.open_terminal_btn.text())
         self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
@@ -1030,6 +1060,26 @@ class FileTransferPage(QWidget):
                 self._selected_row_count(self.remote_table),
                 self._language,
             ))
+        if hasattr(self, "submit_btn"):
+            n_local = self._selected_row_count(self.local_table)
+            n_remote = self._selected_row_count(self.remote_table)
+            self.submit_btn.setEnabled((n_local + n_remote) > 0)
+
+    def _on_submit_clicked(self) -> None:
+        """Open :class:`SubmitDialog` with the currently selected sources.
+
+        Prefer remote selections when the user is connected (skips the
+        upload step entirely); fall back to local selections.
+        """
+        local_paths = self._selected_paths_for_side("local")
+        remote_paths = self._selected_paths_for_side("remote")
+        if remote_paths:
+            sources = self._build_input_sources(remote_paths, side="remote")
+        elif local_paths:
+            sources = self._build_input_sources(local_paths, side="local")
+        else:
+            return
+        self.submit_requested_with_files.emit(list(sources))
 
     def _connect_selection_signals(self):
         self.local_table.itemSelectionChanged.connect(self._on_local_selection_changed)

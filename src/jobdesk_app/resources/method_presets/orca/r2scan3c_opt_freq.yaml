@@ -1,0 +1,20 @@
+# ORCA preset — r2SCAN-3c composite (cheap-and-good general-purpose).
+work_dir: r2scan3c_opt_freq
+orca_path: /opt/orca601/orca
+charge: 0
+multiplicity: 1
+cores_per_task: 8
+total_memory: 16GB
+max_parallel_jobs: 1
+freeze: []
+rmsd_threshold: 0.25
+calc:
+  program: orca
+  method: r2SCAN-3c
+  basis: ""
+  charge: 0
+  multiplicity: 1
+  nproc: 8
+  memory_mb: 16384
+  steps:
+    - opt_freq

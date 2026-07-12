@@ -22,6 +22,13 @@ embeds a single unified editor and the same Submit button routes the
 graph through either the legacy confflow path or the new `dag` path,
 depending on the topology you have drawn.
 
+> **Phase 2.0 update:** the Submit page has been retired and replaced
+> by two cooperating surfaces — a sidebar **Workflow** page (preset
+> browser + save) and the modal **SubmitDialog** (auto-detected Single
+> vs Workflow mode). See [Submitting calculations](#submitting-calculations-phase-20)
+> for the dual-entry walkthrough. The text below is kept for reference
+> until the next doc pass retires it.
+
 ### The unified editor
 
 The editor is the **WorkflowGraphEditor** (`gui/nodegraph/`). The
@@ -294,3 +301,34 @@ If a cluster requires a jump host, prefer OpenSSH config. For Paramiko runtime
 connections, set `ssh_access.proxy_command`, for example
 `ssh -W %h:%p login-node`, or set `ssh_access.proxy_jump` for OpenSSH-style
 single-hop or comma-separated jump hosts.
+
+## Submitting calculations (Phase 2.0)
+
+There are two ways to submit a calculation in JobDesk 2.0:
+
+### Option 1 — Files page (recommended for one-off submissions)
+
+1. Switch to the **Files** page.
+2. Select one or more input files (`.xyz`, `.gjf`, `.inp`).
+3. Click **[🚀 Submit]**. A modal opens.
+4. Choose **Single** (Gaussian/ORCA direct run) or **Workflow** (preset-based multi-step). The dialog disables Single automatically when any `.xyz` is selected.
+5. Pick a preset if Workflow, set charge / multiplicity / server, click **Submit ▶**.
+
+### Option 2 — Workflow page (use a saved preset)
+
+1. Switch to the **Workflow** page.
+2. Browse built-in or user presets in the dropdown. Edit, save, or rename.
+3. Click **[Use this preset for submit]** to switch to Files and open the Submit dialog with that preset pre-selected.
+
+If the dialog opens with no files selected yet (either because you
+arrived via the Workflow page or the Runs empty-state **Go to Submit**
+button), the dialog shows an amber hint and disables **Submit ▶** until
+you pick at least one input file. You can still browse presets and
+server / charge / multiplicity while the dialog waits for files — the
+mode radios are locked into Workflow-only in that state.
+
+User presets live under `%APPDATA%/JobDesk/method_presets/<name>.yaml`
+and are plain confflow YAML. The `MethodPresetStore` ships nine built-in
+presets (see [Method Preset Store](#method-preset-store) in the
+architecture notes); lookup precedence is **user > built-in**, matching
+`analysis_profiles.py`.

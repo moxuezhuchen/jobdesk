@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 The current schema is **schema v5**. Schema v4 databases auto-upgrade on first open.
 
+### Fixed (Phase 2.0 dual-entry follow-ups)
+- `gui/main_window.py::_on_workflow_chosen` now opens the `SubmitDialog` with the picked preset pre-selected instead of only navigating to the Files page. The previous behaviour left the Workflow-page "Use this preset for submit" button as a dead link once the user had already browsed and picked a preset.
+- `gui/main_window.py::_on_runs_go_to_submit` opens `SubmitDialog` from the Runs-page empty-state **Go to Submit** button (previously it navigated to the Workflow page and stopped). The dialog renders an amber empty-state hint and locks into Workflow mode while no files are selected, so the user can still browse presets before queuing a submission.
+- `gui/dialogs/submit_dialog.py` now tolerates `files=[]` — the empty-state banner replaces the file list, **Submit ▶** is disabled, and `build_payload()` raises a clear `ValueError` if reached with no sources so the bug surfaces loudly instead of silently returning a broken payload. A new `set_files()` API lets tests and future drag-drop paths swap sources at runtime.
+
 ### Fixed
 - Fix InputSourcePanel directory-drop not honoring the recursive-scan checkbox
 

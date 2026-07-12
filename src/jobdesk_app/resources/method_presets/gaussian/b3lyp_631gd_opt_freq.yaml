@@ -1,0 +1,20 @@
+# Gaussian preset — b3lyp/6-31G(d) opt+freq (entry-level organic chemistry default).
+work_dir: b3lyp_631gd_opt_freq
+gaussian_path: /opt/g16/g16
+charge: 0
+multiplicity: 1
+cores_per_task: 8
+total_memory: 16GB
+max_parallel_jobs: 1
+freeze: []
+rmsd_threshold: 0.25
+calc:
+  program: gaussian
+  method: B3LYP
+  basis: 6-31G(d)
+  charge: 0
+  multiplicity: 1
+  nproc: 8
+  memory_mb: 16384
+  steps:
+    - opt_freq

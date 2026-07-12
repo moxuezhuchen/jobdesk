@@ -157,8 +157,9 @@ def _extract_tr_keys(path: str) -> set[str]:
 # the live InputSourcePanel + Submit page are still here.
 _LIVE_WIDGET_SOURCES = (
     "src/jobdesk_app/gui/widgets/input_source_panel.py",
-    "src/jobdesk_app/gui/pages/submit_page.py",
+    "src/jobdesk_app/gui/pages/workflow_page.py",
     "src/jobdesk_app/gui/pages/file_transfer_page.py",
+    "src/jobdesk_app/gui/dialogs/submit_dialog.py",
 )
 
 

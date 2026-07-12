@@ -41,18 +41,20 @@ that holds session leases via `SessionPool`.
 
 | Page | Module | Role |
 |---|---|---|
-| Files | `gui/pages/file_transfer_page.py` | SSH/SFTP browser. Right-click "Use as input → Submit" / "Send to ConfFlow → Submit" pushes paths to the Submit page. |
-| Submit | `gui/pages/submit_page.py` | Unified submit UI: input picker, mode tabs (Build input file / Build workflow), Submit / Create-tasks-only buttons, live preview, activity log. |
+| Files | `gui/pages/file_transfer_page.py` | SSH/SFTP browser. Right-click "Use as input → Submit" opens the SubmitDialog. Primary [Submit] button on the action row opens the dialog with the currently selected sources. |
+| Workflow | `gui/pages/workflow_page.py` | Sidebar view of method presets (built-in + user). Lets the user browse, save, and dispatch presets. The SubmitDialog is opened separately when the user is ready to submit. |
 | Runs & Results | `gui/pages/runs_results_page.py` | Run list, per-task status, parsed preview, ResultDetailPane |
 | Settings | `gui/pages/settings_servers_page.py` | `servers.yaml` editor + GUI preferences |
 
-The Submit page (Phase 2) replaces the legacy ConfFlow wizard and
-InputBuilder dialog. It embeds a single reusable widget from `gui/widgets/`
-plus the `WorkflowGraphEditor` from `gui/nodegraph/`:
+The Submit page (Phase 2) is now split across three modules:
+
+* `gui/dialogs/submit_dialog.py` — modal that produces a `SubmitPayload`. Auto-detects Single vs Workflow mode from the selected input files.
+* `gui/dialogs/workflow_builder_dialog.py` — modal that hosts `WorkflowGraphEditor` for editing a single preset.
+* `gui/services/method_presets.py` — disk-backed `MethodPresetStore` that loads YAML presets from built-in (`jobdesk_app.resources.method_presets`) and user (`<app_data_dir>/method_presets`).
 
 ```
-InputSourcePanel  ──+──►  SubmitPage  ──►  SubmitUseCase  ──►  PreparedBatch
-WorkflowGraphEditor ─┘                       (pure logic)
+InputSourcePanel  ──+──►  SubmitDialog  ──►  SubmitPayload  ──►  SubmitUseCase  ──►  PreparedBatch
+WorkflowGraphEditor ─┘    (modal)             (dataclass)            (pure logic)
 ```
 
 * `InputSourcePanel` — tabbed local/remote picker; `add_local_paths`,
@@ -103,13 +105,36 @@ Schemas:
 - **v2** — added the submit / delete operation journal
 - **v3** — added trusted-workspace registry and delete-op-to-workspace bindings
 - **v4** — added UTC submit-ownership leases
-- **v5** — added `submit_activity_log` table for persisting SubmitPage activity (Phase 15C)
+- **v5** — added `submit_activity_log` table for persisting Submit dialog activity (Phase 15C)
 
 `services/run_repository/` is split into `_schema`, `_paths`,
 `_workspaces`, `_leases`, `_submit`, `_delete`, `_tasks`, `_runs`,
 `_operations`, `_legacy`, `_operations_types`, `_activity`. The split is purely
 organisational; all reads / writes still flow through
 `RunRepository` (the package's `__init__.py`).
+
+## Method Preset Store
+
+`services/method_presets.py::MethodPresetStore` is the single source
+of truth for workflow presets. Both built-in presets (packaged under
+`jobdesk_app.resources.method_presets`) and user presets
+(`<appdata>/method_presets/`) load as `WorkflowSpec` via
+`WorkflowSpec.from_yaml()`. The store keeps the editor, the dialog,
+and the run service aligned on the same on-disk schema.
+
+Lookup precedence: **user > built-in**, matching the behaviour of
+`services/analysis_profiles.py`.
+
+Save path: `MethodPresetStore.save_user(name, spec)` writes
+`spec.to_yaml()` to `<user_dir>/<name>.yaml` via
+`core/atomic_write.atomic_write_text`. Renames go through temp+move;
+deletes are unconditional `unlink`.
+
+The store ships nine built-in presets across `gaussian/` (5) / `orca/`
+(3) / `conflow/` (1) subdirectories — the file stem is the preset
+name; the subdirectory is advisory only. The dual-entry SubmitDialog
+reads presets via the store so the preset picker inside the modal
+stays in sync with what the Workflow page shows.
 
 ## ConfFlow integration
 
@@ -140,7 +165,7 @@ between DONE lines.
 |---|---|
 | Add a CLI subcommand | `src/jobdesk_app/cli.py` + `services/run_coordinator.py` |
 | Add a page / tab | `gui/main_window.py` (stacked widget) + `gui/pages/<name>_page.py` |
-| Tweak the Submit page | `gui/pages/submit_page.py` (layout / signals) or `gui/widgets/{input_source_panel,calculation_widget,workflow_widget,input_builder_widget}.py` (embedded widgets) |
+| Tweak the Submit dialog | `gui/dialogs/submit_dialog.py` (mode detection, payload build) + `gui/dialogs/workflow_builder_dialog.py` (preset editor) |
 | Add a submit mode (kind) | `core/submit_payload.py` (`SubmitKind` literal) + `services/submit_use_case.py` (`_build_*_specs`) |
 | Tweak parser output | `core/parsers/{gaussian,orca}.py` + add a test in `tests/test_parsers.py` |
 | Add a column to the runs-results table | `gui/pages/runs_results_page.py` + `_analysis_row` helper |

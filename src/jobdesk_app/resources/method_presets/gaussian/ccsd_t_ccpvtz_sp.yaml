@@ -1,0 +1,20 @@
+# Gaussian preset — CCSD(T)/cc-pVTZ single-point (gold standard for small systems).
+work_dir: ccsd_t_ccpvtz_sp
+gaussian_path: /opt/g16/g16
+charge: 0
+multiplicity: 1
+cores_per_task: 16
+total_memory: 32GB
+max_parallel_jobs: 1
+freeze: []
+rmsd_threshold: 0.25
+calc:
+  program: gaussian
+  method: CCSD(T)
+  basis: cc-pVTZ
+  charge: 0
+  multiplicity: 1
+  nproc: 16
+  memory_mb: 32768
+  steps:
+    - sp

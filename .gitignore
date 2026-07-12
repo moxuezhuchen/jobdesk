@@ -13,6 +13,7 @@ dist/
 .pytest_tmp*/
 /.pytest_*/
 /.debug_delete/
+.pytest_*.log
 .superpowers/
 .coverage
 htmlcov/

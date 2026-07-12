@@ -1,0 +1,20 @@
+# Gaussian preset — B3LYP-D3(BJ)/def2-TZVP single-point geometry (D3 dispersion on def2).
+work_dir: b3lyp_d3_def2tzvp_opt
+gaussian_path: /opt/g16/g16
+charge: 0
+multiplicity: 1
+cores_per_task: 8
+total_memory: 16GB
+max_parallel_jobs: 1
+freeze: []
+rmsd_threshold: 0.25
+calc:
+  program: gaussian
+  method: B3LYP
+  basis: def2-TZVP
+  charge: 0
+  multiplicity: 1
+  nproc: 8
+  memory_mb: 16384
+  steps:
+    - opt

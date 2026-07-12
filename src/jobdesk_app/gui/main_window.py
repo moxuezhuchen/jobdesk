@@ -9,14 +9,16 @@ from ..app_logging import configure_file_logging
 from ..config.servers import load_servers
 from ..core.submit_payload import SubmitPayload
 from ..services.gui_settings import GuiSettingsStore
+from ..services.method_presets import MethodPresetStore
 from ..services.run_coordinator import RunCoordinator
 from ..services.run_service import RunService
+from .dialogs.submit_dialog import SubmitDialog
 from .i18n import tr
 from .layouts.shell import AppShell
 from .pages.file_transfer_page import FileTransferPage
 from .pages.runs_results_page import RunsResultsPage
 from .pages.settings_servers_page import SettingsServersPage
-from .pages.submit_page import SubmitPage
+from .pages.workflow_page import WorkflowPage
 from .session import create_sftp_client, create_ssh_client
 from .state import AppState
 from .theme import build_app_stylesheet
@@ -26,7 +28,7 @@ from .workers import BackgroundWorker
 # via :func:`i18n.tr` so adding a new entry here only needs the i18n key.
 _NAV_ITEMS = [
     ("folder", "Files"),
-    ("rocket", "Submit"),
+    ("workflow", "Workflow"),
     ("bar-chart", "Runs"),
     ("settings", "Settings"),
 ]
@@ -62,12 +64,14 @@ class MainWindow(QMainWindow):
         # 4 pages
         self.files_page = FileTransferPage(self.state, self._log, self._update_status,
                                            self.show_error)
-        self.submit_page = SubmitPage(
+        self._preset_store = MethodPresetStore()
+        self.workflow_page = WorkflowPage(
             self.state,
             language=self.language,
+            preset_store=self._preset_store,
+            settings_store=self._settings_store,
             on_status=self._update_status,
             on_error=self.show_error,
-            settings_store=self._settings_store,
         )
         self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
@@ -75,15 +79,16 @@ class MainWindow(QMainWindow):
         self.files_page.runs_submitted.connect(
             lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
         )
-        # Submit page → coordinator (background worker, like _run_selected_chunks)
-        # Phase 2: only ``submit_requested`` remains; the legacy
-        # ``create_only_requested`` path collapsed into the unified editor.
-        self.submit_page.submit_requested.connect(self._on_submit_requested)
-        # Phase 1.1: forward the nodegraph editor's tour_requested signal up
-        # to a top-level dialog so the "Read 60-second tour" button on the
-        # empty canvas actually does something.
-        if hasattr(self.submit_page, "editor") and hasattr(self.submit_page.editor, "tour_requested"):
-            self.submit_page.editor.tour_requested.connect(self._show_workflow_tour)
+        # Files page → Submit dialog (Phase 2.0 dual-entry refactor).
+        if hasattr(self.files_page, "submit_requested_with_files"):
+            self.files_page.submit_requested_with_files.connect(
+                self._open_submit_dialog
+            )
+        # Workflow page → switch to Files with the preset highlighted.
+        if hasattr(self.workflow_page, "preset_chosen_for_submit"):
+            self.workflow_page.preset_chosen_for_submit.connect(
+                self._on_workflow_chosen
+            )
         # Cross-page push from Files page right-click menu.
         if hasattr(self.files_page, "use_as_input_received"):
             self.files_page.use_as_input_received.connect(self._on_use_as_input_received)
@@ -97,7 +102,7 @@ class MainWindow(QMainWindow):
             )
         if hasattr(self.runs_page, "go_to_submit_requested"):
             self.runs_page.go_to_submit_requested.connect(
-                lambda: self._switch_page(1)
+                self._on_runs_go_to_submit
             )
         # Review-fix: the Runs-page "Show example templates" button needs
         # the same destination as ``go_to_submit_requested`` PLUS a
@@ -113,7 +118,7 @@ class MainWindow(QMainWindow):
         self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
 
         self.shell.add_page(self.files_page)   # 0
-        self.shell.add_page(self.submit_page)  # 1
+        self.shell.add_page(self.workflow_page)  # 1
         self.shell.add_page(self.runs_page)    # 2
         self.shell.add_page(self.settings_page)  # 3
 
@@ -139,26 +144,29 @@ class MainWindow(QMainWindow):
         page = self.shell.pages.widget(index)
         if hasattr(page, "on_activated"):
             page.on_activated()
-        # Keep SubmitPage's server pill in sync with whatever Files page
+        # Keep WorkflowPage's server pill in sync with whatever Files page
         # is currently connected to.
-        if index == 1 and page is self.submit_page:
-            page.set_server_status(
-                connected=self.files_page._service is not None,
-                server_label=self.files_page._connected_server_id or "",
-            )
-            page.set_max_parallel(self.files_page.max_parallel_spin.value()
-                                  if hasattr(self.files_page, "max_parallel_spin") else 1)
-            # Review-fix: push the Files page's current remote directory
-            # into Submit so the payload points at the same folder the
-            # user just browsed. Without this line Submit silently
-            # hardcoded ``"/"`` which broke for users without root
-            # write permission. Defensive getattr for the rare case the
-            # helper is renamed.
-            page.set_remote_dir(
-                (self.files_page.remote_path.text().strip() or "/")
-                if hasattr(self.files_page, "remote_path")
-                else "/"
-            )
+        if index == 1 and page is self.workflow_page:
+            if hasattr(page, "set_server_status"):
+                page.set_server_status(
+                    connected=self.files_page._service is not None,
+                    server_label=self.files_page._connected_server_id or "",
+                )
+            if hasattr(page, "set_remote_dir") and hasattr(self.files_page, "remote_path"):
+                page.set_remote_dir(self.files_page.remote_path.text().strip() or "/")
+        if index == 0:
+            # Refresh the Files page so a returning user sees fresh state.
+            refresh = getattr(self.files_page, "refresh", None) or \
+                getattr(self.files_page, "_refresh_all", None)
+            if refresh is not None:
+                try:
+                    refresh()
+                except Exception:
+                    pass
+        # Apply language whenever the user changes pages (cheap; cached).
+        for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
+            if hasattr(page, "apply_language"):
+                page.apply_language(self.language)
 
     def _switch_page(self, index: int) -> None:
         """Centralised page switcher for cross-page signals.
@@ -197,19 +205,33 @@ class MainWindow(QMainWindow):
         before the menu opens.
         """
         self._switch_page(1)
-        editor = getattr(self.submit_page, "editor", None)
-        if editor is None:
-            return
-        QTimer.singleShot(
-            0,
-            lambda: getattr(editor, "open_examples_menu", lambda: None)(),
-        )
+        # The Submit page no longer embeds the WorkflowGraphEditor. The
+        # editor lives inside the modal WorkflowBuilderDialog that the
+        # user opens from the Workflow page when they want to author or
+        # edit a preset. Examples drawer is reachable from inside that
+        # dialog, so there's nothing to do here. We keep the navigation
+        # switch so the empty-state button still works.
+        return
+
+    def _on_runs_go_to_submit(self) -> None:
+        """Wire the Runs-page ``go_to_submit_requested`` signal.
+
+        Phase 2.0 dual entry: when the Runs page has no runs it shows an
+        empty-state hint. Clicking **Go to Submit** used to navigate
+        to the Workflow page (index 1) and stop — the old behaviour was
+        a dead link because the Submit-dialog trigger lives on the
+        Files page. Now we open the modal ``SubmitDialog`` directly
+        with an empty sources list. The dialog renders an empty-state
+        hint and stays in Workflow mode so the user can still pick a
+        preset to submit (with no files selected yet).
+        """
+        self._open_submit_dialog([])
 
     def _apply_language(self):
         self.language = self._settings_store.load().language
         for i, (_icon, key) in enumerate(_NAV_ITEMS):
             self.shell.set_nav_label(i, tr(key, self.language))
-        for page in (self.files_page, self.submit_page, self.runs_page, self.settings_page):
+        for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
             if hasattr(page, "apply_language"):
                 page.apply_language(self.language)
 
@@ -298,7 +320,6 @@ class MainWindow(QMainWindow):
             return combined
 
         def _done(outcome):
-            self.submit_page.on_submission_result(outcome)
             if outcome.errors:
                 self.show_error(tr("Submit", self.language), "\n".join(outcome.errors))
                 return
@@ -323,29 +344,104 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_use_as_input_received(self, sources: list) -> None:
-        """Cross-page wire: Files right-click → Submit page."""
-        try:
-            self.submit_page.push_sources(list(sources))
-        except Exception:
-            return
-        # Review-fix: same remote_dir inheritance as in _on_nav — the
-        # right-click navigation should land on Submit with the Files
-        # page's current browsing path, otherwise the user immediately
-        # sees a different (or invalid) target directory and gets
-        # confused.
+        """Cross-page wire: Files right-click → open the Submit dialog.
+
+        The legacy behaviour pushed sources onto the Submit page and
+        navigated to it; in Phase 2.0 we open the modal dialog directly
+        so the user sees the auto-detected mode immediately. We keep the
+        signal name so the Files page does not need to change.
+        """
+        self._open_submit_dialog(list(sources))
+
+    def _open_submit_dialog(
+        self,
+        sources: list,
+        *,
+        preset_name: str | None = None,
+        seed_preset_from_files: bool = True,
+    ) -> None:
+        """Open :class:`SubmitDialog` and forward the resulting payload.
+
+        Parameters
+        ----------
+        sources:
+            The list of :class:`InputSource` to seed the dialog with. May
+            be empty — the dialog renders a "no files selected" empty
+            state in that case and the workflow mode is forced so the
+            user can still pick a preset to submit later.
+        preset_name:
+            Pre-select a method preset in the dialog's preset combo.
+            Used by the Workflow-page "Use this preset for submit"
+            button (Phase 2.0 dual entry).
+        seed_preset_from_files:
+            Defaults to ``True``. When ``True`` and no explicit
+            ``preset_name`` is provided AND the user has any saved
+            presets, prefer the first user-built preset so a "fresh"
+            Workflow-mode dialog is not left with a bare combo box.
+            Pass ``False`` to keep the dialog on the dialog-side
+            default (first builtin).
+        """
+        server_id = self.files_page._connected_server_id or ""
+        remote_dir = "/"
         try:
             if hasattr(self.files_page, "remote_path"):
-                self.submit_page.set_remote_dir(
-                    self.files_page.remote_path.text().strip() or "/"
-                )
+                remote_dir = self.files_page.remote_path.text().strip() or "/"
         except Exception:
             pass
-        # Navigate to the Submit page (index 1).
-        self.shell.sidebar.blockSignals(True)
-        self.shell.sidebar.set_current(1)
-        self.shell.sidebar.blockSignals(False)
-        self.shell.pages.setCurrentIndex(1)
-        self.shell.page_changed.emit(1)
+        dialog = SubmitDialog(
+            self.language,
+            files=list(sources),
+            server_id=server_id,
+            remote_dir=remote_dir,
+            max_parallel=1,
+            preset_store=self._preset_store,
+            preset_name=preset_name,
+            parent=self,
+        )
+        # If the caller didn't pin a preset and no files are selected,
+        # pre-select the first user preset if any (best UX). We do this
+        # AFTER construction because the constructor can't read
+        # ``_preset_store.list_presets()`` order with priority logic
+        # without duplicating it here.
+        if preset_name is None and not sources and seed_preset_from_files:
+            try:
+                presets = [
+                    p for p in self._preset_store.list_presets()
+                    if getattr(p, "source", "") == "user"
+                ]
+                if presets:
+                    dialog.set_selected_preset_name(presets[0].name)
+            except Exception:
+                pass
+        if dialog.exec() == SubmitDialog.DialogCode.Accepted:
+            payload = dialog.build_payload()
+            self._on_submit_requested(payload)
+
+    def _on_workflow_chosen(self, name: str, source: str) -> None:
+        """WorkflowPage → SubmitDialog with the picked preset pre-selected.
+
+        Phase 2.0 dual entry: clicking **Use this preset for submit** on
+        the Workflow page used to only flip the sidebar to Files. Now we
+        open the modal ``SubmitDialog`` directly with the preset
+        pre-selected so the user lands one click from ``Submit ▶``.
+        The Files page is also brought to the foreground so the dialog
+        inherits the current ``server_id`` and ``remote_dir`` from
+        Files' toolbar (inherited by ``_open_submit_dialog``).
+        """
+        preset_name = name if name else None
+        # Switch to Files first so the dialog reads Files-page toolbar
+        # state (server_id + remote_dir). If the switch fails (page not
+        # registered yet, test harness, etc.) we still try to open the
+        # dialog with whatever is on _files_page._connected_server_id.
+        try:
+            self._switch_page(0)
+        except Exception:
+            pass
+        # No files selected at the moment of clicking the Workflow-page
+        # button — that's the expected Phase-2.0 flow (user picks a
+        # preset first, then drags files in). The dialog renders an
+        # empty-state and stays open in Workflow mode.
+        self._open_submit_dialog([], preset_name=preset_name)
 
     def shutdown(self):
         if getattr(self, "_shutdown_done", False):
@@ -355,7 +451,7 @@ class MainWindow(QMainWindow):
             self._settings_store.update(window_size=[self.width(), self.height()])
         except Exception:
             pass
-        for page in (self.files_page, self.submit_page, self.runs_page, self.settings_page):
+        for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
             if hasattr(page, "shutdown"):
                 try:
                     page.shutdown()
