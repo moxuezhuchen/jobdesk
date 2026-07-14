@@ -41,6 +41,7 @@ from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
+from .runs_results_helpers import format_energy, format_seconds
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
@@ -2168,23 +2169,6 @@ class ResultDetailPane(QWidget):
         lbl.setStyleSheet("color: #475569;")
         return lbl
 
-    @staticmethod
-    def _format_energy(value) -> str:
-        return f"{value:.6f} Hartree" if value is not None else "—"
-
-    @staticmethod
-    def _format_seconds(value) -> str:
-        if value is None:
-            return "—"
-        seconds = float(value)
-        if seconds < 60:
-            return f"{seconds:.1f} s"
-        minutes, secs = divmod(seconds, 60)
-        if minutes < 60:
-            return f"{int(minutes)}m {int(secs)}s"
-        hours, minutes = divmod(int(minutes), 60)
-        return f"{int(hours)}h {int(minutes)}m {int(secs)}s"
-
     def clear(self) -> None:
         self._program = "—"
         # Phase 11.1 — F5 fix. Use the active language instead of
@@ -2228,19 +2212,19 @@ class ResultDetailPane(QWidget):
         if method and basis:
             route = f"{method} / {basis}"
         else:
-            energy_text = self._format_energy(getattr(result, "final_energy_au", None))
+            energy_text = format_energy(getattr(result, "final_energy_au", None))
             route = f"Gaussian — {energy_text}"
         self.title_label.setText(route)
         status_text, color = self._status_text(result)
         self.status_label.setText(status_text)
         self.status_label.setStyleSheet(f"font-weight: 600; color: {color};")
-        self.energy_value.setText(self._format_energy(getattr(result, "final_energy_au", None)))
-        self.zpe_value.setText(self._format_energy(getattr(result, "zpe_au", None)))
-        self.gibbs_value.setText(self._format_energy(getattr(result, "gibbs_au", None)))
+        self.energy_value.setText(format_energy(getattr(result, "final_energy_au", None)))
+        self.zpe_value.setText(format_energy(getattr(result, "zpe_au", None)))
+        self.gibbs_value.setText(format_energy(getattr(result, "gibbs_au", None)))
         imag = getattr(result, "imaginary_freq_count", 0) or 0
         self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
-        self.walltime_value.setText(self._format_seconds(getattr(result, "walltime_seconds", None)))
-        self.cputime_value.setText(self._format_seconds(getattr(result, "cpu_time_seconds", None)))
+        self.walltime_value.setText(format_seconds(getattr(result, "walltime_seconds", None)))
+        self.cputime_value.setText(format_seconds(getattr(result, "cpu_time_seconds", None)))
         self.termination_value.setText("Normal termination of Gaussian" if result.normal_termination else "—")
         err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)
         if err:
@@ -2256,16 +2240,16 @@ class ResultDetailPane(QWidget):
         total = getattr(result, "total_energy_au", None)
         final = getattr(result, "final_energy_au", None)
         energy = total if total is not None else final
-        self.title_label.setText(f"ORCA — {self._format_energy(energy)}")
+        self.title_label.setText(f"ORCA — {format_energy(energy)}")
         status_text, color = self._status_text(result)
         self.status_label.setText(status_text)
         self.status_label.setStyleSheet(f"font-weight: 600; color: {color};")
-        self.energy_value.setText(self._format_energy(energy))
-        self.zpe_value.setText(self._format_energy(getattr(result, "zpe_au", None)))
-        self.gibbs_value.setText(self._format_energy(getattr(result, "gibbs_au", None)))
+        self.energy_value.setText(format_energy(energy))
+        self.zpe_value.setText(format_energy(getattr(result, "zpe_au", None)))
+        self.gibbs_value.setText(format_energy(getattr(result, "gibbs_au", None)))
         imag = getattr(result, "imaginary_freq_count", 0) or 0
         self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
-        self.walltime_value.setText(self._format_seconds(getattr(result, "walltime_seconds", None)))
+        self.walltime_value.setText(format_seconds(getattr(result, "walltime_seconds", None)))
         self.cputime_value.setText("—")
         self.termination_value.setText("ORCA TERMINATED NORMALLY" if result.normal_termination else "—")
         err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)

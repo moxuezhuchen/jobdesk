@@ -181,11 +181,13 @@ def test_result_detail_pane_clear_resets_to_empty(detail_pane):
 
 
 def test_result_detail_pane_formats_seconds(detail_pane):
-    """_format_seconds handles <60s, m+s, h+m+s correctly."""
-    assert ResultDetailPane._format_seconds(12.5) == "12.5 s"
-    assert ResultDetailPane._format_seconds(125) == "2m 5s"
-    assert ResultDetailPane._format_seconds(3725) == "1h 2m 5s"
-    assert ResultDetailPane._format_seconds(None) == "—"
+    """format_seconds handles <60s, m+s, h+m+s correctly."""
+    from jobdesk_app.gui.pages.runs_results_helpers import format_seconds
+
+    assert format_seconds(12.5) == "12.5 s"
+    assert format_seconds(125) == "2m 5s"
+    assert format_seconds(3725) == "1h 2m 5s"
+    assert format_seconds(None) == "—"
 
 
 def test_result_detail_pane_handles_missing_geometry(detail_pane):
