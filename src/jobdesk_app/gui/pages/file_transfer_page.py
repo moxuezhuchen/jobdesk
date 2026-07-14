@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
-from ...core.submit_payload import InputSource
 from ...core.transfer import TransferStatus
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
@@ -45,17 +44,16 @@ from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_helpers import (
+    build_input_sources,
+    build_local_rows,
     collect_remote_delete_roots,
     connection_status_text,
     default_remote_dir_for_server,
     file_table_headers,
-    format_file_size,
     format_modified_time,
     format_queue_summary,
     format_remote_size,
     format_selection_summary,
-    local_parent_row,
-    local_table_row,
     normalize_remote_path,
     remote_child_path,
     remote_parent_row,
@@ -633,31 +631,6 @@ class FileTransferPage(QWidget):
         """Persist the current local folder so it survives restarts."""
         GuiSettingsStore().update(last_local_folder=str(path))
 
-    @staticmethod
-    def _build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:
-        snapshot: dict[str, float] = {}
-        rows = []
-        parent = local_parent_row(base)
-        if parent is not None:
-            rows.append(parent)
-        try:
-            children = sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name))
-        except (PermissionError, OSError):
-            return snapshot, rows, f"No permission to access: {base}"
-        for child in children:
-            if hide_dot and child.name.startswith("."):
-                continue
-            try:
-                st = child.stat()
-                snapshot[str(child)] = st.st_mtime_ns if hasattr(st, "st_mtime_ns") else st.st_mtime
-                is_dir = child.is_dir()
-                size = "" if is_dir else format_file_size(st.st_size)
-                mtime = format_modified_time(st.st_mtime)
-            except (PermissionError, OSError):
-                continue
-            rows.append(local_table_row(child.name, is_dir, size, str(child), mtime))
-        return snapshot, rows, None
-
     def _check_local_changes(self):
         """Poll local directory for changes (handles WSL /mnt/c writes)."""
         if self._local_poll_running:
@@ -667,7 +640,7 @@ class FileTransferPage(QWidget):
         self._local_poll_running = True
 
         def _run(_ctx: WorkerContext):
-            return self._build_local_rows(base, hide_dot)
+            return build_local_rows(base, hide_dot)
 
         def _done(result):
             self._local_poll_running = False
@@ -691,7 +664,7 @@ class FileTransferPage(QWidget):
 
     def _refresh_local(self):
         base = self.state.current_project_root or Path.cwd()
-        snapshot, rows, error = self._build_local_rows(Path(base), self._gui_settings.hide_dotfiles)
+        snapshot, rows, error = build_local_rows(Path(base), self._gui_settings.hide_dotfiles)
         if error:
             self._status_cb(error)
         self._local_poll_snapshot = snapshot
@@ -708,7 +681,7 @@ class FileTransferPage(QWidget):
         request_id = self._local_refresh_request_id
 
         def _run(_ctx: WorkerContext):
-            return self._build_local_rows(base, hide_dot)
+            return build_local_rows(base, hide_dot)
 
         def _done(result):
             if request_id != self._local_refresh_request_id:
@@ -1074,9 +1047,9 @@ class FileTransferPage(QWidget):
         local_paths = self._selected_paths_for_side("local")
         remote_paths = self._selected_paths_for_side("remote")
         if remote_paths:
-            sources = self._build_input_sources(remote_paths, side="remote")
+            sources = build_input_sources(remote_paths, side="remote")
         elif local_paths:
-            sources = self._build_input_sources(local_paths, side="local")
+            sources = build_input_sources(local_paths, side="local")
         else:
             return
         self.submit_requested_with_files.emit(list(sources))
@@ -1148,7 +1121,7 @@ class FileTransferPage(QWidget):
         paths = self._selected_paths_for_side(side)
         if not paths:
             return
-        sources = self._build_input_sources(paths, side=side)
+        sources = build_input_sources(paths, side=side)
         if not sources:
             return
         kinds = {source.kind for source in sources}
@@ -1185,23 +1158,6 @@ class FileTransferPage(QWidget):
             return files
         files, _dirs = self._selected_remote_entries()
         return files
-
-    @staticmethod
-    def _build_input_sources(paths: list[str], *, side: str) -> list[InputSource]:
-        """Wrap ``paths`` as :class:`InputSource` instances.
-
-        ``kind`` is inferred from the file suffix (``.gjf`` → ``"gjf"``,
-        ``.inp`` → ``"inp"``, otherwise ``"xyz"``).  Unknown suffixes are
-        treated as ``"xyz"`` so the Submit page's kind filter still routes
-        them sensibly.
-        """
-        suffix_map = {".gjf": "gjf", ".inp": "inp"}
-        sources: list[InputSource] = []
-        for raw in paths:
-            p = Path(raw)
-            kind = suffix_map.get(p.suffix.lower(), "xyz")
-            sources.append(InputSource(path=p, side=side, kind=kind))  # type: ignore[arg-type]
-        return sources
 
     # Open in Viewer
 

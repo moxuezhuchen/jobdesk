@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ...core.manifest import Manifest
 from ...core.run import RunMode, RunSource, RunSpec, build_run_plan
+from ...core.submit_payload import InputSource
 from ...core.transfer import TransferStatus
 from ..i18n import tr
 
@@ -277,3 +278,46 @@ def format_selection_summary(local_count: int, remote_count: int, language: str 
         local_count=local_count,
         remote_count=remote_count,
     )
+
+
+def build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:
+    """Scan a local directory and return (mtime_snapshot, table_rows, error)."""
+    snapshot: dict[str, float] = {}
+    rows = []
+    parent = local_parent_row(base)
+    if parent is not None:
+        rows.append(parent)
+    try:
+        children = sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower(), p.name))
+    except (PermissionError, OSError):
+        return snapshot, rows, f"No permission to access: {base}"
+    for child in children:
+        if hide_dot and child.name.startswith("."):
+            continue
+        try:
+            st = child.stat()
+            snapshot[str(child)] = st.st_mtime_ns if hasattr(st, "st_mtime_ns") else st.st_mtime
+            is_dir = child.is_dir()
+            size = "" if is_dir else format_file_size(st.st_size)
+            mtime = format_modified_time(st.st_mtime)
+        except (PermissionError, OSError):
+            continue
+        rows.append(local_table_row(child.name, is_dir, size, str(child), mtime))
+    return snapshot, rows, None
+
+
+def build_input_sources(paths: list[str], *, side: str) -> list[InputSource]:
+    """Wrap ``paths`` as :class:`InputSource` instances.
+
+    ``kind`` is inferred from the file suffix (``.gjf`` → ``"gjf"``,
+    ``.inp`` → ``"inp"``, otherwise ``"xyz"``).  Unknown suffixes are
+    treated as ``"xyz"`` so the Submit page's kind filter still routes
+    them sensibly.
+    """
+    suffix_map = {".gjf": "gjf", ".inp": "inp"}
+    sources: list[InputSource] = []
+    for raw in paths:
+        p = Path(raw)
+        kind = suffix_map.get(p.suffix.lower(), "xyz")
+        sources.append(InputSource(path=p, side=side, kind=kind))  # type: ignore[arg-type]
+    return sources
