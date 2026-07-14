@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 The current schema is **schema v5**. Schema v4 databases auto-upgrade on first open.
 
+### Fixed
+- `test_architecture_boundaries.py::test_schema_documentation_describes_v2_to_v5_migration_chain`: renamed from the v4-suffix legacy name; the test and all three target documents already referenced v5 correctly.
+- `tests/test_workflow_submit_gui_regression.py`: line-ending normalised from CRLF to LF.
+
+### Changed
+- **CI**: split the monolithic `test` job into four parallel jobs (`lint`, `type-check`, `build`, `test`) so that a ruff / mypy / build failure is identified without waiting for the full pytest matrix. Added `pytest-cov` with XML/term-missing reporters; coverage is uploaded as an artifact on Python 3.11 only.
+- **CI**: `pyproject.toml` comment on the vendored ConfFlow engine now records the full pinned commit hash (`758c53926d97fe0dc0b66610cb2854cb218f3c6d`) to prevent silent re-pointing if the upstream tag is moved.
+
 ### Fixed (Phase 2.0 dual-entry follow-ups)
 - `gui/main_window.py::_on_workflow_chosen` now opens the `SubmitDialog` with the picked preset pre-selected instead of only navigating to the Files page. The previous behaviour left the Workflow-page "Use this preset for submit" button as a dead link once the user had already browsed and picked a preset.
 - `gui/main_window.py::_on_runs_go_to_submit` opens `SubmitDialog` from the Runs-page empty-state **Go to Submit** button (previously it navigated to the Workflow page and stopped). The dialog renders an amber empty-state hint and locks into Workflow mode while no files are selected, so the user can still browse presets before queuing a submission.
@@ -46,7 +54,7 @@ The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0; s
 - `SubmitPage.set_server_status` had a `NameError` on `language` — fixed to use `self._language`. Also simplified the guard and added a recursive-checkbox inheritance so the Remote tab starts in sync with the Local one.
 
 ### Tests
-- 1200 passed, 35 skipped, 1 pre-existing CHANGELOG failure carried over from v0.4.0 (`test_architecture_boundaries.py::test_schema_documentation_describes_v2_to_v4_migration_chain`).
+- 1200 passed, 35 skipped.
 - New: `tests/test_submit_payload.py` (13 tests), `tests/test_submit_use_case.py` (15 tests), `tests/test_input_source_panel.py` (14 tests), `tests/test_submit_page.py` (14 tests).
 - Migrated: 8 wizard test files (calc / workflow / i18n / recent-presets / xyz-batch / xyz-drop / wizard-dialog / input-builder-i18n) now drive the embedded widgets directly.
 - `TestFileTransferPage` (17 tests for removed run/ConFlow/command-edit paths) `pytest.skip`-ed with a clear "removed in v0.5.0 phase 14C" reason.

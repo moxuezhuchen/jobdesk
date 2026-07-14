@@ -22,12 +22,12 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 [project.optional-dependencies]
 chem = [
     "rdkit>=2023.9",
-    # ConfFlow workflow engine is now vendored under
-    # ``src/jobdesk_app/confflow/`` (previously installed from the
-    # archived upstream tag - see CHANGELOG / Phase 14). Both the
-    # Windows GUI and the Linux compute side import the same Pydantic
-    # models (``jobdesk_app.confflow.confflow.core.models``) for
-    # workflow validation.
+    # ConfFlow workflow engine is vendored under
+    # ``src/jobdesk_app/confflow/`` (archived upstream tag v1.1.0-archived,
+    # commit 758c53926d97fe0dc0b66610cb2854cb218f3c6d). Both the Windows GUI
+    # and the Linux compute node import the same Pydantic models
+    # (``jobdesk_app.confflow.confflow.core.models``) for workflow validation.
+    # The remote node must ``pip install confflow`` at the same pinned commit.
 ]
 package = [
     "pyinstaller>=6.0",

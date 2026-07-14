@@ -123,7 +123,8 @@ def test_run_repository_has_no_unjournaled_lifecycle_entry_points() -> None:
     assert "replace_tasks" not in method_names
 
 
-def test_schema_documentation_describes_v2_to_v4_migration_chain() -> None:
+def test_schema_documentation_describes_v2_to_v5_migration_chain() -> None:
+    """Verify all docs name v5 as current and describe the full v2→v5 migration chain."""
     repository_root = Path(__file__).parents[1]
     documents = {
         name: (repository_root / name).read_text(encoding="utf-8")
