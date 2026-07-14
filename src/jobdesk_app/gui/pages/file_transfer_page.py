@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import posixpath
 import shutil
 import subprocess
@@ -31,7 +30,6 @@ from PySide6.QtWidgets import (
 
 from ...config.servers import load_servers
 from ...core.file_transfer import OverwritePolicy
-from ...core.transfer import TransferStatus
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
@@ -43,6 +41,10 @@ from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_helpers import (
+    _file_signature,
+    _raise_if_upload_failed,
+    _remote_edit_temp_path,
+    _remote_list_error_allows_fallback,
     build_input_sources,
     build_local_rows,
     collect_remote_delete_roots,
@@ -1983,47 +1985,3 @@ class FileTransferPage(QWidget):
             if session.local_path.exists() and _file_signature(session.local_path) != session.uploaded_signature:
                 dirty.append(session)
         return dirty
-
-
-def _remote_list_error_allows_fallback(error: str) -> bool:
-    first_line = (error.splitlines()[0] if error else "").lower()
-    return (
-        "filenotfounderror" in first_line
-        or "errno 2" in first_line
-        or "errno 20" in first_line
-        or "no such file" in first_line
-        or "no such directory" in first_line
-        or "not a directory" in first_line
-    )
-
-
-def _file_signature(path: Path) -> str:
-    try:
-        data = Path(path).read_bytes()
-    except OSError:
-        return "missing"
-    return hashlib.sha256(data).hexdigest()
-
-
-def _remote_edit_temp_path(remote_path: str, server_id: str | None) -> Path:
-    name = Path(remote_path).name or "remote-file"
-    key = f"{server_id or ''}\0{remote_path}"
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / "jobdesk_remote_edit" / digest / name
-
-
-def _raise_if_upload_failed(records, remote_path: str) -> None:
-    items = records if isinstance(records, list) else [records]
-    for item in items:
-        if getattr(item, "status", None) == TransferStatus.failed:
-            reason = getattr(item, "reason", "") or "upload failed"
-            raise RuntimeError(f"upload failed for {remote_path}: {reason}")
-
-
-def _submit_result_errors(results) -> list[str]:
-    errors: list[str] = []
-    for result in results or []:
-        batch_id = getattr(result, "batch_id", "run")
-        for error in getattr(result, "errors", []) or []:
-            errors.append(f"{batch_id}: {error}")
-    return errors

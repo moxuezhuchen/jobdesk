@@ -3,7 +3,9 @@
 Kept importable from ``file_transfer_page`` for backward compatibility.
 """
 
+import hashlib
 import posixpath
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -321,3 +323,38 @@ def build_input_sources(paths: list[str], *, side: str) -> list[InputSource]:
         kind = suffix_map.get(p.suffix.lower(), "xyz")
         sources.append(InputSource(path=p, side=side, kind=kind))  # type: ignore[arg-type]
     return sources
+
+
+def _file_signature(path: Path) -> str:
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return "missing"
+    return hashlib.sha256(data).hexdigest()
+
+
+def _remote_edit_temp_path(remote_path: str, server_id: str | None) -> Path:
+    name = Path(remote_path).name or "remote-file"
+    key = f"{server_id or ''}\0{remote_path}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "jobdesk_remote_edit" / digest / name
+
+
+def _remote_list_error_allows_fallback(error: str) -> bool:
+    first_line = (error.splitlines()[0] if error else "").lower()
+    return (
+        "filenotfounderror" in first_line
+        or "errno 2" in first_line
+        or "errno 20" in first_line
+        or "no such file" in first_line
+        or "no such directory" in first_line
+        or "not a directory" in first_line
+    )
+
+
+def _raise_if_upload_failed(records, remote_path: str) -> None:
+    items = records if isinstance(records, list) else [records]
+    for item in items:
+        if getattr(item, "status", None) == TransferStatus.failed:
+            reason = getattr(item, "reason", "") or "upload failed"
+            raise RuntimeError(f"upload failed for {remote_path}: {reason}")
