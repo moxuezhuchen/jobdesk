@@ -50,7 +50,6 @@ from .file_transfer_helpers import (
     _remote_edit_temp_path,
     _remote_list_error_allows_fallback,
     build_input_sources,
-    build_local_rows,
     collect_remote_delete_roots,
     connection_status_text,
     default_remote_dir_for_server,
@@ -65,6 +64,7 @@ from .file_transfer_helpers import (
     remote_parent_row,
     remote_table_row,
 )
+from .file_transfer_local_navigator import LocalNavigator
 from .file_transfer_tables import _RemoteEditSession
 from .file_transfer_widgets import (
     _clamp_column_widths,
@@ -125,6 +125,15 @@ class FileTransferPage(QWidget):
         self._shutting_down = False
         self._local_refresh_request_id = 0
         self._local_poll_running = False
+        self._local_poll_snapshot: dict[str, float] = {}
+        self._local_navigator = LocalNavigator(
+            root_provider=lambda: self.state.current_project_root,
+            hide_dot_provider=lambda: self._gui_settings.hide_dotfiles,
+            log_provider=lambda: self._status_cb,
+            on_rows_loaded=self._load_local_rows,
+            worker_registry_attr="_background_workers",
+        )
+        self._local_navigator.set_root_provider(self._apply_local_root)
         self._initialized = False
         self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
         self._pending_click_rename: tuple[str, int] | None = None
@@ -380,11 +389,15 @@ class FileTransferPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language))
         if not path:
             return
-        self.state.current_project_root = Path(path)
-        self.local_path_btn.setText(path)
-        self.local_path_btn.setToolTip(path)
-        self._save_last_local_folder(Path(path))
+        self._apply_local_root(Path(path))
+        self._local_navigator.save_last_local_folder(Path(path))
         self._refresh_local()
+
+    def _apply_local_root(self, path: Path) -> None:
+        """Mutate ``state.current_project_root`` and the local-path button."""
+        self.state.current_project_root = path
+        self.local_path_btn.setText(str(path))
+        self.local_path_btn.setToolTip(str(path))
 
     def on_activated(self):
         self._gui_settings = GuiSettingsStore().load()
@@ -562,83 +575,40 @@ class FileTransferPage(QWidget):
         worker.start()
 
     def _apply_default_local_folder(self):
-        # Prefer last-used folder over the static default
-        folder = self._gui_settings.last_local_folder or self._gui_settings.default_local_folder
-        if folder and Path(folder).exists():
-            self.state.current_project_root = Path(folder)
+        # Delegate to LocalNavigator. The navigator's ``set_root_provider``
+        # callback updates ``self.state.current_project_root`` and the
+        # local-path button text, mirroring the legacy behaviour.
+        self._local_navigator.apply_default_local_folder(self._gui_settings)
 
     def _save_last_local_folder(self, path: Path) -> None:
         """Persist the current local folder so it survives restarts."""
-        GuiSettingsStore().update(last_local_folder=str(path))
+        self._local_navigator.save_last_local_folder(path)
 
     def _check_local_changes(self):
         """Poll local directory for changes (handles WSL /mnt/c writes)."""
-        if self._local_poll_running:
-            return
-        base = Path(self.state.current_project_root or Path.cwd())
-        hide_dot = self._gui_settings.hide_dotfiles
-        self._local_poll_running = True
-
-        def _run(_ctx: WorkerContext):
-            return build_local_rows(base, hide_dot)
-
-        def _done(result):
-            self._local_poll_running = False
-            snapshot, rows, error = result
-            if error:
-                self._status_cb(error)
-            if snapshot != self._local_poll_snapshot:
-                self._local_poll_snapshot = snapshot
-                self._load_local_rows(rows)
-
-        def _error(_message: str):
-            self._local_poll_running = False
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=_done,
-            on_error=_error,
-        )
+        self._local_navigator.check_local_changes(self)
 
     def _refresh_local(self):
-        base = self.state.current_project_root or Path.cwd()
-        snapshot, rows, error = build_local_rows(Path(base), self._gui_settings.hide_dotfiles)
+        # Use the navigator's pure ``scan`` helper so test fixtures that
+        # patch ``file_page._status_cb`` after construction keep working.
+        snapshot, rows, error = self._local_navigator.scan()
         if error:
             self._status_cb(error)
         self._local_poll_snapshot = snapshot
+        self._local_navigator._snapshot = snapshot
         self._load_local_rows(rows)
 
     def _load_local_rows(self, rows: list[list[str]]) -> None:
         _load_rows(self.local_table, rows)
+        # Mirror the navigator's snapshot so test fixtures that read
+        # ``file_page._local_poll_snapshot`` stay in sync.
+        self._local_poll_snapshot = self._local_navigator.last_poll_snapshot
         self._update_selection_summary()
 
     def _refresh_local_async(self):
-        base = Path(self.state.current_project_root or Path.cwd())
-        hide_dot = self._gui_settings.hide_dotfiles
-        self._local_refresh_request_id += 1
-        request_id = self._local_refresh_request_id
-
-        def _run(_ctx: WorkerContext):
-            return build_local_rows(base, hide_dot)
-
-        def _done(result):
-            if request_id != self._local_refresh_request_id:
-                return
-            snapshot, rows, error = result
-            if error:
-                self._status_cb(error)
-            self._local_poll_snapshot = snapshot
-            self._load_local_rows(rows)
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=_done,
-            on_error=lambda error: self._status_cb(f"Local refresh failed: {error.splitlines()[0]}"),
-        )
+        # The navigator drives the worker; its row callback is wired to
+        # ``_load_local_rows`` at construction time.
+        self._local_navigator.refresh_async(self)
 
     def _refresh_local_after_navigation(self):
         self._refresh_local()
