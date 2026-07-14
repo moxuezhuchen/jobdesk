@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -59,6 +58,7 @@ from .file_transfer_helpers import (
     remote_parent_row,
     remote_table_row,
 )
+from .file_transfer_tables import _RemoteEditSession
 from .file_transfer_widgets import (
     _clamp_column_widths,
     _ConnectedSFTP,
@@ -76,14 +76,6 @@ TRANSFER_PROGRESS_MIN_WIDTH = 320
 TRANSFER_PROGRESS_MAX_WIDTH = 560
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
-
-
-@dataclass
-class _RemoteEditSession:
-    remote_path: str
-    local_path: Path
-    uploaded_signature: str
-    uploading_signature: str | None = None
 
 
 class ConfigUnreadable(Exception):
