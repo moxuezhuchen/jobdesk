@@ -28,7 +28,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...config.servers import load_servers
+from ...config.servers import (
+    load_servers,  # noqa: F401  re-exported for tests that monkeypatch the symbol on this module
+)
 from ...core.file_transfer import OverwritePolicy
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
@@ -41,6 +43,7 @@ from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_config import ConfigUnreadable, load_existing_servers_data
+from .file_transfer_connections import ConnectionsCoordinator
 from .file_transfer_helpers import (
     _file_signature,
     _raise_if_upload_failed,
@@ -106,6 +109,13 @@ class FileTransferPage(QWidget):
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
         self._connected_server = None
+        self._connections = ConnectionsCoordinator(
+            status_cb=status_cb,
+            log_cb=log_cb,
+            create_ssh=create_ssh_client,
+            create_sftp=create_sftp_client,
+            run_tasks_provider=self._current_run_tasks,
+        )
         self._gui_settings = GuiSettingsStore().load()
         self._language = self._gui_settings.language
         self._remote_list_request_id = 0
@@ -456,24 +466,20 @@ class FileTransferPage(QWidget):
 
     def _load_servers_inner(self):
         """Populate server_combo. Caller must handle signal blocking."""
-        try:
-            cfg = load_servers()
-            self._servers = cfg.servers
-            current = self.server_combo.currentData()
-            self.server_combo.clear()
-            for sid in sorted(self._servers):
-                self.server_combo.addItem(sid, sid)
-            if self._gui_settings.default_server_id:
-                idx = self.server_combo.findData(self._gui_settings.default_server_id)
-                if idx >= 0:
-                    self.server_combo.setCurrentIndex(idx)
-            if current:
-                idx = self.server_combo.findData(current)
-                if idx >= 0:
-                    self.server_combo.setCurrentIndex(idx)
-        except Exception as exc:
-            self._servers = {}
-            self._status_cb(f"No servers configured: {exc}")
+        servers = self._connections.load_servers()
+        self._servers = servers
+        current = self.server_combo.currentData()
+        self.server_combo.clear()
+        for sid in sorted(servers):
+            self.server_combo.addItem(sid, sid)
+        if self._gui_settings.default_server_id:
+            idx = self.server_combo.findData(self._gui_settings.default_server_id)
+            if idx >= 0:
+                self.server_combo.setCurrentIndex(idx)
+        if current:
+            idx = self.server_combo.findData(current)
+            if idx >= 0:
+                self.server_combo.setCurrentIndex(idx)
 
     def _auto_connect_selected_server(self):
         if not self._gui_settings.auto_connect:
@@ -508,26 +514,37 @@ class FileTransferPage(QWidget):
         if self._connected_server_id != server_id:
             self.remote_path.setText(self._server_remote_dirs.get(server_id) or default_remote_dir_for_server(server))
 
-        def factory():
-            ssh = create_ssh_client(server)
-            ssh.connect()
-            sftp = create_sftp_client(ssh)
-            return _ConnectedSFTP(ssh, sftp)
-
         if self._service is not None:
             self._close_service_async(self._service)
-        self._service = FileTransferService(
-            factory,
+        service = FileTransferService(
+            self._build_service_factory(server),
             allowed_delete_roots=collect_remote_delete_roots(self._current_run_tasks()),
             persistent_session=True,
         )
+        self._service = service
+        self._connections._service = service  # mirror for coordinator property reads
         self._connected_server_id = server_id
         self._connected_server = server
+        self._connections._connected_server_id = server_id
+        self._connections._connected_server = server
         self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
         self._refresh_remote()
         # Phase 2.1: refresh empty-state hints now that the connection
         # state flipped from "none" to "connected".
         self._update_empty_state_visibility()
+
+    def _build_service_factory(self, server):
+        """Build a FileTransferService factory that opens (ssh, sftp) for ``server``.
+
+        Factored out so ``_connect`` can pass it through the coordinator's
+        runner path without leaking the page's create_* helpers.
+        """
+        def factory():
+            ssh = create_ssh_client(server)
+            ssh.connect()
+            sftp = create_sftp_client(ssh)
+            return _ConnectedSFTP(ssh, sftp)
+        return factory
 
     def _current_run_tasks(self):
         run_id = getattr(self.state, "current_batch_id", None)
@@ -1899,7 +1916,8 @@ class FileTransferPage(QWidget):
                     worker.quit()
                     worker.wait(3000)
             if self._service is not None:
-                self._service.close()
+                self._connections._service = self._service
+                self._connections.teardown()
                 self._service = None
 
     def _keep_worker(self, worker):
