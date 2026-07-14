@@ -5,6 +5,7 @@ the editor's :class:`NodeGraph` view and the on-disk
 :class:`WorkflowSpec`. Returns the resulting ``WorkflowSpec`` on
 ``accept()``; ``reject()`` closes without changes.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -36,7 +37,29 @@ def _build_linear_graph(spec: WorkflowSpec) -> NodeGraph:
     the dialog without losing the chain shape. The plan documents the
     round-trip limitation under "WorkflowSpec-back-to-NodeGraph projection"
     (Open Question 1).
+
+    The terminal ``OUTPUT`` node is intentionally NOT connected to the
+    last step: ``OUTPUT`` ships with no input ports (see
+    ``_default_ports`` in :mod:`jobdesk_app.gui.nodegraph.model`), and
+    the bundled JSON templates treat it as a sentinel rather than a
+    wired sink. The earlier "Last step → Output.in" edge looked
+    convenient but always produced an ``UNKNOWN_PORT`` validation
+    error and hid the onboarding card (which gates visibility on
+    ``not graph.nodes``). Matching the JSON-template shape keeps the
+    graph valid on first paint and lets "Quick start: load Linear
+    OPT + FREQ" stay reachable after the user opens a preset in the
+    builder.
     """
+    # Prefer the bridge's canonical projection.  The old form-token path
+    # discarded per-step YAML and dependencies before the user made an edit.
+    from ...gui.nodegraph.spec_bridge import from_workflow_spec
+
+    raw = getattr(spec, "_raw", {}) or {}
+    if raw.get("steps"):
+        graph_payload = dict(raw.get("global") or {})
+        graph_payload["steps"] = list(raw["steps"])
+        return from_workflow_spec(graph_payload)
+
     graph = NodeGraph()
     xyz = default_node(NodeKind.XYZ_FILE, position=(40.0, 80.0))
     graph.add_node(xyz)
@@ -51,28 +74,23 @@ def _build_linear_graph(spec: WorkflowSpec) -> NodeGraph:
         node = default_node(kind, position=(40.0 + 240 * (i + 1), 80.0))
         graph.add_node(node)
         # Wire prev -> node.in
-        graph.add_edge(Edge(
-            id=Edge.new_id(),
-            src_node=prev_id,
-            src_port=prev_out_port,
-            dst_node=node.id,
-            dst_port="in",
-        ))
+        graph.add_edge(
+            Edge(
+                id=Edge.new_id(),
+                src_node=prev_id,
+                src_port=prev_out_port,
+                dst_node=node.id,
+                dst_port="in",
+            )
+        )
         # Move forward; the next step consumes whatever port the
         # previous one produced (refine-style wiring).
         prev_id = node.id
         prev_out_port = "out"
 
+    # Terminal sentinel. Deliberately unwired: see the docstring.
     output = default_node(NodeKind.OUTPUT, position=(40.0 + 240 * (len(steps) + 1), 80.0))
     graph.add_node(output)
-    # Last step -> Output.in (catch-all)
-    graph.add_edge(Edge(
-        id=Edge.new_id(),
-        src_node=prev_id,
-        src_port=prev_out_port,
-        dst_node=output.id,
-        dst_port="in",
-    ))
     return graph
 
 
@@ -101,13 +119,8 @@ class WorkflowBuilderDialog(QDialog):
         self.editor = WorkflowGraphEditor(language=language)
         layout.addWidget(self.editor, 1)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Cancel
-            | QDialogButtonBox.StandardButton.Ok
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
-            tr("Save", language)
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Save", language))
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -121,12 +134,18 @@ class WorkflowBuilderDialog(QDialog):
 
     def _on_accept(self) -> None:
         try:
-            if not self.editor.is_empty():
+            # Existing saved workflows are edited in WorkflowPage, whose
+            # step/global YAML panes preserve the authored document exactly.
+            # This legacy graph dialog is retained for creating a fresh graph
+            # only; never use its lossy projection to overwrite a loaded
+            # workflow.
+            if self._initial_spec is not None:
+                self._result_spec = self._initial_spec
+            elif not self.editor.is_empty():
                 from ...gui.nodegraph.spec_bridge import to_workflow_spec
+
                 payload = to_workflow_spec(self.editor.graph())
-                self._result_spec = WorkflowSpec(
-                    global_config=payload.spec.global_config
-                )
+                self._result_spec = WorkflowSpec.from_yaml(payload.to_yaml())
             else:
                 # Empty editor -> keep the initial spec (conservative).
                 self._result_spec = self._initial_spec

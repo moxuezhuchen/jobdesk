@@ -1,0 +1,5 @@
+type: calc
+params:
+  iprog: gaussian
+  itask: opt_freq
+  keyword: B3LYP 6-31G(d)

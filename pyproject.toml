@@ -61,7 +61,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jobdesk_app = ["gui/resources/*.svg", "confflow/confflow/**/*.toml", "confflow/confflow/**/*.yaml", "confflow/confflow/**/*.json", "confflow/confflow/**/*.txt"]
+jobdesk_app = ["gui/resources/*.svg", "resources/**/*.yaml", "confflow/confflow/**/*.toml", "confflow/confflow/**/*.yaml", "confflow/confflow/**/*.json", "confflow/confflow/**/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

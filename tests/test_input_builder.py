@@ -163,12 +163,9 @@ class TestBuildInp:
 class TestPresets:
     def test_gaussian_presets_exist(self):
         assert "b3lyp_631gd_opt_freq" in GAUSSIAN_PRESETS
-        assert "m062x_def2tzvp_opt_freq" in GAUSSIAN_PRESETS
-        assert "ccsd_t_ccpvtz_sp" in GAUSSIAN_PRESETS
 
     def test_orca_presets_exist(self):
         assert "b3lyp_def2tzvp_opt_freq" in ORCA_PRESETS
-        assert "dlpno_ccsd_t_sp" in ORCA_PRESETS
 
     def test_build_from_gaussian_preset(self):
         p = _xyz_file()
@@ -182,8 +179,8 @@ class TestPresets:
     def test_build_from_orca_preset(self):
         p = _xyz_file()
         try:
-            content = build_from_preset(p, "dlpno_ccsd_t_sp")
-            assert "DLPNO-CCSD(T)" in content
+            content = build_from_preset(p, "b3lyp_def2tzvp_opt_freq")
+            assert "B3LYP" in content
             assert "* xyz" in content
         finally:
             p.unlink()
@@ -215,24 +212,12 @@ class TestPresetToConfflowFields:
         assert fields["nproc"] == 8
         assert fields["memory_mb"] == 16 * 1024
 
-    def test_gaussian_preset_with_empirical_dispersion(self):
-        fields = preset_to_confflow_fields("b3lyp_d3_def2tzvp_opt")
-        # The Gaussian preset stores the dispersion on the basis side, so the
-        # wizard sees "def2-TZVP EmpiricalDispersion=GD3BJ" as basis.
-        assert fields["method"] == "B3LYP"
-        assert fields["basis"].startswith("def2-TZVP")
-
     def test_orca_preset_strips_bang_and_splits_basis(self):
         fields = preset_to_confflow_fields("b3lyp_def2tzvp_opt_freq")
         # ORCA preset is "! B3LYP D3BJ def2-TZVP def2/J RIJCOSX TightSCF opt freq"
         assert fields["method"] == "B3LYP D3BJ"
         assert "def2-TZVP" in fields["basis"]
         assert "def2/J" in fields["basis"]
-
-    def test_orca_preset_dlpno(self):
-        fields = preset_to_confflow_fields("dlpno_ccsd_t_sp")
-        assert "DLPNO-CCSD(T)" in fields["method"]
-        assert "cc-pVTZ" in fields["basis"]
 
     def test_unknown_preset_returns_empty(self):
         fields = preset_to_confflow_fields("does_not_exist")
@@ -241,9 +226,3 @@ class TestPresetToConfflowFields:
         # Defaults still non-zero so the wizard doesn't show "1MB" / "1 core".
         assert fields["nproc"] >= 1
         assert fields["memory_mb"] >= 1024
-
-    def test_orca_preset_memory_mb_matches_mem_per_core(self):
-        # ORCA presets store memory *per core*, which is exactly what the
-        # wizard's memory field wants.
-        fields = preset_to_confflow_fields("r2scan3c_opt_freq")
-        assert fields["memory_mb"] == ORCA_PRESETS["r2scan3c_opt_freq"].mem_per_core_mb

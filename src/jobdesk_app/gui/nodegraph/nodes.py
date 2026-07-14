@@ -68,6 +68,7 @@ PORT_FILL_COLOR = {
     PortType.STRUCTURES: QColor("#1aa6b7"),
     PortType.ENERGY: QColor("#e08a1f"),
     PortType.CONFIG: QColor("#8a8a8a"),
+    PortType.ANY: QColor("#6b7280"),
 }
 
 

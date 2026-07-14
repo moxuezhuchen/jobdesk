@@ -205,6 +205,26 @@ class SubmitUseCase:
         first_xyz = _resolve_yaml_dir(payload)
         yaml_local = first_xyz / "workflow.yaml"
 
+        if workflow.yaml_text is not None:
+            # The workflow page already assembled and validated the final
+            # document.  Submit that exact document; reducing it to the old
+            # form fields loses per-step params, names and dependencies.
+            WorkflowSpec.from_yaml(workflow.yaml_text)
+            yaml_local.parent.mkdir(parents=True, exist_ok=True)
+            tmp = yaml_local.with_suffix(yaml_local.suffix + ".tmp")
+            tmp.write_text(workflow.yaml_text, encoding="utf-8")
+            tmp.replace(yaml_local)
+            yaml_target = remote_child_path(payload.remote_dir, yaml_local.name)
+            run_spec = ConfFlowAdapter.build_spec(
+                server_id=payload.server_id,
+                remote_dir=payload.remote_dir,
+                xyz_paths=remote_targets,
+                config_path=yaml_target,
+                max_parallel=payload.max_parallel,
+                resume=False,
+            )
+            return [run_spec], yaml_local
+
         calc = payload.calc
         method, basis = _split_method_basis(getattr(calc, "method_basis", ""))
         spec = WorkflowSpec.from_form(

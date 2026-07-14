@@ -122,6 +122,9 @@ _PASSTHROUGH_WHITELIST: frozenset[str] = frozenset({
     # Brand-name file-type tags.
     "Gaussian (.gjf)",
     "ORCA (.inp)",
+    # On-disk YAML filename: protocol-correctly ``workflow.yaml`` on
+    # both English and Chinese locales.
+    "workflow.yaml",
 })
 
 

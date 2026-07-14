@@ -106,15 +106,23 @@ class WorkflowGraphPayload:
     def to_yaml(self) -> str:
         """Serialize the combined payload back to ``workflow.yaml``.
 
-        Equivalent to ``spec.to_yaml()`` plus the steps list written
-        under a ``steps:`` key, in ``sort_keys=False`` order so the
-        round-trip is byte-identical to a hand-written file.
+        v6 schema: ``{global: {...}, steps: [...]}`` — matches what
+        ``confflow.config.loader`` consumes. The ``spec.to_yaml()``
+        path already produces this shape, so we just delegate and
+        stitch in any ``steps`` overrides the editor may have added
+        on top of what ``WorkflowSpec.from_form`` produced.
         """
         import yaml
 
-        data = self.spec.global_config.model_dump(mode="json", exclude_none=True)
-        data["steps"] = self.steps
-        return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+        spec_yaml = self.spec.to_yaml()
+        base = yaml.safe_load(spec_yaml) or {}
+        if not isinstance(base, dict):
+            base = {}
+        # Honour any editor-supplied steps if they're richer than the
+        # wizard's view (e.g. the nodegraph may add confgen params).
+        if self.steps:
+            base["steps"] = list(self.steps)
+        return yaml.safe_dump(base, sort_keys=False, allow_unicode=True)
 
 
 __all__ = [
@@ -242,7 +250,16 @@ def from_workflow_spec(
 
     if isinstance(payload, WorkflowGraphPayload):
         steps = list(payload.steps)
-        extra = _extract_extra(payload.spec.global_config.model_dump(mode="json", exclude_none=True))
+        dump = payload.spec.global_config.model_dump(
+            mode="json", exclude_none=True
+        )
+        # Tag the dump with which model fields the user actually wrote,
+        # so ``_extract_extra`` can ignore the dozens of confflow
+        # defaults that ``model_dump`` always emits.
+        dump["_user_set_keys"] = set(
+            payload.spec.global_config.model_fields_set
+        )
+        extra = _extract_extra(dump)
     else:
         steps = list(payload.get("steps", []))
         extra = _extract_extra(payload)
@@ -260,7 +277,8 @@ def from_workflow_spec(
         graph.add_node(node)
         step_node_by_name[node.title] = node.id
 
-    # Inject XYZ_FILE + OUTPUT sentinels so the graph is round-trippable.
+    # Inject XYZ_FILE + OUTPUT sentinels. OUTPUT has a wildcard visual
+    # terminal port; its connections are ignored by YAML serialisation.
     from jobdesk_app.gui.nodegraph.model import default_node
 
     xyz_node = default_node(NodeKind.XYZ_FILE, position=(40.0, 60.0))
@@ -292,20 +310,13 @@ def from_workflow_spec(
             graph.add_edge(_make_dag_edge(graph, xyz_node.id, dst_id, dst_port="in"))
 
     if has_dag_wiring:
-        # DAG path: every "leaf" step (no outgoing calc/confgen
-        # successor) feeds the OUTPUT sentinel. For an N-sink DAG this
-        # attaches each sink to output.
-        outgoing_by_node: dict[str, int] = {
-            nid: 0 for nid in step_node_by_name.values()
-        }
+        outgoing_by_node: dict[str, int] = {nid: 0 for nid in step_node_by_name.values()}
         for edge in graph.edges.values():
             if edge.src_node in outgoing_by_node:
                 outgoing_by_node[edge.src_node] += 1
         for leaf_id, count in outgoing_by_node.items():
             if count == 0:
-                graph.add_edge(
-                    _make_dag_edge(graph, leaf_id, out_node.id, src_port="out")
-                )
+                graph.add_edge(_make_dag_edge(graph, leaf_id, out_node.id, src_port="out"))
     elif step_node_by_name:
         # Phase 1.6 linear path: explicit chain plus a final output
         # edge. This branch only runs when the YAML did not declare
@@ -313,9 +324,7 @@ def from_workflow_spec(
         ordered_ids = list(step_node_by_name.values())
         for prev_id, cur_id in zip(ordered_ids[:-1], ordered_ids[1:]):
             graph.add_edge(_make_dag_edge(graph, prev_id, cur_id))
-        graph.add_edge(
-            _make_dag_edge(graph, ordered_ids[-1], out_node.id, src_port="out")
-        )
+        graph.add_edge(_make_dag_edge(graph, ordered_ids[-1], out_node.id, src_port="out"))
 
     # Carry any ADVANCED / extra_options as a synthetic ADVANCED node.
     if extra:
@@ -537,9 +546,10 @@ def _build_step_dict(
         return {"name": step_name, "type": "confgen", "params": params, "inputs": list(input_names)}
     itask = _CALC_ITASK_BY_KIND[node.kind]
     step: dict[str, Any] = {"name": step_name, "type": "calc", "params": params, "inputs": list(input_names)}
-    # ``itask`` is a top-level param key in confflow's calc config; we
-    # place it explicitly so the workflow is self-describing.
-    step["params"]["itask"] = itask
+    # ``itask`` is a top-level param key in confflow's calc config. Keep
+    # a more specific task recovered from YAML (notably ``opt_freq``),
+    # because ``NodeKind.OPT`` is only its closest visual representation.
+    step["params"].setdefault("itask", itask)
     return step
 
 
@@ -619,16 +629,49 @@ def _step_kind(step: dict[str, Any]) -> NodeKind:
 
 
 def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
-    """Pull ``global_config.calc.extra_options`` from a dumped model."""
-    calc = data.get("calc", {}) if isinstance(data, dict) else {}
-    if not isinstance(calc, dict):
+    """Pull extra (non-well-known) keys from a dumped ``GlobalConfigModel``.
+
+    Tolerates both the legacy nested shape (``calc: { program, method, … }``)
+    and the v5 flat shape (everything at the top level).
+
+    We treat fields the user actually wrote as ``extra`` — the
+    ``GlobalConfigModel`` exposes ``model_fields_set()`` for this.  When
+    the caller passes a raw dict (e.g. from a legacy YAML file), we
+    accept every well-known key as "known" and pass the rest through.
+    """
+    if not isinstance(data, dict):
         return {}
-    # Anything not in the well-known global keys is treated as "extra".
     well_known = {
+        "work_dir", "calc",
         "program", "method", "basis", "charge", "multiplicity",
-        "nproc", "memory_mb", "keyword", "steps",
+        "nproc", "memory_mb", "cores_per_task", "total_memory",
+        "max_parallel_jobs", "energy_window",
+        "keyword", "steps", "freeze", "gaussian_path", "orca_path",
+        "gaussian_path", "orca_path",
     }
-    return {k: v for k, v in calc.items() if k not in well_known}
+    # Prefer the legacy ``calc`` subsection; fall back to the flat top level.
+    calc = data.get("calc")
+    source: dict[str, Any]
+    if isinstance(calc, dict):
+        source = calc
+    else:
+        source = data
+    # If the caller embedded ``_user_set_keys`` (a list of model fields
+    # that were explicitly populated), honour that to filter out the
+    # confflow defaults that the model_dump() emits.
+    explicit_keys = data.get("_user_set_keys")
+    if isinstance(explicit_keys, (set, list, tuple)):
+        explicit_keys = set(explicit_keys)
+    else:
+        explicit_keys = None
+    out: dict[str, Any] = {}
+    for k, v in source.items():
+        if k in well_known or k == "_user_set_keys":
+            continue
+        if explicit_keys is not None and k not in explicit_keys:
+            continue
+        out[k] = v
+    return out
 
 
 def default_node_for_step(kind: NodeKind, step: dict[str, Any]) -> Node:
@@ -638,8 +681,12 @@ def default_node_for_step(kind: NodeKind, step: dict[str, Any]) -> Node:
     node = _mk(kind)
     node.title = str(step.get("name", kind.value))
     params = dict(step.get("params", {}))
-    # Pop itask out of params; it belongs on the kind, not in the dict.
-    params.pop("itask", None)
+    # For canonical visual kinds the itask is implied by ``kind``. Keep
+    # non-canonical tasks such as ``opt_freq``: otherwise reopening a
+    # workflow would silently degrade it to the closest kind (``opt``).
+    itask = params.get("itask")
+    if itask == _CALC_ITASK_BY_KIND.get(kind):
+        params.pop("itask", None)
     node.params = params
     return node
 
@@ -677,4 +724,3 @@ def _canonical_input(node: Node) -> str:
     if node.inputs:
         return node.inputs[0].name
     return "in"
-

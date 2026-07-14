@@ -73,6 +73,11 @@ class WorkflowFields:
     work_dir_name: str
     steps: list[str] = field(default_factory=list)
     advanced_options: dict[str, Any] = field(default_factory=dict)
+    # When a workflow was authored in the workflow page, this is the
+    # validated final document (global YAML plus ordered step YAML).  Keeping
+    # it here prevents the submit boundary from reducing rich step fragments
+    # to legacy form tokens and reconstructing a different workflow.
+    yaml_text: str | None = None
 
 
 @dataclass

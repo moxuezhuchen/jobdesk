@@ -23,7 +23,7 @@ them. State persists through :class:`GuiSettingsStore`.
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QDrag, QMouseEvent
+from PySide6.QtGui import QDrag, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
@@ -181,6 +181,62 @@ class _DraggableButton(QToolButton):
         super().mouseMoveEvent(event)
 
 
+class _SearchLineEdit(QLineEdit):
+    """Library search box with an opt-in Tab shortcut.
+
+    The default Qt tab order walks through every library button
+    (~12 entries), then through the toolbar, then through the
+    onboarding card. A keyboard-only user starting from a fresh
+    canvas has to press Tab **25 times** before reaching the
+    onboarding card's "Quick start" button — effectively a focus
+    trap. The editor passes the Quick-start button to
+    :meth:`set_tab_shortcut` when the empty-canvas card is visible;
+    while the shortcut is active, Tab / Backtab jumps directly to
+    that button instead of marching through the palette. When the
+    card hides (canvas populated) the editor clears the shortcut so
+    the standard tab order resumes.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._tab_shortcut: QWidget | None = None
+
+    def set_tab_shortcut(self, target: QWidget | None) -> None:
+        """Configure (or clear with ``None``) the Tab focus shortcut.
+
+        Pass the widget that should receive focus when the user
+        presses Tab / Shift+Tab while the search box is focused.
+        ``None`` restores the default Qt focus chain.
+        """
+        self._tab_shortcut = target
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if (
+            self._tab_shortcut is not None
+            and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+            and not event.modifiers()
+        ):
+            # Honor Shift+Tab → previous focus, plain Tab → next.
+            if event.key() == Qt.Key.Key_Backtab:
+                # Walk backward: focus the parent chain so the user
+                # lands on a widget they came from. ``focusPrevious``
+                # on the parent walks the editor's natural chain.
+                parent = self.parentWidget()
+                while parent is not None and not parent.isWindow():
+                    parent.focusPreviousChild()
+                    fw = parent.focusWidget()
+                    if fw is not None and fw is not self:
+                        fw.setFocus()
+                        event.accept()
+                        return
+                    parent = parent.parentWidget()
+            else:
+                self._tab_shortcut.setFocus()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
 class _GroupHeader(QToolButton):
     """A small clickable section header above a row of buttons.
 
@@ -239,7 +295,7 @@ class NodeLibraryPanel(QWidget):
             settings = settings_store.load()
             self._collapsed_groups = set(settings.collapsed_library_groups)
 
-        self._search_box = QLineEdit(self)
+        self._search_box = _SearchLineEdit(self)
         self._search_box.setPlaceholderText(tr("Search nodes", language))
         self._search_box.setClearButtonEnabled(True)
         self._search_box.textChanged.connect(self._apply_filter)
@@ -273,6 +329,18 @@ class NodeLibraryPanel(QWidget):
             button.setToolTip(_tooltip_text(language, kind))
         for header in self._group_headers.values():
             header.set_language(language)
+
+    def set_search_box_tab_shortcut(self, target: QWidget | None) -> None:
+        """Override the search box's Tab focus target.
+
+        When the editor's onboarding card is visible, the user
+        should reach the Quick-start button with a single Tab
+        instead of walking through every palette row + the toolbar.
+        Pass the Quick-start button here while the card is shown;
+        pass ``None`` once the canvas is populated so the default
+        Tab order resumes (the card is hidden at that point anyway).
+        """
+        self._search_box.set_tab_shortcut(target)
 
     def language(self) -> str:
         return self._language

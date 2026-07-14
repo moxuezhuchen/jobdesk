@@ -71,10 +71,18 @@ def test_to_workflow_spec_canonical_linear():
     # all calc steps are type=calc
     for s in payload.steps[1:]:
         assert s["type"] == "calc"
-    # method/basis from the first emitting calc step drive the global config
-    spec_data = payload.spec.global_config.model_dump(mode="json", exclude_none=True)
-    assert spec_data["calc"]["method"] == "GFN2"
-    assert spec_data["calc"]["basis"] == "XTB"
+    # v6: keyword lives inside the first calc step's ``params``,
+    # not at the top level.
+    raw = getattr(payload.spec, "_raw", None) or {}
+    steps_list = raw.get("steps", []) if isinstance(raw, dict) else []
+    first_calc = next(
+        (s for s in steps_list
+         if isinstance(s, dict) and s.get("type") == "calc"),
+        {},
+    )
+    keyword = (first_calc.get("params") or {}).get("keyword") or ""
+    assert "GFN2" in keyword
+    assert "XTB" in keyword
 
 
 def test_to_workflow_spec_yaml_round_trip_is_valid():
@@ -88,9 +96,6 @@ def test_to_workflow_spec_yaml_round_trip_is_valid():
     assert "itask: preopt" in yaml_text
     assert "itask: opt" in yaml_text
     assert "itask: sp" in yaml_text
-    # The global config is present.
-    assert "work_dir:" in yaml_text
-    assert "calc:" in yaml_text
     # Round-trip through PyYAML: the file parses back into the same
     # number of steps in the same order.
     import yaml
@@ -98,7 +103,6 @@ def test_to_workflow_spec_yaml_round_trip_is_valid():
     reparsed = yaml.safe_load(yaml_text)
     assert reparsed["steps"][0]["type"] == "confgen"
     assert [s["params"]["itask"] for s in reparsed["steps"][1:]] == ["preopt", "opt", "sp"]
-    assert "calc" in reparsed
 
 
 def test_to_workflow_spec_advanced_merges_into_extra_options():
@@ -108,12 +112,13 @@ def test_to_workflow_spec_advanced_merges_into_extra_options():
     g.add_node(adv)
     payload = to_workflow_spec(g)
     spec_data = payload.spec.global_config.model_dump(mode="json", exclude_none=True)
-    # nproc is promoted to the top level (it's a well-known key).
-    assert spec_data["calc"]["nproc"] == 16
-    # The remaining advanced keys survive in extra_options (as the
-    # GlobalConfigModel ``calc`` payload).
-    assert spec_data["calc"].get("solvent") == "water"
-    assert spec_data["calc"].get("nprocshared") == 8
+    # v6: ``nproc`` from the advanced node is promoted to the
+    # canonical confflow resource name ``cores_per_task``.
+    assert spec_data.get("cores_per_task") == 16
+    # The remaining advanced keys survive as flat top-level fields in
+    # ``global_config``.
+    assert spec_data.get("solvent") == "water"
+    assert spec_data.get("nprocshared") == 8
 
 
 def test_from_workflow_spec_round_trip_recovers_step_set():

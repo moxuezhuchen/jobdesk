@@ -364,8 +364,6 @@ ZH: dict[str, str] = {
     "Recent:": "\u6700\u8fd1:",
     "Method:": "\u65b9\u6cd5:",
     "Basis:": "\u57fa\u7ec4:",
-    "Charge:": "\u7535\u8377:",
-    "Multiplicity:": "\u81ea\u65cb\u591a\u91cd\u5ea6:",
     "CPU cores:": "CPU \u6838\u6570:",
     "Memory:": "\u5185\u5b58:",
     "Method is required.": "\u65b9\u6cd5\u4e0d\u80fd\u4e3a\u7a7a\u3002",
@@ -702,6 +700,39 @@ ZH: dict[str, str] = {
     # -- 2.0: Workflow Builder + Submit dual entry --
     "Workflow": "\u5de5\u4f5c\u6d41",
     "Workflow presets": "\u5de5\u4f5c\u6d41\u9884\u8bbe",
+    "No saved workflows": "\u6682\u65e0\u5df2\u4fdd\u5b58\u7684\u5de5\u4f5c\u6d41",
+    "Step YAML": "\u6b65\u9aa4 YAML",
+    "Global YAML": "\u5168\u5c40 YAML",
+    "Generated workflow YAML": "\u751f\u6210\u7684\u5de5\u4f5c\u6d41 YAML",
+    "Select a workflow step on the graph.": "\u8bf7\u5728\u6d41\u7a0b\u56fe\u4e2d\u9009\u62e9\u4e00\u4e2a\u5de5\u4f5c\u6d41\u6b65\u9aa4\u3002",
+    "Choose a step to edit.": "\u9009\u62e9\u4e00\u4e2a\u6b65\u9aa4\u8fdb\u884c\u7f16\u8f91\u3002",
+    "Select a step card first": "\u8bf7\u5148\u9009\u62e9\u4e00\u5f20\u6b65\u9aa4\u5361\u7247",
+    "Workflow-wide resources and molecular settings.": "\u5de5\u4f5c\u6d41\u5168\u5c40\u8d44\u6e90\u548c\u5206\u5b50\u8bbe\u7f6e\u3002",
+    "Apply preset": "\u5e94\u7528\u9884\u8bbe",
+    "Load step": "\u6253\u5f00\u6b65\u9aa4",
+    "Apply to step": "\u5e94\u7528\u5230\u6b65\u9aa4",
+    "Apply global settings": "\u5e94\u7528\u5168\u5c40\u8bbe\u7f6e",
+    "Save step": "\u4fdd\u5b58\u6b65\u9aa4",
+    "Save step preset": "\u4fdd\u5b58\u6b65\u9aa4\u9884\u8bbe",
+    "Step preset saved.": "\u6b65\u9aa4\u9884\u8bbe\u5df2\u4fdd\u5b58\u3002",
+    "Step saved.": "\u6b65\u9aa4\u5df2\u4fdd\u5b58\u3002",
+    "Workflow flow": "\u5de5\u4f5c\u6d41\u56fe",
+    "Final workflow YAML": "\u6700\u7ec8\u5de5\u4f5c\u6d41 YAML",
+    "Input structure": "\u8f93\u5165\u7ed3\u6784",
+    "Workflow output": "\u5de5\u4f5c\u6d41\u8f93\u51fa",
+    "Move step": "\u79fb\u52a8\u6b65\u9aa4",
+    "Step YAML applied.": "\u6b65\u9aa4 YAML \u5df2\u5e94\u7528\u3002",
+    "Global YAML applied.": "\u5168\u5c40 YAML \u5df2\u5e94\u7528\u3002",
+    "Unsaved step YAML": "\u672a\u5e94\u7528\u7684\u6b65\u9aa4 YAML",
+    "Apply the current step YAML before switching?": "\u5207\u6362\u524d\u5e94\u7528\u5f53\u524d\u6b65\u9aa4 YAML \u5417\uff1f",
+    "Discard workflow changes?": "\u653e\u5f03\u5de5\u4f5c\u6d41\u4fee\u6539\uff1f",
+    "Current workflow edits will be discarded. Continue?": "\u5f53\u524d\u5de5\u4f5c\u6d41\u7684\u4fee\u6539\u5c06\u88ab\u653e\u5f03\uff0c\u662f\u5426\u7ee7\u7eed\uff1f",
+    "Save workflow": "\u4fdd\u5b58\u5de5\u4f5c\u6d41",
+    "Name:": "\u540d\u79f0\uff1a",
+    "Save the workflow before submitting.": "\u63d0\u4ea4\u524d\u8bf7\u5148\u4fdd\u5b58\u5de5\u4f5c\u6d41\u3002",
+    "Modified \u2014 save workflow before submitting.": "\u5df2\u4fee\u6539 \u2014 \u8bf7\u5728\u63d0\u4ea4\u524d\u4fdd\u5b58\u5de5\u4f5c\u6d41\u3002",
+    "Workflow validation": "\u5de5\u4f5c\u6d41\u6821\u9a8c",
+    "Workflow is valid.": "\u5de5\u4f5c\u6d41\u6821\u9a8c\u901a\u8fc7\u3002",
     "Built-in": "\u5185\u7f6e",
     "New workflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41",
     "Save as user preset": "\u4fdd\u5b58\u4e3a\u7528\u6237\u9884\u8bbe",
@@ -710,6 +741,7 @@ ZH: dict[str, str] = {
     "Add Confgen": "\u6dfb\u52a0\u6784\u8c61\u751f\u6210",
     "Add Calculation": "\u6dfb\u52a0\u8ba1\u7b97\u6b65\u9aa4",
     "Use this preset for submit": "\u7528\u6b64\u9884\u8bbe\u63d0\u4ea4",
+    "Use this workflow for submit": "\u4f7f\u7528\u6b64\u5de5\u4f5c\u6d41\u63d0\u4ea4",
     "Open in builder": "\u5728\u7f16\u8f91\u5668\u4e2d\u6253\u5f00",
     "Delete preset": "\u5220\u9664\u9884\u8bbe",
     "Rename preset": "\u91cd\u547d\u540d\u9884\u8bbe",
@@ -738,6 +770,38 @@ ZH: dict[str, str] = {
     "Submit (selected files)": "\u63d0\u4ea4 (\u9009\u4e2d\u6587\u4ef6)",
     "Pick a preset first.": "\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u9884\u8bbe\u3002",
     "Add a step first.": "\u8bf7\u5148\u6dfb\u52a0\u4e00\u4e2a\u6b65\u9aa4\u3002",
+    # -- Phase 3: page-internal linear step editor --
+    "Move up": "\u4e0a\u79fb",
+    "Move down": "\u4e0b\u79fb",
+    "Add step:": "\u65b0\u589e\u6b65\u9aa4:",
+    "Add step": "\u6dfb\u52a0\u6b65\u9aa4",
+    "Add current step": "\u6dfb\u52a0\u5f53\u524d\u6b65\u9aa4",
+    "Add the step currently shown on the left.": "\u5c06\u5de6\u4fa7\u5f53\u524d\u663e\u793a\u7684\u6b65\u9aa4\u6dfb\u52a0\u5230\u5de5\u4f5c\u6d41\u3002",
+    "Choose a step on the left, then add it to the workflow.": "\u5728\u5de6\u4fa7\u9009\u62e9\u6b65\u9aa4\uff0c\u7136\u540e\u6dfb\u52a0\u5230\u5de5\u4f5c\u6d41\u3002",
+    "Start a fresh workflow from scratch.": "\u4ece\u96f6\u5f00\u59cb\u521b\u5efa\u4e00\u4e2a\u65b0\u5de5\u4f5c\u6d41\u3002",
+    "New workflow ready \u2014 click Save.": "\u65b0\u5de5\u4f5c\u6d41\u5df2\u51c6\u5907\u597d\uff0c\u8bf7\u70b9\u51fb\u300c\u4fdd\u5b58\u300d\u3002",
+    "New": "\u65b0\u5efa",
+    "New step": "\u65b0\u5efa\u6b65\u9aa4",
+    "Saved workflow could not be reloaded.": "\u5df2\u4fdd\u5b58\u7684\u5de5\u4f5c\u6d41\u65e0\u6cd5\u91cd\u65b0\u52a0\u8f7d\u3002",
+    "Calculation step (calc)": "\u8ba1\u7b97\u6b65\u9aa4 (calc)",
+    "Conformer generation step (confgen)": "\u6784\u8c61\u751f\u6210\u6b65\u9aa4 (confgen)",
+    "Choose the type for the new step.": "\u8bf7\u9009\u62e9\u65b0\u5efa\u6b65\u9aa4\u7684\u7c7b\u578b\u3002",
+    "Preset": "\u9884\u8bbe",
+    "Calculation": "\u8ba1\u7b97\u8bbe\u7f6e",
+    "Browse, edit and dispatch workflow presets.": "\u6d4f\u89c8\u3001\u7f16\u8f91\u5e76\u63d0\u4ea4\u5de5\u4f5c\u6d41\u9884\u8bbe\u3002",
+    "Modified \u2014 click Save to keep changes.": "\u5df2\u4fee\u6539 \u2014 \u8bf7\u70b9\u51fb\u300c\u4fdd\u5b58\u300d\u3002",
+    "e.g. B3LYP": "\u5982 B3LYP",
+    "e.g. 6-31G(d)": "\u5982 6-31G(d)",
+    "[G]": "[Gaussian]",
+    "[O]": "[ORCA]",
+    "Workflow YAML": "\u5de5\u4f5c\u6d41 YAML",
+    "Edit per-step keywords, program, and task type.":
+        "\u7f16\u8f91\u6bcf\u4e00\u6b65\u7684\u5173\u952e\u8bcd\u3001\u7a0b\u5e8f\u4e0e\u4efb\u52a1\u7c7b\u578b\u3002",
+    "Apply": "\u5e94\u7528",
+    "Apply the YAML text to the current workflow.":
+    "\u5c06 YAML \u6587\u672c\u5e94\u7528\u5230\u5f53\u524d\u5de5\u4f5c\u6d41\u3002",
+    "YAML applied successfully.": "YAML \u5e94\u7528\u6210\u529f\u3002",
+    "YAML parse error": "YAML \u89e3\u6790\u9519\u8bef",
     # Phase 2.0 dual-entry follow-ups: the SubmitDialog tolerates an
     # empty source list (the Workflow-page "Use this preset for
     # submit" button and the Runs-page empty-state "Go to Submit"
@@ -751,6 +815,44 @@ ZH: dict[str, str] = {
         "\u4f60\u4ecd\u53ef\u4ee5\u9884\u9009\u5de5\u4f5c\u6d41\u9884\u8bbe\u4ee5\u4fbf\u4ee5\u540e\u63d0\u4ea4\u3002",
     "Workflow required while no input files are selected":
         "\u672a\u9009\u62e9\u8f93\u5165\u6587\u4ef6\u65f6\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
+    # Review-round 3: SubmitDialog grew "Save workflow.yaml..."
+    # strings + a brief "Pick at least one input file in the Files
+    # page, then reopen this dialog." line for the OK-click guard.
+    # Add ZH entries below; EN falls back from ``tr()`` if missing.
+    "Pick at least one input file in the Files page, then reopen this dialog.":
+        "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
+        "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002",
+    "Save workflow.yaml\u2026": "\u4fdd\u5b58 workflow.yaml\u2026",
+    "Save workflow.yaml": "\u4fdd\u5b58 workflow.yaml",
+    "Switch to Workflow mode to save a workflow.yaml.":
+        "\u8bf7\u5207\u6362\u5230\u5de5\u4f5c\u6d41\u6a21\u5f0f\u540e\u518d\u4fdd\u5b58 workflow.yaml\u3002",
+    "YAML (*.yaml);;All files (*.*)": "YAML (*.yaml)\uff1b\u6240\u6709\u6587\u4ef6 (*.*)",
+    "workflow.yaml": "workflow.yaml",
+    # Workflow page: collapsible Global settings card (Phase 6
+    # simplification: per-step YAML no longer re-states the global
+    # fields; the user opens this card to override them).
+    "Global settings": "\u5168\u5c40\u8bbe\u7f6e",
+    "Show global settings": "\u5c55\u5f00\u5168\u5c40\u8bbe\u7f6e",
+    "Hide global settings": "\u6536\u8d77\u5168\u5c40\u8bbe\u7f6e",
+    "Default program: ": "\u9ed8\u8ba4\u7a0b\u5e8f\uff1a",
+    "Override per step in the YAML editor.":
+        "\u5982\u9700\u9488\u5bf9\u67d0\u4e00\u6b65\u8986\u76d6\uff0c\u8bf7\u5728 YAML \u7f16\u8f91\u5668\u4e2d\u4fee\u6539\u3002",
+    "Work directory:": "\u5de5\u4f5c\u76ee\u5f55\uff1a",
+    "Cores per task:": "\u6bcf\u4efb\u52a1\u6838\u6570\uff1a",
+    "Total memory:": "\u603b\u5185\u5b58\uff1a",
+    "Max parallel jobs:": "\u6700\u5927\u5e76\u884c\u4efb\u52a1\u6570\uff1a",
+    "Charge:": "\u7535\u8377\uff1a",
+    "Multiplicity:": "\u81ea\u65cb\u591a\u91cd\u5ea6\uff1a",
+    "Frozen atoms:": "\u51bb\u7ed3\u539f\u5b50\uff1a",
+    "Comma-separated 1-based atom indices, e.g. 86, 92":
+        "\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u539f\u5b50\u7f16\u53f7\uff0c\u5982 86, 92",
+    "Frozen atoms must be a comma-separated list of positive integers (1-based).":
+        "\u51bb\u7ed3\u539f\u5b50\u5fc5\u987b\u662f\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u6b63\u6574\u6570\u5217\u8868\u3002",
+    "YAML did not produce any steps.":
+        "YAML \u672a\u4ea7\u751f\u4efb\u4f55\u6b65\u9aa4\u3002",
+    "e.g. 16GB": "\u5982 16GB",
+    "Gaussian": "Gaussian \u8ba1\u7b97",
+    "ORCA": "ORCA \u8ba1\u7b97",
 }
 
 

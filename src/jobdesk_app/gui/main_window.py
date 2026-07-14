@@ -89,6 +89,17 @@ class MainWindow(QMainWindow):
             self.workflow_page.preset_chosen_for_submit.connect(
                 self._on_workflow_chosen
             )
+        # Review-round 3: the Workflow-page ``[New workflow]`` button
+        # now opens the modal ``WorkflowBuilderDialog``. ``MainWindow``
+        # doesn't need to do anything special here -- the dialog
+        # itself owns the Save flow -- but we still subscribe to the
+        # ``workflow_authored`` signal so a saved-and-then-submit chain
+        # (``Save in the modal → route through SubmitDialog``) keeps
+        # the sidebar in sync with the freshly-saved preset. The
+        # actual save is performed in ``WorkflowPage._offer_save_*``;
+        # this listener just refreshes the status line.
+        if hasattr(self.workflow_page, "workflow_authored"):
+            self.workflow_page.workflow_authored.connect(self._on_workflow_authored)
         # Cross-page push from Files page right-click menu.
         if hasattr(self.files_page, "use_as_input_received"):
             self.files_page.use_as_input_received.connect(self._on_use_as_input_received)
@@ -398,6 +409,11 @@ class MainWindow(QMainWindow):
             preset_name=preset_name,
             parent=self,
         )
+        # Wire the dialog's status callback so ``[Save workflow.yaml]``
+        # reports its outcome in the same status line as the rest of
+        # the app instead of swallowing it. Review-round 3.
+        if hasattr(dialog, "set_status_callback"):
+            dialog.set_status_callback(self._update_status)
         # If the caller didn't pin a preset and no files are selected,
         # pre-select the first user preset if any (best UX). We do this
         # AFTER construction because the constructor can't read
@@ -442,6 +458,20 @@ class MainWindow(QMainWindow):
         # preset first, then drags files in). The dialog renders an
         # empty-state and stays open in Workflow mode.
         self._open_submit_dialog([], preset_name=preset_name)
+
+    def _on_workflow_authored(self, _spec, name: str) -> None:
+        """Sidebar status feedback after the user authors a workflow.
+
+        Review-round 3: the modal ``WorkflowBuilderDialog`` (Save in
+        ``[New workflow]`` / ``[Edit in builder]``) emits
+        ``workflow_authored`` after persisting the new preset. We
+        surface a status line so the user sees the outcome in the
+        same place as ``Save as user preset``.
+        """
+        if name:
+            self._update_status(
+                tr("Workflow preset loaded: {name}", self.language, name=name)
+            )
 
     def shutdown(self):
         if getattr(self, "_shutdown_done", False):

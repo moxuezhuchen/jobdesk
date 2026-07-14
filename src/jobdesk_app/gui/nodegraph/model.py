@@ -59,6 +59,7 @@ class PortType(str, enum.Enum):
     STRUCTURES = "structures"  # noqa: SC200 - multi-conformer ensemble
     ENERGY = "energy"
     CONFIG = "config"
+    ANY = "any"  # visual terminal only; used by OUTPUT
 
 
 class NodeKind(str, enum.Enum):
@@ -214,11 +215,10 @@ def _default_ports(kind: NodeKind) -> tuple[tuple[Port, ...], tuple[Port, ...]]:
             (Port(name="out", type=PortType.CONFIG, direction="out", label="opts"),),
         )
     if kind is NodeKind.OUTPUT:
-        # The Output node is a sentinel: it has no ports. The graph's
-        # serialization (Phase 2) treats it as the "user has finished
-        # wiring the workflow" marker. Having no ports avoids forcing
-        # the user to wire every branch into Output.
-        return ((), ())
+        # Output is a visual terminal.  Its wildcard input accepts a
+        # structure or energy result without participating in workflow
+        # YAML dependency generation.
+        return ((Port(name="in", type=PortType.ANY, direction="in", label="result"),), ())
     raise ValueError(f"unknown node kind: {kind!r}")
 
 
@@ -375,7 +375,7 @@ class NodeGraph:
                     node_id=edge.src_node,
                 )
                 continue
-            if src_port.type is dst_port.type:
+            if src_port.type is dst_port.type or dst_port.type is PortType.ANY:
                 continue
             # Allow STRUCTURES -> STRUCTURE downcast (Refine picks the
             # best conformer from an ensemble).

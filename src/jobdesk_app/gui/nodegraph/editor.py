@@ -78,6 +78,7 @@ class WorkflowGraphEditor(QWidget):
     # edit / undo / redo / load template). UI panels that wrap this
     # editor should listen here to refresh their previews.
     graph_changed = Signal()
+    selected_node_changed = Signal(str)  # empty string means no selected node
     example_template_requested = Signal(str)
     tour_requested = Signal()
 
@@ -87,10 +88,16 @@ class WorkflowGraphEditor(QWidget):
         parent: QWidget | None = None,
         *,
         settings_store: GuiSettingsStore | None = None,
+        show_library: bool = True,
+        show_properties: bool = True,
+        show_template_actions: bool = True,
     ) -> None:
         super().__init__(parent)
         self._language = language
         self._settings_store = settings_store or GuiSettingsStore()
+        self._show_library = show_library
+        self._show_properties = show_properties
+        self._show_template_actions = show_template_actions
         self._gui_settings = self._settings_store.load()
         self._scene = GraphScene(self)
         self._canvas_area = QWidget(self)
@@ -131,6 +138,10 @@ class WorkflowGraphEditor(QWidget):
         self._settings_refresh_timer.timeout.connect(self._reload_gui_settings)
 
         self._build_layout()
+        if not self._show_library:
+            self._library.hide()
+        if not self._show_properties:
+            self._properties.hide()
         self._build_onboarding_overlay()
         self._wire_signals()
         self.apply_language(language)
@@ -159,6 +170,32 @@ class WorkflowGraphEditor(QWidget):
         self._library.refresh_visibility(graph)
         self._refresh_onboarding_visibility()
         self.graph_changed.emit()
+        # Review-fix: previously, after a wholesale template load
+        # (e.g. Quick-start or toolbar Examples), the scene was
+        # populated but the view's scroll position stayed wherever it
+        # was — which on a freshly-empty canvas is the centre of the
+        # 8000×6000 sceneRect, far from the new nodes at (40, 80)…
+        # (700, 80). The user would see a blank canvas after
+        # clicking Quick-start even though the model contained a
+        # valid graph. ``fit_to_items`` re-centres and scales the
+        # view so the new nodes land inside the viewport on the same
+        # paint cycle, no manual Fit click required.
+        if graph.nodes:
+            # ``QGraphicsView.fitInView`` requires the items to be
+            # laid out; call it once processEvents has had a chance
+            # to compute geometry. ``processEvents`` is safe here
+            # because this code path is triggered by user actions
+            # (button clicks / menu selections), not during initial
+            # widget construction where the parent layout isn't
+            # realised yet.
+            from PySide6.QtCore import QCoreApplication
+            QCoreApplication.processEvents()
+            self._view.fit_to_items()
+            # During page construction the editor may not have received its
+            # final geometry yet. Queue one more fit for the first visible
+            # event-loop turn so a freshly loaded preset never opens on an
+            # apparently empty grid.
+            QTimer.singleShot(0, self._view.fit_to_items)
 
     def open_examples_menu(self) -> None:
         """Pop the toolbar Examples menu without requiring a click.
@@ -228,6 +265,20 @@ class WorkflowGraphEditor(QWidget):
     def onboarding_card(self) -> OnboardingCard | None:
         return self._onboarding_card
 
+    def add_node(self, kind: NodeKind) -> None:
+        """Add a node at the visible canvas centre.
+
+        The workflow page uses this small public API instead of exposing
+        the editor's internal node-library widget.
+        """
+        self._add_at_centre(kind)
+
+    def remove_selected(self) -> None:
+        self._scene.remove_selected()
+
+    def fit_to_items(self) -> None:
+        self._view.fit_to_items()
+
     # ── construction helpers ─────────────────────────────────────────
 
     def _build_layout(self) -> None:
@@ -240,33 +291,35 @@ class WorkflowGraphEditor(QWidget):
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
         toolbar.setIconSize(toolbar.iconSize())
-        for button in (
+        toolbar_buttons = [
             self._undo_btn,
             self._redo_btn,
             self._fit_btn,
             self._grid_btn,
             self._clear_btn,
-            self._load_btn,
-            self._examples_btn,
-            self._save_btn,
-            self._validate_btn,
-        ):
+        ]
+        if self._show_template_actions:
+            toolbar_buttons.extend([self._load_btn, self._examples_btn, self._save_btn])
+        toolbar_buttons.append(self._validate_btn)
+        for button in toolbar_buttons:
             toolbar.addWidget(button)
         outer.addWidget(toolbar)
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        self._library.setMinimumWidth(_DEFAULT_LIBRARY_WIDTH)
-        self._library.setMaximumWidth(_DEFAULT_LIBRARY_WIDTH)
-        body.addWidget(self._library)
+        if self._show_library:
+            self._library.setMinimumWidth(_DEFAULT_LIBRARY_WIDTH)
+            self._library.setMaximumWidth(_DEFAULT_LIBRARY_WIDTH)
+            body.addWidget(self._library)
         canvas_layout = QVBoxLayout(self._canvas_area)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(0)
         canvas_layout.addWidget(self._view)
         body.addWidget(self._canvas_area, 1)
-        self._properties.setMinimumWidth(_DEFAULT_PROPERTIES_WIDTH)
-        self._properties.setMaximumWidth(_DEFAULT_PROPERTIES_WIDTH)
-        body.addWidget(self._properties)
+        if self._show_properties:
+            self._properties.setMinimumWidth(_DEFAULT_PROPERTIES_WIDTH)
+            self._properties.setMaximumWidth(_DEFAULT_PROPERTIES_WIDTH)
+            body.addWidget(self._properties)
         outer.addLayout(body, 1)
         # Status bar with a coloured pill.
         status_bar = QStatusBar(self)
@@ -435,10 +488,12 @@ class WorkflowGraphEditor(QWidget):
         selected = self._scene.selected_node()
         if selected is None:
             self._properties.clear()
+            self.selected_node_changed.emit("")
             return
         node = self._scene.graph().nodes.get(selected.node_id)
         if node is None:
             self._properties.clear()
+            self.selected_node_changed.emit("")
             return
         # Surface fan-in info: walk the graph's incoming edges for this
         # node and collect the upstream node titles. The properties
@@ -452,6 +507,7 @@ class WorkflowGraphEditor(QWidget):
         self._properties.show_node_with_inputs(
             node.id, node.kind, dict(node.params), incoming_names
         )
+        self.selected_node_changed.emit(node.id)
 
     def _on_params_changed(self, node_id: str, params: dict) -> None:
         cmd = SetParamsCommand(self._scene.graph(), node_id, params)
@@ -474,6 +530,19 @@ class WorkflowGraphEditor(QWidget):
         self._onboarding_card.setVisible(should_show)
         if should_show:
             self._position_onboarding_card()
+            # Review-fix: while the card is on screen, the search box
+            # is the first stop a keyboard-only user lands on, but the
+            # default tab order then walks through every library
+            # button (~12) + the toolbar (7) before the onboarding
+            # buttons become reachable. Wire the search box's Tab key
+            # straight to the Quick-start button so the canvas's
+            # primary call-to-action is reachable in a single keystroke.
+            quick_start = self._onboarding_card._quick_start_btn
+            self._library.set_search_box_tab_shortcut(quick_start)
+        else:
+            # Canvas has nodes / card hidden — restore the natural
+            # focus chain so library/toolbar tabs behave normally.
+            self._library.set_search_box_tab_shortcut(None)
 
     def _hide_onboarding_forever(self) -> None:
         self._gui_settings = self._settings_store.update(show_onboarding=False)

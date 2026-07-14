@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from jobdesk_app.core.submit_payload import InputSource, SubmitPayload  # noqa: E402
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
@@ -108,6 +108,22 @@ def test_workflow_payload_uses_selected_preset(qapp_instance, tmp_path, monkeypa
     assert payload.kind in {"confflow", "dag"}
     assert payload.program == "gaussian"
     assert payload.calc.method_basis == "B3LYP 6-31G(d)"
+
+
+def test_stale_workflow_selection_cannot_accept(qapp_instance, tmp_path, monkeypatch):
+    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
+    dlg = SubmitDialog(
+        "en", files=[_src("a.xyz", "xyz")], preset_store=MethodPresetStore(),
+        preset_name="b3lyp_631gd_opt_freq",
+    )
+    try:
+        assert dlg._preset_name is None
+        dlg._on_ok_clicked()
+        assert dlg.result() == 0
+    finally:
+        dlg.close()
+        dlg.deleteLater()
 
 
 # Phase 2.0 dual-entry follow-ups: the dialog must tolerate an empty

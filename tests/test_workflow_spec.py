@@ -122,7 +122,17 @@ def test_write_workflow_yaml_is_atomic(tmp_path: Path):
 
         parsed = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
         assert parsed != {}
-        assert parsed.get("work_dir") == "x"
+        # v6 schema: ``work_dir`` lives under the canonical
+        # ``global`` section (the confflow loader shape).
+        assert parsed.get("global", {}).get("work_dir") == "x"
+        # Each step has a ``name``; ``type`` is omitted when it is the
+        # default value ``calc`` (the wizard's only wizard-visible
+        # step type).
+        steps = parsed.get("steps") or []
+        assert isinstance(steps, list) and steps
+        assert all("name" in s for s in steps)
+        for s in steps:
+            assert s.get("type") in (None, "calc", "confgen", "gen", "task")
     else:
         # Graceful path: missing confflow raises a typed error.
         with pytest.raises(ConfFlowUnavailableError):
@@ -223,8 +233,14 @@ def test_from_form_orca_keyword_keeps_user_override():
 
 
 def test_from_form_gaussian_does_not_force_keyword():
-    """Gaussian users rely on method/basis; from_form must not synthesize a
-    `keyword` field for them (ConfFlow Gaussian policy constructs it)."""
+    """v6: ``from_form`` always emits ``keyword`` in the first calc
+    step's params (the engine builds the Gaussian input file from
+    it). What we *don't* do is invent a keyword when both method and
+    basis are blank.
+
+    Engine-facing YAML is an exact workflow snapshot, so the explicit
+    program and task fields are retained as well.
+    """
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
     spec = WorkflowSpec.from_form(
@@ -236,7 +252,198 @@ def test_from_form_gaussian_does_not_force_keyword():
         multiplicity=1,
         nproc=8,
         memory_mb=4096,
+        steps=("opt_freq",),
     )
     yaml_text = spec.to_yaml()
-    # No 'keyword' synthesised; Gaussian policy builds it from method/basis.
-    assert "keyword:" not in yaml_text
+    # keyword is now nested in the first calc step's ``params``.
+    assert "keyword: B3LYP 6-31G(d)" in yaml_text
+    # ``type: calc`` is required by confflow — always emitted.
+    assert "type: calc" in yaml_text
+    assert "itask: opt_freq" in yaml_text
+    assert "iprog: gaussian" in yaml_text
+
+
+def test_from_yaml_rejects_invalid_step_task():
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    with pytest.raises(ValueError, match="invalid itask"):
+        WorkflowSpec.from_yaml(
+            """\
+global: {}
+steps:
+  - name: invalid
+    type: calc
+    params:
+      iprog: orca
+      itask: not_a_task
+      keyword: B3LYP def2-SVP
+"""
+        )
+
+
+def test_from_yaml_rejects_canonical_confgen_without_chains():
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    with pytest.raises(ValueError, match="requires 'chains'"):
+        WorkflowSpec.from_yaml(
+            """\
+global: {}
+steps:
+  - name: invalid_confgen
+    type: confgen
+    params: {}
+"""
+        )
+
+
+def test_from_form_orca_step_emits_iprog_override():
+    """ORCA overrides the global ``iprog`` default, so each calc
+    step should surface its ``iprog: orca`` field.
+    """
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="orca",
+        method="B3LYP",
+        basis="def2-SVP",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=4096,
+        steps=("opt_freq",),
+    )
+    yaml_text = spec.to_yaml()
+    assert "iprog: orca" in yaml_text
+    assert "keyword: B3LYP def2-SVP" in yaml_text
+
+
+# ── Phase 6: wizard-facing YAML split ────────────────────────────────────
+
+
+def test_to_user_yaml_omits_global_block_and_default_type():
+    """v6 phase-6 wizard YAML omits the ``global:`` block entirely and
+    hides ``type: calc``. Resources live in the Global settings
+    card; ``type: calc`` is the engine default the wizard hides.
+    """
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=4096,
+        steps=("opt_freq",),
+    )
+    text = spec.to_user_yaml()
+    assert "global:" not in text
+    assert "type: calc" not in text
+    assert "type:" not in text  # no step has any type now
+    # Step + keyword still shown.
+    assert "name: opt_freq" in text
+    assert "keyword: B3LYP 6-31G(d)" in text
+
+
+def test_to_user_yaml_keeps_confgen_type_visible():
+    """``type: confgen`` is non-default and must be preserved in the
+    wizard's editor view.
+    """
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=4096,
+        steps=("confgen", "preopt", "opt"),
+    )
+    text = spec.to_user_yaml()
+    assert "type: confgen" in text  # non-default — still surfaced
+    assert "type: calc" not in text  # default — still hidden
+
+
+def test_to_user_yaml_keeps_orca_iprog_override():
+    """When ``iprog`` differs from the global ``gaussian`` default, it
+    is still useful information and remains visible in the wizard view.
+    """
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="orca",
+        method="B3LYP",
+        basis="def2-SVP",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=4096,
+        steps=("opt_freq",),
+    )
+    text = spec.to_user_yaml()
+    assert "iprog: orca" in text
+
+
+def test_user_yaml_round_trip_through_confflow_loader():
+    """``to_user_yaml`` → ``from_yaml`` (after merging hidden fields
+    back) → ``to_yaml`` must still pass the confflow loader.
+
+    This is the contract the workflow page ``Apply`` button relies on.
+    """
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    spec = WorkflowSpec.from_form(
+        work_dir_name="round_trip",
+        program="orca",
+        method="B3LYP",
+        basis="def2-TZVP",
+        charge=0,
+        multiplicity=1,
+        nproc=8,
+        memory_mb=16384,
+        steps=("preopt", "sp"),
+    )
+    user_yaml = spec.to_user_yaml()
+    # Simulate the wizard Apply path: inject the hidden fields
+    # back, then build a fresh spec.
+    import yaml as yamllib
+
+    base = spec._raw
+    user_data = yamllib.safe_load(user_yaml) or {}
+    # Re-attach global from base + lift top-level keys via the
+    # normaliser (the wizard's merge routine does the same).
+    from jobdesk_app.core.workflow_spec import _normalise_yaml_to_schema
+    normalised = _normalise_yaml_to_schema(user_data)
+    merged = {
+        "global": {**(base.get("global") or {}), **(normalised.get("global") or {})},
+        "steps": normalised.get("steps") or [],
+    }
+    merged_text = yamllib.safe_dump(
+        merged, sort_keys=False, allow_unicode=True, default_flow_style=False,
+    )
+    rebuilt = WorkflowSpec.from_yaml(merged_text)
+    # And the rebuilt spec still loads via the confflow loader.
+    import os
+    import tempfile
+
+    from jobdesk_app.confflow.confflow.config.loader import (
+        load_workflow_config_file,
+    )
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".yaml", delete=False, encoding="utf-8",
+    ) as f:
+        f.write(rebuilt.to_yaml())
+        path = f.name
+    try:
+        cfg = load_workflow_config_file(path)
+        assert len(cfg["steps"]) >= 1
+    finally:
+        os.unlink(path)

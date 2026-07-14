@@ -1,0 +1,5 @@
+type: calc
+params:
+  iprog: orca
+  itask: opt_freq
+  keyword: B3LYP D3BJ def2-TZVP

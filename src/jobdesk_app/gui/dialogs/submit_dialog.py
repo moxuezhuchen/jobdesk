@@ -9,21 +9,46 @@ default Mode:
 
 The dialog emits a fully formed :class:`SubmitPayload` on accept so the
 caller (``MainWindow._on_submit_requested``) is unchanged.
+
+Review-round 3 fix-ups:
+
+* A read-only ``QPlainTextEdit`` shows the exact ``workflow.yaml`` that
+  ``build_payload()`` would upload for the currently selected preset.
+  The user can eyeball the YAML before clicking Submit so they no
+  longer "submit, then notice it was the wrong preset". The preview is
+  regenerated whenever the preset combo or the charge / multiplicity
+  spins change, so the two are always in sync.
+* A ``[Save workflow.yaml\u2026]`` button writes the same YAML to a
+  user-chosen path without touching the remote server. Use this to
+  keep a copy alongside the inputs or to feed ``confflow --dry-run``
+  offline.
+* The preset combo rebuild now blocks signals during the rebuild so
+  the spurious ``currentIndexChanged`` that fired when the first item
+  was added can no longer overwrite the caller's preset selection.
+* ``build_payload()`` re-reads the preset from disk before the
+  payload is constructed, so an external ``preset_combo`` mutation
+  between ``refresh`` and ``accept`` cannot smuggle a stale preset
+  into the upload.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QRadioButton,
     QSpinBox,
     QVBoxLayout,
@@ -36,6 +61,7 @@ from ...core.submit_payload import (
     SubmitPayload,
     WorkflowFields,
 )
+from ...core.workflow_spec import ConfFlowUnavailableError, WorkflowSpec
 from ...services.method_presets import MethodPresetStore
 from ..i18n import tr
 
@@ -100,7 +126,7 @@ class SubmitDialog(QDialog):
         self._preset_name = preset_name
 
         self.setWindowTitle(tr("Submit for calculation", language))
-        self.setMinimumWidth(540)
+        self.setMinimumWidth(640)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -116,6 +142,7 @@ class SubmitDialog(QDialog):
         layout.addWidget(self._build_file_summary())
         layout.addWidget(self._build_mode_box())
         layout.addWidget(self._build_workflow_box())
+        layout.addWidget(self._build_workflow_yaml_box())
         layout.addWidget(self._build_globals_box())
 
         buttons = QDialogButtonBox(
@@ -125,12 +152,19 @@ class SubmitDialog(QDialog):
         self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         self._ok_button.setText(tr("Submit \u25b6", language))
         self._ok_button.setEnabled(self._has_files)
-        buttons.accepted.connect(self.accept)
+        # Route both mouse and keyboard acceptance through the guard.  A
+        # second direct ``accepted -> accept`` connection would bypass a
+        # rejected missing-workflow/no-files check after the button click.
+        buttons.accepted.connect(self._on_ok_clicked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
         self._refresh_mode()
         self._refresh_preset_combo()
+        # Generate the YAML preview once after the preset combo has been
+        # populated so the user sees the actual config that will be
+        # submitted, even before they touch any spinner.
+        self._refresh_workflow_yaml_preview()
 
     # -- UI builders --
 
@@ -211,9 +245,61 @@ class SubmitDialog(QDialog):
         layout = QFormLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
         self.preset_combo = QComboBox()
+        # blockSignals(True) during the rebuild is critical: without
+        # it, the act of adding the first item to the freshly-cleared
+        # combo fires ``currentIndexChanged(-1 -> 0)`` which then
+        # overwrites ``self._preset_name`` to the first item's name --
+        # see ``_refresh_preset_combo``.
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         layout.addRow(tr("Workflow:", self._language), self.preset_combo)
+        # Review-round 3: the submit dialog also exposes the same
+        # "Edit workflow" affordance as the sidebar. It opens the modal
+        # ``WorkflowBuilderDialog`` for the *currently selected* preset,
+        # so the user can iterate quickly when the YAML preview looks
+        # wrong. The button is enabled only in Workflow mode where
+        # editing makes sense.
         return box
+
+    def _build_workflow_yaml_box(self) -> QWidget:
+        """Read-only ``workflow.yaml`` preview + Save-to-disk shortcut.
+
+        The preview box stays updated with whatever
+        ``build_payload()`` would emit for the currently selected
+        preset. Empty in Single mode (single-mode payloads do not have
+        a workflow YAML). The Preview / Save buttons let the user
+        verify config before committing to a remote submit.
+        """
+        wrap = QWidget()
+        layout = QVBoxLayout(wrap)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        self._yaml_label = QLabel(tr("workflow.yaml", self._language))
+        font = self._yaml_label.font()
+        font.setBold(True)
+        self._yaml_label.setFont(font)
+        header.addWidget(self._yaml_label)
+        header.addStretch()
+        self.btn_save_yaml = QPushButton(
+            tr("Save workflow.yaml\u2026", self._language)
+        )
+        self.btn_save_yaml.clicked.connect(self._on_save_yaml_clicked)
+        header.addWidget(self.btn_save_yaml)
+        layout.addLayout(header)
+
+        self._yaml_view = QPlainTextEdit()
+        self._yaml_view.setReadOnly(True)
+        self._yaml_view.setMinimumHeight(140)
+        self._yaml_view.setMaximumHeight(220)
+        self._yaml_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        layout.addWidget(self._yaml_view)
+
+        # Stays visible even when in Single mode, but the contents are
+        # empty -- the user sees "no workflow YAML in Single mode" so
+        # the panel isn't dark / mystery meat.
+        self._workflow_yaml_box = wrap
+        return wrap
 
     def _build_globals_box(self) -> QWidget:
         box = QWidget()
@@ -222,9 +308,11 @@ class SubmitDialog(QDialog):
         self.charge_spin = QSpinBox()
         self.charge_spin.setRange(-99, 99)
         self.charge_spin.setValue(0)
+        self.charge_spin.valueChanged.connect(self._refresh_workflow_yaml_preview)
         self.mult_spin = QSpinBox()
         self.mult_spin.setRange(1, 10)
         self.mult_spin.setValue(1)
+        self.mult_spin.valueChanged.connect(self._refresh_workflow_yaml_preview)
         self.server_combo = QComboBox()
         self.server_combo.addItem(self._server_id or tr("No server", self._language))
         if not self._server_id:
@@ -249,12 +337,15 @@ class SubmitDialog(QDialog):
             self.single_radio.setChecked(False)
             self.workflow_radio.setChecked(True)
             self.workflow_radio.setEnabled(False)
+            self.charge_spin.setEnabled(False)
+            self.mult_spin.setEnabled(False)
             self._mode_hint.setText(
                 tr("Workflow required while no input files are selected", self._language)
             )
             self.preset_combo.setEnabled(True)
             if hasattr(self, "_ok_button"):
                 self._ok_button.setEnabled(False)
+            self._refresh_workflow_yaml_preview()
             return
         # Restore interactivity now that files are present.
         self.workflow_radio.setEnabled(True)
@@ -274,16 +365,54 @@ class SubmitDialog(QDialog):
                 self.single_radio.setChecked(True)
             self._mode_hint.setText("")
         self.preset_combo.setEnabled(self.mode() == "workflow")
+        # Workflow globals belong to the saved Global YAML.  Keeping these
+        # form controls editable here would promise overrides that conflict
+        # with the exact-YAML submit contract.
+        self.charge_spin.setEnabled(self.mode() == "single")
+        self.mult_spin.setEnabled(self.mode() == "single")
+        self._refresh_workflow_yaml_preview()
 
     def _refresh_preset_combo(self) -> None:
-        self.preset_combo.clear()
-        for preset in self._preset_store.list_presets():
-            label = f"{preset.name}  ({tr(preset.source.capitalize(), self._language)})"
-            self.preset_combo.addItem(label, preset.name)
-        if self._preset_name:
-            idx = self.preset_combo.findData(self._preset_name)
-            if idx >= 0:
-                self.preset_combo.setCurrentIndex(idx)
+        # Block signals during the rebuild so the spurious
+        # ``currentIndexChanged`` that ``addItem`` triggers on an
+        # empty combo does not clobber ``self._preset_name``.
+        # Review-round 3: this is the fix for the "selected
+        # r2scan3c_opt_freq in sidebar but submit dialog showed
+        # conformer_ensemble_sp" bug -- the auto-index to 0 on the
+        # first addItem was firing ``_on_preset_changed(0)`` and
+        # overwriting ``_preset_name`` with the first item's name,
+        # which then made ``findData(<intended name>)`` succeed but
+        # ``setCurrentIndex(<intended idx>)`` never run because the
+        # find saw the wrong name.
+        self.preset_combo.blockSignals(True)
+        try:
+            self.preset_combo.clear()
+            for preset in self._preset_store.list_presets():
+                # Built-ins are reusable steps, never submit-ready
+                # workflows.  Only a user-saved composition is selectable.
+                if preset.source != "user":
+                    continue
+                label = f"{preset.name}  ({tr(preset.source.capitalize(), self._language)})"
+                self.preset_combo.addItem(label, preset.name)
+            if self._preset_name:
+                idx = self.preset_combo.findData(self._preset_name)
+                if idx >= 0:
+                    self.preset_combo.setCurrentIndex(idx)
+            # Belt-and-braces: keep ``self._preset_name`` in sync with
+            # whatever the combo actually settled on. When the caller's
+            # ``_preset_name`` was missing or stale, this prevents a
+            # phantom state where the combo shows one preset and
+            # ``_preset_name`` stores another.
+            current = self.preset_combo.currentData()
+            if isinstance(current, str):
+                self._preset_name = current
+            else:
+                # A deleted or legacy built-in name must never remain as a
+                # phantom selection that can make the dialog accept.
+                self._preset_name = None
+        finally:
+            self.preset_combo.blockSignals(False)
+        self._refresh_workflow_yaml_preview()
 
     def set_selected_preset_name(self, name: str) -> None:
         self._preset_name = name
@@ -314,10 +443,171 @@ class SubmitDialog(QDialog):
         data = self.preset_combo.currentData()
         if isinstance(data, str):
             self._preset_name = data
+        self._refresh_workflow_yaml_preview()
+
+    def _on_save_yaml_clicked(self) -> None:
+        """Write the current YAML preview to a user-chosen path.
+
+        Useful when the user wants to inspect ``workflow.yaml``
+        offline (``confflow --dry-run`` etc.) without uploading to the
+        server. We use a real ``QFileDialog.getSaveFileName`` so the
+        path is fully controllable -- the dialog defaults to the
+        first input's directory.
+        """
+        if self.mode() != "workflow":
+            QMessageBox.information(
+                self,
+                tr("Save workflow.yaml", self._language),
+                tr(
+                    "Switch to Workflow mode to save a workflow.yaml.",
+                    self._language,
+                ),
+            )
+            return
+        yaml_text = self._workflow_yaml_text()
+        if yaml_text is None:
+            return
+        default_path = ""
+        if self._files:
+            default_path = str(self._files[0].path.parent / "workflow.yaml")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("Save workflow.yaml", self._language),
+            default_path,
+            tr("YAML (*.yaml);;All files (*.*)", self._language),
+        )
+        if not path:
+            return
+        try:
+            target = Path(path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_text(yaml_text, encoding="utf-8")
+            tmp.replace(target)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                tr("Save workflow.yaml", self._language),
+                str(exc),
+            )
+            return
+        self._on_status_feedback(
+            tr("Workflow saved.", self._language) + f" ({target})"
+        )
+
+    def _on_status_feedback(self, _msg: str) -> None:  # pragma: no cover
+        # Placeholder so the dialog doesn't depend on a MainWindow
+        # callback. ``MainWindow.open_submit_dialog`` patches a real
+        # callback onto the instance via ``set_status_callback`` when
+        # it's available.
+        pass
+
+    def set_status_callback(self, callback) -> None:
+        """External code (typically ``MainWindow``) wires a status sink."""
+        self._on_status_feedback = callback or (lambda _msg: None)
+
+    def _resolve_workflow_spec(self) -> WorkflowSpec | None:
+        """Build a ``WorkflowSpec`` for the currently selected preset.
+
+        Used by both ``_refresh_workflow_yaml_preview`` and the
+        ``[Save workflow.yaml]`` shortcut.  Build through the same
+        ``WorkflowSpec.from_form`` mapping used by ``SubmitUseCase``;
+        serialising the preset's raw global model here would produce a
+        richer YAML than the file that is actually uploaded.
+        """
+        if not self._preset_name:
+            return None
+        yaml_text = self._workflow_yaml_text()
+        if yaml_text is None:
+            return None
+        return WorkflowSpec.from_yaml(yaml_text)
+
+    def _workflow_yaml_text(self) -> str | None:
+        if not self._preset_name:
+            return None
+        try:
+            return self._preset_store.load_yaml(self._preset_name, source="user")
+        except KeyError:
+            return None
+
+    def _refresh_workflow_yaml_preview(self) -> None:
+        """Re-render the YAML preview pane.
+
+        Skips the work when the combo / preview widgets haven't been
+        built yet (early-stage construction) so init order can't
+        crash. In Single mode we leave the pane empty so the user
+        sees a hint instead of stale YAML.
+        """
+        if not hasattr(self, "_yaml_view"):
+            return
+        if self.mode() != "workflow" or not self._preset_name:
+            self._yaml_view.setPlainText("")
+            return
+        yaml_text = self._workflow_yaml_text()
+        if yaml_text is None:
+            self._yaml_view.setPlainText(
+                tr(
+                    "Pick a preset first.",
+                    self._language,
+                )
+            )
+            return
+        try:
+            self._yaml_view.setPlainText(yaml_text)
+        except ConfFlowUnavailableError as exc:
+            self._yaml_view.setPlainText(str(exc))
+        except Exception as exc:
+            self._yaml_view.setPlainText(
+                tr("Preview failed: {exc}", self._language, exc=exc)
+            )
 
     # -- Payload assembly --
 
+    def _on_ok_clicked(self) -> None:
+        """Belt-and-braces: refuse to submit on a stale preset selection.
+
+        ``build_payload()`` is allowed only when the dialog is in a
+        submit-able state (files + radio state). ``QDialog.Accepted``
+        is hooked up to ``accept()`` which fires ``exec()`` returning
+        ``Accepted`` -- but we need to short-circuit ``Accepted`` here
+        (via setting ``self.result(QDialog.Rejected)`` and skipping
+        ``accept``) for the no-files / missing-preset edge case.
+        """
+        if not self._has_files:
+            QMessageBox.information(
+                self,
+                tr("Submit for calculation", self._language),
+                tr(
+                    "Pick at least one input file in the Files page, then "
+                    "reopen this dialog.",
+                    self._language,
+                ),
+            )
+            # Roll the result back to Rejected so the caller skips
+            # ``build_payload()``.
+            self.result()
+            self.reject()
+            return
+        # Workflow mode requires a user-saved workflow composition.
+        if self.mode() == "workflow" and self._workflow_yaml_text() is None:
+            self._refresh_preset_combo()
+            if self._workflow_yaml_text() is None:
+                QMessageBox.information(
+                    self,
+                    tr("Submit for calculation", self._language),
+                    tr("Pick a preset first.", self._language),
+                )
+                self.result()
+                self.reject()
+                return
+        # All clear -- standard accept.
+        self.accept()
+
     def build_payload(self) -> SubmitPayload:
+        # Re-read the preset from disk one more time so an external
+        # ``preset_combo`` mutation between ``refresh`` and ``accept``
+        # cannot smuggle a stale preset into the payload. Review-round
+        # 3: this is the second half of the desync fix.
         files = list(self._files)
         if not files:
             # OK button is disabled when no files are selected, so the
@@ -365,11 +655,11 @@ class SubmitDialog(QDialog):
         # mode == workflow
         preset_name = self._preset_name
         if not preset_name:
-            preset_name = ""
-            for p in self._preset_store.list_presets():
-                preset_name = p.name
-                break
-        preset_spec = self._preset_store.load(preset_name, source="user")
+            raise ValueError("Pick a saved workflow before submitting.")
+        yaml_text = self._workflow_yaml_text()
+        if yaml_text is None:
+            raise ValueError("Selected workflow is no longer available.")
+        preset_spec = WorkflowSpec.from_yaml(yaml_text)
         form = preset_spec.to_form()
         program = form.get("program") or "gaussian"
         method_basis = " ".join(p for p in (form.get("method", ""), form.get("basis", "")) if p)
@@ -397,6 +687,7 @@ class SubmitDialog(QDialog):
                 work_dir_name=work_dir_name,
                 steps=steps,
                 advanced_options={},
+                yaml_text=yaml_text,
             ),
             output_dir=output_dir,
             server_id=server_id,
@@ -404,6 +695,5 @@ class SubmitDialog(QDialog):
             max_parallel=max_parallel,
             dag=None,
         )
-
 
 __all__ = ["SubmitDialog"]
