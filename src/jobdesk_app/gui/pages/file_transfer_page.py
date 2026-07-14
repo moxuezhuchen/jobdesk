@@ -40,6 +40,7 @@ from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
+from .file_transfer_config import ConfigUnreadable, load_existing_servers_data
 from .file_transfer_helpers import (
     _file_signature,
     _raise_if_upload_failed,
@@ -55,6 +56,7 @@ from .file_transfer_helpers import (
     format_queue_summary,
     format_remote_size,
     format_selection_summary,
+    format_transfer_speed,
     normalize_remote_path,
     remote_child_path,
     remote_parent_row,
@@ -78,79 +80,6 @@ TRANSFER_PROGRESS_MIN_WIDTH = 320
 TRANSFER_PROGRESS_MAX_WIDTH = 560
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
-
-
-class ConfigUnreadable(Exception):
-    """Raised when the user's existing config file cannot be parsed.
-
-    The Files page "Import sample" button is the most common way a
-    user recovers from a broken servers.yaml -- they hit it because
-    the empty-state hint is up. The original file is therefore the
-    user's best chance to repair whatever is wrong (typo, half-
-    written crash, encoding glitch). Overwriting it with a sample
-    turns a recoverable failure into a permanent loss, so we raise
-    this exception instead and let the caller show a clear error.
-
-    Attributes:
-        path: Path to the file we refused to overwrite.
-        cause: The original parse failure (yaml.YAMLError or any
-            non-mapping root). Surfaced verbatim in the dialog so the
-            user can act on the actual error.
-    """
-
-    def __init__(self, path: Path, cause: BaseException) -> None:
-        super().__init__(
-            f"servers.yaml at {path} could not be parsed: {cause}"
-        )
-        self.path = path
-        self.cause = cause
-
-
-def _format_transfer_speed(bytes_per_second: float) -> str:
-    if bytes_per_second >= 1024 * 1024:
-        return f"{bytes_per_second / 1024 / 1024:.1f} MB/s"
-    if bytes_per_second >= 1024:
-        return f"{bytes_per_second / 1024:.0f} KB/s"
-    return f"{bytes_per_second:.0f} B/s"
-
-
-def _load_existing_servers_data(path: Path) -> dict:
-    """Read ``path`` and return the existing mapping root, with guards.
-
-    Returns an empty dict when ``path`` does not exist. Raises
-    :class:`ConfigUnreadable` when the file exists but cannot be
-    parsed (or its top level is not a mapping) -- the caller is
-    responsible for surfacing the error to the user, but the file
-    on disk is NOT modified by this function.
-
-    Review-fix: extracted from ``FileTransferPage._import_sample_servers_yaml``
-    so tests can drive it without instantiating a full QWidget page.
-    """
-    import yaml
-
-    if not path.exists():
-        return {}
-    raw = path.read_text(encoding="utf-8")
-    try:
-        loaded = yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
-        # Preserve the broken file exactly as it was; surface a clear
-        # error rather than overwrite it with a sample.
-        raise ConfigUnreadable(path, exc) from exc
-    if loaded is None:
-        return {}
-    if not isinstance(loaded, dict):
-        # The file parses (it's YAML) but the top-level isn't a mapping
-        # -- e.g. someone wrote a list or a scalar. Same data-safety
-        # rule: do not silently overwrite.
-        raise ConfigUnreadable(
-            path,
-            ValueError(
-                f"servers.yaml top-level is {type(loaded).__name__}, "
-                "expected a mapping"
-            ),
-        )
-    return loaded
 
 
 class FileTransferPage(QWidget):
@@ -771,7 +700,7 @@ class FileTransferPage(QWidget):
         # rather than swallowing parse errors and continuing with an
         # empty dict -- the latter would overwrite a broken config
         # the user is most likely trying to recover.
-        data = _load_existing_servers_data(path)
+        data = load_existing_servers_data(path)
         servers = data.setdefault("servers", {})
         while sid in servers:
             suffix += 1
@@ -1450,7 +1379,7 @@ class FileTransferPage(QWidget):
 
         def _on_progress(done, total):
             elapsed = max(time.monotonic() - started_at, 0.001)
-            speed = _format_transfer_speed(done / elapsed)
+            speed = format_transfer_speed(done / elapsed)
             if total > 0:
                 self.progress_bar.setValue(int(done * 100 / total))
                 self.progress_bar.setFormat(

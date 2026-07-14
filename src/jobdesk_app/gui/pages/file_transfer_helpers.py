@@ -38,6 +38,15 @@ def format_modified_time(timestamp: float | None) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def format_transfer_speed(bytes_per_second: float) -> str:
+    """Format a transfer speed for the progress label."""
+    if bytes_per_second >= 1024 * 1024:
+        return f"{bytes_per_second / 1024 / 1024:.1f} MB/s"
+    if bytes_per_second >= 1024:
+        return f"{bytes_per_second / 1024:.0f} KB/s"
+    return f"{bytes_per_second:.0f} B/s"
+
+
 def table_resize_mode_name() -> str:
     return "Interactive"
 
