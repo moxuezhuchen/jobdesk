@@ -1,12 +1,9 @@
-"""设置页 — Windows Terminal 风格卡片布局（白色主题）。"""
-
 from __future__ import annotations
 
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from PySide6.QtCore import Property, QPropertyAnimation, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -29,12 +26,20 @@ from ...config.servers import get_default_servers_path, load_servers
 from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
 from ..button_feedback import ButtonFeedback, ButtonRole
-from ..design.components import StyledTableWidget
+from ..design.components import SettingCard, StyledTableWidget, ToggleSwitch
 from ..i18n import tr
 from ..session import ssh_session
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
-from .settings_servers_helpers import validate_server_id_change
+from .settings_servers_helpers import (
+    build_external_tools_fields,
+    build_scheduler_fields,
+    build_ssh_access_fields,
+    external_tools_dict,
+    scheduler_dict,
+    ssh_access_dict,
+    validate_server_id_change,
+)
 
 SERVER_TEST_TIMEOUT_SECONDS = 20.0
 
@@ -85,84 +90,6 @@ def _test_server_connections(
             emit_log(f"{sid}\t{tr('Error:', language)} timed out after {timeout_seconds:g}s")
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
-
-
-class ToggleSwitch(QWidget):
-    """滑动开关控件。"""
-    toggled = Signal(bool)
-
-    def __init__(self, checked=False, parent=None):
-        super().__init__(parent)
-        self._checked = checked
-        self._offset = 6.0 if not checked else 30.0
-        self.setFixedSize(60, 32)
-        self.setCursor(Qt.PointingHandCursor)
-
-    def isChecked(self):
-        return self._checked
-
-    def setChecked(self, v):
-        self._checked = v
-        self._offset = 30.0 if v else 6.0
-        self.update()
-
-    def _get_offset(self):
-        return self._offset
-
-    def _set_offset(self, v):
-        self._offset = v
-        self.update()
-
-    offset = Property(float, _get_offset, _set_offset)
-
-    def mousePressEvent(self, e):
-        self._checked = not self._checked
-        anim = QPropertyAnimation(self, b"offset", self)
-        anim.setDuration(120)
-        anim.setStartValue(self._offset)
-        anim.setEndValue(30.0 if self._checked else 6.0)
-        anim.start(QPropertyAnimation.DeleteWhenStopped)
-        self.toggled.emit(self._checked)
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        track_color = QColor("#5c7fa6") if self._checked else QColor("#9aaec4")
-        p.setBrush(track_color)
-        p.setPen(Qt.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, 60, 32), 16, 16)
-        p.setBrush(QColor("white"))
-        p.drawEllipse(QRectF(self._offset, 5, 22, 22))
-        p.end()
-
-
-class SettingCard(QFrame):
-    """Windows Terminal 风格卡片：圆角背景，标题+描述紧贴左侧，控件右侧。"""
-
-    def __init__(self, title: str, description: str, control: QWidget):
-        super().__init__()
-        self.setObjectName("SettingCard")
-        self.setStyleSheet(
-            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
-            " #SettingCard QLabel { background: transparent; }"
-        )
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        self.setFixedHeight(60)
-
-        lbl_title = QLabel(title)
-        lbl_desc = QLabel(description)
-        lbl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
-        self.lbl_title = lbl_title
-        self.lbl_desc = lbl_desc
-
-        layout.addWidget(lbl_title)
-        layout.addSpacing(16)
-        layout.addWidget(lbl_desc)
-        layout.addStretch()
-        control.setMinimumWidth(160)
-        layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
 
 
 class SettingsServersPage(QWidget):
@@ -676,118 +603,6 @@ class SettingsServersPage(QWidget):
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
-    def _add_scheduler_fields(self, form, dlg, sched: dict) -> dict:
-        """Add scheduler resource widgets to a server dialog form; return widget dict."""
-        from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox
-        type_combo = QComboBox()
-        type_combo.addItems(["nohup", "slurm", "pbs"])
-        ti = type_combo.findText(str(sched.get("type", "nohup")))
-        if ti >= 0:
-            type_combo.setCurrentIndex(ti)
-        cpus = QSpinBox()
-        cpus.setRange(1, 4096)
-        cpus.setValue(int(sched.get("default_cpus", 1)))
-        mem = QSpinBox()
-        mem.setRange(128, 4194304)
-        mem.setValue(int(sched.get("default_memory_mb", 2048)))
-        wall = QSpinBox()
-        wall.setRange(1, 1051200)
-        wall.setValue(int(sched.get("default_walltime_minutes", 1440)))
-        partition = QLineEdit(str(sched.get("default_partition", "")))
-        account = QLineEdit(str(sched.get("default_account", "")))
-        widgets = {"type": type_combo, "cpus": cpus, "mem": mem, "wall": wall,
-                   "partition": partition, "account": account}
-
-        def _toggle(*_):
-            hpc = type_combo.currentText() != "nohup"
-            for w in (partition, account, wall):
-                w.setEnabled(hpc)
-        type_combo.currentTextChanged.connect(_toggle)
-        _toggle()
-
-        form.addRow(tr("Scheduler:", self._language), type_combo)
-        form.addRow("CPUs:", cpus)
-        form.addRow(tr("Memory(MB):", self._language), mem)
-        form.addRow(tr("Walltime:", self._language), wall)
-        form.addRow(tr("Partition/Queue:", self._language), partition)
-        form.addRow(tr("Account:", self._language), account)
-        return widgets
-
-    @staticmethod
-    def _scheduler_dict(widgets: dict, existing: dict | None = None) -> dict:
-        """Read scheduler widgets into a config dict, preserving hidden keys (gpus, extra_directives)."""
-        result = dict(existing or {})
-        result.update({
-            "type": widgets["type"].currentText(),
-            "default_cpus": widgets["cpus"].value(),
-            "default_memory_mb": widgets["mem"].value(),
-            "default_walltime_minutes": widgets["wall"].value(),
-            "default_partition": widgets["partition"].text().strip(),
-            "default_account": widgets["account"].text().strip(),
-        })
-        return result
-
-    def _add_external_tools_fields(self, form, tools: dict) -> dict:
-        provider = QComboBox()
-        provider.addItems(["windows_terminal", "putty"])
-        current = str(tools.get("terminal_provider", "windows_terminal"))
-        idx = provider.findText(current)
-        if idx >= 0:
-            provider.setCurrentIndex(idx)
-        ssh_alias = QLineEdit(str(tools.get("ssh_alias", "")))
-        ssh_alias.setPlaceholderText("OpenSSH alias")
-        putty_session = QLineEdit(str(tools.get("putty_session", "")))
-        putty_session.setPlaceholderText("PuTTY saved session")
-        terminal_path = QLineEdit(str(tools.get("terminal_path", "")))
-        terminal_path.setPlaceholderText("Path to terminal executable")
-        form.addRow(tr("Terminal:", self._language), provider)
-        form.addRow(tr("Terminal Path:", self._language), terminal_path)
-        form.addRow(tr("SSH Alias:", self._language), ssh_alias)
-        form.addRow(tr("PuTTY Session:", self._language), putty_session)
-        return {
-            "terminal_provider": provider,
-            "ssh_alias": ssh_alias,
-            "putty_session": putty_session,
-            "terminal_path": terminal_path,
-        }
-
-    @staticmethod
-    def _external_tools_dict(widgets: dict, existing: dict | None = None) -> dict:
-        result = dict(existing or {})
-        result.update({
-            "terminal_provider": widgets["terminal_provider"].currentText(),
-            "ssh_alias": widgets["ssh_alias"].text().strip(),
-            "putty_session": widgets["putty_session"].text().strip(),
-            "terminal_path": widgets["terminal_path"].text().strip(),
-        })
-        return result
-
-    def _add_ssh_access_fields(self, form, access: dict) -> dict:
-        config_alias = QLineEdit(str(access.get("config_alias", "")))
-        config_alias.setPlaceholderText("OpenSSH config alias")
-        proxy_command = QLineEdit(str(access.get("proxy_command", "")))
-        proxy_command.setPlaceholderText("ssh -W %h:%p gateway")
-        proxy_jump = QLineEdit(str(access.get("proxy_jump", "")))
-        proxy_jump.setPlaceholderText("gateway")
-        form.addRow(tr("SSH Config Alias:", self._language), config_alias)
-        form.addRow(tr("ProxyCommand:", self._language), proxy_command)
-        form.addRow(tr("ProxyJump:", self._language), proxy_jump)
-        return {
-            "config_alias": config_alias,
-            "proxy_command": proxy_command,
-            "proxy_jump": proxy_jump,
-        }
-
-    @staticmethod
-    def _ssh_access_dict(widgets: dict, existing: dict | None = None) -> dict:
-        result = dict(existing or {})
-        result.update({
-            "config_alias": widgets["config_alias"].text().strip(),
-            "proxy_command": widgets["proxy_command"].text().strip(),
-            "proxy_jump": widgets["proxy_jump"].text().strip(),
-        })
-        return result
-
     def _edit_server(self):
         import yaml
         from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
@@ -855,9 +670,9 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
-        sched_widgets = self._add_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {})
-        external_widgets = self._add_external_tools_fields(form, srv.get("external_tools", {}) or {})
-        ssh_access_widgets = self._add_ssh_access_fields(form, srv.get("ssh_access", {}) or {})
+        sched_widgets = build_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {}, self._language)
+        external_widgets = build_external_tools_fields(form, srv.get("external_tools", {}) or {}, self._language)
+        ssh_access_widgets = build_ssh_access_fields(form, srv.get("ssh_access", {}) or {}, self._language)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -883,12 +698,12 @@ class SettingsServersPage(QWidget):
             "auth_method": auth_combo.currentText(),
             "trust_on_first_use": tofu_toggle.isChecked(),
         })
-        existing["scheduler"] = self._scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
-        existing["external_tools"] = self._external_tools_dict(
+        existing["scheduler"] = scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
+        existing["external_tools"] = external_tools_dict(
             external_widgets,
             srv.get("external_tools", {}) or {},
         )
-        existing["ssh_access"] = self._ssh_access_dict(
+        existing["ssh_access"] = ssh_access_dict(
             ssh_access_widgets,
             srv.get("ssh_access", {}) or {},
         )
@@ -957,9 +772,9 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Auth:", self._language), auth_combo)
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
-        sched_widgets = self._add_scheduler_fields(form, dlg, {})
-        external_widgets = self._add_external_tools_fields(form, {})
-        ssh_access_widgets = self._add_ssh_access_fields(form, {})
+        sched_widgets = build_scheduler_fields(form, dlg, {}, self._language)
+        external_widgets = build_external_tools_fields(form, {}, self._language)
+        ssh_access_widgets = build_ssh_access_fields(form, {}, self._language)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -991,9 +806,9 @@ class SettingsServersPage(QWidget):
             "username": user,
             "auth_method": auth_combo.currentText(),
             "trust_on_first_use": tofu_toggle.isChecked(),
-            "scheduler": self._scheduler_dict(sched_widgets),
-            "external_tools": self._external_tools_dict(external_widgets),
-            "ssh_access": self._ssh_access_dict(ssh_access_widgets),
+            "scheduler": scheduler_dict(sched_widgets),
+            "external_tools": external_tools_dict(external_widgets),
+            "ssh_access": ssh_access_dict(ssh_access_widgets),
         }
         if key_edit.text().strip():
             servers[sid]["key_path"] = key_edit.text().strip()

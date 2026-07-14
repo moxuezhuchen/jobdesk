@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtCore import Property, QEvent, QPropertyAnimation, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QTableWidget,
@@ -352,3 +354,85 @@ class Sidebar(QWidget):
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(Metrics.SIDEBAR_WIDTH, 600)
+
+
+# ─── Settings-page shared widgets ──────────────────────────────────────────────
+
+
+class ToggleSwitch(QWidget):
+    """滑动开关控件。"""
+
+    toggled = Signal(bool)
+
+    def __init__(self, checked: bool = False, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._checked = checked
+        self._offset = 30.0 if checked else 6.0
+        self.setFixedSize(60, 32)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, v: bool) -> None:
+        self._checked = v
+        self._offset = 30.0 if v else 6.0
+        self.update()
+
+    def _get_offset(self) -> float:
+        return self._offset
+
+    def _set_offset(self, v: float) -> None:
+        self._offset = v
+        self.update()
+
+    offset = Property(float, _get_offset, _set_offset)  # type: ignore[arg-type]
+
+    def mousePressEvent(self, e) -> None:  # noqa: N802
+        self._checked = not self._checked
+        anim = QPropertyAnimation(self, b"offset", self)
+        anim.setDuration(120)
+        anim.setStartValue(self._offset)
+        anim.setEndValue(30.0 if self._checked else 6.0)
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        self.toggled.emit(self._checked)
+
+    def paintEvent(self, e) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        track_color = QColor("#5c7fa6") if self._checked else QColor("#9aaec4")
+        p.setBrush(track_color)
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(QRectF(0, 0, 60, 32), 16, 16)
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QRectF(self._offset, 5, 22, 22))
+        p.end()
+
+
+class SettingCard(QFrame):
+    """Windows Terminal 风格卡片: 圆角背景, 标题+描述紧贴左侧, 控件右侧。"""
+
+    def __init__(self, title: str, description: str, control: QWidget):
+        super().__init__()
+        self.setObjectName("SettingCard")
+        self.setStyleSheet(
+            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            " #SettingCard QLabel { background: transparent; }"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 0, 16, 0)
+        self.setFixedHeight(60)
+
+        lbl_title = QLabel(title)
+        lbl_desc = QLabel(description)
+        lbl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
+        self.lbl_title = lbl_title
+        self.lbl_desc = lbl_desc
+
+        layout.addWidget(lbl_title)
+        layout.addSpacing(16)
+        layout.addWidget(lbl_desc)
+        layout.addStretch()
+        control.setMinimumWidth(160)
+        layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
