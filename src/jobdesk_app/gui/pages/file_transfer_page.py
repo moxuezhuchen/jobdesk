@@ -120,7 +120,6 @@ class FileTransferPage(QWidget):
         self._background_workers = []
         self._shutting_down = False
         self._local_refresh_request_id = 0
-        self._local_poll_running = False
         self._local_poll_snapshot: dict[str, float] = {}
         self._local_navigator = LocalNavigator(
             root_provider=lambda: self.state.current_project_root,
@@ -1259,10 +1258,6 @@ class FileTransferPage(QWidget):
         self._remote_edit_sessions = self._remote_edit_manager._sessions
         if not self._remote_edit_sessions and hasattr(self, "_remote_edit_timer"):
             self._remote_edit_timer.stop()
-
-    def _upload_remote_edit_session(self, session: _RemoteEditSession, signature: str | None = None) -> None:
-        self._remote_edit_manager.upload_session(self, session, signature)
-        self._remote_edit_sessions = self._remote_edit_manager._sessions
 
     def _download_selected(self):
         if self._service is None:
