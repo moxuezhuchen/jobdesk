@@ -39,6 +39,7 @@ from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
 from ..nodegraph.model import Edge, Node, NodeGraph, NodeKind, default_node
 from ..nodegraph.spec_bridge import from_workflow_spec
+from .workflow_page_helpers import flow_step_detail
 
 _STEP_KINDS = {
     NodeKind.CONF_GEN,
@@ -829,6 +830,56 @@ class WorkflowPage(QWidget):
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
 
+    def _build_step_card(self, node: Node, index: int, total: int) -> QFrame:
+        """Build a single flow-diagram step card with title, detail, and move/delete buttons."""
+        card = QFrame(self._flow_body)
+        card.setFixedHeight(64)
+        selected = node.id == self._selected_node_id
+        accent = "#0f766e" if node.kind is NodeKind.CONF_GEN else "#2563eb"
+        card.setStyleSheet(
+            "QFrame { background: %s; border: 1px solid %s; border-left: 4px solid %s; border-radius: 8px; }"
+            % ("#f6faff" if selected else "#ffffff", "#60a5fa" if selected else "#d8dee8", accent)
+        )
+        row = QHBoxLayout(card)
+        row.setContentsMargins(10, 6, 8, 6)
+        content = QVBoxLayout()
+        content.setSpacing(1)
+        select = QPushButton(f"{index + 1}. {node.title}", card)
+        select.setFlat(True)
+        select.setStyleSheet(
+            "QPushButton { text-align: left; color: #172033; font-size: 14px; font-weight: 600; "
+            "border: none; padding: 0; } QPushButton:hover { color: #1d4ed8; }"
+        )
+        select.clicked.connect(lambda _checked=False, node_id=node.id: self._on_node_selected(node_id))
+        content.addWidget(select)
+        detail = QLabel(flow_step_detail(node), card)
+        detail.setStyleSheet("color: #64748b; font-size: 11px; border: none;")
+        content.addWidget(detail)
+        row.addLayout(content, 1)
+        up = QPushButton("↑", card)
+        up.setEnabled(index > 0)
+        up.setFixedSize(38, 30)
+        up.setStyleSheet("font-size: 16px; padding: 0;")
+        up.setToolTip(tr("Move up", self._language))
+        up.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, -1))
+        row.addWidget(up)
+        down = QPushButton("↓", card)
+        down.setEnabled(index < total - 1)
+        down.setFixedSize(38, 30)
+        down.setStyleSheet("font-size: 16px; padding: 0;")
+        down.setToolTip(tr("Move down", self._language))
+        down.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, +1))
+        row.addWidget(down)
+        remove = QPushButton("×", card)
+        remove.setFixedSize(34, 30)
+        remove.setStyleSheet(
+            "QPushButton { color: #b42318; font-size: 18px; padding: 0; border: 1px solid #fecaca; "
+            "border-radius: 5px; background: #fffafa; } QPushButton:hover { background: #fef2f2; }"
+        )
+        remove.clicked.connect(lambda _checked=False, node_id=node.id: self._delete_step(node_id))
+        row.addWidget(remove)
+        return card
+
     def _refresh_flow_diagram(self) -> None:
         while self._flow_layout.count():
             item = self._flow_layout.takeAt(0)
@@ -858,53 +909,7 @@ class WorkflowPage(QWidget):
             arrow.setFixedHeight(24)
             arrow.setStyleSheet("font-size: 16px; font-weight: 600; color: #94a3b8;")
             self._flow_layout.addWidget(arrow)
-            card = QFrame(self._flow_body)
-            card.setFixedHeight(64)
-            selected = node.id == self._selected_node_id
-            accent = "#0f766e" if node.kind is NodeKind.CONF_GEN else "#2563eb"
-            card.setStyleSheet(
-                "QFrame { background: %s; border: 1px solid %s; border-left: 4px solid %s; border-radius: 8px; }"
-                % ("#f6faff" if selected else "#ffffff", "#60a5fa" if selected else "#d8dee8", accent)
-            )
-            row = QHBoxLayout(card)
-            row.setContentsMargins(10, 6, 8, 6)
-            content = QVBoxLayout()
-            content.setSpacing(1)
-            select = QPushButton(f"{index + 1}. {node.title}", card)
-            select.setFlat(True)
-            select.setStyleSheet(
-                "QPushButton { text-align: left; color: #172033; font-size: 14px; font-weight: 600; "
-                "border: none; padding: 0; } QPushButton:hover { color: #1d4ed8; }"
-            )
-            select.clicked.connect(lambda _checked=False, node_id=node.id: self._on_node_selected(node_id))
-            content.addWidget(select)
-            detail = QLabel(self._flow_step_detail(node), card)
-            detail.setStyleSheet("color: #64748b; font-size: 11px; border: none;")
-            content.addWidget(detail)
-            row.addLayout(content, 1)
-            up = QPushButton("↑", card)
-            up.setEnabled(index > 0)
-            up.setFixedSize(38, 30)
-            up.setStyleSheet("font-size: 16px; padding: 0;")
-            up.setToolTip(tr("Move up", self._language))
-            up.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, -1))
-            row.addWidget(up)
-            down = QPushButton("↓", card)
-            down.setEnabled(index < len(ordered) - 1)
-            down.setFixedSize(38, 30)
-            down.setStyleSheet("font-size: 16px; padding: 0;")
-            down.setToolTip(tr("Move down", self._language))
-            down.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, +1))
-            row.addWidget(down)
-            remove = QPushButton("×", card)
-            remove.setFixedSize(34, 30)
-            remove.setStyleSheet(
-                "QPushButton { color: #b42318; font-size: 18px; padding: 0; border: 1px solid #fecaca; "
-                "border-radius: 5px; background: #fffafa; } QPushButton:hover { background: #fef2f2; }"
-            )
-            remove.clicked.connect(lambda _checked=False, node_id=node.id: self._delete_step(node_id))
-            row.addWidget(remove)
-            self._flow_layout.addWidget(card)
+            self._flow_layout.addWidget(self._build_step_card(node, index, len(ordered)))
         if ordered:
             arrow = QLabel("↓", self._flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -920,21 +925,6 @@ class WorkflowPage(QWidget):
         )
         self._flow_layout.addWidget(output)
         self._flow_layout.addStretch(1)
-
-    @staticmethod
-    def _flow_step_detail(node: Node) -> str:
-        params = node.params
-        if node.kind is NodeKind.CONF_GEN:
-            chains = params.get("chains") or []
-            chain_text = ", ".join(map(str, chains)) if isinstance(chains, list) else str(chains)
-            angle = params.get("angle_step")
-            return " · ".join(part for part in (
-                f"chains: {chain_text}" if chain_text else "",
-                f"angle: {angle}°" if angle is not None else "",
-            ) if part) or "confgen"
-        return str(params.get("keyword") or " · ".join(
-            str(params[key]) for key in ("iprog", "itask") if params.get(key)
-        ) or node.kind.value)
 
     # ---- serialisation / actions -------------------------------------
 
