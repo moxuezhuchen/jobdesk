@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import posixpath
-import shutil
 import subprocess
 import tempfile
 import time
@@ -60,6 +58,7 @@ from .file_transfer_helpers import (
     remote_table_row,
 )
 from .file_transfer_local_navigator import LocalNavigator
+from .file_transfer_operations import FileOperations
 from .file_transfer_remote_edit import RemoteEditSessionManager
 from .file_transfer_runner import TransferRunner
 from .file_transfer_tables import _RemoteEditSession
@@ -348,6 +347,34 @@ class FileTransferPage(QWidget):
             clock=lambda: time.monotonic(),
             show_preview=lambda parent, title, text: QMessageBox.information(
                 parent, title, text
+            ),
+        )
+        self._file_operations = FileOperations(
+            service_provider=lambda: self._service,
+            local_root_provider=lambda: self.state.current_project_root,
+            language_provider=lambda: self._language,
+            on_status=lambda message: self._status_cb(message),
+            on_error=lambda title, message: self._error_cb(title, message),
+            on_refresh_local=lambda: self._refresh_local(),
+            on_refresh_remote=lambda: self._refresh_remote(),
+            prompt_new_name=lambda title, label, text: self._prompt_rename_name(
+                title, label, text
+            ),
+            prompt_new_folder=lambda title, label: self._prompt_new_folder_name(
+                title, label
+            ),
+            prompt_text=lambda title, label: QInputDialog.getText(self, title, label),
+            ask_confirm=lambda title, body: QMessageBox.question(
+                self, title, body, QMessageBox.Yes | QMessageBox.No
+            )
+            == QMessageBox.Yes,
+            open_editor=lambda path: self._open_in_text_editor(path),
+            start_worker=lambda target, on_result, on_error: start_context_worker(
+                self,
+                target=target,
+                registry_attr="_background_workers",
+                on_result=on_result,
+                on_error=on_error,
             ),
         )
         progress_row = QHBoxLayout()
@@ -915,35 +942,7 @@ class FileTransferPage(QWidget):
         if not paths:
             self._status_cb("Select a local file or folder")
             return
-        message = "\n".join(str(path) for path in paths[:10])
-        if len(paths) > 10:
-            message += f"\n... {len(paths) - 10} more"
-        if QMessageBox.question(
-            self,
-            "Delete Local Path",
-            f"Delete local path(s)?\n{message}",
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        def _run(_ctx: WorkerContext):
-            for path in paths:
-                if path.is_dir():
-                    shutil.rmtree(path)
-                elif path.exists():
-                    path.unlink()
-            return len(paths)
-
-        def _on_done(count: int) -> None:
-            self._status_cb(f"Deleted {count} local item(s)")
-            self._refresh_local()
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=_on_done,
-            on_error=lambda error: self._error_cb("Delete Local Error", error),
-        )
+        self._file_operations.delete_local(paths)
 
     def _selected_remote_entries(self) -> tuple[list[str], list[str]]:
         files: list[str] = []
@@ -1313,171 +1312,25 @@ class FileTransferPage(QWidget):
         )
 
     def _copy_dropped_local_paths(self, paths: list[str]):
-        local_base = Path(self.state.current_project_root or Path.cwd())
-        copied: list[Path] = []
-        failures: list[str] = []
-        for path_text in paths:
-            source = Path(path_text)
-            if not source.exists():
-                failures.append(f"Source path does not exist: {source}")
-                continue
-            destination = local_base / source.name
-            try:
-                if source.resolve() == destination.resolve():
-                    failures.append(f"Source is already in this directory: {source.name}")
-                    continue
-                if destination.exists():
-                    failures.append(f"Destination already exists: {destination.name}")
-                    continue
-                if source.is_dir():
-                    shutil.copytree(source, destination)
-                else:
-                    shutil.copy2(source, destination)
-                copied.append(destination)
-            except Exception as exc:
-                failures.append(f"{source.name}: {exc}")
-        if copied:
-            self._refresh_local()
-            self._status_cb(f"Copied {len(copied)} local path(s)")
-        if failures:
-            self._error_cb("Drop Copy Error", "\n".join(failures))
+        self._file_operations.copy_dropped_local_paths(paths)
 
     def _move_local_paths_into_directory(self, paths: list[str], target_dir_text: str):
-        target_dir = Path(target_dir_text)
-        moved: list[Path] = []
-        failures: list[str] = []
-        if not target_dir.is_dir():
-            self._error_cb("Move Error", f"Target directory does not exist: {target_dir}")
-            return
-        target_resolved = target_dir.resolve()
-        for path_text in paths:
-            source = Path(path_text)
-            if not source.exists():
-                failures.append(f"Source path does not exist: {source}")
-                continue
-            destination = target_dir / source.name
-            source_resolved = source.resolve()
-            try:
-                if source_resolved == destination.resolve():
-                    failures.append(f"Source is already in this directory: {source.name}")
-                    continue
-                if source.is_dir() and (
-                    target_resolved == source_resolved or source_resolved in target_resolved.parents
-                ):
-                    failures.append(f"Cannot move directory into itself: {source.name}")
-                    continue
-                if destination.exists():
-                    failures.append(f"Destination already exists: {destination.name}")
-                    continue
-                shutil.move(str(source), str(destination))
-                moved.append(destination)
-            except Exception as exc:
-                failures.append(f"{source.name}: {exc}")
-        if moved:
-            self._refresh_local()
-            self._status_cb(f"Moved {len(moved)} local path(s)")
-        if failures:
-            self._error_cb("Move Error", "\n".join(failures))
+        self._file_operations.move_local_paths_into_directory(paths, target_dir_text)
 
     def _move_remote_paths_into_directory(self, paths: list[str], target_dir_text: str):
-        if self._service is None:
-            self._status_cb("Connect to a server first")
-            return
-        target_dir = normalize_remote_path(target_dir_text)
-        moved = 0
-        failures: list[str] = []
-        for path_text in paths:
-            source = normalize_remote_path(path_text)
-            destination = remote_child_path(target_dir, posixpath.basename(source))
-            if destination == source:
-                failures.append(f"Source is already in this directory: {posixpath.basename(source)}")
-                continue
-            if target_dir == source or target_dir.startswith(source.rstrip("/") + "/"):
-                failures.append(f"Cannot move directory into itself: {posixpath.basename(source)}")
-                continue
-            try:
-                self._service.rename_remote(source, destination)
-                moved += 1
-            except Exception as exc:
-                failures.append(f"{posixpath.basename(source)}: {exc}")
-        if moved:
-            self._refresh_remote()
-            self._status_cb(f"Moved {moved} remote path(s)")
-        if failures:
-            self._error_cb("Move Error", "\n".join(failures))
+        self._file_operations.move_remote_paths_into_directory(paths, target_dir_text)
 
     def _mkdir_local(self):
-        name, ok = self._prompt_new_folder_name(
-            tr("New Folder", self._language),
-            tr("Folder name:", self._language),
-        )
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        if "/" in name or "\\" in name or name in (".", ".."):
-            self._error_cb("Invalid Name", "Name cannot contain path separators or '..'")
-            return
-        base = self.state.current_project_root or Path.cwd()
-        new_dir = Path(base) / name
-        try:
-            new_dir.mkdir(parents=True, exist_ok=False)
-            self._refresh_local()
-        except Exception as exc:
-            self._error_cb("Mkdir Error", str(exc))
+        self._file_operations.mkdir_local()
 
     def _new_file_local(self):
-        name, ok = QInputDialog.getText(self, tr("New File", self._language), tr("File name:", self._language))
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        if "/" in name or "\\" in name or name in (".", ".."):
-            self._error_cb("Invalid Name", "Name cannot contain path separators or '..'")
-            return
-        base = self.state.current_project_root or Path.cwd()
-        new_file = Path(base) / name
-        try:
-            new_file.touch(exist_ok=False)
-            self._refresh_local()
-            self._open_in_text_editor(new_file)
-        except Exception as exc:
-            self._error_cb("New File Error", str(exc))
+        self._file_operations.new_file_local()
 
     def _new_file_remote(self):
-        if self._service is None:
-            self._status_cb("Connect to a server first")
-            return
-        name, ok = QInputDialog.getText(self, tr("New File", self._language), tr("File name:", self._language))
-        if not ok or not name.strip():
-            return
-        base = self.remote_path.text().strip().rstrip("/") or "/"
-        remote_file = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
-        import tempfile
-        f = tempfile.NamedTemporaryFile(suffix=Path(name).suffix or ".tmp", delete=False)
-        f.close()
-        tmp = Path(f.name)
-        try:
-            tmp.write_bytes(b"")
-            self._service.upload_path(tmp, remote_file)
-            self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("New File Error", str(exc))
-        finally:
-            tmp.unlink(missing_ok=True)
+        self._file_operations.new_file_remote(self.remote_path.text().strip() or "/")
 
     def _mkdir_remote(self):
-        if self._service is None:
-            self._status_cb("Connect to a server first")
-            return
-        name, ok = self._prompt_new_folder_name("New Remote Folder", "Folder name:")
-        if not ok or not name.strip():
-            return
-        base = self.remote_path.text().strip().rstrip("/") or "/"
-        remote_dir = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
-        try:
-            self._service.mkdir_remote(remote_dir)
-            self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("Mkdir Error", str(exc))
+        self._file_operations.mkdir_remote(self.remote_path.text().strip() or "/")
 
     def _preview_remote(self):
         if self._service is None:
@@ -1490,11 +1343,7 @@ class FileTransferPage(QWidget):
         self._transfer_runner.preview_remote(remote_path, self)
 
     def _rename_name(self, name: str) -> str | None:
-        name = name.strip()
-        if not name or "/" in name or "\\" in name or name in (".", ".."):
-            self._error_cb("Invalid Name", "Name cannot contain path separators, '.' or '..'")
-            return None
-        return name
+        return self._file_operations.validate_rename_name(name, self._error_cb)
 
     def _build_name_input_dialog(self, title: str, label: str, text: str) -> QInputDialog:
         dialog = QInputDialog(self)
@@ -1528,23 +1377,7 @@ class FileTransferPage(QWidget):
         if local_path is None:
             self._status_cb("Select a local file or folder")
             return
-        new_name, ok = self._prompt_rename_name("Rename Local Path", "New name:", local_path.name)
-        if not ok:
-            return
-        new_name = self._rename_name(new_name)
-        if new_name is None:
-            return
-        new_path = local_path.with_name(new_name)
-        if new_path == local_path:
-            return
-        if new_path.exists():
-            self._error_cb("Rename Error", f"Destination already exists: {new_name}")
-            return
-        try:
-            local_path.rename(new_path)
-            self._refresh_local()
-        except Exception as exc:
-            self._error_cb("Rename Error", str(exc))
+        self._file_operations.rename_local(local_path)
 
     def _rename_remote(self):
         if self._service is None:
@@ -1554,19 +1387,7 @@ class FileTransferPage(QWidget):
         if remote_path is None:
             self._status_cb("Select a remote file or folder")
             return
-        new_name, ok = self._prompt_rename_name("Rename Remote Path", "New name:", Path(remote_path).name)
-        if not ok:
-            return
-        new_name = self._rename_name(new_name)
-        if new_name is None:
-            return
-        parent = remote_path.rsplit("/", 1)[0] or "/"
-        new_path = f"{parent}/{new_name}" if parent != "/" else f"/{new_name}"
-        try:
-            self._service.rename_remote(remote_path, new_path)
-            self._refresh_remote()
-        except Exception as exc:
-            self._error_cb("Rename Error", str(exc))
+        self._file_operations.rename_remote(remote_path)
 
     def _delete_remote(self):
         if self._service is None:
@@ -1576,53 +1397,8 @@ class FileTransferPage(QWidget):
         if not remote_paths:
             self._status_cb("Select a remote file or folder")
             return
-        current_dir = (self.remote_path.text().strip() or "/").rstrip("/") or "/"
-        # Reject deletion when browsing a dangerous top-level directory
-        _dangerous_tops = {"/", "/root", "/home"}
-        if current_dir in _dangerous_tops:
-            self._error_cb("Delete Error", f"Cannot delete items at top-level directory: {current_dir}")
-            return
-        # Filter out parent entries and paths outside current dir
-        valid_paths = []
-        for p in remote_paths:
-            if p == current_dir or not p.startswith(current_dir + "/"):
-                continue
-            valid_paths.append(p)
-        if not valid_paths:
-            self._error_cb("Delete Error", "Selected path(s) cannot be deleted from this location")
-            return
-        message = "\n".join(valid_paths[:10])
-        if len(valid_paths) > 10:
-            message += f"\n... {len(valid_paths) - 10} more"
-        if QMessageBox.question(
-            self,
-            "Delete Remote Path",
-            f"Delete remote path(s)?\n{message}",
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-        service = self._service
-
-        def _run(_ctx: WorkerContext):
-            for remote_path in valid_paths:
-                service.delete_remote(
-                    remote_path,
-                    recursive=True,
-                    extra_allowed_roots=[current_dir],
-                )
-            return len(valid_paths)
-
-        def _on_done(count: int) -> None:
-            self._status_cb(f"Deleted {count} remote item(s)")
-            self._refresh_remote()
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=_on_done,
-            on_error=lambda error: self._error_cb("Delete Error", error),
-        )
+        current_dir = self.remote_path.text().strip() or "/"
+        self._file_operations.delete_remote(remote_paths, current_dir)
 
     def _selected_local_entries(self) -> tuple[list[str], list[str]]:
         """Return (files, dirs) of selected local paths."""
