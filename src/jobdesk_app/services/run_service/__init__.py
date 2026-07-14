@@ -1,3 +1,4 @@
+"""RunService — shared run coordination for both CLI and GUI."""
 from __future__ import annotations
 
 import re
@@ -7,14 +8,14 @@ from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
-from ..core.lifecycle import TaskStatus
-from ..core.manifest import TaskRecord
-from ..core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
-from ..core.submit import SubmitResult
-from ..core.transfer import TransferStatus
-from ..remote.submitter import JobSubmitter
-from .file_transfer_service import ensure_safe_remote_path
-from .run_repository import (
+from jobdesk_app.core.lifecycle import TaskStatus
+from jobdesk_app.core.manifest import TaskRecord
+from jobdesk_app.core.run import RunPlan, RunSpec, build_run_plan, remote_run_dir
+from jobdesk_app.core.submit import SubmitResult
+from jobdesk_app.core.transfer import TransferStatus
+from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.services.file_transfer_service import ensure_safe_remote_path
+from jobdesk_app.services.run_repository import (
     MigrationError,
     OperationRecord,
     RunRecord,
@@ -22,7 +23,7 @@ from .run_repository import (
     _lexical_absolute,
     _reject_reparse_chain,
 )
-from .submit_ownership import (
+from jobdesk_app.services.submit_ownership import (
     SUBMIT_HEARTBEAT_INTERVAL,
     SUBMIT_LEASE_SECONDS,
     _CheckpointSink,
@@ -32,12 +33,13 @@ from .submit_ownership import (
 # re-export so tests can patch run_service.SUBMIT_HEARTBEAT_INTERVAL
 SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_HEARTBEAT_INTERVAL
 
+
 class RunService:
     def __init__(self, workspace_dir: str | Path | None = None, runs_dir: str | Path | None = None):
         if runs_dir:
             self.runs_dir = Path(runs_dir)
         else:
-            from ..app_paths import get_app_data_dir
+            from jobdesk_app.app_paths import get_app_data_dir
             self.runs_dir = get_app_data_dir() / "runs"
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
         self.repository = RunRepository(self.runs_dir)
@@ -117,9 +119,6 @@ class RunService:
             except OSError:
                 pass
             raise
-        # An older delete recovery can remove the newly-created empty directory
-        # before its tombstone is completed.  Once create_run commits, the
-        # tombstone is either absent or completed, so recreating it is safe.
         run_dir.mkdir(parents=True, exist_ok=True)
         return self.repository.load_run(record.run_id)
 
@@ -139,7 +138,7 @@ class RunService:
     def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None,
                    scheduler=None, resources=None):
         record = self.load_run(run_id)
-        from ..remote.scheduler import ResourceSpec, make_adapter
+        from jobdesk_app.remote.scheduler import ResourceSpec, make_adapter
 
         if env_init_scripts is None:
             env_init_scripts = list(record.env_init_scripts)
@@ -287,7 +286,7 @@ class RunService:
         return recovered
 
     def refresh_run(self, run_id: str, ssh):
-        from ..remote.status_refresh import refresh_task_statuses
+        from jobdesk_app.remote.status_refresh import refresh_task_statuses
 
         record = self.load_run(run_id)
         tasks = self.repository.load_tasks(run_id)
@@ -320,12 +319,7 @@ class RunService:
         return result
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
-        """Download declared outputs for remote_completed tasks.
-
-        All-or-nothing per task: a task is marked ``downloaded`` only when every
-        declared output transfers (or is skipped as identical). If any declared
-        output is missing/fails, the task keeps its status and records the error.
-        """
+        """Download declared outputs for remote_completed tasks."""
         record = self.load_run(run_id)
         return self._download_completed_locked(record, run_id, sftp, patterns)
 
@@ -489,7 +483,7 @@ class RunService:
         return self._cancel_run_locked(record, run_id, ssh)
 
     def _cancel_run_locked(self, record: RunRecord, run_id: str, ssh) -> tuple[int, list[str]]:
-        from ..remote.scheduler import make_adapter
+        from jobdesk_app.remote.scheduler import make_adapter
 
         tasks = self.repository.load_tasks(run_id)
         expected = {task.task_id: task.model_copy(deep=True) for task in tasks}
@@ -650,27 +644,9 @@ class RunService:
     def _recover_delete_operation(
         self, operation: OperationRecord, *, raise_errors: bool = False
     ) -> bool:
-        """Resume a single incomplete delete operation to ``completed``.
-
-        Concurrency model:
-
-        * The first writer to acquire ``BEGIN IMMEDIATE`` for a given
-          ``operation_id`` commits the ``metadata_deleted → files_isolated``
-          advance; all other workers observe the operation in
-          ``files_isolated`` phase.
-        * When a worker enters the ``files_isolated`` cleanup branch but did
-          not author the isolation commit itself (``isolation_done_by_us`` is
-          ``False``), the recovery waits up to ``_RECOVERY_LEADER_GRACE``
-          seconds for the in-progress leader to land ``completed_at``. If
-          the operation is still in-flight after the grace window the worker
-          takes over, ensuring a paused/abandoned leader cannot leave an
-          operation permanently stuck at ``files_isolated``.
-        * The wait is skipped when this worker *did* commit the isolation
-          itself — there is no leader to wait for.
-        """
         import shutil
 
-        from ..services.run_repository import (
+        from jobdesk_app.services.run_repository import (
             _DELETE_CLEANUP_LEADER_GRACE_SECONDS,
         )
 
@@ -694,8 +670,6 @@ class RunService:
                     return False
                 phase = "metadata_deleted"
             if phase == "metadata_deleted":
-                # Directory preparation may involve antivirus/filesystem latency,
-                # so it must happen before the bounded isolation transaction.
                 trash_run_dir.parent.mkdir(parents=True, exist_ok=True)
                 trash_results_dir.parent.mkdir(parents=True, exist_ok=True)
 
@@ -720,13 +694,6 @@ class RunService:
                 phase = "files_isolated"
             if phase == "files_isolated":
                 if not isolation_done_by_us:
-                    # The operation is at ``files_isolated`` but we did
-                    # not author the isolation commit ourselves. Another
-                    # worker is (or was, and is now stuck on filesystem
-                    # cleanup) responsible for the final advances. Give
-                    # them a short window to finish; if they don't, we
-                    # take over so the operation cannot stay stuck here
-                    # forever.
                     if not self._wait_for_files_isolated_leader(
                         operation.operation_id,
                         grace_seconds=_DELETE_CLEANUP_LEADER_GRACE_SECONDS,
@@ -768,20 +735,9 @@ class RunService:
         *,
         grace_seconds: float,
     ) -> bool:
-        """Give an in-progress ``files_isolated`` leader a chance to finish.
-
-        Returns ``True`` if the operation is still at ``files_isolated``
-        after the grace window — i.e. the caller should proceed with the
-        cleanup. Returns ``False`` if the phase moved past
-        ``files_isolated`` (the leader finished, another worker won the
-        race, or the operation was already ``completed``) — i.e. the caller
-        should bail.
-        """
         import time as _time
 
         deadline = _time.monotonic() + grace_seconds
-        # Poll every 10ms — short enough that normal cleanup latency
-        # rounds to nothing, long enough that we do not spin.
         poll_interval = 0.01
         while True:
             row = next(
@@ -908,6 +864,10 @@ class RunService:
             resources={},
         )
 
+
+# ---- module-level helpers (pure, no CLI/GUI coupling) ------------------------
+
+
 def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
     if task.remote_result_files:
         return list(task.remote_result_files)
@@ -916,13 +876,10 @@ def _declared_outputs(task: TaskRecord, patterns: list[str]) -> list[str]:
     results = []
     for pattern in patterns:
         if pattern.startswith("."):
-            # Extension shorthand: ".log" → "<stem>.log"
             results.append(f"{stem}{pattern}")
         elif "*" in pattern:
-            # Glob: "*.log" → "<stem>.log"
             results.append(f"{stem}{pattern.lstrip('*')}")
         else:
-            # Plain filename or relative path: use as-is
             results.append(pattern)
     return results
 
@@ -965,7 +922,7 @@ def _status_summary(tasks: list[TaskRecord]) -> dict[str, int]:
 
 
 def _scheduler_type(scheduler) -> str:
-    from ..remote.scheduler import PBSAdapter, SlurmAdapter
+    from jobdesk_app.remote.scheduler import PBSAdapter, SlurmAdapter
 
     if isinstance(scheduler, SlurmAdapter):
         return "slurm"
