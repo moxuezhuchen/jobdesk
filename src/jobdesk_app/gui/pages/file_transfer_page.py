@@ -43,11 +43,9 @@ from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_config import ConfigUnreadable, load_existing_servers_data
+from .file_transfer_config import _load_existing_servers_data as _load_existing_servers_data
 from .file_transfer_connections import ConnectionsCoordinator
 from .file_transfer_helpers import (
-    _file_signature,
-    _raise_if_upload_failed,
-    _remote_edit_temp_path,
     _remote_list_error_allows_fallback,
     build_input_sources,
     collect_remote_delete_roots,
@@ -65,6 +63,7 @@ from .file_transfer_helpers import (
     remote_table_row,
 )
 from .file_transfer_local_navigator import LocalNavigator
+from .file_transfer_remote_edit import RemoteEditSessionManager
 from .file_transfer_tables import _RemoteEditSession
 from .file_transfer_widgets import (
     _clamp_column_widths,
@@ -134,6 +133,16 @@ class FileTransferPage(QWidget):
             worker_registry_attr="_background_workers",
         )
         self._local_navigator.set_root_provider(self._apply_local_root)
+        self._remote_edit_manager = RemoteEditSessionManager(
+            service_provider=lambda: self._service,
+            settings_provider=lambda: self._gui_settings,
+            server_id_provider=lambda: self._connected_server_id,
+            on_status=lambda message: self._status_cb(message),
+            on_error=lambda title, message: self._error_cb(title, message),
+            on_refresh_remote=lambda: self._refresh_remote(),
+            start_worker=lambda owner, **kwargs: start_context_worker(owner, **kwargs),
+            process_launcher=lambda args: subprocess.Popen(args),
+        )
         self._initialized = False
         self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
         self._pending_click_rename: tuple[str, int] | None = None
@@ -396,6 +405,8 @@ class FileTransferPage(QWidget):
     def _apply_local_root(self, path: Path) -> None:
         """Mutate ``state.current_project_root`` and the local-path button."""
         self.state.current_project_root = path
+        if not hasattr(self, "local_path_btn"):
+            return
         self.local_path_btn.setText(str(path))
         self.local_path_btn.setToolTip(str(path))
 
@@ -1205,110 +1216,34 @@ class FileTransferPage(QWidget):
 
     def _open_remote_file_in_editor(self, remote_path: str):
         """Download a remote file to a temp directory and open it in the configured editor."""
-        if self._service is None:
-            self._status_cb("Connect to a server first")
-            return
-        name = Path(remote_path).name
-        tmp_file = _remote_edit_temp_path(remote_path, self._connected_server_id)
-        tmp_file.parent.mkdir(parents=True, exist_ok=True)
-        service = self._service
-        assert service is not None
-
-        def _download(_ctx: WorkerContext):
-            from ...core.file_transfer import OverwritePolicy
-            service.download_path(remote_path, str(tmp_file), OverwritePolicy.overwrite)
-            return tmp_file
-
-        def _on_done(path):
-            if self._open_in_text_editor(path):
-                self._register_remote_edit_session(remote_path, Path(path))
-                self._status_cb(f"Opened: {name}")
-
-        start_context_worker(
+        self._remote_edit_manager.open_remote_file(
             self,
-            target=_download,
-            registry_attr="_background_workers",
-            on_result=_on_done,
-            on_error=lambda error: self._status_cb(f"Download failed: {error.splitlines()[0]}"),
+            remote_path,
+            on_opened=lambda path: self._register_remote_edit_session(remote_path, path),
+            open_in_editor=lambda path: self._open_in_text_editor(path),
         )
-        self._status_cb(f"Downloading {name}...")
 
     def _open_in_text_editor(self, path: str | Path) -> bool:
-        editor = self._gui_settings.text_editor_path or "notepad.exe"
-        try:
-            subprocess.Popen([editor, str(path)])
-        except Exception as exc:
-            self._error_cb("Open File Error", str(exc))
-            return False
-        return True
+        return self._remote_edit_manager.open_in_text_editor(Path(path))
 
     def _register_remote_edit_session(self, remote_path: str, local_path: Path) -> None:
-        local_path = Path(local_path)
-        self._remote_edit_sessions[str(local_path)] = _RemoteEditSession(
-            remote_path=remote_path,
-            local_path=local_path,
-            uploaded_signature=_file_signature(local_path),
-        )
-        if not self._remote_edit_timer.isActive():
+        self._remote_edit_manager.register_session(remote_path, local_path)
+        # Mirror the manager's session dict into the page attribute so
+        # test fixtures that read ``file_page._remote_edit_sessions`` keep
+        # working.
+        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        if hasattr(self, "_remote_edit_timer") and not self._remote_edit_timer.isActive():
             self._remote_edit_timer.start()
 
     def _check_remote_edit_sessions(self) -> None:
-        if not self._remote_edit_sessions:
-            self._remote_edit_timer.stop()
-            return
-        for key, session in list(self._remote_edit_sessions.items()):
-            if not session.local_path.exists():
-                self._remote_edit_sessions.pop(key, None)
-                continue
-            signature = _file_signature(session.local_path)
-            if signature == session.uploaded_signature:
-                continue
-            if signature == session.uploading_signature:
-                continue
-            self._upload_remote_edit_session(session, signature)
-        if not self._remote_edit_sessions:
+        self._remote_edit_manager.tick(self)
+        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        if not self._remote_edit_sessions and hasattr(self, "_remote_edit_timer"):
             self._remote_edit_timer.stop()
 
     def _upload_remote_edit_session(self, session: _RemoteEditSession, signature: str | None = None) -> None:
-        if self._service is None:
-            self._error_cb("Upload Remote Edit Error", "Connect to a server first")
-            return
-        upload_signature = signature or _file_signature(session.local_path)
-        session.uploading_signature = upload_signature
-        service = self._service
-        local_path = session.local_path
-        remote_path = session.remote_path
-        session_key = str(local_path)
-
-        def _run(_ctx: WorkerContext):
-            records = service.upload_path(local_path, remote_path, OverwritePolicy.overwrite)
-            _raise_if_upload_failed(records, remote_path)
-            return session_key, upload_signature, remote_path
-
-        def _done(result):
-            key, completed_signature, completed_remote_path = result
-            current = self._remote_edit_sessions.get(key)
-            if current is None:
-                return
-            if current.uploading_signature == completed_signature:
-                current.uploaded_signature = completed_signature
-                current.uploading_signature = None
-            self._status_cb(f"Uploaded remote edit: {completed_remote_path}")
-            self._refresh_remote()
-
-        def _error(error: str):
-            current = self._remote_edit_sessions.get(session_key)
-            if current is not None and current.uploading_signature == upload_signature:
-                current.uploading_signature = None
-            self._error_cb("Upload Remote Edit Error", error.splitlines()[0])
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=_done,
-            on_error=_error,
-        )
+        self._remote_edit_manager.upload_session(self, session, signature)
+        self._remote_edit_sessions = self._remote_edit_manager._sessions
 
     def _download_selected(self):
         if self._service is None:
@@ -1897,8 +1832,8 @@ class FileTransferPage(QWidget):
             worker.finished.connect(worker.deleteLater)
 
     def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
-        dirty = []
-        for session in self._remote_edit_sessions.values():
-            if session.local_path.exists() and _file_signature(session.local_path) != session.uploaded_signature:
-                dirty.append(session)
-        return dirty
+        # Delegate to RemoteEditSessionManager so the dirty-tracking logic
+        # stays in one place. The page still owns the ``_remote_edit_timer``
+        # ``QTimer`` that drives this check.
+        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        return self._remote_edit_manager.dirty_sessions
