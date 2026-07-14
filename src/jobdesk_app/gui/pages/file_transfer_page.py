@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
 from ...config.servers import (
     load_servers,  # noqa: F401  re-exported for tests that monkeypatch the symbol on this module
 )
-from ...core.file_transfer import OverwritePolicy
 from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
@@ -53,10 +52,8 @@ from .file_transfer_helpers import (
     default_remote_dir_for_server,
     file_table_headers,
     format_modified_time,
-    format_queue_summary,
     format_remote_size,
     format_selection_summary,
-    format_transfer_speed,
     normalize_remote_path,
     remote_child_path,
     remote_parent_row,
@@ -64,6 +61,7 @@ from .file_transfer_helpers import (
 )
 from .file_transfer_local_navigator import LocalNavigator
 from .file_transfer_remote_edit import RemoteEditSessionManager
+from .file_transfer_runner import TransferRunner
 from .file_transfer_tables import _RemoteEditSession
 from .file_transfer_widgets import (
     _clamp_column_widths,
@@ -330,6 +328,28 @@ class FileTransferPage(QWidget):
         self.progress_bar.setMinimumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setMaximumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setTextVisible(True)
+        self._transfer_runner = TransferRunner(
+            owner=self,
+            progress_bar=self.progress_bar,
+            service_provider=lambda: self._service,
+            language_provider=lambda: self._language,
+            worker_registry=self._background_workers,
+            on_status=lambda message: self._status_cb(message),
+            on_error=lambda title, message: self._error_cb(title, message),
+            on_refresh_local=lambda: self._refresh_local(),
+            on_refresh_remote=lambda: self._refresh_remote(),
+            run_transfer=lambda run_fn, label, refresh: self._start_transfer_worker(
+                run_fn, label, refresh
+            ),
+            start_context=lambda owner, **kwargs: start_context_worker(owner, **kwargs),
+            start_tracked=lambda owner, worker, **kwargs: start_tracked_worker(
+                owner, worker, **kwargs
+            ),
+            clock=lambda: time.monotonic(),
+            show_preview=lambda parent, title, text: QMessageBox.information(
+                parent, title, text
+            ),
+        )
         progress_row = QHBoxLayout()
         progress_row.setContentsMargins(0, 0, 0, 0)
         progress_row.setSpacing(0)
@@ -1254,20 +1274,7 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a remote file or folder")
             return
         local_base = self.state.current_project_root or Path.cwd()
-        target = Path(local_base) / Path(remote_path).name
-        service = self._service
-
-        def _run(ctx: WorkerContext):
-            def _progress(done, total):
-                ctx.emit_progress(int(done), int(total))
-            rec = service.download_path(
-                remote_path, target,
-                OverwritePolicy.overwrite,
-                progress_callback=_progress,
-            )
-            return rec if isinstance(rec, list) else [rec]
-
-        self._start_transfer_worker(_run, "Download", self._refresh_local)
+        self._transfer_runner.download_selected(remote_path, Path(local_base))
 
     def _upload_selected(self):
         if self._service is None:
@@ -1278,123 +1285,32 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a local file or folder")
             return
         remote_target = self._remote_target_for_local(local_path)
-        service = self._service
-
-        def _run(ctx: WorkerContext):
-            def _progress(done, total):
-                ctx.emit_progress(int(done), int(total))
-            rec = service.upload_path(
-                local_path, remote_target,
-                OverwritePolicy.overwrite,
-                progress_callback=_progress,
-            )
-            return rec if isinstance(rec, list) else [rec]
-
-        self._start_transfer_worker(_run, "Upload", self._refresh_remote)
+        self._transfer_runner.upload_selected(local_path, remote_target)
 
     def _start_transfer_worker(self, run_fn_or_worker, label: str, on_done_refresh):
-        started_at = time.monotonic()
-        self.progress_bar.setValue(0)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setFormat(f"{label}: %p%")
-        self.progress_bar.setVisible(True)
-
-        def _on_progress(done, total):
-            elapsed = max(time.monotonic() - started_at, 0.001)
-            speed = format_transfer_speed(done / elapsed)
-            if total > 0:
-                self.progress_bar.setValue(int(done * 100 / total))
-                self.progress_bar.setFormat(
-                    f"{label}: {done // 1024}K / {total // 1024}K @ {speed}"
-                )
-            else:
-                self.progress_bar.setMaximum(0)  # indeterminate
-                self.progress_bar.setFormat(f"{label}: {done // 1024}K @ {speed}")
-
-        def _on_done(records):
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setMaximum(100)
-            if not isinstance(records, list):
-                records = [records]
-            self._status_cb(format_queue_summary([r.status for r in records], self._language))
-            on_done_refresh()
-
-        def _on_error(msg):
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setMaximum(100)
-            self._error_cb(f"{label} Error", msg)
-
-        if hasattr(run_fn_or_worker, "start"):
-            start_tracked_worker(
-                self,
-                run_fn_or_worker,
-                registry_attr="_background_workers",
-                on_progress=_on_progress,
-                on_result=_on_done,
-                on_error=_on_error,
-            )
-        else:
-            start_context_worker(
-                self,
-                target=run_fn_or_worker,
-                registry_attr="_background_workers",
-                on_progress=_on_progress,
-                on_result=_on_done,
-                on_error=_on_error,
-            )
-        self._status_cb(f"{label} started")
+        self._transfer_runner.start_worker(run_fn_or_worker, label, on_done_refresh)
 
     def _upload_dropped_local_paths(self, paths: list[str]):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        service = self._service
         remote_dir = self.remote_path.text().strip() or "/"
-
-        def _run(ctx: WorkerContext):
-            def _progress(done, total):
-                ctx.emit_progress(int(done), int(total))
-
-            records = []
-            for path_text in paths:
-                local_path = Path(path_text)
-                if not local_path.exists():
-                    continue
-                target = remote_child_path(remote_dir, local_path.name)
-                result = service.upload_path(
-                    local_path,
-                    target,
-                    OverwritePolicy.skip_same_size,
-                    progress_callback=_progress,
-                )
-                records.extend(result if isinstance(result, list) else [result])
-            return records
-
-        self._start_transfer_worker(_run, "Upload", self._refresh_remote)
+        self._transfer_runner.upload_dropped_local_paths(
+            paths,
+            remote_dir,
+            self._refresh_remote,
+        )
 
     def _download_dropped_remote_paths(self, paths: list[str]):
         if self._service is None:
             self._status_cb("Connect to a server first")
             return
-        service = self._service
         local_base = self.state.current_project_root or Path.cwd()
-
-        def _run(ctx: WorkerContext):
-            def _progress(done, total):
-                ctx.emit_progress(int(done), int(total))
-
-            records = []
-            for remote_path in paths:
-                result = service.download_path(
-                    remote_path,
-                    Path(local_base) / Path(remote_path).name,
-                    OverwritePolicy.overwrite,
-                    progress_callback=_progress,
-                )
-                records.extend(result if isinstance(result, list) else [result])
-            return records
-
-        self._start_transfer_worker(_run, "Download", self._refresh_local)
+        self._transfer_runner.download_dropped_remote_paths(
+            paths,
+            Path(local_base),
+            self._refresh_local,
+        )
 
     def _copy_dropped_local_paths(self, paths: list[str]):
         local_base = Path(self.state.current_project_root or Path.cwd())
@@ -1571,18 +1487,7 @@ class FileTransferPage(QWidget):
         if remote_path is None:
             self._status_cb("Select a remote file")
             return
-        service = self._service
-
-        def _run(_ctx: WorkerContext):
-            return service.preview_remote_text(remote_path)
-
-        start_context_worker(
-            self,
-            target=_run,
-            registry_attr="_background_workers",
-            on_result=lambda text: QMessageBox.information(self, remote_path, text[:4000]),
-            on_error=lambda error: self._error_cb("Preview Error", error),
-        )
+        self._transfer_runner.preview_remote(remote_path, self)
 
     def _rename_name(self, name: str) -> str | None:
         name = name.strip()
@@ -1826,10 +1731,7 @@ class FileTransferPage(QWidget):
                 self._service = None
 
     def _keep_worker(self, worker):
-        self._background_workers.append(worker)
-        worker.finished.connect(lambda: self._background_workers.remove(worker) if worker in self._background_workers else None)
-        if hasattr(worker, "deleteLater"):
-            worker.finished.connect(worker.deleteLater)
+        self._transfer_runner.keep_worker(worker)
 
     def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
         # Delegate to RemoteEditSessionManager so the dirty-tracking logic
