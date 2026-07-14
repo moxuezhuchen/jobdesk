@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -124,6 +125,7 @@ class SubmitDialog(QDialog):
         self._max_parallel = max_parallel
         self._preset_store = preset_store or MethodPresetStore()
         self._preset_name = preset_name
+        self._status_callback: Callable[[str], None] = lambda _msg: None
 
         self.setWindowTitle(tr("Submit for calculation", language))
         self.setMinimumWidth(640)
@@ -491,20 +493,13 @@ class SubmitDialog(QDialog):
                 str(exc),
             )
             return
-        self._on_status_feedback(
+        self._status_callback(
             tr("Workflow saved.", self._language) + f" ({target})"
         )
 
-    def _on_status_feedback(self, _msg: str) -> None:  # pragma: no cover
-        # Placeholder so the dialog doesn't depend on a MainWindow
-        # callback. ``MainWindow.open_submit_dialog`` patches a real
-        # callback onto the instance via ``set_status_callback`` when
-        # it's available.
-        pass
-
-    def set_status_callback(self, callback) -> None:
+    def set_status_callback(self, callback: Callable[[str], None] | None) -> None:
         """External code (typically ``MainWindow``) wires a status sink."""
-        self._on_status_feedback = callback or (lambda _msg: None)
+        self._status_callback = callback or (lambda _msg: None)
 
     def _resolve_workflow_spec(self) -> WorkflowSpec | None:
         """Build a ``WorkflowSpec`` for the currently selected preset.

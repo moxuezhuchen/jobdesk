@@ -832,8 +832,11 @@ class WorkflowPage(QWidget):
     def _refresh_flow_diagram(self) -> None:
         while self._flow_layout.count():
             item = self._flow_layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         start = QLabel(tr("Input structure", self._language), self._flow_body)
         start.setAlignment(Qt.AlignmentFlag.AlignCenter)
         start.setFixedHeight(42)

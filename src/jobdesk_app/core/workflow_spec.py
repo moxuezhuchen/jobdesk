@@ -239,7 +239,7 @@ def _itask_token(value: str) -> str:
     return s
 
 
-_STEP_TOKEN_TO_TYPE = {
+_STEP_TOKEN_TO_TYPE: dict[str, tuple[str, dict[str, Any]]] = {
     "confgen": (
         "confgen",
         {"chains": ["1-2-3-4"], "angle_step": 120, "bond_multiplier": 1.15},
