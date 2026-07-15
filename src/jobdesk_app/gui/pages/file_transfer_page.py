@@ -34,6 +34,7 @@ from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunService
 from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
+from ..design.tokens import Colors, Radius, Spacing
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
@@ -271,8 +272,8 @@ class FileTransferPage(QWidget):
         local_header_widget = QWidget()
         local_header_widget.setObjectName("LocalHeader")
         local_header_widget.setStyleSheet(
-            "#LocalHeader { background: #dfe7f0; border: 1px solid #9aaec4;"
-            " border-radius: 3px; border-top-right-radius: 0; border-bottom-right-radius: 0; }"
+            f"#LocalHeader {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.MD}px; border-top-right-radius: 0; border-bottom-right-radius: 0; }}"
         )
         local_header_widget.setFixedHeight(52)
         local_header = QHBoxLayout(local_header_widget)
@@ -291,12 +292,12 @@ class FileTransferPage(QWidget):
         remote_header_widget = QWidget()
         remote_header_widget.setObjectName("RemoteHeader")
         remote_header_widget.setStyleSheet(
-            "#RemoteHeader { background: #dfe7f0; border: 1px solid #9aaec4;"
-            " border-radius: 3px; border-top-left-radius: 0; border-bottom-left-radius: 0; }"
-            " #RemoteHeader QLineEdit, #RemoteHeader QComboBox {"
-            " background: #f7f9fc; border: 1px solid #9aaec4; border-radius: 3px;"
-            " padding: 0 8px; min-height: 38px; max-height: 38px; }"
-            " #RemoteHeader QLabel { background: transparent; }"
+            f"#RemoteHeader {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.MD}px; border-top-left-radius: 0; border-bottom-left-radius: 0; }} "
+            f" #RemoteHeader QLineEdit, #RemoteHeader QComboBox {{"
+            f" background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; "
+            f"padding: 0 10px; min-height: 36px; max-height: 36px; }} "
+            f" #RemoteHeader QLabel {{ background: transparent; }}"
         )
         remote_header_widget.setFixedHeight(52)
         remote_header = QHBoxLayout(remote_header_widget)

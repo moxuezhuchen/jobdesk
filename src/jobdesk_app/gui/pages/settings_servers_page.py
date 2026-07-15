@@ -27,6 +27,7 @@ from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import SettingCard, StyledTableWidget, ToggleSwitch
+from ..design.tokens import Colors, Radius
 from ..i18n import tr
 from ..session import ssh_session
 from ..widgets import EmptyStateHint
@@ -120,7 +121,7 @@ class SettingsServersPage(QWidget):
 
         # Page title
         self._page_title = QLabel(tr("Settings", self._language))
-        self._page_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
+        self._page_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
         layout.addWidget(self._page_title)
         layout.addSpacing(8)
 
@@ -205,14 +206,14 @@ class SettingsServersPage(QWidget):
         # ─── 服务器配置 ───
         layout.addSpacing(12)
         self._srv_title = QLabel(tr("Server Profiles", self._language))
-        self._srv_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
+        self._srv_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
         layout.addWidget(self._srv_title)
         layout.addSpacing(4)
 
         srv_card = QFrame()
         srv_card.setObjectName("SettingCard")
         srv_card.setStyleSheet(
-            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            f"#SettingCard {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
         srv_inner = QVBoxLayout(srv_card)
         srv_inner.setContentsMargins(16, 12, 16, 12)
@@ -251,10 +252,10 @@ class SettingsServersPage(QWidget):
         layout.addSpacing(12)
         dl_header = QHBoxLayout()
         self._dl_title = QLabel(tr("Software Profiles", self._language))
-        self._dl_title.setStyleSheet("font-size: 13pt; color: #111827; font-weight: 600;")
+        self._dl_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
         dl_header.addWidget(self._dl_title)
         self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
-        self._dl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
+        self._dl_desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;")
         dl_header.addWidget(self._dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
@@ -286,7 +287,7 @@ class SettingsServersPage(QWidget):
         profile_card = QFrame()
         profile_card.setObjectName("ProfileCard")
         profile_card.setStyleSheet(
-            "#ProfileCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            f"#ProfileCard {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
         profile_card_inner = QVBoxLayout(profile_card)
         profile_card_inner.setContentsMargins(16, 12, 16, 12)
@@ -297,7 +298,7 @@ class SettingsServersPage(QWidget):
             tr("ConfFlow downloads are managed from declared task outputs; "
                "shown patterns describe the default artifacts.", self._language)
         )
-        self._confflow_note.setStyleSheet("color: #2f3b49; font-size: 14pt; padding: 4px 0;")
+        self._confflow_note.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px; padding: 6px 0;")
         self._confflow_note.setWordWrap(True)
         profile_card_inner.addWidget(self._confflow_note)
         layout.addWidget(profile_card)

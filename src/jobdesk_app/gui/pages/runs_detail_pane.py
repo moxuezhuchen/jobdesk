@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .runs_results_helpers import format_energy, format_seconds
+from ..design.tokens import Colors, Radius
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
@@ -30,9 +31,9 @@ class ResultDetailPane(QWidget):
         super().__init__(parent)
         self.setObjectName("ResultDetailPane")
         self.setStyleSheet(
-            "#ResultDetailPane { background: #f1f5fa; border: 1px solid #9aaec4; border-radius: 3px; padding: 4px; }"
-            " #ResultDetailPane QLabel { background: transparent; }"
-            " #ResultDetailPane QTextEdit { background: #ffffff; border: 1px solid #c5d2e3; }"
+            f"#ResultDetailPane {{ background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; padding: 8px; }}"
+            f" #ResultDetailPane QLabel {{ background: transparent; }}"
+            f" #ResultDetailPane QTextEdit {{ background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; }}"
         )
         self._program = "—"
         self._language = "en"  # updated via apply_language()
@@ -42,7 +43,7 @@ class ResultDetailPane(QWidget):
         layout.setSpacing(4)
 
         self.title_label = QLabel("—")
-        self.title_label.setStyleSheet("color: #111827; font-weight: 600; font-size: 13px;")
+        self.title_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
         layout.addWidget(self.title_label)
 
         self.status_label = QLabel("—")
@@ -63,7 +64,7 @@ class ResultDetailPane(QWidget):
         self.termination_value.setWordWrap(True)
         self.error_value = QLabel("")
         self.error_value.setWordWrap(True)
-        self.error_value.setStyleSheet("color: #b91c1c; font-weight: 600;")
+        self.error_value.setStyleSheet(f"color: {Colors.ERROR}; font-weight: 600;")
         self.error_value.setVisible(False)
         self.walltime_value = QLabel("—")
         self.cputime_value = QLabel("—")
@@ -79,7 +80,7 @@ class ResultDetailPane(QWidget):
         layout.addLayout(form)
 
         geom_label = QLabel("Final geometry (XYZ, first 100 lines)")
-        geom_label.setStyleSheet("color: #111827; font-weight: 600;")
+        geom_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 15px;")
         layout.addWidget(geom_label)
         self.geometry_view = QTextEdit()
         self.geometry_view.setReadOnly(True)
@@ -106,7 +107,7 @@ class ResultDetailPane(QWidget):
         from ..i18n import tr
         self.title_label.setText(tr("Select a task to see details", self._language))
         self.status_label.setText("—")
-        self.status_label.setStyleSheet("font-weight: 600; color: #475569;")
+        self.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_SECONDARY};")
         self.energy_value.setText("—")
         self.zpe_value.setText("—")
         self.gibbs_value.setText("—")

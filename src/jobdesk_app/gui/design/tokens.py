@@ -4,47 +4,59 @@ from __future__ import annotations
 
 
 class Colors:
-    # Surfaces
-    BG_BASE = "#eef3f8"
-    BG_SURFACE = "#f7f9fc"
+    # ── Modern Surface System ─────────────────────────────────────────────
+    BG_BASE = "#f0f2f5"
+    BG_SURFACE = "#ffffff"
 
-    # Sidebar
-    SIDEBAR_BG = "#243244"
-    SIDEBAR_TEXT = "#b7c3d1"
+    # ── Gradient Accent (primary) ─────────────────────────────────────────
+    PRIMARY = "#3b82f6"
+    PRIMARY_HOVER = "#2563eb"
+    PRIMARY_PRESSED = "#1d4ed8"
+    PRIMARY_TEXT = "#ffffff"
+
+    # ── Sidebar (dark slate with depth) ──────────────────────────────────
+    SIDEBAR_BG = "#1e293b"
+    SIDEBAR_BG_LIGHT = "#334155"
+    SIDEBAR_TEXT = "#94a3b8"
     SIDEBAR_TEXT_ACTIVE = "#ffffff"
-    SIDEBAR_INDICATOR = "#6f91b7"
-    SIDEBAR_HOVER = "#34465d"
+    SIDEBAR_INDICATOR = "#3b82f6"
+    SIDEBAR_HOVER = "#334155"
+    SIDEBAR_ACTIVE_BG = "#1e3a5f"
 
-    # Primary
-    PRIMARY = "#315f95"
-    PRIMARY_HOVER = "#e8eef5"
-    PRIMARY_PRESSED = "#d3dce7"
-    PRIMARY_TEXT = "#111827"
+    # ── Semantic Colors ──────────────────────────────────────────────────
+    SUCCESS = "#10b981"
+    SUCCESS_BG = "#ecfdf5"
+    SUCCESS_BORDER = "#6ee7b7"
+    WARNING = "#f59e0b"
+    WARNING_BG = "#fffbeb"
+    WARNING_BORDER = "#fcd34d"
+    ERROR = "#ef4444"
+    ERROR_BG = "#fef2f2"
+    ERROR_BORDER = "#fca5a5"
+    INFO = "#3b82f6"
+    INFO_BG = "#eff6ff"
+    INFO_BORDER = "#93c5fd"
 
-    # Semantic
-    SUCCESS = "#2f6f3e"
-    SUCCESS_BG = "#edf5ee"
-    WARNING = "#7a5d1a"
-    WARNING_BG = "#faf2d8"
-    ERROR = "#9b2b2b"
-    ERROR_BG = "#f6eeee"
-    INFO = "#315f95"
-    INFO_BG = "#e7eef6"
+    # ── Text Hierarchy ───────────────────────────────────────────────────
+    TEXT = "#1e293b"
+    TEXT_SECONDARY = "#475569"
+    TEXT_MUTED = "#94a3b8"
 
-    # Text
-    TEXT = "#111827"
-    TEXT_SECONDARY = "#2f3b49"
-    TEXT_MUTED = "#758293"
+    # ── Borders & Dividers ───────────────────────────────────────────────
+    BORDER = "#e2e8f0"
+    BORDER_SUBTLE = "#f1f5f9"
+    BORDER_FOCUS = "#3b82f6"
 
-    # Borders
-    BORDER = "#9aaec4"
-    BORDER_SUBTLE = "#d7e0ea"
-    BORDER_FOCUS = "#5c7fa6"
+    # ── Cards & Surfaces ─────────────────────────────────────────────────
+    CARD_BG = "#ffffff"
+    CARD_HOVER = "#f8fafc"
+    CARD_SHADOW = "rgba(15, 23, 42, 0.08)"
 
-    # Table
-    TABLE_HEADER_BG = "#dfe7f0"
-    TABLE_ALT_ROW = "#eef3f8"
-    TABLE_SELECTION = "#cfe0f4"
+    # ── Table ─────────────────────────────────────────────────────────────
+    TABLE_HEADER_BG = "#f8fafc"
+    TABLE_ALT_ROW = "#fafbfc"
+    TABLE_SELECTION = "#dbeafe"
+    TABLE_HOVER = "#f1f5f9"
 
 
 class Spacing:
@@ -57,27 +69,31 @@ class Spacing:
 
 
 class Radius:
-    SM = 2
-    MD = 3
-    LG = 4
+    SM = 4
+    MD = 8
+    LG = 12
+    XL = 16
 
 
 class Shadow:
-    """(offset_x, offset_y, blur_radius, alpha 0-255)"""
-    SM = (0, 1, 3, 25)
-    MD = (0, 4, 12, 20)
+    """Qt stylesheets don't support box-shadow. These are kept for reference only."""
+    SM = ""
+    MD = ""
+    LG = ""
+    XL = ""
 
 
 class Animation:
-    FAST = 120
-    NORMAL = 200
+    FAST = 150
+    NORMAL = 250
+    SLOW = 400
 
 
 class Metrics:
     SIDEBAR_WIDTH = 72
-    SIDEBAR_ICON_SIZE = 28
+    SIDEBAR_ICON_SIZE = 26
     SIDEBAR_ITEM_HEIGHT = 56
-    CONTROL_HEIGHT = 38
-    TABLE_ROW_HEIGHT = 32
-    TABLE_HEADER_HEIGHT = 36
-    PAGE_PADDING = 20
+    CONTROL_HEIGHT = 44
+    TABLE_ROW_HEIGHT = 48
+    TABLE_HEADER_HEIGHT = 52
+    PAGE_PADDING = 24

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from ...services.gui_settings import GuiSettingsStore
 from .icons import get_icon
-from .tokens import Colors, Metrics, Spacing
+from .tokens import Animation, Colors, Metrics, Radius, Spacing
 
 
 class _GridHeaderView(QHeaderView):
@@ -200,7 +200,7 @@ class StyledTableWidget(QTableWidget):
 
 
 class _SidebarItem(QWidget):
-    """Single nav item: icon-only with tooltip.
+    """Single nav item: icon with glow effect and animated hover.
 
     Phase 11.1 — added keyboard activation and accessibility metadata
     so screen readers and keyboard users can navigate. The control is
@@ -216,18 +216,14 @@ class _SidebarItem(QWidget):
         self._icon_name = icon_name
         self._label = label
         self._active = False
+        self._hover = False
         self.setFixedHeight(Metrics.SIDEBAR_ITEM_HEIGHT)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(label)
-        # Accept keyboard focus so Tab / Shift+Tab can land on a nav
-        # item. Without this, the control is invisible to the focus
-        # chain and screen readers skip it entirely.
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # Expose the label to assistive tech. We deliberately do NOT
-        # set accessibleDescription so screen readers don't read the
-        # tooltip twice.
         self.setAccessibleName(label)
         self.setAccessibleDescription("")
+        self.setMouseTracking(True)
 
     @property
     def active(self) -> bool:
@@ -236,52 +232,67 @@ class _SidebarItem(QWidget):
     @active.setter
     def active(self, v: bool) -> None:
         self._active = v
-        # Mirror the visual "active" state into the accessibility tree
-        # so screen readers can announce the currently selected tab.
         self.setProperty("selected", v)
         self.setAccessibleDescription("")
-        # ``aria-selected`` lives on the same property in Qt's a11y
-        # bridge; the call below is the official way to refresh the
-        # cache after a property mutation.
         self.update()
         try:
             from PySide6.QtGui import QAccessible
-            QAccessible.updateAccessibility(self, 0)  # type: ignore[call-arg, arg-type]  # PySide6 6.11 changed signature; runtime accepts (object, int)
+            QAccessible.updateAccessibility(self, 0)
         except Exception:
             pass
 
     def set_label(self, text: str) -> None:
         self._label = text
         self.setToolTip(text)
-        # Keep the accessibility tree in sync with the tooltip text.
         self.setAccessibleName(text)
         self.update()
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def enterEvent(self, event) -> None:
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
 
+        # Background gradient for active state
         if self._active:
+            p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_ACTIVE_BG))
+            # Left accent bar
+            accent_rect = QRectF(0, 8, 3, h - 16)
+            p.fillRect(accent_rect, QColor(Colors.SIDEBAR_INDICATOR))
+            # Subtle glow effect
+            glow = QColor(Colors.SIDEBAR_INDICATOR)
+            glow.setAlpha(30)
+            p.fillRect(0, 0, 6, h, glow)
+        elif self._hover:
             p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_HOVER))
-            p.fillRect(0, 0, 3, h, QColor(Colors.SIDEBAR_INDICATOR))
 
-        color = Colors.SIDEBAR_TEXT_ACTIVE if self._active else Colors.SIDEBAR_TEXT
-        icon = get_icon(self._icon_name, color, Metrics.SIDEBAR_ICON_SIZE)
+        # Icon with color based on state
+        if self._active:
+            icon_color = Colors.SIDEBAR_TEXT_ACTIVE
+        elif self._hover:
+            icon_color = "#e2e8f0"
+        else:
+            icon_color = Colors.SIDEBAR_TEXT
+
+        icon = get_icon(self._icon_name, icon_color, Metrics.SIDEBAR_ICON_SIZE)
         ix = (w - Metrics.SIDEBAR_ICON_SIZE) // 2
         iy = (h - Metrics.SIDEBAR_ICON_SIZE) // 2
         icon.paint(p, ix, iy, Metrics.SIDEBAR_ICON_SIZE, Metrics.SIDEBAR_ICON_SIZE)
         p.end()
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802
+    def mousePressEvent(self, event) -> None:
         self.clicked.emit()
 
-    def keyPressEvent(self, event) -> None:  # noqa: N802
-        # Activate on Space / Return — these are the two keys Qt's
-        # default button handling uses, so the sidebar feels consistent
-        # with the rest of the app. Arrow keys are intentionally NOT
-        # handled here because sidebar navigation is owned by the
-        # Sidebar container (which can decide on Up/Down vs. nothing).
+    def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.clicked.emit()
             event.accept()
@@ -290,7 +301,7 @@ class _SidebarItem(QWidget):
 
 
 class Sidebar(QWidget):
-    """Vertical dark navigation sidebar.
+    """Vertical dark navigation sidebar with modern glassmorphism effect.
 
     Phase 11.1 — added ``role="tablist"`` on the container and
     ``role="tab"`` (via ``QAccessible.Role.PageTab``) on each item so
@@ -305,29 +316,38 @@ class Sidebar(QWidget):
         self.setFixedWidth(Metrics.SIDEBAR_WIDTH)
         self.setObjectName("SidebarNav")
         self.setStyleSheet(
-            f"#SidebarNav {{ background:{Colors.SIDEBAR_BG}; }}"
-            f" QToolTip {{ background:{Colors.BG_SURFACE}; color:{Colors.TEXT}; border:1px solid {Colors.BORDER}; padding:4px 8px; }}"
+            f"#SidebarNav {{ background: {Colors.SIDEBAR_BG}; "
+            f"border-right: 1px solid rgba(0,0,0,0.2); }}"
+            f" QToolTip {{ background: {Colors.BG_SURFACE}; color: {Colors.TEXT}; "
+            f"border: 1px solid {Colors.BORDER}; padding: 6px 12px; "
+            f"border-radius: {Radius.MD}px; font-size: 16px; }}"
         )
-        # Announce the sidebar as a tablist of page tabs.
         self.setAccessibleName("Navigation")
-        # ``setProperty`` with these keys is the documented way to
-        # control role/state in Qt's accessibility bridge.
         self.setProperty("role", "tablist")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, Spacing.LG, 0, Spacing.LG)
-        lay.setSpacing(Spacing.XS)
+        lay.setSpacing(Spacing.SM)
 
-        # Logo
-        logo = QLabel("J")
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedHeight(36)
-        logo.setStyleSheet(
-            f"color:{Colors.SIDEBAR_TEXT_ACTIVE}; font-size:15pt; "
-            f"font-weight:700; background:transparent;"
+        # Logo with gradient background
+        logo_container = QFrame(self)
+        logo_container.setFixedHeight(48)
+        logo_container.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            f"stop:0 {Colors.SIDEBAR_INDICATOR}, stop:1 #6366f1); "
+            f"border-radius: {Radius.MD}px; margin: 0 8px;"
         )
-        lay.addWidget(logo)
-        lay.addSpacing(Spacing.SM)
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setContentsMargins(0, 0, 0, 0)
+        logo = QLabel("J", logo_container)
+        logo.setAlignment(Qt.AlignCenter)
+        logo.setStyleSheet(
+            f"color: {Colors.SIDEBAR_TEXT_ACTIVE}; font-size: 20pt; "
+            f"font-weight: 800; background: transparent; padding: 4px 0;"
+        )
+        logo_layout.addWidget(logo)
+        lay.addWidget(logo_container)
+        lay.addSpacing(Spacing.MD)
 
         self._items: list[_SidebarItem] = []
         self._current = -1
@@ -352,7 +372,7 @@ class Sidebar(QWidget):
         if 0 <= index < len(self._items):
             self._items[index].set_label(text)
 
-    def sizeHint(self) -> QSize:  # noqa: N802
+    def sizeHint(self) -> QSize:
         return QSize(Metrics.SIDEBAR_WIDTH, 600)
 
 
@@ -360,15 +380,15 @@ class Sidebar(QWidget):
 
 
 class ToggleSwitch(QWidget):
-    """滑动开关控件。"""
+    """Modern sliding switch control with smooth animations."""
 
     toggled = Signal(bool)
 
     def __init__(self, checked: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
         self._checked = checked
-        self._offset = 30.0 if checked else 6.0
-        self.setFixedSize(60, 32)
+        self._offset = 28.0 if checked else 4.0
+        self.setFixedSize(56, 30)
         self.setCursor(Qt.PointingHandCursor)
 
     def isChecked(self) -> bool:
@@ -376,7 +396,7 @@ class ToggleSwitch(QWidget):
 
     def setChecked(self, v: bool) -> None:
         self._checked = v
-        self._offset = 30.0 if v else 6.0
+        self._offset = 28.0 if v else 4.0
         self.update()
 
     def _get_offset(self) -> float:
@@ -388,51 +408,78 @@ class ToggleSwitch(QWidget):
 
     offset = Property(float, _get_offset, _set_offset)  # type: ignore[arg-type]
 
-    def mousePressEvent(self, e) -> None:  # noqa: N802
+    def mousePressEvent(self, e) -> None:
         self._checked = not self._checked
         anim = QPropertyAnimation(self, b"offset", self)
-        anim.setDuration(120)
+        anim.setDuration(Animation.FAST)
         anim.setStartValue(self._offset)
-        anim.setEndValue(30.0 if self._checked else 6.0)
+        anim.setEndValue(28.0 if self._checked else 4.0)
         anim.start(QPropertyAnimation.DeleteWhenStopped)
         self.toggled.emit(self._checked)
 
-    def paintEvent(self, e) -> None:  # noqa: N802
+    def paintEvent(self, e) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        track_color = QColor("#5c7fa6") if self._checked else QColor("#9aaec4")
+
+        # Track background with gradient
+        track_rect = QRectF(0, 0, 56, 30)
+        track_color = QColor(Colors.SUCCESS) if self._checked else QColor(Colors.TEXT_MUTED)
         p.setBrush(track_color)
         p.setPen(Qt.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, 60, 32), 16, 16)
+        p.drawRoundedRect(track_rect, 15, 15)
+
+        # Inner shadow/highlight
+        inner = QRectF(1, 1, 54, 28)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(255, 255, 255, 40))
+        p.drawRoundedRect(inner, 14, 14)
+
+        # Thumb with shadow
+        thumb_rect = QRectF(self._offset, 3, 24, 24)
         p.setBrush(QColor("white"))
-        p.drawEllipse(QRectF(self._offset, 5, 22, 22))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(thumb_rect)
+
+        # Thumb highlight
+        highlight = QRectF(self._offset + 2, 4, 20, 10)
+        p.setBrush(QColor(255, 255, 255, 100))
+        p.drawEllipse(highlight)
         p.end()
 
 
 class SettingCard(QFrame):
-    """Windows Terminal 风格卡片: 圆角背景, 标题+描述紧贴左侧, 控件右侧。"""
+    """Modern settings card with clean layout: title + description on left, control on right."""
 
     def __init__(self, title: str, description: str, control: QWidget):
         super().__init__()
         self.setObjectName("SettingCard")
         self.setStyleSheet(
-            "#SettingCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
-            " #SettingCard QLabel { background: transparent; }"
+            f"#SettingCard {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.MD}px; }}"
+            f" #SettingCard QLabel {{ background: transparent; }}"
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        self.setFixedHeight(60)
+        layout.setContentsMargins(20, 14, 20, 14)
+        self.setFixedHeight(72)
 
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
         lbl_title = QLabel(title)
+        lbl_title.setStyleSheet(
+            f"color: {Colors.TEXT}; font-size: 17px; font-weight: 600;"
+        )
         lbl_desc = QLabel(description)
-        lbl_desc.setStyleSheet("color: #2f3b49; font-size: 14pt;")
+        lbl_desc.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY}; font-size: 15px;"
+        )
+        text_layout.addWidget(lbl_title)
+        text_layout.addWidget(lbl_desc)
         self.lbl_title = lbl_title
         self.lbl_desc = lbl_desc
 
-        layout.addWidget(lbl_title)
-        layout.addSpacing(16)
-        layout.addWidget(lbl_desc)
+        layout.addLayout(text_layout)
         layout.addStretch()
         control.setMinimumWidth(160)
         layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)

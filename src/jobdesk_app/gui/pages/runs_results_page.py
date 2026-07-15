@@ -36,6 +36,7 @@ from ...services.run_service import RunRecord, RunService
 from ...services.session_pool import SessionPool
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
+from ..design.tokens import Colors, Radius
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
@@ -147,7 +148,8 @@ class RunsResultsPage(QWidget):
         log_card = QWidget()
         log_card.setObjectName("RunsActivityLogCard")
         log_card.setStyleSheet(
-            "#RunsActivityLogCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            f"#RunsActivityLogCard {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
         log_card_layout = QVBoxLayout(log_card)
         log_card_layout.setContentsMargins(10, 8, 10, 8)
@@ -155,7 +157,7 @@ class RunsResultsPage(QWidget):
 
         log_header_row = QHBoxLayout()
         self.activity_log_label = QLabel(tr("Activity log", self._language))
-        self.activity_log_label.setStyleSheet("color: #111827; font-weight: 600;")
+        self.activity_log_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
         log_header_row.addWidget(self.activity_log_label)
         log_header_row.addStretch()
         self.clear_log_btn = QPushButton(tr("Clear Log", self._language))
@@ -209,7 +211,8 @@ class RunsResultsPage(QWidget):
         table_card = QWidget()
         table_card.setObjectName("RunsTableCard")
         table_card.setStyleSheet(
-            "#RunsTableCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            f"#RunsTableCard {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
         table_card_layout = QVBoxLayout(table_card)
         table_card_layout.setContentsMargins(16, 12, 16, 12)
@@ -220,9 +223,10 @@ class RunsResultsPage(QWidget):
         btn_card = QWidget()
         btn_card.setObjectName("BtnCard")
         btn_card.setStyleSheet(
-            "#BtnCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
+            f"#BtnCard {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
-        btn_card.setFixedHeight(54)
+        btn_card.setFixedHeight(58)
         btn_row = QHBoxLayout(btn_card)
         btn_row.setContentsMargins(16, 0, 16, 0)
         self.retry_btn = QPushButton(tr("Retry Failed", self._language))
@@ -257,16 +261,17 @@ class RunsResultsPage(QWidget):
         bottom = QWidget()
         bottom.setObjectName("ResultsCard")
         bottom.setStyleSheet(
-            "#ResultsCard { background: #dfe7f0; border: 1px solid #9aaec4; border-radius: 3px; }"
-            " #ResultsCard QLabel { background: transparent; }"
-            " #ResultsCard QTextEdit { background: transparent; border: none; }"
+            f"#ResultsCard {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
+            f" #ResultsCard QLabel {{ background: transparent; }} "
+            f" #ResultsCard QTextEdit {{ background: transparent; border: none; }}"
         )
         bottom_layout = QVBoxLayout(bottom)
         bottom_layout.setContentsMargins(16, 12, 16, 12)
         bottom_layout.setSpacing(4)
 
         self.result_label = QLabel(tr("Result Preview", self._language))
-        self.result_label.setStyleSheet("color: #111827; font-weight: 600;")
+        self.result_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
         bottom_layout.addWidget(self.result_label)
 
         self.result_table = StyledTableWidget()
@@ -641,7 +646,7 @@ class RunsResultsPage(QWidget):
                 # Visual warning without a custom QStyle; the red
                 # foreground + bold makes the danger obvious in both
                 # light and dark themes.
-                action.setStyleSheet("color: #b91c1c; font-weight: 600;")
+                action.setStyleSheet(f"color: {Colors.ERROR}; font-weight: 600;")
             action.triggered.connect(callback)
             menu.addAction(action)
         menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -1244,12 +1249,12 @@ class RunsResultsPage(QWidget):
             self.detail_pane.status_label.setText(
                 f"⚠ {status or 'Uncertain'}: {error}"
             )
-            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b45309;")
+            self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.WARNING};")
             self.detail_pane.error_value.setText(error)
             self.detail_pane.error_value.setVisible(True)
         else:
             self.detail_pane.status_label.setText(str(status or "Uncertain"))
-            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #475569;")
+            self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_SECONDARY};")
             self.detail_pane.error_value.setText("")
             self.detail_pane.error_value.setVisible(False)
         for lbl in (
@@ -1278,7 +1283,7 @@ class RunsResultsPage(QWidget):
         if output_path is None:
             self.detail_pane.title_label.setText(task_id)
             self.detail_pane.status_label.setText(tr("Output file not found", self._language))
-            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b91c1c;")
+            self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.ERROR};")
             self.detail_pane.geometry_view.setPlainText("")
             return
 
@@ -1299,7 +1304,7 @@ class RunsResultsPage(QWidget):
         except Exception as exc:
             self.detail_pane.title_label.setText(task_id)
             self.detail_pane.status_label.setText(tr("Parse error", self._language))
-            self.detail_pane.status_label.setStyleSheet("font-weight: 600; color: #b91c1c;")
+            self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.ERROR};")
             self.detail_pane.error_value.setText(str(exc))
             self.detail_pane.error_value.setVisible(True)
             return

@@ -35,6 +35,7 @@ from ...services.method_presets import (
     MethodPresetStore,
     StepPresetStore,
 )
+from ..design.tokens import Colors, Radius, Spacing
 from ..button_feedback import ButtonRole, apply_button_role
 from ..i18n import tr
 from ..nodegraph.model import Edge, Node, NodeGraph, NodeKind, default_node
@@ -131,18 +132,20 @@ class WorkflowPage(QWidget):
         self.setMinimumWidth(1040)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 14, 14, 14)
-        outer.setSpacing(10)
+        outer.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
+        outer.setSpacing(12)
         self.setStyleSheet(
-            "QFrame#workflowHeader { background: #ffffff; border: 1px solid #e2e8f0; "
-            "border-radius: 10px; } "
-            "QFrame#workflowSettingsPanel { background: #f8fafc; border: 1px solid #e2e8f0; "
-            "border-radius: 10px; } "
-            "QPlainTextEdit { background: #ffffff; border: 1px solid #d9e2ec; border-radius: 7px; "
-            "padding: 6px; } "
-            "QScrollArea { background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 10px; } "
-            "QTabBar::tab { padding: 7px 13px; font-size: 13px; } "
-            "QComboBox { min-height: 28px; padding: 1px 7px; }"
+            f"QFrame#workflowHeader {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
+            f"QFrame#workflowSettingsPanel {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
+            f"QPlainTextEdit {{ background: {Colors.BG_SURFACE}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; padding: 10px; "
+            f"font-size: 18px; }} "
+            f"QScrollArea {{ background: {Colors.BG_SURFACE}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
+            f"QTabBar::tab {{ padding: 14px 22px; font-size: 18px; }} "
+            f"QComboBox {{ min-height: 40px; padding: 6px 14px; font-size: 16px; }}"
         )
         outer.addWidget(self._build_header())
         outer.addWidget(self._build_workspace(), 1)
@@ -159,13 +162,14 @@ class WorkflowPage(QWidget):
         panel.setMinimumWidth(560)
         panel.setObjectName("workflowHeader")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(8)
         title = QLabel(tr("Workflow", self._language), panel)
         font = title.font()
         font.setBold(True)
-        font.setPointSize(font.pointSize() + 3)
+        font.setPointSize(font.pointSize() + 4)
         title.setFont(font)
+        title.setStyleSheet(f"color: {Colors.TEXT};")
         layout.addWidget(title)
         row = QHBoxLayout()
         self.preset_combo = QComboBox(panel)
@@ -181,7 +185,7 @@ class WorkflowPage(QWidget):
         row.addWidget(self.btn_validate)
         layout.addLayout(row)
         self.dirty_label = QLabel("", panel)
-        self.dirty_label.setStyleSheet("color: #b45309; font-style: italic;")
+        self.dirty_label.setStyleSheet(f"color: {Colors.WARNING}; font-style: italic; font-size: 16px;")
         layout.addWidget(self.dirty_label)
         return panel
 
@@ -213,14 +217,14 @@ class WorkflowPage(QWidget):
     def _build_step_tab(self) -> QWidget:
         tab = QWidget(self)
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 0)
         self.selected_step_label = QLabel(tr("Select a workflow step on the graph.", self._language), tab)
         self.selected_step_label.setWordWrap(True)
-        self.selected_step_label.setStyleSheet("font-weight: 600; color: #374151;")
+        self.selected_step_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT}; font-size: 18px;")
         layout.addWidget(self.selected_step_label)
         self.inputs_label = QLabel("", tab)
         self.inputs_label.setWordWrap(True)
-        self.inputs_label.setStyleSheet("color: #6b7280; font-size: 11px;")
+        self.inputs_label.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: 15px;")
         layout.addWidget(self.inputs_label)
         preset_row = QHBoxLayout()
         self.step_preset_combo = QComboBox(tab)
@@ -246,16 +250,16 @@ class WorkflowPage(QWidget):
         self.step_yaml_editor = QPlainTextEdit(tab)
         self.step_yaml_editor.setObjectName("WorkflowStepYamlEditor")
         self.step_yaml_editor.setPlaceholderText("name: opt\ntype: calc\nparams:\n  iprog: orca\n  itask: opt")
-        self.step_yaml_editor.setStyleSheet("font-family: Consolas, Menlo, monospace; font-size: 13px;")
+        self.step_yaml_editor.setStyleSheet(f"font-family: Consolas, Menlo, monospace; font-size: 16px;")
         self.step_yaml_editor.textChanged.connect(self._on_step_text_changed)
         layout.addWidget(self.step_yaml_editor, 1)
         self.yaml_editor = self.step_yaml_editor  # compatibility for integrations that locate this editor
         self.step_error_label = QLabel("", tab)
         self.step_error_label.setWordWrap(True)
-        self.step_error_label.setStyleSheet("color: #b91c1c;")
+        self.step_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: 15px;")
         layout.addWidget(self.step_error_label)
         self.save_step_preset_btn = QPushButton(tr("Save step", self._language), tab)
-        self.save_step_preset_btn.setStyleSheet("min-height: 34px; font-size: 13px;")
+        self.save_step_preset_btn.setStyleSheet(f"min-height: 44px; font-size: 16px;")
         self.save_step_preset_btn.clicked.connect(self._save_step_preset)
         layout.addWidget(self.save_step_preset_btn)
         return tab
@@ -263,18 +267,19 @@ class WorkflowPage(QWidget):
     def _build_global_tab(self) -> QWidget:
         tab = QWidget(self)
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 0)
         hint = QLabel(tr("Workflow-wide resources and molecular settings.", self._language), tab)
         hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;")
         layout.addWidget(hint)
         self.global_yaml_editor = QPlainTextEdit(tab)
         self.global_yaml_editor.setObjectName("WorkflowGlobalYamlEditor")
-        self.global_yaml_editor.setStyleSheet("font-family: Consolas, Menlo, monospace; font-size: 13px;")
+        self.global_yaml_editor.setStyleSheet(f"font-family: Consolas, Menlo, monospace; font-size: 16px;")
         self.global_yaml_editor.textChanged.connect(self._on_global_text_changed)
         layout.addWidget(self.global_yaml_editor, 1)
         self.global_error_label = QLabel("", tab)
         self.global_error_label.setWordWrap(True)
-        self.global_error_label.setStyleSheet("color: #b91c1c;")
+        self.global_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: 15px;")
         layout.addWidget(self.global_error_label)
         button = apply_button_role(QPushButton(tr("Apply global settings", self._language), tab), ButtonRole.PRIMARY_ACTION)
         button.clicked.connect(self._apply_global_yaml)
@@ -286,12 +291,12 @@ class WorkflowPage(QWidget):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 0, 0, 0)
         title = QLabel(tr("Workflow flow", self._language), panel)
-        title.setStyleSheet("font-size: 16px; font-weight: 600; color: #1f2937;")
+        title.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {Colors.TEXT};")
         layout.addWidget(title)
         toolbar = QHBoxLayout()
         self.add_step_button = QPushButton(tr("Add current step", self._language), panel)
         self.add_step_button.setToolTip(tr("Add the step currently shown on the left.", self._language))
-        self.add_step_button.setStyleSheet("font-size: 13px; min-height: 30px; padding: 2px 10px;")
+        self.add_step_button.setStyleSheet(f"font-size: 16px; min-height: 40px; padding: 6px 18px;")
         self.add_step_button.clicked.connect(self._add_step)
         toolbar.addWidget(self.add_step_button)
         toolbar.addStretch(1)
@@ -301,8 +306,8 @@ class WorkflowPage(QWidget):
         self.flow_scroll.setFrameShape(QFrame.Shape.StyledPanel)
         self._flow_body = QWidget(self.flow_scroll)
         self._flow_layout = QVBoxLayout(self._flow_body)
-        self._flow_layout.setContentsMargins(18, 14, 18, 14)
-        self._flow_layout.setSpacing(4)
+        self._flow_layout.setContentsMargins(20, 16, 20, 16)
+        self._flow_layout.setSpacing(6)
         self.flow_scroll.setWidget(self._flow_body)
         layout.addWidget(self.flow_scroll, 1)
         self.save_workflow_button = apply_button_role(
@@ -310,8 +315,8 @@ class WorkflowPage(QWidget):
             ButtonRole.PRIMARY_ACTION,
         )
         self.save_workflow_button.setObjectName("SaveWorkflowButton")
-        self.save_workflow_button.setMinimumHeight(34)
-        self.save_workflow_button.setStyleSheet("font-size: 13px; padding: 3px 12px;")
+        self.save_workflow_button.setMinimumHeight(38)
+        self.save_workflow_button.setStyleSheet(f"font-size: 16px; padding: 8px 20px;")
         self.save_workflow_button.clicked.connect(self._save_workflow)
         layout.addWidget(self.save_workflow_button)
         return panel
@@ -325,7 +330,7 @@ class WorkflowPage(QWidget):
         self.full_yaml_preview.setObjectName("WorkflowYamlPreview")
         self.full_yaml_preview.setReadOnly(True)
         self.full_yaml_preview.setMaximumBlockCount(2000)
-        self.full_yaml_preview.setStyleSheet("font-family: Consolas, Menlo, monospace; font-size: 12px;")
+        self.full_yaml_preview.setStyleSheet("font-family: Consolas, Menlo, monospace; font-size: 16px;")
         layout.addWidget(self.full_yaml_preview)
         box.toggled.connect(self.full_yaml_preview.setVisible)
         self.full_yaml_preview.setVisible(False)
@@ -336,7 +341,11 @@ class WorkflowPage(QWidget):
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         self.server_pill = QLabel(tr("No server", self._language), panel)
-        self.server_pill.setStyleSheet("padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 10px;")
+        self.server_pill.setStyleSheet(
+            f"padding: 6px 14px; border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.LG}px; background: {Colors.CARD_BG}; "
+            f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;"
+        )
         layout.addWidget(self.server_pill)
         layout.addStretch(1)
         self.btn_dispatch = apply_button_role(QPushButton(tr("Use this workflow for submit", self._language), panel), ButtonRole.PRIMARY_ACTION)
@@ -833,48 +842,53 @@ class WorkflowPage(QWidget):
     def _build_step_card(self, node: Node, index: int, total: int) -> QFrame:
         """Build a single flow-diagram step card with title, detail, and move/delete buttons."""
         card = QFrame(self._flow_body)
-        card.setFixedHeight(64)
+        card.setFixedHeight(72)
         selected = node.id == self._selected_node_id
-        accent = "#0f766e" if node.kind is NodeKind.CONF_GEN else "#2563eb"
+        accent = Colors.SUCCESS if node.kind is NodeKind.CONF_GEN else Colors.PRIMARY
         card.setStyleSheet(
-            "QFrame { background: %s; border: 1px solid %s; border-left: 4px solid %s; border-radius: 8px; }"
-            % ("#f6faff" if selected else "#ffffff", "#60a5fa" if selected else "#d8dee8", accent)
+            f"QFrame {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER if not selected else Colors.PRIMARY}; "
+            f"border-left: 4px solid {accent}; "
+            f"border-radius: {Radius.MD}px; }}"
         )
         row = QHBoxLayout(card)
-        row.setContentsMargins(10, 6, 8, 6)
+        row.setContentsMargins(14, 10, 10, 10)
         content = QVBoxLayout()
-        content.setSpacing(1)
+        content.setSpacing(2)
         select = QPushButton(f"{index + 1}. {node.title}", card)
         select.setFlat(True)
         select.setStyleSheet(
-            "QPushButton { text-align: left; color: #172033; font-size: 14px; font-weight: 600; "
-            "border: none; padding: 0; } QPushButton:hover { color: #1d4ed8; }"
+            f"QPushButton {{ text-align: left; color: {Colors.TEXT}; font-size: 16px; "
+            f"font-weight: 600; border: none; padding: 0; background: transparent; }}"
+            f"QPushButton:hover {{ color: {Colors.PRIMARY}; }}"
         )
         select.clicked.connect(lambda _checked=False, node_id=node.id: self._on_node_selected(node_id))
         content.addWidget(select)
         detail = QLabel(flow_step_detail(node), card)
-        detail.setStyleSheet("color: #64748b; font-size: 11px; border: none;")
+        detail.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: 15px; border: none; background: transparent;")
         content.addWidget(detail)
         row.addLayout(content, 1)
         up = QPushButton("↑", card)
         up.setEnabled(index > 0)
-        up.setFixedSize(38, 30)
-        up.setStyleSheet("font-size: 16px; padding: 0;")
+        up.setFixedSize(36, 32)
+        up.setStyleSheet(f"font-size: 16px; padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;")
         up.setToolTip(tr("Move up", self._language))
         up.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, -1))
         row.addWidget(up)
         down = QPushButton("↓", card)
         down.setEnabled(index < total - 1)
-        down.setFixedSize(38, 30)
-        down.setStyleSheet("font-size: 16px; padding: 0;")
+        down.setFixedSize(36, 32)
+        down.setStyleSheet(f"font-size: 16px; padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;")
         down.setToolTip(tr("Move down", self._language))
         down.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, +1))
         row.addWidget(down)
         remove = QPushButton("×", card)
-        remove.setFixedSize(34, 30)
+        remove.setFixedSize(32, 32)
         remove.setStyleSheet(
-            "QPushButton { color: #b42318; font-size: 18px; padding: 0; border: 1px solid #fecaca; "
-            "border-radius: 5px; background: #fffafa; } QPushButton:hover { background: #fef2f2; }"
+            f"QPushButton {{ color: {Colors.ERROR}; font-size: 18px; padding: 0; "
+            f"border: 1px solid {Colors.ERROR_BORDER}; border-radius: {Radius.SM}px; "
+            f"background: {Colors.ERROR_BG}; }}"
+            f"QPushButton:hover {{ background: {Colors.ERROR}; color: white; }}"
         )
         remove.clicked.connect(lambda _checked=False, node_id=node.id: self._delete_step(node_id))
         row.addWidget(remove)
@@ -890,38 +904,40 @@ class WorkflowPage(QWidget):
                 widget.deleteLater()
         start = QLabel(tr("Input structure", self._language), self._flow_body)
         start.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        start.setFixedHeight(42)
+        start.setFixedHeight(48)
         start.setStyleSheet(
-            "font-size: 13px; font-weight: 600; color: #1e3a5f; "
-            "background: #f3f8ff; border: 1px solid #bed8f5; border-radius: 8px;"
+            f"font-size: 16px; font-weight: 600; color: {Colors.PRIMARY}; "
+            f"background: {Colors.INFO_BG}; border: 1px solid {Colors.INFO_BORDER}; "
+            f"border-radius: {Radius.MD}px;"
         )
         self._flow_layout.addWidget(start)
         ordered = self._ordered_step_nodes()
         if not ordered:
             hint = QLabel(tr("Choose a step on the left, then add it to the workflow.", self._language), self._flow_body)
             hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hint.setFixedHeight(42)
-            hint.setStyleSheet("font-size: 12px; color: #64748b; border: none;")
+            hint.setFixedHeight(48)
+            hint.setStyleSheet(f"font-size: 16px; color: {Colors.TEXT_MUTED}; border: none; background: transparent;")
             self._flow_layout.addWidget(hint)
         for index, node in enumerate(ordered):
             arrow = QLabel("↓", self._flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            arrow.setFixedHeight(24)
-            arrow.setStyleSheet("font-size: 16px; font-weight: 600; color: #94a3b8;")
+            arrow.setFixedHeight(28)
+            arrow.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {Colors.TEXT_MUTED};")
             self._flow_layout.addWidget(arrow)
             self._flow_layout.addWidget(self._build_step_card(node, index, len(ordered)))
         if ordered:
             arrow = QLabel("↓", self._flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            arrow.setFixedHeight(24)
-            arrow.setStyleSheet("font-size: 16px; font-weight: 600; color: #94a3b8;")
+            arrow.setFixedHeight(28)
+            arrow.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {Colors.TEXT_MUTED};")
             self._flow_layout.addWidget(arrow)
         output = QLabel(tr("Workflow output", self._language), self._flow_body)
         output.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        output.setFixedHeight(42)
+        output.setFixedHeight(48)
         output.setStyleSheet(
-            "font-size: 13px; font-weight: 600; color: #276749; "
-            "background: #f3fbf5; border: 1px solid #a7d8b0; border-radius: 18px;"
+            f"font-size: 16px; font-weight: 600; color: {Colors.SUCCESS}; "
+            f"background: {Colors.SUCCESS_BG}; border: 1px solid {Colors.SUCCESS_BORDER}; "
+            f"border-radius: {Radius.LG}px;"
         )
         self._flow_layout.addWidget(output)
         self._flow_layout.addStretch(1)

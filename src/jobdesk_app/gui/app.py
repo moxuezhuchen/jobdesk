@@ -25,8 +25,8 @@ def main():
     app.setOrganizationName("JobDesk")
     app.setApplicationName("JobDesk")
 
-    font = QFont("Microsoft YaHei UI", 20)
-    font.setWeight(QFont.Weight.Medium)
+    font = QFont("Microsoft YaHei UI", 12)
+    font.setWeight(QFont.Weight.Normal)
     font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     app.setFont(font)
 
