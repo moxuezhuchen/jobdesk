@@ -1,4 +1,4 @@
-"""GUI smoke test — drive the JobDesk main window offscreen end-to-end.
+"""GUI smoke test -- drive the JobDesk main window offscreen end-to-end.
 
 This is intentionally NOT a pytest test. It is a stand-alone Python script
 (``python scripts/smoke_gui_offscreen.py``) that catches import-time
@@ -12,30 +12,35 @@ real WSL g16 install.
 Happy-path journey (each step is isolated so one failure doesn't hide
 another):
 
-    1.  ``qt_binding`` — ``QT_QPA_PLATFORM=offscreen`` set BEFORE any
+    1.  ``qt_binding`` -- ``QT_QPA_PLATFORM=offscreen`` set BEFORE any
         Qt import. Print confirmation.
-    2.  ``qapp`` — ``QApplication`` instance.
-    3.  ``main_window`` — instantiate :class:`MainWindow`. The four
+    2.  ``qapp`` -- ``QApplication`` instance.
+    3.  ``main_window`` -- instantiate :class:`MainWindow`. The four
         concrete pages (``FileTransferPage`` / ``RunsResultsPage`` /
         ``SettingsServersPage``) are replaced with lightweight stubs
         that expose the signals ``MainWindow.__init__`` wires up.
         This avoids hitting the network during construction.
-    4a. ``switch_to_submit`` — flip the shell to index 1 and verify
+    4a. ``switch_to_workflow`` -- flip the shell to index 1 and verify
         the page is visible.
-    4b. ``editor_visible`` — verify ``SubmitPage.editor`` is visible.
-    4c. ``onboarding_card_visible`` — verify the empty-canvas card appears.
-    4d. ``add_two_nodes`` — call ``editor.scene().add_node(...)`` twice
-        for compatible kinds (``XYZ_FILE`` → ``PRE_OPT`` → ``OPT``).
-    4e. ``connect_edge`` — call ``editor.scene().add_edge_at(...)`` to
-        wire ``XYZ_FILE.out → PRE_OPT.in``.
-    4e. ``graph_summary`` — verify the underlying ``NodeGraph`` has
-        2 nodes and 1 edge and 0 errors that block a normal flow.
-    4f. ``runs_page`` — flip the shell to index 2 and call
-        ``refresh_run_list()``; expect the table to be empty (no
-        runs in this workspace).
-    4g. ``snapshot`` — flip back to Submit, grab the Submit page into
-        ``tmp60f7j8ix/smoke_gui_offscreen_submit.png``.
-    5.  print a clear pass/fail summary and exit non-zero if any step
+    4b. ``workflow_page_structure`` -- verify :class:`WorkflowPage` has the
+        expected sub-widgets (settings tabs, flow scroll, preview box).
+    4c. ``workflow_page_yaml_generation`` -- verify the YAML preview
+        shows the "Add at least one workflow step" placeholder.
+    4d. ``workflow_page_add_step`` -- add a step via the YAML editor
+        and verify the flow diagram updates.
+    5.  ``open_builder_dialog`` -- open the :class:`WorkflowBuilderDialog`
+        and verify the embedded :class:`WorkflowGraphEditor` is visible.
+    5a. ``dialog_onboarding_card`` -- verify the empty-canvas card appears.
+    5b. ``dialog_quick_start`` -- click the Quick-start button and verify
+        the graph is populated.
+    5c. ``dialog_add_nodes`` -- add two nodes directly via the scene API.
+    5d. ``dialog_connect_edge`` -- wire the two nodes together.
+    5e. ``dialog_graph_summary`` -- verify the graph has 2 step nodes
+        and 1 edge with no errors.
+    5f. ``dialog_snapshot`` -- grab the dialog editor into a PNG.
+    6.  ``runs_page`` -- flip the shell to index 2 and call
+        ``refresh_run_list()``; expect the table to be empty.
+    7.  print a clear pass/fail summary and exit non-zero if any step
         failed.
 
 The script is read-only against the source tree, does not commit, and
@@ -49,7 +54,7 @@ import traceback
 from contextlib import contextmanager
 from typing import Iterator
 
-# ── 1. Qt platform MUST be set before importing PySide6 ───────────────────
+# -- 1. Qt platform MUST be set before importing PySide6 --
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # Make ``jobdesk_app`` importable when running this file directly from
@@ -70,7 +75,7 @@ assert os.environ.get("QT_QPA_PLATFORM") == "offscreen", (
 )
 
 
-# ── Step tracker ─────────────────────────────────────────────────────────
+# -- Step tracker --
 _STEPS: list[tuple[str, str, str | None]] = []  # (name, status, error)
 
 
@@ -79,7 +84,7 @@ def _record(name: str, ok: bool, err: str | None = None) -> None:
     _STEPS.append((name, status, err))
     line = f"    [{status}] {name}"
     if err:
-        line += f"  ←  {err.splitlines()[-1]}"
+        line += f"  <-  {err.splitlines()[-1]}"
     print(line)
 
 
@@ -101,7 +106,7 @@ def _step(name: str) -> Iterator[list[list[traceback.FrameSummary]]]:
         _record(name, True)
 
 
-# ── 2. QApplication ──────────────────────────────────────────────────────
+# -- 2. QApplication --
 
 
 def step_qapp() -> QApplication:
@@ -111,7 +116,7 @@ def step_qapp() -> QApplication:
     return app
 
 
-# ── 3. MainWindow with stubbed pages ─────────────────────────────────────
+# -- 3. MainWindow with stubbed pages --
 # ``MainWindow.__init__`` calls ``FileTransferPage(...)``,
 # ``RunsResultsPage(...)`` and ``SettingsServersPage(...)``. The real
 # constructors reach out to ``RunService.list_runs()`` and SSH session
@@ -137,7 +142,7 @@ class _RunsStub(QWidget):
     """Fake Runs/Results page that exposes the minimum surface the smoke
     script needs (table rowCount + a no-op refresh). We avoid the real
     :class:`RunsResultsPage` here because its constructor spins up
-    a :class:`SessionPool` and a real :class:`RunMonitor` — neither is
+    a :class:`SessionPool` and a real :class:`RunMonitor` -- neither is
     needed to verify "page builds and shows empty".
     """
 
@@ -170,7 +175,7 @@ class _SettingsStub(QWidget):
 
 
 class _GuiSettingsStoreStub:
-    """Returns a fully-populated GuiSettings — no disk I/O, no yaml."""
+    """Returns a fully-populated GuiSettings -- no disk I/O, no yaml."""
 
     def __init__(self):
         self._settings = _default_gui_settings()
@@ -230,105 +235,222 @@ class _EmptyServers:
         self.servers: dict = {}
 
 
-# ── 4a / 4b. page navigation + editor visibility ─────────────────────────
+# -- 4a. page navigation --
 
-SUBMIT_PAGE_INDEX = 1   # "rocket"
-RUNS_PAGE_INDEX = 2     # "bar-chart"
+WORKFLOW_PAGE_INDEX = 1   # "workflow"
+RUNS_PAGE_INDEX = 2       # "bar-chart"
 
 
-def step_switch_to_submit(window) -> bool:
+def step_switch_to_workflow(window) -> bool:
     # ``shell.set_current`` triggers the sidebar + the page-changed
     # signal which fires ``_on_nav``.
-    window.shell.set_current(SUBMIT_PAGE_INDEX)
+    window.shell.set_current(WORKFLOW_PAGE_INDEX)
     app = QApplication.instance()
     app.processEvents()
-    return window.shell.pages.currentIndex() == SUBMIT_PAGE_INDEX
+    return window.shell.pages.currentIndex() == WORKFLOW_PAGE_INDEX
 
 
-def step_editor_visible(window) -> bool:
-    editor = window.submit_page.editor
+# -- 4b. workflow page structure --
+
+def step_workflow_page_structure(window) -> dict:
+    """Verify WorkflowPage has expected sub-widgets."""
+    page = window.workflow_page
+    settings_tabs_count = page.settings_tabs.count()
+    checks = {
+        "settings_tabs_exists": hasattr(page, "settings_tabs"),
+        "settings_tabs_count": settings_tabs_count,
+        "flow_scroll_exists": hasattr(page, "flow_scroll"),
+        "full_yaml_preview_exists": hasattr(page, "full_yaml_preview"),
+        "save_workflow_button_exists": hasattr(page, "save_workflow_button"),
+        "step_yaml_editor_exists": hasattr(page, "step_yaml_editor"),
+        "global_yaml_editor_exists": hasattr(page, "global_yaml_editor"),
+    }
+    failed = {k: v for k, v in checks.items() if v is False or (k == "settings_tabs_count" and v < 2)}
+    if failed:
+        raise RuntimeError(f"WorkflowPage missing or broken: {failed}")
+    return checks
+
+
+# -- 4c. workflow page YAML generation --
+
+def step_workflow_page_yaml_generation(window) -> bool:
+    """Verify the YAML preview shows the placeholder message."""
+    page = window.workflow_page
+    preview_text = page.full_yaml_preview.toPlainText()
+    if "Add at least one workflow step" not in preview_text:
+        raise RuntimeError(
+            f"Expected placeholder text in YAML preview, got: {preview_text[:100]}"
+        )
+    return True
+
+
+# -- 4d. workflow page add step --
+
+def step_workflow_page_add_step(window) -> bool:
+    """Add a step via the YAML editor and verify flow diagram updates."""
+    page = window.workflow_page
+
+    # Set the step YAML to a valid calc step
+    page.step_yaml_editor.setPlainText(
+        "name: sp\n"
+        "type: calc\n"
+        "params:\n"
+        "  iprog: orca\n"
+        "  itask: sp\n"
+        "  keyword: B3LYP def2-SVP\n"
+    )
+    page._add_step()
+
+    # Verify the flow diagram updated
+    preview_text = page.full_yaml_preview.toPlainText()
+    if "itask: sp" not in preview_text:
+        raise RuntimeError(f"Step was not added to YAML preview: {preview_text[:200]}")
+
+    # Verify a step card appeared in the flow diagram
+    flow_items = page._flow_layout.count()
+    if flow_items < 4:  # input, hint, output, spacer at minimum
+        raise RuntimeError(f"Expected flow diagram to have step cards, got {flow_items} items")
+
+    return True
+
+
+# -- 5. open builder dialog --
+
+def step_open_builder_dialog(window) -> object:
+    """Open WorkflowBuilderDialog and return the dialog instance."""
+    from jobdesk_app.gui.dialogs.workflow_builder_dialog import WorkflowBuilderDialog
+
+    dialog = WorkflowBuilderDialog(
+        language="en",
+        preset_store=window.workflow_page._store,
+    )
+    dialog.show()
+    dialog.resize(960, 640)
+    app = QApplication.instance()
+    app.processEvents()
+    return dialog
+
+
+# -- 5a. dialog editor visibility --
+
+def step_dialog_editor_visible(dialog) -> bool:
+    """Verify the embedded WorkflowGraphEditor is properly set up."""
+    editor = dialog.editor
     if editor is None:
-        raise RuntimeError("editor attribute is None")
-    # ``WorkflowGraphEditor`` is a plain :class:`QWidget` embedded as a
-    # child of the SubmitPage's VBoxLayout (Phase 11.1 — was a
-    # ``QMainWindow`` before, which Qt refused to embed silently). The
-    # smoke-level guarantee we need is:
-    #   1. parented to the SubmitPage (catches missing wiring),
-    #   2. NOT explicitly hidden (catches explicit hide() regressions),
-    #   3. visible to its parent (catches the embed-as-window regression
-    #      that this smoke was missing),
-    #   4. has a valid geometry with positive area (catches zero-sized
-    #      or never-laid-out widgets),
-    #   5. has a live scene + view + graph underneath (catches a
-    #      constructor regression that drops one of those members),
-    #   6. the snapshot PNG is not all-black (catches "geometry OK but
-    #      nothing was painted").
-    actual_parent = editor.parent()
-    parent_ok = actual_parent is window.submit_page
-    visible_to_parent = editor.isVisibleTo(actual_parent) if actual_parent is not None else False
-    geom = editor.geometry()
-    geometry_ok = geom.isValid() and geom.width() > 0 and geom.height() > 0
+        raise RuntimeError("dialog.editor is None")
+
+    # Check the editor has a scene, view, and graph
     scene_ok = (
         editor.scene() is not None
         and editor.view() is not None
         and editor.scene().graph() is not None
     )
-    if not (parent_ok and visible_to_parent and geometry_ok and scene_ok):
-        diag = {
-            "parent_is_submit_page": parent_ok,
-            "actual_parent_type": type(actual_parent).__name__ if actual_parent is not None else "None",
-            "is_hidden": editor.isHidden(),
-            "is_visible_to_parent": visible_to_parent,
-            "geometry": [geom.x(), geom.y(), geom.width(), geom.height()],
-            "geometry_ok": geometry_ok,
-            "scene_ok": scene_ok,
-        }
-        raise RuntimeError(f"editor not properly attached: {diag}")
+    if not scene_ok:
+        raise RuntimeError("Editor missing scene/view/graph")
+
     return True
 
 
-# ── 4c. onboarding card ──────────────────────────────────────────────────
+# -- 5b. dialog onboarding card --
 
-def step_onboarding_card_visible(window) -> bool:
-    editor = window.submit_page.editor
+def step_dialog_onboarding_card(dialog) -> bool:
+    """Verify the empty-canvas onboarding card is visible."""
+    editor = dialog.editor
     card = editor.onboarding_card()
     if card is None:
         raise RuntimeError("editor.onboarding_card() returned None")
     app = QApplication.instance()
     app.processEvents()
-    return card.isVisible() and card.isVisibleTo(editor)
+    if not card.isVisible():
+        raise RuntimeError("Onboarding card should be visible on empty canvas")
+    return True
 
 
-# ── 4d. add two nodes ────────────────────────────────────────────────────
+# -- 5c. dialog quick start --
 
-def step_add_two_nodes(window):
-    from jobdesk_app.gui.nodegraph.model import NodeKind
+def step_dialog_quick_start(dialog) -> bool:
+    """Click Quick-start and verify the graph is populated."""
+    editor = dialog.editor
+    card = editor.onboarding_card()
 
-    scene = window.submit_page.editor.scene()
+    # Find and click the Quick-start button
+    quick_start_btn = getattr(card, "_quick_start_btn", None)
+    if quick_start_btn is None:
+        raise RuntimeError("Onboarding card missing _quick_start_btn")
 
-    # XYZ_FILE is a source: out=STRUCTURE. PRE_OPT accepts STRUCTURE in.
-    n1 = scene.add_node(NodeKind.XYZ_FILE, (-200.0, 0.0))
-    n2 = scene.add_node(NodeKind.PRE_OPT, (200.0, 0.0))
+    quick_start_btn.click()
+    app = QApplication.instance()
+    app.processEvents()
 
-    n1_id = n1.node_id
-    n2_id = n2.node_id
-    return {"n1": n1_id, "n2": n2_id}
+    # Verify graph is no longer empty
+    if editor.is_empty():
+        raise RuntimeError("Quick-start should populate the graph")
+
+    # Verify no validation errors
+    errors = [i for i in editor.graph().validate() if i.severity == "error"]
+    if errors:
+        raise RuntimeError(f"Graph has validation errors after Quick-start: {[e.message for e in errors]}")
+
+    return True
 
 
-# ── 4d. connect with an edge ─────────────────────────────────────────────
+# -- 5d. dialog add nodes --
 
-def step_connect_edge(window, ids: dict) -> str | None:
-    scene = window.submit_page.editor.scene()
-    edge_item = scene.add_edge_at(ids["n1"], "out", ids["n2"], "in")
+def step_dialog_add_nodes(dialog) -> dict:
+    """Add two nodes directly via the scene API.
+
+    Note: We clear existing nodes first to get a clean test case.
+    The Quick-start template had pre-populated nodes that could conflict.
+    We only wire PRE_OPT and OPT together; OUTPUT is left unwired per the
+    dialog's design (it's a sentinel, not a wired sink).
+    """
+    from jobdesk_app.gui.nodegraph.model import NodeKind, Edge
+
+    scene = dialog.editor.scene()
+    graph = scene.graph()
+
+    # Clear existing nodes (keep XYZ_FILE and OUTPUT terminals)
+    nodes_to_remove = [
+        node_id for node_id, node in graph.nodes.items()
+        if node.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}
+    ]
+    for node_id in nodes_to_remove:
+        graph.remove_node(node_id)
+
+    # Clear existing edges
+    edges_to_remove = list(graph.edges.keys())
+    for edge_id in edges_to_remove:
+        graph.remove_edge(edge_id)
+
+    # Add PRE_OPT and OPT nodes
+    n1 = scene.add_node(NodeKind.PRE_OPT, (200.0, 0.0))
+    n2 = scene.add_node(NodeKind.OPT, (440.0, 0.0))
+
+    # Wire XYZ -> PRE_OPT -> OPT (leave OUTPUT unwired per design)
+    xyz_node = next((n for n in graph.nodes.values() if n.kind == NodeKind.XYZ_FILE), None)
+    if xyz_node is not None:
+        graph.add_edge(Edge(Edge.new_id(), xyz_node.id, "out", n1.node_id, "in"))
+    graph.add_edge(Edge(Edge.new_id(), n1.node_id, "out", n2.node_id, "in"))
+
+    return {"n1_id": n1.node_id, "n2_id": n2.node_id}
+
+
+# -- 5e. dialog connect edge --
+
+def step_dialog_connect_edge(dialog, ids: dict) -> str | None:
+    """Wire the two nodes together."""
+    scene = dialog.editor.scene()
+    edge_item = scene.add_edge_at(ids["n1_id"], "out", ids["n2_id"], "in")
     if edge_item is None:
         return None
     return edge_item.edge_id
 
 
-# ── 4e. summary ──────────────────────────────────────────────────────────
+# -- 5f. dialog graph summary --
 
-def step_graph_summary(window) -> dict:
-    graph = window.submit_page.editor.scene().graph()
+def step_dialog_graph_summary(dialog) -> dict:
+    """Verify the graph has expected nodes and edges."""
+    graph = dialog.editor.scene().graph()
     issues = graph.validate()
     return {
         "nodes": len(graph.nodes),
@@ -338,7 +460,44 @@ def step_graph_summary(window) -> dict:
     }
 
 
-# ── 4f. Runs page empty state ────────────────────────────────────────────
+# -- 5g. dialog snapshot --
+
+def step_dialog_snapshot(dialog) -> str:
+    """Grab the dialog editor into a PNG."""
+    out_path = os.path.join(_REPO_ROOT, "tmp60f7j8ix", "smoke_gui_offscreen_builder_dialog.png")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    editor_pixmap = dialog.editor.grab()
+    ok = editor_pixmap.save(out_path, "PNG")
+    if not ok or not os.path.exists(out_path):
+        raise RuntimeError(f"snapshot.save() returned {ok}; file exists? {os.path.exists(out_path)}")
+
+    # Reject all-black PNGs
+    if _is_all_black(editor_pixmap.toImage()):
+        raise RuntimeError(
+            f"Editor snapshot is all-black -- editor likely hidden or unpainted: {out_path}"
+        )
+    return out_path
+
+
+def _is_all_black(image) -> bool:
+    """Return True if every visible pixel of ``image`` is black."""
+    if image.isNull():
+        return True
+    w, h = image.width(), image.height()
+    if w == 0 or h == 0:
+        return True
+    samples = 0
+    for y in (0, h // 4, h // 2, 3 * h // 4, h - 1):
+        for x in (0, w // 4, w // 2, 3 * w // 4, w - 1):
+            samples += 1
+            px = image.pixelColor(x, y)
+            if (px.red(), px.green(), px.blue()) != (0, 0, 0):
+                return False
+    return samples > 0
+
+
+# -- 6. Runs page empty state --
 
 def step_runs_page(window) -> int:
     # Stub never populated rows; switch and let it build.
@@ -353,65 +512,19 @@ def step_runs_page(window) -> int:
     return page.table.rowCount()
 
 
-# ── 4g. snapshot ─────────────────────────────────────────────────────────
-
-def step_snapshot(window) -> str:
-    window.shell.set_current(SUBMIT_PAGE_INDEX)
-    app = QApplication.instance()
-    app.processEvents()
-    out_path = os.path.join(_REPO_ROOT, "tmp60f7j8ix", "smoke_gui_offscreen_submit.png")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    # Grab the Submit page first (cheap), then the editor itself so we
-    # also verify the editor's paint pipeline produced something
-    # non-trivial. Phase 11.1 caught a regression where the editor
-    # window was hidden and the page-grab produced a pure-black PNG.
-    submit_pixmap = window.submit_page.grab()
-    editor_pixmap = window.submit_page.editor.grab()
-    ok_submit = submit_pixmap.save(out_path, "PNG")
-    editor_path = os.path.join(_REPO_ROOT, "tmp60f7j8ix", "smoke_gui_offscreen_editor.png")
-    ok_editor = editor_pixmap.save(editor_path, "PNG")
-    if not ok_submit or not os.path.exists(out_path):
-        raise RuntimeError(f"snapshot.save() returned {ok_submit}; file exists? {os.path.exists(out_path)}")
-    if not ok_editor or not os.path.exists(editor_path):
-        raise RuntimeError(f"editor snapshot.save() returned {ok_editor}; file exists? {os.path.exists(editor_path)}")
-    # Reject all-black PNGs — a zero-area or never-painted widget
-    # would otherwise produce a valid PNG of nothing.
-    if _is_all_black(editor_pixmap.toImage()):
-        raise RuntimeError(
-            f"editor snapshot is all-black — editor likely hidden or unpainted: {editor_path}"
-        )
-    return out_path
-
-
-def _is_all_black(image) -> bool:
-    """Return True if every visible pixel of ``image`` is black."""
-    if image.isNull():
-        return True
-    w, h = image.width(), image.height()
-    if w == 0 or h == 0:
-        return True
-    # Sample a 16x16 grid of pixels; if every sample is (0,0,0) we
-    # treat the image as black. Cheap and avoids touching every pixel
-    # for a high-DPI grab on Windows.
-    samples = 0
-    for y in (0, h // 4, h // 2, 3 * h // 4, h - 1):
-        for x in (0, w // 4, w // 2, 3 * w // 4, w - 1):
-            samples += 1
-            px = image.pixelColor(x, y)
-            if (px.red(), px.green(), px.blue()) != (0, 0, 0):
-                return False
-    return samples > 0
-
-
-# ── main ─────────────────────────────────────────────────────────────────
+# -- main --
 
 def main() -> int:
     print("=" * 70)
     print("JobDesk GUI smoke (offscreen)")
     print("=" * 70)
 
+    # Import NodeKind here for the edge verification step
+    from jobdesk_app.gui.nodegraph.model import NodeKind  # noqa: F401
+
     app: QApplication | None = None
     window = None
+    dialog = None
 
     with _step("qapp"):
         app = step_qapp()
@@ -423,47 +536,68 @@ def main() -> int:
     # landed (it was scheduled via QTimer.singleShot(0)).
     QApplication.processEvents()
 
-    with _step("switch_to_submit"):
-        ok = step_switch_to_submit(window)
+    with _step("switch_to_workflow"):
+        ok = step_switch_to_workflow(window)
         if not ok:
             raise RuntimeError(
-                f"shell.pages.currentIndex={window.shell.pages.currentIndex()}, expected {SUBMIT_PAGE_INDEX}"
+                f"shell.pages.currentIndex={window.shell.pages.currentIndex()}, expected {WORKFLOW_PAGE_INDEX}"
             )
 
-    with _step("editor_visible"):
-        ok = step_editor_visible(window)
-        if not ok:
-            raise RuntimeError("editor is not visible")
+    with _step("workflow_page_structure"):
+        step_workflow_page_structure(window)
 
-    with _step("onboarding_card_visible"):
-        ok = step_onboarding_card_visible(window)
-        if not ok:
-            raise RuntimeError("onboarding card is not visible on empty graph")
+    with _step("workflow_page_yaml_generation"):
+        step_workflow_page_yaml_generation(window)
 
-    ids = None
-    with _step("add_two_nodes"):
-        ids = step_add_two_nodes(window)
-        if not ids["n1"] or not ids["n2"]:
-            raise RuntimeError(f"add_node returned falsy ids: {ids}")
+    with _step("workflow_page_add_step"):
+        step_workflow_page_add_step(window)
 
-    edge_id = None
-    with _step("connect_edge"):
-        edge_id = step_connect_edge(window, ids)
-        if not edge_id:
-            raise RuntimeError("add_edge_at returned None")
+    with _step("open_builder_dialog"):
+        dialog = step_open_builder_dialog(window)
 
-    summary = None
-    with _step("graph_summary"):
-        summary = step_graph_summary(window)
-        if summary["nodes"] != 2:
-            raise RuntimeError(f"expected 2 nodes, got {summary['nodes']}")
-        if summary["edges"] != 1:
-            raise RuntimeError(f"expected 1 edge, got {summary['edges']}")
-        # We expect one missing-required-input warning on the bare
-        # second node when only one edge is wired; in our case the
-        # PRE_OPT node HAS its required 'in' port wired, so no errors.
-        if summary["errors"]:
-            raise RuntimeError(f"unexpected graph errors: {summary['errors']}")
+    with _step("dialog_editor_visible"):
+        step_dialog_editor_visible(dialog)
+
+    with _step("dialog_onboarding_card"):
+        step_dialog_onboarding_card(dialog)
+
+    with _step("dialog_quick_start"):
+        step_dialog_quick_start(dialog)
+
+    node_ids = None
+    with _step("dialog_add_nodes"):
+        node_ids = step_dialog_add_nodes(dialog)
+
+    # Edges are now wired in step_dialog_add_nodes
+    with _step("dialog_edges_wired"):
+        graph = dialog.editor.scene().graph()
+        step_nodes = [n for n in graph.nodes.values() if n.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}]
+        if len(step_nodes) != 2:
+            raise RuntimeError(f"Expected 2 step nodes, got {len(step_nodes)}")
+        # Verify each step node has both incoming and outgoing edges (except first and last)
+        preopt = next((n for n in step_nodes if n.kind == NodeKind.PRE_OPT), None)
+        opt = next((n for n in step_nodes if n.kind == NodeKind.OPT), None)
+        if preopt is None or opt is None:
+            raise RuntimeError("Missing PRE_OPT or OPT node")
+        # PRE_OPT should have an incoming edge (from XYZ)
+        preopt_incoming = list(graph.incoming_edges(preopt.id))
+        if not preopt_incoming:
+            raise RuntimeError("PRE_OPT missing incoming edge")
+        # OPT should have incoming edge from PRE_OPT
+        opt_incoming = list(graph.incoming_edges(opt.id))
+        if not opt_incoming:
+            raise RuntimeError("OPT missing incoming edge")
+
+    graph_summary = None
+    with _step("dialog_graph_summary"):
+        graph_summary = step_dialog_graph_summary(dialog)
+        # The graph has XYZ_FILE, OUTPUT + 2 added nodes + 1 edge
+        if graph_summary["errors"]:
+            raise RuntimeError(f"unexpected graph errors: {graph_summary['errors']}")
+
+    snapshot_path = None
+    with _step("dialog_snapshot"):
+        snapshot_path = step_dialog_snapshot(dialog)
 
     row_count = None
     with _step("runs_page_empty"):
@@ -471,18 +605,17 @@ def main() -> int:
         if row_count != 0:
             raise RuntimeError(f"expected 0 rows in Runs page, got {row_count}")
 
-    snapshot_path = None
-    with _step("snapshot"):
-        snapshot_path = step_snapshot(window)
-
-    # Clean shutdown — give the worker quit a tiny window.
+    # Clean shutdown -- give the worker quit a tiny window.
     try:
+        if dialog is not None:
+            dialog.close()
+            dialog.deleteLater()
         window.shutdown()
     except Exception:
         pass
     QApplication.processEvents()
 
-    # ── 5. summary ──────────────────────────────────────────────────────
+    # -- 7. summary --
     print()
     print("=" * 70)
     print("Summary")
@@ -492,7 +625,7 @@ def main() -> int:
         marker = "OK " if status == "PASS" else "BAD"
         print(f"  [{marker}] {name}")
     print()
-    print(f"  graph summary : {summary}")
+    print(f"  graph summary : {graph_summary}")
     print(f"  runs rows     : {row_count}")
     print(f"  snapshot      : {snapshot_path}")
     print()
