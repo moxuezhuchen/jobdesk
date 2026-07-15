@@ -367,7 +367,7 @@ class FileTransferPage(QWidget):
                 self, title, body, QMessageBox.Yes | QMessageBox.No
             )
             == QMessageBox.Yes,
-            open_editor=lambda path: self._open_in_text_editor(path),
+            open_editor=lambda path: self._remote_edit_manager.open_in_text_editor(Path(path)),
             start_worker=lambda target, on_result, on_error: start_context_worker(
                 self,
                 target=target,
@@ -375,6 +375,7 @@ class FileTransferPage(QWidget):
                 on_result=on_result,
                 on_error=on_error,
             ),
+            remote_dir_provider=lambda: self.remote_path.text().strip() or "/",
         )
         progress_row = QHBoxLayout()
         progress_row.setContentsMargins(0, 0, 0, 0)
@@ -628,7 +629,7 @@ class FileTransferPage(QWidget):
 
     def _close_service_async(self, service: FileTransferService) -> None:
         worker = BackgroundWorker(service.close)
-        self._keep_worker(worker)
+        self._transfer_runner.keep_worker(worker)
         worker.start()
 
     def _apply_default_local_folder(self):
@@ -833,7 +834,7 @@ class FileTransferPage(QWidget):
         self.remote_worker = BackgroundWorker(_run)
         self.remote_worker.result.connect(lambda entries: self._on_remote_entries_loaded(request_id, remote_dir, entries))
         self.remote_worker.error.connect(lambda error: self._on_remote_list_error(request_id, error))
-        self._keep_worker(self.remote_worker)
+        self._transfer_runner.keep_worker(self.remote_worker)
         self.remote_worker.start()
 
     def _fallback_remote_dirs(self) -> list[str]:
@@ -1012,8 +1013,8 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("Upload ->", self._language), self._upload_selected)
         menu.addAction(tr("Refresh", self._language), self._refresh_local_async)
         menu.addSeparator()
-        menu.addAction(tr("New Folder", self._language), self._mkdir_local)
-        menu.addAction(tr("New File", self._language), self._new_file_local)
+        menu.addAction(tr("New Folder", self._language), self._file_operations.mkdir_local)
+        menu.addAction(tr("New File", self._language), self._file_operations.new_file_local)
         menu.addAction(tr("Rename", self._language), self._rename_local)
         menu.addAction(tr("Delete", self._language), self._delete_local)
         self._maybe_add_use_as_input(menu, side="local")
@@ -1025,8 +1026,8 @@ class FileTransferPage(QWidget):
         menu.addAction(tr("<- Download", self._language), self._download_selected)
         menu.addAction(tr("Refresh", self._language), self._refresh_remote)
         menu.addSeparator()
-        menu.addAction(tr("New Folder", self._language), self._mkdir_remote)
-        menu.addAction(tr("New File", self._language), self._new_file_remote)
+        menu.addAction(tr("New Folder", self._language), self._file_operations.mkdir_remote)
+        menu.addAction(tr("New File", self._language), self._file_operations.new_file_remote)
         menu.addAction(tr("Rename", self._language), self._rename_remote)
         menu.addAction(tr("Delete", self._language), self._delete_remote)
         menu.addSeparator()
@@ -1139,9 +1140,6 @@ class FileTransferPage(QWidget):
             on_error=lambda error: self._status_cb(f"Download failed: {error.splitlines()[0]}"),
         )
 
-    def _remote_target_for_local(self, local_path: Path) -> str:
-        return remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
-
     def _open_local_item(self, item):
         self._cancel_selected_click_rename()
         row = item.row()
@@ -1157,7 +1155,7 @@ class FileTransferPage(QWidget):
             self._save_last_local_folder(path)
             self._refresh_local_after_navigation()
             return
-        self._open_in_text_editor(path)
+        self._remote_edit_manager.open_in_text_editor(Path(path))
 
     def _open_remote_item(self, item):
         self._cancel_selected_click_rename()
@@ -1238,11 +1236,8 @@ class FileTransferPage(QWidget):
             self,
             remote_path,
             on_opened=lambda path: self._register_remote_edit_session(remote_path, path),
-            open_in_editor=lambda path: self._open_in_text_editor(path),
+            open_in_editor=lambda path: self._remote_edit_manager.open_in_text_editor(Path(path)),
         )
-
-    def _open_in_text_editor(self, path: str | Path) -> bool:
-        return self._remote_edit_manager.open_in_text_editor(Path(path))
 
     def _register_remote_edit_session(self, remote_path: str, local_path: Path) -> None:
         self._remote_edit_manager.register_session(remote_path, local_path)
@@ -1278,7 +1273,7 @@ class FileTransferPage(QWidget):
         if local_path is None:
             self._status_cb("Select a local file or folder")
             return
-        remote_target = self._remote_target_for_local(local_path)
+        remote_target = remote_child_path(self.remote_path.text().strip() or "/", local_path.name)
         self._transfer_runner.upload_selected(local_path, remote_target)
 
     def _start_transfer_worker(self, run_fn_or_worker, label: str, on_done_refresh):
@@ -1314,18 +1309,6 @@ class FileTransferPage(QWidget):
 
     def _move_remote_paths_into_directory(self, paths: list[str], target_dir_text: str):
         self._file_operations.move_remote_paths_into_directory(paths, target_dir_text)
-
-    def _mkdir_local(self):
-        self._file_operations.mkdir_local()
-
-    def _new_file_local(self):
-        self._file_operations.new_file_local()
-
-    def _new_file_remote(self):
-        self._file_operations.new_file_remote(self.remote_path.text().strip() or "/")
-
-    def _mkdir_remote(self):
-        self._file_operations.mkdir_remote(self.remote_path.text().strip() or "/")
 
     def _preview_remote(self):
         if self._service is None:
@@ -1500,9 +1483,6 @@ class FileTransferPage(QWidget):
                 self._connections._service = self._service
                 self._connections.teardown()
                 self._service = None
-
-    def _keep_worker(self, worker):
-        self._transfer_runner.keep_worker(worker)
 
     def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
         # Delegate to RemoteEditSessionManager so the dirty-tracking logic

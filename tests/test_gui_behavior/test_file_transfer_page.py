@@ -450,7 +450,7 @@ class TestFileTransferPage:
         file_page._connected_server_id = "wsl"
 
         with patch("jobdesk_app.gui.pages.file_transfer_page.tempfile.gettempdir", return_value=str(tmp_path)), \
-             patch.object(file_page, "_open_in_text_editor", return_value=True), \
+             patch.object(file_page._remote_edit_manager, "open_in_text_editor", return_value=True), \
              patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
             file_page._open_remote_file_in_editor("/remote/work1/a.gjf")
             first_call = start_worker.call_args
@@ -537,8 +537,8 @@ class TestFileTransferPage:
         with patch(
             "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
             return_value=("new.txt", True),
-        ), patch.object(file_page, "_refresh_local"), patch.object(file_page, "_open_in_text_editor") as open_editor:
-            file_page._new_file_local()
+        ), patch.object(file_page, "_refresh_local"), patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor:
+            file_page._file_operations.new_file_local()
 
         open_editor.assert_called_once_with(tmp_path / "new.txt")
 
@@ -910,7 +910,7 @@ class TestFileTransferPage:
                  side_effect=AssertionError("default QInputDialog.getText should not be used"),
              ), \
              patch.object(file_page, "_refresh_local") as refresh_local:
-            file_page._mkdir_local()
+            file_page._file_operations.mkdir_local()
 
         prompt.assert_called_once_with(
             tr("New Folder", file_page._language),
@@ -929,7 +929,7 @@ class TestFileTransferPage:
                  side_effect=AssertionError("default QInputDialog.getText should not be used"),
              ), \
              patch.object(file_page, "_refresh_remote") as refresh_remote:
-            file_page._mkdir_remote()
+            file_page._file_operations.mkdir_remote()
 
         prompt.assert_called_once_with("New Remote Folder", "Folder name:")
         file_page._service.mkdir_remote.assert_called_once_with("/remote/jobs/created")
@@ -1259,7 +1259,7 @@ class TestFileTransferPage:
         file_page.local_table.setCurrentCell(0, 0)
 
         with patch.object(file_page, "_rename_local") as rename_local, \
-             patch.object(file_page, "_open_in_text_editor") as open_editor:
+             patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor:
             rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
             point = self._name_label_point(file_page.local_table, 0) if rect.isValid() else QPoint(4, 4)
             QTest.mouseClick(file_page.local_table.viewport(), Qt.LeftButton, Qt.NoModifier, point)

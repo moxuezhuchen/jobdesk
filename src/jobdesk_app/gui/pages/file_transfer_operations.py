@@ -19,7 +19,7 @@ class FileOperations:
     def __init__(self, *, service_provider, local_root_provider, language_provider,
                  on_status, on_error, on_refresh_local, on_refresh_remote,
                  prompt_new_name, prompt_new_folder, prompt_text, ask_confirm,
-                 open_editor, start_worker) -> None:
+                 open_editor, start_worker, remote_dir_provider) -> None:
         self._service_provider = service_provider
         self._local_root_provider = local_root_provider
         self._language_provider = language_provider
@@ -33,6 +33,7 @@ class FileOperations:
         self._ask_confirm = ask_confirm
         self._open_editor = open_editor
         self._start_worker = start_worker
+        self._remote_dir_provider = remote_dir_provider
 
     def copy_dropped_local_paths(self, paths: list[str]) -> None:
         local_base = Path(self._local_root_provider() or Path.cwd())
@@ -147,7 +148,7 @@ class FileOperations:
         except Exception as exc:
             self._on_error("New File Error", str(exc))
 
-    def new_file_remote(self, remote_dir: str) -> None:
+    def new_file_remote(self) -> None:
         service = self._service_provider()
         if service is None:
             self._on_status("Connect to a server first")
@@ -156,7 +157,7 @@ class FileOperations:
         name, ok = self._prompt_text(tr("New File", language), tr("File name:", language))
         if not ok or not name.strip():
             return
-        base = remote_dir.rstrip("/") or "/"
+        base = self._remote_dir_provider().rstrip("/") or "/"
         remote_file = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
         handle = tempfile.NamedTemporaryFile(suffix=Path(name).suffix or ".tmp", delete=False)
         handle.close()
@@ -170,7 +171,7 @@ class FileOperations:
         finally:
             tmp.unlink(missing_ok=True)
 
-    def mkdir_remote(self, remote_dir: str) -> None:
+    def mkdir_remote(self) -> None:
         service = self._service_provider()
         if service is None:
             self._on_status("Connect to a server first")
@@ -178,7 +179,7 @@ class FileOperations:
         name, ok = self._prompt_new_folder("New Remote Folder", "Folder name:")
         if not ok or not name.strip():
             return
-        base = remote_dir.rstrip("/") or "/"
+        base = self._remote_dir_provider().rstrip("/") or "/"
         target = f"{base}/{name.strip()}" if base != "/" else f"/{name.strip()}"
         try:
             service.mkdir_remote(target)
