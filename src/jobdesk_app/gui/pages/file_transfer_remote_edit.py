@@ -88,14 +88,13 @@ class RemoteEditSessionManager:
         :meth:`register_session` once the editor is open.
         Returns ``True`` if the download worker was started.
         """
-        if self._service_provider() is None:
+        service = self._service_provider()
+        if service is None:
             self._on_status("Connect to a server first")
             return False
         server_id = self._server_id_provider()
         tmp_file = _remote_edit_temp_path(remote_path, server_id)
         tmp_file.parent.mkdir(parents=True, exist_ok=True)
-        service = self._service_provider()
-        assert service is not None
 
         def _download(_ctx: WorkerContext):
             service.download_path(remote_path, str(tmp_file), OverwritePolicy.overwrite)
@@ -137,12 +136,12 @@ class RemoteEditSessionManager:
         session: _RemoteEditSession,
         signature: str | None = None,
     ) -> None:
-        if self._service_provider() is None:
+        service = self._service_provider()
+        if service is None:
             self._on_error("Upload Remote Edit Error", "Connect to a server first")
             return
         upload_signature = signature or _file_signature(session.local_path)
         session.uploading_signature = upload_signature
-        service = self._service_provider()
         local_path = session.local_path
         remote_path = session.remote_path
         session_key = str(local_path)
