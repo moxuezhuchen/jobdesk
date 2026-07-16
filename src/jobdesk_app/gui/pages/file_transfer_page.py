@@ -189,7 +189,7 @@ class FileTransferPage(QWidget):
         self._empty_dir_hint.setVisible(False)
         layout.addWidget(self._empty_dir_hint)
 
-        self._apply_default_local_folder()
+        self._local_navigator.apply_default_local_folder(self._gui_settings)
         self.local_path_btn = QPushButton(str(self.state.current_project_root or Path.cwd()))
         self.local_path_btn.setToolTip(self.local_path_btn.text())
         self.local_path_btn.setStyleSheet("text-align: left; padding: 0 8px;")
@@ -244,18 +244,18 @@ class FileTransferPage(QWidget):
         self.local_table.setSortingEnabled(True)
         self.remote_table.setSortingEnabled(True)
         self.local_table.drop_files.connect(self._download_dropped_remote_paths)
-        self.local_table.copy_local_files.connect(self._copy_dropped_local_paths)
-        self.local_table.move_local_files.connect(self._move_local_paths_into_directory)
+        self.local_table.copy_local_files.connect(lambda paths: self._file_operations.copy_dropped_local_paths(paths))
+        self.local_table.move_local_files.connect(lambda paths, target: self._file_operations.move_local_paths_into_directory(paths, target))
         self.remote_table.drop_files.connect(self._upload_dropped_local_paths)
-        self.remote_table.move_remote_files.connect(self._move_remote_paths_into_directory)
+        self.remote_table.move_remote_files.connect(lambda paths, target: self._file_operations.move_remote_paths_into_directory(paths, target))
         self.local_table.selected_item_clicked.connect(
             lambda item: self._schedule_selected_click_rename("local", item)
         )
         self.remote_table.selected_item_clicked.connect(
             lambda item: self._schedule_selected_click_rename("remote", item)
         )
-        _setup_table(self.local_table, self._translated_table_headers("local"), hidden_columns=[3, 4])
-        _setup_table(self.remote_table, self._translated_table_headers("remote"), hidden_columns=[4, 5])
+        _setup_table(self.local_table, [tr(h, self._language) for h in file_table_headers("local")] + ["type", "path"], hidden_columns=[3, 4])
+        _setup_table(self.remote_table, [tr(h, self._language) for h in file_table_headers("remote")] + ["type", "path"], hidden_columns=[4, 5])
         self.local_table.bind_column_widths("files.local", _clamp_column_widths("files.local", _default_column_widths("files.local")))
         self.remote_table.bind_column_widths("files.remote", _clamp_column_widths("files.remote", _default_column_widths("files.remote")))
         self.local_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -445,7 +445,7 @@ class FileTransferPage(QWidget):
         # detect writes from WSL /mnt/c/, so we poll instead)
         self._local_poll_timer = QTimer(self)
         self._local_poll_timer.setInterval(2000)
-        self._local_poll_timer.timeout.connect(self._check_local_changes)
+        self._local_poll_timer.timeout.connect(lambda: self._local_navigator.check_local_changes(self))
         self._local_poll_snapshot: dict[str, float] = {}
         self._local_poll_timer.start()
 
@@ -480,7 +480,7 @@ class FileTransferPage(QWidget):
         first_run = not self._initialized
         if first_run:
             self._initialized = True
-            self._apply_default_local_folder()
+            self._local_navigator.apply_default_local_folder(self._gui_settings)
             local_root = str(self.state.current_project_root or Path.cwd())
             self.local_path_btn.setText(local_root)
             self.local_path_btn.setToolTip(local_root)
@@ -531,8 +531,8 @@ class FileTransferPage(QWidget):
             self.submit_btn.setText(tr("Submit (selected files)", language))
         self._refresh_feedback.set_idle_text(self.refresh_btn.text())
         self._terminal_feedback.set_idle_text(self.open_terminal_btn.text())
-        self.local_table.setHorizontalHeaderLabels(self._translated_table_headers("local"))
-        self.remote_table.setHorizontalHeaderLabels(self._translated_table_headers("remote"))
+        self.local_table.setHorizontalHeaderLabels([tr(h, self._language) for h in file_table_headers("local")] + ["type", "path"])
+        self.remote_table.setHorizontalHeaderLabels([tr(h, self._language) for h in file_table_headers("remote")] + ["type", "path"])
         self.connection_label.setText(connection_status_text(
             self._connected_server_id,
             self._service is not None,
@@ -542,9 +542,6 @@ class FileTransferPage(QWidget):
         # -- Phase 2.1: retranslate empty-state hints --
         self._no_server_hint.apply_language(language)
         self._empty_dir_hint.apply_language(language)
-
-    def _translated_table_headers(self, kind: str) -> list[str]:
-        return [tr(header, self._language) for header in file_table_headers(kind)] + ["type", "path"]
 
     def _load_servers(self):
         """Reload servers (used by tab switches after first init)."""
@@ -633,11 +630,9 @@ class FileTransferPage(QWidget):
             persistent_session=True,
         )
         self._service = service
-        self._connections._service = service  # mirror for coordinator property reads
+        self._connections.set_server(server_id, server, service)
         self._connected_server_id = server_id
         self._connected_server = server
-        self._connections._connected_server_id = server_id
-        self._connections._connected_server = server
         self._set_connection_status(
             connection_status_text(server_id, True, language=self._language),
             state="success",
@@ -675,20 +670,6 @@ class FileTransferPage(QWidget):
         self._transfer_runner.keep_worker(worker)
         worker.start()
 
-    def _apply_default_local_folder(self):
-        # Delegate to LocalNavigator. The navigator's ``set_root_provider``
-        # callback updates ``self.state.current_project_root`` and the
-        # local-path button text, mirroring the legacy behaviour.
-        self._local_navigator.apply_default_local_folder(self._gui_settings)
-
-    def _save_last_local_folder(self, path: Path) -> None:
-        """Persist the current local folder so it survives restarts."""
-        self._local_navigator.save_last_local_folder(path)
-
-    def _check_local_changes(self):
-        """Poll local directory for changes (handles WSL /mnt/c writes)."""
-        self._local_navigator.check_local_changes(self)
-
     def _refresh_local(self):
         # Use the navigator's pure ``scan`` helper so test fixtures that
         # patch ``file_page._status_cb`` after construction keep working.
@@ -705,11 +686,6 @@ class FileTransferPage(QWidget):
         # ``file_page._local_poll_snapshot`` stay in sync.
         self._local_poll_snapshot = self._local_navigator.last_poll_snapshot
         self._update_selection_summary()
-
-    def _refresh_local_async(self):
-        # The navigator drives the worker; its row callback is wired to
-        # ``_load_local_rows`` at construction time.
-        self._local_navigator.refresh_async(self)
 
     def _refresh_local_after_navigation(self):
         self._refresh_local()
@@ -825,7 +801,7 @@ class FileTransferPage(QWidget):
 
     def _refresh_all(self):
         self._refresh_feedback.pending(tr("Refreshing...", self._language))
-        self._refresh_local_async()
+        self._refresh_local()
         self._refresh_remote()
 
     def _open_terminal_here(self):
@@ -1060,7 +1036,7 @@ class FileTransferPage(QWidget):
     def _local_context_menu(self, pos):
         menu = QMenu(self)
         menu.addAction(tr("Upload ->", self._language), self._upload_selected)
-        menu.addAction(tr("Refresh", self._language), self._refresh_local_async)
+        menu.addAction(tr("Refresh", self._language), self._refresh_local)
         menu.addSeparator()
         menu.addAction(tr("New Folder", self._language), self._file_operations.mkdir_local)
         menu.addAction(tr("New File", self._language), self._file_operations.new_file_local)
@@ -1201,7 +1177,7 @@ class FileTransferPage(QWidget):
             self.state.current_project_root = path
             self.local_path_btn.setText(str(path))
             self.local_path_btn.setToolTip(str(path))
-            self._save_last_local_folder(path)
+            self._local_navigator.save_last_local_folder(path)
             self._refresh_local_after_navigation()
             return
         self._remote_edit_manager.open_in_text_editor(Path(path))
@@ -1350,15 +1326,6 @@ class FileTransferPage(QWidget):
             self._refresh_local,
         )
 
-    def _copy_dropped_local_paths(self, paths: list[str]):
-        self._file_operations.copy_dropped_local_paths(paths)
-
-    def _move_local_paths_into_directory(self, paths: list[str], target_dir_text: str):
-        self._file_operations.move_local_paths_into_directory(paths, target_dir_text)
-
-    def _move_remote_paths_into_directory(self, paths: list[str], target_dir_text: str):
-        self._file_operations.move_remote_paths_into_directory(paths, target_dir_text)
-
     def _preview_remote(self):
         if self._service is None:
             self._status_cb("Connect to a server first")
@@ -1368,9 +1335,6 @@ class FileTransferPage(QWidget):
             self._status_cb("Select a remote file")
             return
         self._transfer_runner.preview_remote(remote_path, self)
-
-    def _rename_name(self, name: str) -> str | None:
-        return self._file_operations.validate_rename_name(name, self._error_cb)
 
     def _build_name_input_dialog(self, title: str, label: str, text: str) -> QInputDialog:
         dialog = QInputDialog(self)
@@ -1386,11 +1350,8 @@ class FileTransferPage(QWidget):
         dialog.resize(RENAME_DIALOG_MIN_WIDTH, dialog.sizeHint().height())
         return dialog
 
-    def _build_rename_dialog(self, title: str, label: str, text: str) -> QInputDialog:
-        return self._build_name_input_dialog(title, label, text)
-
     def _prompt_rename_name(self, title: str, label: str, text: str) -> tuple[str, bool]:
-        dialog = self._build_rename_dialog(title, label, text)
+        dialog = self._build_name_input_dialog(title, label, text)
         ok = dialog.exec() == QDialog.Accepted
         return dialog.textValue(), ok
 
@@ -1530,6 +1491,8 @@ class FileTransferPage(QWidget):
                     worker.wait(3000)
             if self._service is not None:
                 self._connections._service = self._service
+                self._connections._connected_server_id = None
+                self._connections._connected_server = None
                 self._connections.teardown()
                 self._service = None
 

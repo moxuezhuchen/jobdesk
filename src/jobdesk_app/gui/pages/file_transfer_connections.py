@@ -6,10 +6,14 @@ creates this object in ``__init__`` and forwards every user action to it.
 """
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
+from ...config.schema import ServerConfig
 from ...config.servers import load_servers
 from ...services.file_transfer_service import FileTransferService
+
+if TYPE_CHECKING:
+    from ..session import SFTPClientWrapper, SSHClientWrapper
 
 
 class _ConnectionFactory(Protocol):
@@ -26,24 +30,24 @@ class ConnectionsCoordinator:
         *,
         status_cb: Callable[[str], None],
         log_cb: Callable[[str], None],
-        create_ssh: Callable,
-        create_sftp: Callable,
-        run_tasks_provider: Callable[[], list],
+        create_ssh: Callable[..., SSHClientWrapper],
+        create_sftp: Callable[..., SFTPClientWrapper],
+        run_tasks_provider: Callable[[], list[Any]],
     ) -> None:
         self._status_cb = status_cb
         self._log_cb = log_cb
         self._create_ssh = create_ssh
         self._create_sftp = create_sftp
         self._run_tasks_provider = run_tasks_provider
-        self._servers: dict = {}
+        self._servers: dict[str, ServerConfig] = {}
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
-        self._connected_server = None
+        self._connected_server: ServerConfig | None = None
 
     # -- Properties mirroring the page's old attributes ----------------------
 
     @property
-    def servers(self) -> dict:
+    def servers(self) -> dict[str, ServerConfig]:
         return self._servers
 
     @property
@@ -55,12 +59,12 @@ class ConnectionsCoordinator:
         return self._connected_server_id
 
     @property
-    def connected_server(self):
+    def connected_server(self) -> ServerConfig | None:
         return self._connected_server
 
     # -- Server list ----------------------------------------------------------
 
-    def load_servers(self) -> dict:
+    def load_servers(self) -> dict[str, ServerConfig]:
         """Re-read ``servers.yaml`` and return the parsed dict.
 
         On failure the internal server list is cleared and the page should
@@ -85,3 +89,14 @@ class ConnectionsCoordinator:
             except Exception as exc:  # noqa: BLE001 -- teardown best-effort
                 self._log_cb(f"Error closing service: {exc}")
             self._service = None
+
+    def set_server(
+        self,
+        server_id: str | None,
+        server: ServerConfig | None,
+        service: FileTransferService | None,
+    ) -> None:
+        """Set connection state without triggering connect/teardown."""
+        self._connected_server_id = server_id
+        self._connected_server = server
+        self._service = service

@@ -47,7 +47,7 @@ class TestFileTransferPage:
     def test_file_transfer_refresh_feedback_stays_pending_until_async_completion(self, file_page):
         from jobdesk_app.gui.i18n import tr
 
-        with patch.object(file_page, "_refresh_local_async") as refresh_local, \
+        with patch.object(file_page, "_refresh_local") as refresh_local, \
              patch.object(file_page, "_refresh_remote") as refresh_remote:
             file_page._refresh_all()
 
@@ -70,7 +70,7 @@ class TestFileTransferPage:
         file_page._service = None
         file_page._gui_settings = replace(file_page._gui_settings, auto_connect=False)
 
-        with patch.object(file_page, "_refresh_local_async") as refresh_local:
+        with patch.object(file_page, "_refresh_local") as refresh_local:
             file_page._refresh_all()
 
         refresh_local.assert_called_once_with()
@@ -761,7 +761,7 @@ class TestFileTransferPage:
         source.write_text("contents", encoding="utf-8")
         file_page.state.current_project_root = target_dir
 
-        file_page._copy_dropped_local_paths([str(source)])
+        file_page._file_operations.copy_dropped_local_paths([str(source)])
 
         assert source.read_text(encoding="utf-8") == "contents"
         assert (target_dir / "result.log").read_text(encoding="utf-8") == "contents"
@@ -779,7 +779,7 @@ class TestFileTransferPage:
         file_page.state.current_project_root = target_dir
         file_page._error_cb = lambda title, message: errors.append((title, message))
 
-        file_page._copy_dropped_local_paths([str(source)])
+        file_page._file_operations.copy_dropped_local_paths([str(source)])
 
         assert destination.read_text(encoding="utf-8") == "existing"
         assert errors
@@ -790,7 +790,7 @@ class TestFileTransferPage:
         source.write_text("contents", encoding="utf-8")
         target_dir.mkdir()
 
-        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+        file_page._file_operations.move_local_paths_into_directory([str(source)], str(target_dir))
 
         assert not source.exists()
         assert (target_dir / "source.log").read_text(encoding="utf-8") == "contents"
@@ -805,7 +805,7 @@ class TestFileTransferPage:
         destination.write_text("existing", encoding="utf-8")
         file_page._error_cb = lambda title, message: errors.append((title, message))
 
-        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+        file_page._file_operations.move_local_paths_into_directory([str(source)], str(target_dir))
 
         assert source.read_text(encoding="utf-8") == "incoming"
         assert destination.read_text(encoding="utf-8") == "existing"
@@ -818,7 +818,7 @@ class TestFileTransferPage:
         target_dir.mkdir(parents=True)
         file_page._error_cb = lambda title, message: errors.append((title, message))
 
-        file_page._move_local_paths_into_directory([str(source)], str(target_dir))
+        file_page._file_operations.move_local_paths_into_directory([str(source)], str(target_dir))
 
         assert source.exists()
         assert errors
@@ -828,7 +828,7 @@ class TestFileTransferPage:
         file_page._service = service
 
         with patch.object(file_page, "_refresh_remote") as refresh_remote:
-            file_page._move_remote_paths_into_directory(
+            file_page._file_operations.move_remote_paths_into_directory(
                 ["/remote/source.log"], "/remote/archive"
             )
 
@@ -843,7 +843,7 @@ class TestFileTransferPage:
         file_page._service = service
         file_page._error_cb = lambda title, message: errors.append((title, message))
 
-        file_page._move_remote_paths_into_directory(
+        file_page._file_operations.move_remote_paths_into_directory(
             ["/remote/source"], "/remote/source/nested"
         )
 
@@ -873,7 +873,7 @@ class TestFileTransferPage:
     def test_rename_dialog_is_wide_enough_for_long_names(self, file_page):
         from PySide6.QtWidgets import QLineEdit
 
-        dialog = file_page._build_rename_dialog(
+        dialog = file_page._build_name_input_dialog(
             "Rename Local Path",
             "New name:",
             "tbu-zr-s-ml-rpdd-site2-sp.inp",
@@ -885,7 +885,7 @@ class TestFileTransferPage:
     def test_new_folder_dialog_matches_rename_dialog_size(self, file_page):
         from PySide6.QtWidgets import QLineEdit
 
-        rename_dialog = file_page._build_rename_dialog(
+        rename_dialog = file_page._build_name_input_dialog(
             "Rename Remote Path",
             "New name:",
             "tbu-zr-s-ml-rpdd-site2-sp.inp",
