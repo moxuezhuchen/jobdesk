@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Property, QEvent, QPropertyAnimation, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleActionInterface,
+    QAccessibleSelectionInterface,
+    QAccessibleStateChangeEvent,
+    QColor,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
+    QAccessibleWidget,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -231,13 +240,19 @@ class _SidebarItem(QWidget):
 
     @active.setter
     def active(self, v: bool) -> None:
+        if self._active == v:
+            return
         self._active = v
         self.setProperty("selected", v)
         self.setAccessibleDescription("")
         self.update()
         try:
-            from PySide6.QtGui import QAccessible
-            QAccessible.updateAccessibility(self, 0)
+            # This event records which state changed, rather than the new
+            # state value. ``selected`` is therefore true for activation
+            # and deactivation alike.
+            state = QAccessible.State()
+            state.selected = True
+            QAccessible.updateAccessibility(QAccessibleStateChangeEvent(self, state))
         except Exception:
             pass
 
@@ -295,6 +310,37 @@ class _SidebarItem(QWidget):
             event.accept()
             return
         super().keyPressEvent(event)
+
+
+class _SidebarItemAccessible(QAccessibleWidget):
+    """Expose the custom sidebar item as a selectable page tab."""
+
+    def __init__(self, item: _SidebarItem):
+        super().__init__(item, QAccessible.Role.PageTab)
+
+    def state(self) -> QAccessible.State:
+        state = super().state()
+        widget = self.widget()
+        if isinstance(widget, _SidebarItem):
+            state.selectable = True
+            state.selected = widget.active
+        return state
+
+    def actionNames(self) -> list[str]:
+        actions = super().actionNames()
+        widget = self.widget()
+        if not isinstance(widget, _SidebarItem) or not widget.isEnabled():
+            return actions
+        press = QAccessibleActionInterface.pressAction()
+        return [press, *(action for action in actions if action != press)]
+
+    def doAction(self, action_name: str) -> None:
+        if action_name == QAccessibleActionInterface.pressAction():
+            widget = self.widget()
+            if isinstance(widget, _SidebarItem) and widget.isEnabled():
+                widget.clicked.emit()
+            return
+        super().doAction(action_name)
 
 
 class Sidebar(QWidget):
@@ -376,6 +422,99 @@ class Sidebar(QWidget):
 
 
 # ─── Settings-page shared widgets ──────────────────────────────────────────────
+
+
+class _SidebarAccessible(QAccessibleWidget, QAccessibleSelectionInterface):
+    """Expose the sidebar container as the tab list for its page tabs."""
+
+    def __init__(self, sidebar: Sidebar):
+        super().__init__(sidebar, QAccessible.Role.PageTabList)
+
+    def _items(self) -> list[_SidebarItem]:
+        sidebar = self.widget()
+        if isinstance(sidebar, Sidebar):
+            return sidebar._items
+        return []
+
+    def childCount(self) -> int:
+        return len(self._items())
+
+    def child(self, index: int):
+        items = self._items()
+        if 0 <= index < len(items):
+            return QAccessible.queryAccessibleInterface(items[index])
+        return None
+
+    def indexOfChild(self, child) -> int:
+        if child is None:
+            return -1
+        child_object = child.object()
+        return next(
+            (index for index, item in enumerate(self._items()) if child_object is item),
+            -1,
+        )
+
+    def interface_cast(self, interface_type):
+        if interface_type == QAccessible.InterfaceType.SelectionInterface:
+            return self
+        return QAccessibleWidget.interface_cast(self, interface_type)
+
+    def clear(self) -> bool:
+        return False
+
+    def isSelected(self, child) -> bool:
+        sidebar = self.widget()
+        return (
+            isinstance(sidebar, Sidebar)
+            and self.indexOfChild(child) == sidebar._current
+            and self.selectedItemCount() == 1
+        )
+
+    def select(self, child) -> bool:
+        index = self.indexOfChild(child)
+        sidebar = self.widget()
+        if index < 0 or not isinstance(sidebar, Sidebar):
+            return False
+        sidebar.set_current(index)
+        return sidebar._current == index
+
+    def selectAll(self) -> bool:
+        return False
+
+    def selectedItemCount(self) -> int:
+        sidebar = self.widget()
+        if not isinstance(sidebar, Sidebar) or not (0 <= sidebar._current < len(self._items())):
+            return 0
+        return 1
+
+    def selectedItem(self, selection_index: int):
+        if selection_index != 0:
+            return None
+        items = self.selectedItems()
+        return items[0] if items else None
+
+    def selectedItems(self):
+        sidebar = self.widget()
+        if not isinstance(sidebar, Sidebar) or self.selectedItemCount() == 0:
+            return []
+        selected = self.child(sidebar._current)
+        return [selected] if selected is not None else []
+
+    def unselect(self, child) -> bool:
+        return False
+
+
+def _sidebar_accessibility_factory(
+    _class_name: str, obj: object
+) -> _SidebarItemAccessible | _SidebarAccessible | None:
+    if isinstance(obj, _SidebarItem):
+        return _SidebarItemAccessible(obj)
+    if isinstance(obj, Sidebar):
+        return _SidebarAccessible(obj)
+    return None
+
+
+QAccessible.installFactory(_sidebar_accessibility_factory)
 
 
 class ToggleSwitch(QWidget):

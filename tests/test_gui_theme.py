@@ -44,6 +44,98 @@ def test_page_title_helper_sets_object_name_and_text(qt_app):
     assert label.objectName() == "PageTitle"
 
 
+def test_sidebar_active_state_emits_accessibility_state_change(qt_app):
+    from unittest.mock import patch
+
+    from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QAccessibleStateChangeEvent
+
+    from jobdesk_app.gui.design.components import Sidebar
+
+    sidebar = Sidebar([("settings", "Settings"), ("files", "Files")])
+    item = sidebar._items[0]
+    with patch("PySide6.QtGui.QAccessible.updateAccessibility") as update:
+        item.active = True
+        item.active = False
+
+    assert update.call_count == 2
+    for call in update.call_args_list:
+        event = call.args[0]
+        assert isinstance(event, QAccessibleStateChangeEvent)
+        assert event.changedStates().selected
+
+    interface = QAccessible.queryAccessibleInterface(item)
+    assert interface.role() == QAccessible.Role.PageTab
+    assert not interface.state().selected
+    assert interface.state().selectable
+    assert QAccessibleActionInterface.pressAction() in interface.actionNames()
+
+    sidebar_interface = QAccessible.queryAccessibleInterface(sidebar)
+    assert sidebar_interface.role() == QAccessible.Role.PageTabList
+    assert sidebar_interface.childCount() == 2
+    assert [
+        sidebar_interface.child(index).role()
+        for index in range(sidebar_interface.childCount())
+    ] == [QAccessible.Role.PageTab, QAccessible.Role.PageTab]
+    assert interface.parent().role() == QAccessible.Role.PageTabList
+
+    item.active = True
+    assert interface.state().selected
+
+    interface.doAction(QAccessibleActionInterface.pressAction())
+    assert sidebar._current == 0
+
+
+def test_sidebar_accessibility_only_emits_real_selection_changes(qt_app):
+    from unittest.mock import patch
+
+    from PySide6.QtGui import QAccessible
+
+    from jobdesk_app.gui.design.components import Sidebar
+
+    sidebar = Sidebar(
+        [("settings", "Settings"), ("files", "Files"), ("runs", "Runs")]
+    )
+    with patch("PySide6.QtGui.QAccessible.updateAccessibility") as update:
+        sidebar.set_current(0)
+        assert update.call_count == 1
+
+        sidebar.set_current(0)
+        assert update.call_count == 1
+
+        sidebar.set_current(1)
+        assert update.call_count == 3
+
+    assert [
+        QAccessible.queryAccessibleInterface(item).state().selected
+        for item in sidebar._items
+    ] == [False, True, False]
+
+
+def test_sidebar_accessibility_selection_interface_is_single_select(qt_app):
+    from PySide6.QtGui import QAccessible
+
+    from jobdesk_app.gui.design.components import Sidebar
+
+    sidebar = Sidebar([("settings", "Settings"), ("files", "Files")])
+    interface = QAccessible.queryAccessibleInterface(sidebar)
+    selection = interface.selectionInterface()
+    first, second = interface.child(0), interface.child(1)
+
+    assert selection is not None
+    assert selection.selectedItemCount() == 0
+    assert selection.select(second)
+    assert sidebar._current == 1
+    assert selection.selectedItemCount() == 1
+    assert selection.selectedItems() == [second]
+    assert selection.isSelected(second)
+
+    assert selection.select(first)
+    assert sidebar._current == 0
+    assert not selection.unselect(first)
+    assert not selection.clear()
+    assert not selection.selectAll()
+
+
 def test_button_feedback_styles_are_global_not_page_only():
     from jobdesk_app.gui.theme import build_app_stylesheet
 
