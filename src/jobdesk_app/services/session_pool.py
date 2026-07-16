@@ -71,9 +71,15 @@ class SessionPool:
 
     def __init__(
         self,
-        ssh_factory: Callable[[Any], SSHClient],
-        sftp_factory: Callable[[SSHClient], SFTPClient],
+        ssh_factory: Callable[..., Any],
+        sftp_factory: Callable[..., Any],
     ):
+        # ssh_factory/sftp_factory are typed loosely because the public Protocol
+        # aliases (SSHClient / SFTPClient) describe structural shape, not the
+        # concrete wrapper classes (SSHClientWrapper / SFTPClientWrapper) that
+        # callers actually pass in. Treating the factories as Callable[..., Any]
+        # lets us accept any conforming factory without per-call-site ignores,
+        # and matches the pattern already used in RunCoordinator.
         self._ssh_factory = ssh_factory
         self._sftp_factory = sftp_factory
         self._metadata_lock = threading.Lock()
