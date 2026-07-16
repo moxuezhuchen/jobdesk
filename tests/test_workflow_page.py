@@ -59,6 +59,7 @@ def test_page_has_two_authoring_panes_and_generated_preview(page):
     }]
     assert "Add at least one workflow step" in page.full_yaml_preview.toPlainText()
     assert page.save_workflow_button.text() == "Save workflow"
+    assert page.btn_dispatch.objectName() == "WorkflowDispatchBtn"
 
 
 def test_add_step_appends_to_simple_flow_and_updates_yaml(page):

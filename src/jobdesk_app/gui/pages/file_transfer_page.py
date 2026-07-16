@@ -34,7 +34,8 @@ from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunService
 from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
-from ..design.tokens import Colors, Radius, Spacing
+from ..design.components import StatusChip
+from ..design.tokens import Colors, Metrics, Radius
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
@@ -145,8 +146,16 @@ class FileTransferPage(QWidget):
         self._pending_click_rename: tuple[str, int] | None = None
         self._last_file_selection_side: str | None = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        # Phase 18 visual cleanup: standardise the page padding with the
+        # other three pages so the chrome matches. The previous (10, 10,
+        # 10, 10) left the page content butting up against the sidebar.
+        layout.setContentsMargins(
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+        )
+        layout.setSpacing(12)
 
         # -- Phase 2.1: empty-state hints (no server / connected-but-empty) --
         # Both start hidden; visibility is toggled in on_activated once the
@@ -190,10 +199,16 @@ class FileTransferPage(QWidget):
         self.server_combo.setMaximumWidth(200)
         self.server_label = QLabel(tr("Server:", self._language))
         self.server_combo.currentIndexChanged.connect(self._auto_connect_selected_server)
-        self.connection_label = QLabel(connection_status_text(None, False, language=self._language))
+        self.connection_label = StatusChip(
+            connection_status_text(None, False, language=self._language),
+            state="neutral",
+        )
         self.connection_label.setMinimumWidth(80)
-        self.connection_label.setMaximumWidth(180)
-        self.connection_label.setVisible(False)
+        self.connection_label.setMaximumWidth(220)
+        # Keep the connection state visible before a server is selected;
+        # the neutral chip makes the current state discoverable without
+        # relying on a transient status-bar message.
+        self.connection_label.setVisible(True)
         self.remote_path = QLineEdit(self._gui_settings.default_remote_dir)
         self.remote_path.setMinimumWidth(80)
         self.remote_path.returnPressed.connect(self._refresh_remote)
@@ -523,6 +538,7 @@ class FileTransferPage(QWidget):
             self._service is not None,
             language=language,
         ))
+        self.connection_label.set_state("success" if self._service is not None else "neutral")
         # -- Phase 2.1: retranslate empty-state hints --
         self._no_server_hint.apply_language(language)
         self._empty_dir_hint.apply_language(language)
@@ -555,20 +571,40 @@ class FileTransferPage(QWidget):
 
     def _auto_connect_selected_server(self):
         if not self._gui_settings.auto_connect:
-            self.connection_label.setText(tr("Auto connect disabled", self._language))
+            self._set_connection_status(tr("Auto connect disabled", self._language), state="warning")
             return
         server_id = self.server_combo.currentData()
         if not server_id:
-            self.connection_label.setText(connection_status_text(None, False, language=self._language))
+            self._set_connection_status(
+                connection_status_text(None, False, language=self._language),
+                state="neutral",
+            )
             return
         if self._connected_server_id == server_id and self._service is not None:
-            self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
+            self._set_connection_status(
+                connection_status_text(server_id, True, language=self._language),
+                state="success",
+            )
             return
         self._remember_current_remote_dir()
         server = self._servers.get(server_id)
         if server is not None:
             self.remote_path.setText(self._server_remote_dirs.get(server_id) or default_remote_dir_for_server(server))
         self._connect()
+
+    def _set_connection_status(self, text: str, *, state: str = "neutral") -> None:
+        """Set ``connection_label`` text + chip colour in one call.
+
+        Phase 18 visual cleanup: the previous version used a plain
+        ``QLabel`` so connection state had to be read from the verb
+        ("Connected to jobdesk-centos" vs "Disconnected"). The chip
+        now carries an explicit visual state (success / warning /
+        error / neutral) so the page reads at a glance.
+        """
+        if not hasattr(self, "connection_label"):
+            return
+        self.connection_label.set_state(state)
+        self.connection_label.setText(text)
 
     def _remember_current_remote_dir(self):
         if self._connected_server_id:
@@ -580,7 +616,10 @@ class FileTransferPage(QWidget):
         server_id = self.server_combo.currentData()
         if not server_id:
             self._status_cb("Select a server first")
-            self.connection_label.setText(connection_status_text(None, False, language=self._language))
+            self._set_connection_status(
+                connection_status_text(None, False, language=self._language),
+                state="neutral",
+            )
             return
         server = self._servers[server_id]
         if self._connected_server_id != server_id:
@@ -599,7 +638,10 @@ class FileTransferPage(QWidget):
         self._connected_server = server
         self._connections._connected_server_id = server_id
         self._connections._connected_server = server
-        self.connection_label.setText(connection_status_text(server_id, True, language=self._language))
+        self._set_connection_status(
+            connection_status_text(server_id, True, language=self._language),
+            state="success",
+        )
         self._refresh_remote()
         # Phase 2.1: refresh empty-state hints now that the connection
         # state flipped from "none" to "connected".
@@ -880,7 +922,10 @@ class FileTransferPage(QWidget):
         ])
         _load_rows(self.remote_table, rows)
         self._update_selection_summary()
-        self.connection_label.setText(connection_status_text(self._connected_server_id, True, language=self._language))
+        self._set_connection_status(
+            connection_status_text(self._connected_server_id, True, language=self._language),
+            state="success",
+        )
         if self.refresh_btn.property("feedbackState") == "pending":
             self._refresh_feedback.success(tr("Refreshed", self._language))
         self._status_cb(f"Remote listed: {remote_dir} ({len(rows)} entries)")
@@ -897,7 +942,10 @@ class FileTransferPage(QWidget):
             self._status_cb(f"Remote path missing, trying: {fallback}")
             self._refresh_remote_path(fallback)
             return
-        self.connection_label.setText(connection_status_text(self._connected_server_id, False, error.splitlines()[0], self._language))
+        self._set_connection_status(
+            connection_status_text(self._connected_server_id, False, error.splitlines()[0], self._language),
+            state="error",
+        )
         if self.refresh_btn.property("feedbackState") == "pending":
             self._refresh_feedback.error(tr("Refresh failed", self._language))
         self._error_cb("Remote List Error", error.splitlines()[0])

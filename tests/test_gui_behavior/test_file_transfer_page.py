@@ -41,6 +41,8 @@ class TestFileTransferPage:
         # to SubmitPage. Refresh / open terminal stay on this page.
         assert file_page.refresh_btn.property("buttonRole") == ButtonRole.REFRESH_ACTION.value
         assert file_page.open_terminal_btn.property("buttonRole") == ButtonRole.INSTANT_ACTION.value
+        assert file_page.submit_btn.objectName() == "FilesSubmitBtn"
+        assert not file_page.connection_label.isHidden()
 
     def test_file_transfer_refresh_feedback_stays_pending_until_async_completion(self, file_page):
         from jobdesk_app.gui.i18n import tr

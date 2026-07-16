@@ -404,7 +404,7 @@ def step_dialog_add_nodes(dialog) -> dict:
     We only wire PRE_OPT and OPT together; OUTPUT is left unwired per the
     dialog's design (it's a sentinel, not a wired sink).
     """
-    from jobdesk_app.gui.nodegraph.model import NodeKind, Edge
+    from jobdesk_app.gui.nodegraph.model import Edge, NodeKind
 
     scene = dialog.editor.scene()
     graph = scene.graph()
@@ -564,9 +564,8 @@ def main() -> int:
     with _step("dialog_quick_start"):
         step_dialog_quick_start(dialog)
 
-    node_ids = None
     with _step("dialog_add_nodes"):
-        node_ids = step_dialog_add_nodes(dialog)
+        step_dialog_add_nodes(dialog)
 
     # Edges are now wired in step_dialog_add_nodes
     with _step("dialog_edges_wired"):

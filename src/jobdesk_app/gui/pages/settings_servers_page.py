@@ -27,9 +27,10 @@ from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import SettingCard, StyledTableWidget, ToggleSwitch
-from ..design.tokens import Colors, Radius
+from ..design.tokens import Colors, Metrics, Radius
 from ..i18n import tr
 from ..session import ssh_session
+from ..theme import help_text, section_title_label
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
 from .settings_servers_helpers import (
@@ -116,12 +117,22 @@ class SettingsServersPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(24, 20, 24, 20)
+        # Phase 18 visual cleanup: standardise the page padding with
+        # the other three pages (24 px horizontal, 20 px vertical, 12
+        # px section spacing). The previous (24, 20, 24, 20) left the
+        # cards' titles butting up against the sidebar.
+        layout.setContentsMargins(
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+        )
         layout.setSpacing(12)
 
-        # Page title
-        self._page_title = QLabel(tr("Settings", self._language))
-        self._page_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
+        # Page title (using the shared ``page_title_label`` helper from
+        # ``theme.py`` so it picks up the new PAGE_TITLE_FONT_PX token).
+        from ..theme import page_title_label
+        self._page_title = page_title_label(tr("Settings", self._language))
         layout.addWidget(self._page_title)
         layout.addSpacing(8)
 
@@ -205,8 +216,11 @@ class SettingsServersPage(QWidget):
 
         # ─── 服务器配置 ───
         layout.addSpacing(12)
-        self._srv_title = QLabel(tr("Server Profiles", self._language))
-        self._srv_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
+        # Phase 18 visual cleanup: sub-section header now uses the
+        # shared ``section_title_label`` helper (15 px / 600) instead
+        # of a 24 px PageTitle-style label that competed with the
+        # page-level "Settings" title for visual weight.
+        self._srv_title = section_title_label(tr("Server Profiles", self._language))
         layout.addWidget(self._srv_title)
         layout.addSpacing(4)
 
@@ -215,8 +229,14 @@ class SettingsServersPage(QWidget):
         srv_card.setStyleSheet(
             f"#SettingCard {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
+        # Phase 18 visual cleanup: the inner QFrame previously used
+        # (16, 12, 16, 12) margins which double-padded the card and
+        # gave the server table a visible "frame inside a frame"
+        # effect. Using zero margins lets the card border sit flush
+        # against the table — the table's own gridlines provide the
+        # separation.
         srv_inner = QVBoxLayout(srv_card)
-        srv_inner.setContentsMargins(16, 12, 16, 12)
+        srv_inner.setContentsMargins(0, 0, 0, 0)
         srv_inner.setSpacing(8)
 
         self.server_table = StyledTableWidget()
@@ -251,11 +271,16 @@ class SettingsServersPage(QWidget):
         # ─── 软件配置 ───
         layout.addSpacing(12)
         dl_header = QHBoxLayout()
-        self._dl_title = QLabel(tr("Software Profiles", self._language))
-        self._dl_title.setStyleSheet(f"font-size: 24px; color: {Colors.TEXT}; font-weight: 600;")
+        dl_header.setSpacing(8)
+        # Phase 18 visual cleanup: sub-section header uses the shared
+        # ``section_title_label`` helper so its visual weight matches
+        # the rest of the page.
+        self._dl_title = section_title_label(tr("Software Profiles", self._language))
         dl_header.addWidget(self._dl_title)
-        self._dl_desc = QLabel(tr("{name}=filename, {basename}=name without extension", self._language))
-        self._dl_desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;")
+        self._dl_desc = help_text(tr("{name}=filename, {basename}=name without extension", self._language))
+        self._dl_desc.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;"
+        )
         dl_header.addWidget(self._dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
@@ -290,16 +315,18 @@ class SettingsServersPage(QWidget):
             f"#ProfileCard {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
         profile_card_inner = QVBoxLayout(profile_card)
-        profile_card_inner.setContentsMargins(16, 12, 16, 12)
+        # Phase 18 visual cleanup: see the server-card note above.
+        profile_card_inner.setContentsMargins(0, 0, 0, 0)
         profile_card_inner.setSpacing(8)
         profile_card_inner.addWidget(self.profile_table)
         profile_card_inner.addLayout(profile_btns)
-        self._confflow_note = QLabel(
+        self._confflow_note = help_text(
             tr("ConfFlow downloads are managed from declared task outputs; "
                "shown patterns describe the default artifacts.", self._language)
         )
-        self._confflow_note.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px; padding: 6px 0;")
-        self._confflow_note.setWordWrap(True)
+        self._confflow_note.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;"
+        )
         profile_card_inner.addWidget(self._confflow_note)
         layout.addWidget(profile_card)
 
@@ -307,10 +334,16 @@ class SettingsServersPage(QWidget):
         root.addWidget(scroll, 1)
 
         # ─── 底部按钮栏（固定） ───
+        # Phase 18 visual cleanup: the bottom bar previously used a
+        # hand-picked ``#9aaec4`` border colour which did not match
+        # the card borders above (which use ``Colors.BORDER``). The
+        # desync read as a hard seam between the cards and the footer;
+        # using the same border token makes the seam disappear.
         bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("border-top: 1px solid #9aaec4;")
+        bottom_bar.setStyleSheet(f"border-top: 1px solid {Colors.BORDER};")
         bar_layout = QHBoxLayout(bottom_bar)
         bar_layout.setContentsMargins(24, 10, 24, 10)
+        bar_layout.setSpacing(8)
         bar_layout.addStretch()
         self.save_btn = QPushButton(tr("Save Settings", self._language))
         self.save_btn.clicked.connect(self._save_settings)
@@ -400,6 +433,12 @@ class SettingsServersPage(QWidget):
         try:
             cfg = load_servers()
             servers = cfg.servers
+        except FileNotFoundError:
+            # ``servers.yaml`` is opt-in: a brand-new install has not
+            # created one yet. Treat that as the "no servers" empty state
+            # so the user sees the Phase 2.1 onboarding card instead of a
+            # raw FileNotFoundError string in the table.
+            servers = {}
         except Exception as e:
             self.server_table.setRowCount(1)
             self.server_table.setItem(0, 0, QTableWidgetItem(str(e)))
@@ -598,9 +637,17 @@ class SettingsServersPage(QWidget):
         if QMessageBox.question(self, tr("Delete Server", self._language), tr("Delete {sid}?", self._language, sid=sid)) != QMessageBox.Yes:
             return
         path = get_default_servers_path()
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        # ``servers.yaml`` is opt-in: a fresh install simply doesn't
+        # have one. Treat "not present" as an idempotent no-op rather
+        # than crashing the dialog (which is what the bare ``read_text``
+        # does, via ``FileNotFoundError``).
+        if path.exists():
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        else:
+            data = {}
         servers = data.get("servers", {})
         servers.pop(sid, None)
+        path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
@@ -614,7 +661,14 @@ class SettingsServersPage(QWidget):
             return
         sid = self.server_table.item(row, 0).text()
         path = get_default_servers_path()
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        # Same fall-back as ``_delete_server``: an empty / missing
+        # ``servers.yaml`` should still let the user edit metadata on
+        # an existing in-memory row.
+        data = (
+            yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            if path.exists()
+            else {}
+        )
         srv = data.get("servers", {}).get(sid, {})
 
         dlg = QDialog(self)

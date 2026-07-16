@@ -262,16 +262,13 @@ class _SidebarItem(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
 
-        # Background gradient for active state
+        # Background for active state. Phase 18 visual cleanup: removed
+        # the alpha-30 blue glow (which fought the page chrome) and kept
+        # only a quiet left accent bar for the active indicator.
         if self._active:
             p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_ACTIVE_BG))
-            # Left accent bar
             accent_rect = QRectF(0, 8, 3, h - 16)
             p.fillRect(accent_rect, QColor(Colors.SIDEBAR_INDICATOR))
-            # Subtle glow effect
-            glow = QColor(Colors.SIDEBAR_INDICATOR)
-            glow.setAlpha(30)
-            p.fillRect(0, 0, 6, h, glow)
         elif self._hover:
             p.fillRect(0, 0, w, h, QColor(Colors.SIDEBAR_HOVER))
 
@@ -329,12 +326,14 @@ class Sidebar(QWidget):
         lay.setContentsMargins(0, Spacing.LG, 0, Spacing.LG)
         lay.setSpacing(Spacing.SM)
 
-        # Logo with gradient background
+        # Logo. Phase 18 visual cleanup: drop the indigo→blue gradient
+        # (which fought the rest of the page chrome) and use the primary
+        # brand colour. Weight reduced 800 → 600 to match the rest of
+        # the design system.
         logo_container = QFrame(self)
         logo_container.setFixedHeight(48)
         logo_container.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
-            f"stop:0 {Colors.SIDEBAR_INDICATOR}, stop:1 #6366f1); "
+            f"background: {Colors.PRIMARY}; "
             f"border-radius: {Radius.MD}px; margin: 0 8px;"
         )
         logo_layout = QVBoxLayout(logo_container)
@@ -343,7 +342,7 @@ class Sidebar(QWidget):
         logo.setAlignment(Qt.AlignCenter)
         logo.setStyleSheet(
             f"color: {Colors.SIDEBAR_TEXT_ACTIVE}; font-size: 20pt; "
-            f"font-weight: 800; background: transparent; padding: 4px 0;"
+            f"font-weight: 600; background: transparent; padding: 4px 0;"
         )
         logo_layout.addWidget(logo)
         lay.addWidget(logo_container)
@@ -421,34 +420,34 @@ class ToggleSwitch(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
-        # Track background with gradient
+        # Phase 18 visual cleanup: flat track, single-colour thumb with a
+        # hairline border. The previous version layered a translucent
+        # white ellipse and an inner rounded-rect stroke on top of the
+        # thumb which read as plastic / sticker-y. Track colour is now
+        # the primary brand colour when ON (was bright green, which
+        # collided with the SUCCESS semantic elsewhere in the chrome).
         track_rect = QRectF(0, 0, 56, 30)
-        track_color = QColor(Colors.SUCCESS) if self._checked else QColor(Colors.TEXT_MUTED)
+        track_color = QColor(Colors.PRIMARY) if self._checked else QColor(Colors.TEXT_MUTED)
         p.setBrush(track_color)
         p.setPen(Qt.NoPen)
         p.drawRoundedRect(track_rect, 15, 15)
 
-        # Inner shadow/highlight
-        inner = QRectF(1, 1, 54, 28)
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QColor(255, 255, 255, 40))
-        p.drawRoundedRect(inner, 14, 14)
-
-        # Thumb with shadow
+        # Thumb (white circle with a 1-px hairline).
         thumb_rect = QRectF(self._offset, 3, 24, 24)
         p.setBrush(QColor("white"))
-        p.setPen(Qt.NoPen)
+        p.setPen(QColor(0, 0, 0, 18))
         p.drawEllipse(thumb_rect)
-
-        # Thumb highlight
-        highlight = QRectF(self._offset + 2, 4, 20, 10)
-        p.setBrush(QColor(255, 255, 255, 100))
-        p.drawEllipse(highlight)
         p.end()
 
 
 class SettingCard(QFrame):
-    """Modern settings card with clean layout: title + description on left, control on right."""
+    """Modern settings card with clean layout: title + description on left, control on right.
+
+    Phase 18 visual cleanup: title font 17 px → 14 px (now via the
+    shared ``Metrics.CARD_TITLE_FONT_PX`` token); description 14 pt →
+    ``Metrics.CARD_BODY_FONT_PX`` (13 px). The hard ``setFixedHeight(72)``
+    is removed so a two-line description no longer clips.
+    """
 
     def __init__(self, title: str, description: str, control: QWidget):
         super().__init__()
@@ -461,25 +460,60 @@ class SettingCard(QFrame):
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 14, 20, 14)
-        self.setFixedHeight(72)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(16)
 
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
-            f"color: {Colors.TEXT}; font-size: 17px; font-weight: 600;"
+            f"color: {Colors.TEXT}; font-size: {Metrics.CARD_TITLE_FONT_PX}px; font-weight: 600;"
         )
         lbl_desc = QLabel(description)
         lbl_desc.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 15px;"
+            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
         )
+        lbl_desc.setWordWrap(True)
         text_layout.addWidget(lbl_title)
         text_layout.addWidget(lbl_desc)
         self.lbl_title = lbl_title
         self.lbl_desc = lbl_desc
 
-        layout.addLayout(text_layout)
-        layout.addStretch()
+        layout.addLayout(text_layout, 1)
         control.setMinimumWidth(160)
         layout.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
+
+
+class StatusChip(QLabel):
+    """Small flat pill used to surface connection / status / metadata.
+
+    Replaces the bespoke "Server: 10.61.193.41:22" pills and the
+    bare-text "状态: COMPLETED" labels that previously cluttered the
+    page chrome. ``set_state`` swaps a QSS-driven colour set in
+    ``theme.py``; the chip itself stays a single ``QLabel`` so screen
+    readers and keyboard focus behave normally.
+    """
+
+    _STATES = {"neutral", "info", "success", "warning", "error"}
+
+    def __init__(self, text: str = "", state: str = "neutral", parent: QWidget | None = None):
+        super().__init__(text, parent)
+        self.setObjectName("StatusChip")
+        self.set_state(state)
+
+    def set_state(self, state: str) -> None:
+        if state not in self._STATES:
+            state = "neutral"
+        self.setProperty("chipState", state)
+        # ``chipState`` is a dynamic property: re-polish the style so
+        # the new state colours take effect.
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+        self.update()
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(text)
+        # The chip should always look like a chip, not a regular label.
+        self.set_state(self.property("chipState") or "neutral")

@@ -35,11 +35,13 @@ from ...services.method_presets import (
     MethodPresetStore,
     StepPresetStore,
 )
-from ..design.tokens import Colors, Radius, Spacing
 from ..button_feedback import ButtonRole, apply_button_role
+from ..design.components import StatusChip
+from ..design.tokens import Colors, Metrics, Radius, Spacing
 from ..i18n import tr
 from ..nodegraph.model import Edge, Node, NodeGraph, NodeKind, default_node
 from ..nodegraph.spec_bridge import from_workflow_spec
+from ..theme import help_text, section_title_label
 from .workflow_page_helpers import flow_step_detail
 
 _STEP_KINDS = {
@@ -133,7 +135,7 @@ class WorkflowPage(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
-        outer.setSpacing(12)
+        outer.setSpacing(Spacing.MD)
         self.setStyleSheet(
             f"QFrame#workflowHeader {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
@@ -141,11 +143,13 @@ class WorkflowPage(QWidget):
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
             f"QPlainTextEdit {{ background: {Colors.BG_SURFACE}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; padding: 10px; "
-            f"font-size: 18px; }} "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }} "
             f"QScrollArea {{ background: {Colors.BG_SURFACE}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
-            f"QTabBar::tab {{ padding: 14px 22px; font-size: 18px; }} "
-            f"QComboBox {{ min-height: 40px; padding: 6px 14px; font-size: 16px; }}"
+            f"QTabBar::tab {{ padding: 12px 20px; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }} "
+            f"QComboBox {{ min-height: 40px; padding: 6px 14px; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }}"
         )
         outer.addWidget(self._build_header())
         outer.addWidget(self._build_workspace(), 1)
@@ -165,13 +169,19 @@ class WorkflowPage(QWidget):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)
         title = QLabel(tr("Workflow", self._language), panel)
-        font = title.font()
-        font.setBold(True)
-        font.setPointSize(font.pointSize() + 4)
-        title.setFont(font)
-        title.setStyleSheet(f"color: {Colors.TEXT};")
+        # Phase 18 visual cleanup: title font now matches the
+        # ``PAGE_TITLE_FONT_PX`` token so the page title is consistent
+        # across all four pages. The previous version used
+        # ``font.pointSize() + 4`` which produced a 19-22 px title that
+        # varied by system DPI and competed with the Workflow flow
+        # sub-section.
+        title.setStyleSheet(
+            f"color: {Colors.TEXT}; "
+            f"font-size: {Metrics.PAGE_TITLE_FONT_PX}px; font-weight: 600;"
+        )
         layout.addWidget(title)
         row = QHBoxLayout()
+        row.setSpacing(8)
         self.preset_combo = QComboBox(panel)
         self.preset_combo.setObjectName("WorkflowPresetCombo")
         self.preset_combo.setPlaceholderText(tr("No saved workflows", self._language))
@@ -185,7 +195,7 @@ class WorkflowPage(QWidget):
         row.addWidget(self.btn_validate)
         layout.addLayout(row)
         self.dirty_label = QLabel("", panel)
-        self.dirty_label.setStyleSheet(f"color: {Colors.WARNING}; font-style: italic; font-size: 16px;")
+        self.dirty_label.setStyleSheet(f"color: {Colors.WARNING}; font-style: italic; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
         layout.addWidget(self.dirty_label)
         return panel
 
@@ -220,13 +230,18 @@ class WorkflowPage(QWidget):
         layout.setContentsMargins(0, 8, 0, 0)
         self.selected_step_label = QLabel(tr("Select a workflow step on the graph.", self._language), tab)
         self.selected_step_label.setWordWrap(True)
-        self.selected_step_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT}; font-size: 18px;")
+        self.selected_step_label.setStyleSheet(
+            f"font-weight: 600; color: {Colors.TEXT}; font-size: {Metrics.CARD_TITLE_FONT_PX}px;"
+        )
         layout.addWidget(self.selected_step_label)
         self.inputs_label = QLabel("", tab)
         self.inputs_label.setWordWrap(True)
-        self.inputs_label.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: 15px;")
+        self.inputs_label.setStyleSheet(
+            f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         layout.addWidget(self.inputs_label)
         preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
         self.step_preset_combo = QComboBox(tab)
         self.step_preset_combo.currentIndexChanged.connect(self._on_step_preset_selected)
         preset_row.addWidget(self.step_preset_combo, 1)
@@ -250,16 +265,26 @@ class WorkflowPage(QWidget):
         self.step_yaml_editor = QPlainTextEdit(tab)
         self.step_yaml_editor.setObjectName("WorkflowStepYamlEditor")
         self.step_yaml_editor.setPlaceholderText("name: opt\ntype: calc\nparams:\n  iprog: orca\n  itask: opt")
-        self.step_yaml_editor.setStyleSheet(f"font-family: Consolas, Menlo, monospace; font-size: 16px;")
+        # Phase 18 visual cleanup: YAML editor font dropped to the
+        # shared card body size; the previous 16 px overrode the
+        # page-level token and made the left panel hog vertical space.
+        self.step_yaml_editor.setStyleSheet(
+            f"font-family: Consolas, Menlo, monospace; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         self.step_yaml_editor.textChanged.connect(self._on_step_text_changed)
         layout.addWidget(self.step_yaml_editor, 1)
         self.yaml_editor = self.step_yaml_editor  # compatibility for integrations that locate this editor
         self.step_error_label = QLabel("", tab)
         self.step_error_label.setWordWrap(True)
-        self.step_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: 15px;")
+        self.step_error_label.setStyleSheet(
+            f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         layout.addWidget(self.step_error_label)
         self.save_step_preset_btn = QPushButton(tr("Save step", self._language), tab)
-        self.save_step_preset_btn.setStyleSheet(f"min-height: 44px; font-size: 16px;")
+        # Drop the per-button ``min-height: 44`` override so the button
+        # follows the shared ``Metrics.CONTROL_HEIGHT`` of 38 px and
+        # stops expanding the left panel by ~6 px per button row.
         self.save_step_preset_btn.clicked.connect(self._save_step_preset)
         layout.addWidget(self.save_step_preset_btn)
         return tab
@@ -268,18 +293,25 @@ class WorkflowPage(QWidget):
         tab = QWidget(self)
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 8, 0, 0)
-        hint = QLabel(tr("Workflow-wide resources and molecular settings.", self._language), tab)
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;")
+        layout.setSpacing(8)
+        hint = help_text(tr("Workflow-wide resources and molecular settings.", self._language))
+        hint.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         layout.addWidget(hint)
         self.global_yaml_editor = QPlainTextEdit(tab)
         self.global_yaml_editor.setObjectName("WorkflowGlobalYamlEditor")
-        self.global_yaml_editor.setStyleSheet(f"font-family: Consolas, Menlo, monospace; font-size: 16px;")
+        self.global_yaml_editor.setStyleSheet(
+            f"font-family: Consolas, Menlo, monospace; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         self.global_yaml_editor.textChanged.connect(self._on_global_text_changed)
         layout.addWidget(self.global_yaml_editor, 1)
         self.global_error_label = QLabel("", tab)
         self.global_error_label.setWordWrap(True)
-        self.global_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: 15px;")
+        self.global_error_label.setStyleSheet(
+            f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         layout.addWidget(self.global_error_label)
         button = apply_button_role(QPushButton(tr("Apply global settings", self._language), tab), ButtonRole.PRIMARY_ACTION)
         button.clicked.connect(self._apply_global_yaml)
@@ -290,13 +322,21 @@ class WorkflowPage(QWidget):
         panel = QFrame(self)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 0, 0, 0)
-        title = QLabel(tr("Workflow flow", self._language), panel)
-        title.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {Colors.TEXT};")
+        layout.setSpacing(8)
+        # Phase 18 visual cleanup: "Workflow flow" is no longer a
+        # 20-px bold title — it is a sub-section header that uses the
+        # shared SectionTitle token (15 px). This stops the inner panel
+        # title from competing with the page-level "Workflow" title
+        # for visual weight.
+        title = section_title_label(tr("Workflow flow", self._language))
         layout.addWidget(title)
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
         self.add_step_button = QPushButton(tr("Add current step", self._language), panel)
         self.add_step_button.setToolTip(tr("Add the step currently shown on the left.", self._language))
-        self.add_step_button.setStyleSheet(f"font-size: 16px; min-height: 40px; padding: 6px 18px;")
+        # Drop the per-button ``min-height: 40`` and ``font-size: 16``
+        # overrides so the button follows the shared
+        # ``Metrics.CONTROL_HEIGHT`` (38 px) and the shared 13 px font.
         self.add_step_button.clicked.connect(self._add_step)
         toolbar.addWidget(self.add_step_button)
         toolbar.addStretch(1)
@@ -315,8 +355,9 @@ class WorkflowPage(QWidget):
             ButtonRole.PRIMARY_ACTION,
         )
         self.save_workflow_button.setObjectName("SaveWorkflowButton")
-        self.save_workflow_button.setMinimumHeight(38)
-        self.save_workflow_button.setStyleSheet(f"font-size: 16px; padding: 8px 20px;")
+        # Aligned with the shared CONTROL_HEIGHT; the previous
+        # ``padding: 8px 20px; font-size: 16px`` inflated this button
+        # past its peers and pushed the footer up by a few px.
         self.save_workflow_button.clicked.connect(self._save_workflow)
         layout.addWidget(self.save_workflow_button)
         return panel
@@ -330,7 +371,10 @@ class WorkflowPage(QWidget):
         self.full_yaml_preview.setObjectName("WorkflowYamlPreview")
         self.full_yaml_preview.setReadOnly(True)
         self.full_yaml_preview.setMaximumBlockCount(2000)
-        self.full_yaml_preview.setStyleSheet("font-family: Consolas, Menlo, monospace; font-size: 16px;")
+        self.full_yaml_preview.setStyleSheet(
+            f"font-family: Consolas, Menlo, monospace; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
         layout.addWidget(self.full_yaml_preview)
         box.toggled.connect(self.full_yaml_preview.setVisible)
         self.full_yaml_preview.setVisible(False)
@@ -340,12 +384,13 @@ class WorkflowPage(QWidget):
         panel = QFrame(self)
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.server_pill = QLabel(tr("No server", self._language), panel)
-        self.server_pill.setStyleSheet(
-            f"padding: 6px 14px; border: 1px solid {Colors.BORDER}; "
-            f"border-radius: {Radius.LG}px; background: {Colors.CARD_BG}; "
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 16px;"
-        )
+        layout.setSpacing(8)
+        # Phase 18 visual cleanup: the bespoke "Server: ..." pill in
+        # the workflow footer was previously a custom-styled ``QLabel``
+        # whose border + bg + font did not match the connection chip
+        # on the Files page. Reuse :class:`StatusChip` so the two
+        # surfaces speak the same visual language.
+        self.server_pill = StatusChip(tr("No server", self._language), state="neutral")
         layout.addWidget(self.server_pill)
         layout.addStretch(1)
         self.btn_dispatch = apply_button_role(QPushButton(tr("Use this workflow for submit", self._language), panel), ButtonRole.PRIMARY_ACTION)
@@ -842,7 +887,9 @@ class WorkflowPage(QWidget):
     def _build_step_card(self, node: Node, index: int, total: int) -> QFrame:
         """Build a single flow-diagram step card with title, detail, and move/delete buttons."""
         card = QFrame(self._flow_body)
-        card.setFixedHeight(72)
+        # Phase 18 visual cleanup: drop the hard ``setFixedHeight(72)``
+        # so the card grows to fit longer step titles instead of
+        # visually clipping them.
         selected = node.id == self._selected_node_id
         accent = Colors.SUCCESS if node.kind is NodeKind.CONF_GEN else Colors.PRIMARY
         card.setStyleSheet(
@@ -858,34 +905,44 @@ class WorkflowPage(QWidget):
         select = QPushButton(f"{index + 1}. {node.title}", card)
         select.setFlat(True)
         select.setStyleSheet(
-            f"QPushButton {{ text-align: left; color: {Colors.TEXT}; font-size: 16px; "
-            f"font-weight: 600; border: none; padding: 0; background: transparent; }}"
+            f"QPushButton {{ text-align: left; color: {Colors.TEXT}; "
+            f"font-size: {Metrics.CARD_TITLE_FONT_PX}px; font-weight: 600; "
+            f"border: none; padding: 0; background: transparent; }}"
             f"QPushButton:hover {{ color: {Colors.PRIMARY}; }}"
         )
         select.clicked.connect(lambda _checked=False, node_id=node.id: self._on_node_selected(node_id))
         content.addWidget(select)
         detail = QLabel(flow_step_detail(node), card)
-        detail.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: 15px; border: none; background: transparent;")
+        detail.setStyleSheet(
+            f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px; "
+            f"border: none; background: transparent;"
+        )
         content.addWidget(detail)
         row.addLayout(content, 1)
         up = QPushButton("↑", card)
         up.setEnabled(index > 0)
         up.setFixedSize(36, 32)
-        up.setStyleSheet(f"font-size: 16px; padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;")
+        up.setStyleSheet(
+            f"padding: 0; background: {Colors.BG_SURFACE}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        )
         up.setToolTip(tr("Move up", self._language))
         up.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, -1))
         row.addWidget(up)
         down = QPushButton("↓", card)
         down.setEnabled(index < total - 1)
         down.setFixedSize(36, 32)
-        down.setStyleSheet(f"font-size: 16px; padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;")
+        down.setStyleSheet(
+            f"padding: 0; background: {Colors.BG_SURFACE}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        )
         down.setToolTip(tr("Move down", self._language))
         down.clicked.connect(lambda _checked=False, node_id=node.id: self._move_step(node_id, +1))
         row.addWidget(down)
         remove = QPushButton("×", card)
         remove.setFixedSize(32, 32)
         remove.setStyleSheet(
-            f"QPushButton {{ color: {Colors.ERROR}; font-size: 18px; padding: 0; "
+            f"QPushButton {{ color: {Colors.ERROR}; padding: 0; "
             f"border: 1px solid {Colors.ERROR_BORDER}; border-radius: {Radius.SM}px; "
             f"background: {Colors.ERROR_BG}; }}"
             f"QPushButton:hover {{ background: {Colors.ERROR}; color: white; }}"
@@ -906,7 +963,7 @@ class WorkflowPage(QWidget):
         start.setAlignment(Qt.AlignmentFlag.AlignCenter)
         start.setFixedHeight(48)
         start.setStyleSheet(
-            f"font-size: 16px; font-weight: 600; color: {Colors.PRIMARY}; "
+            f"font-weight: 600; color: {Colors.PRIMARY}; "
             f"background: {Colors.INFO_BG}; border: 1px solid {Colors.INFO_BORDER}; "
             f"border-radius: {Radius.MD}px;"
         )
@@ -916,26 +973,28 @@ class WorkflowPage(QWidget):
             hint = QLabel(tr("Choose a step on the left, then add it to the workflow.", self._language), self._flow_body)
             hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
             hint.setFixedHeight(48)
-            hint.setStyleSheet(f"font-size: 16px; color: {Colors.TEXT_MUTED}; border: none; background: transparent;")
+            hint.setStyleSheet(
+                f"color: {Colors.TEXT_MUTED}; border: none; background: transparent;"
+            )
             self._flow_layout.addWidget(hint)
         for index, node in enumerate(ordered):
             arrow = QLabel("↓", self._flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
             arrow.setFixedHeight(28)
-            arrow.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {Colors.TEXT_MUTED};")
+            arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
             self._flow_layout.addWidget(arrow)
             self._flow_layout.addWidget(self._build_step_card(node, index, len(ordered)))
         if ordered:
             arrow = QLabel("↓", self._flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
             arrow.setFixedHeight(28)
-            arrow.setStyleSheet(f"font-size: 18px; font-weight: 600; color: {Colors.TEXT_MUTED};")
+            arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
             self._flow_layout.addWidget(arrow)
         output = QLabel(tr("Workflow output", self._language), self._flow_body)
         output.setAlignment(Qt.AlignmentFlag.AlignCenter)
         output.setFixedHeight(48)
         output.setStyleSheet(
-            f"font-size: 16px; font-weight: 600; color: {Colors.SUCCESS}; "
+            f"font-weight: 600; color: {Colors.SUCCESS}; "
             f"background: {Colors.SUCCESS_BG}; border: 1px solid {Colors.SUCCESS_BORDER}; "
             f"border-radius: {Radius.LG}px;"
         )
@@ -1064,7 +1123,12 @@ class WorkflowPage(QWidget):
 
     def set_server_status(self, connected: bool, server_label: str) -> None:
         self._current_server_label = server_label
-        self.server_pill.setText(server_label if connected and server_label else tr("No server", self._language))
+        if connected and server_label:
+            self.server_pill.set_state("success")
+            self.server_pill.setText(server_label)
+        else:
+            self.server_pill.set_state("neutral")
+            self.server_pill.setText(tr("No server", self._language))
 
     def set_remote_dir(self, remote_dir: str) -> None:
         self._remote_dir = remote_dir

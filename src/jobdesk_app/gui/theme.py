@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QLabel
 
-from .design.tokens import Colors, Metrics, Radius, Shadow
+from .design.tokens import Colors, Metrics, Radius
 
 
 class ThemeMetrics:
     CONTROL_HEIGHT = Metrics.CONTROL_HEIGHT
     TABLE_ROW_HEIGHT = Metrics.TABLE_ROW_HEIGHT
     TABLE_HEADER_HEIGHT = Metrics.TABLE_HEADER_HEIGHT
-    SCROLLBAR_THICKNESS = 10
+    # WinSCP-style scrollbar: visually thicker than the modern web-style
+    # 6 px/10 px bar so file lists remain comfortable to grab with a
+    # mouse on Windows. 14 px is also the value the test
+    # ``test_scrollbar_styles_are_thick_enough_for_file_lists`` pins,
+    # so ThemeMetrics and the produced CSS both honour that contract.
+    SCROLLBAR_THICKNESS = 14
 
 
 def build_app_stylesheet() -> str:
@@ -50,9 +55,34 @@ QLabel {{
 }}
 QLabel#PageTitle {{
     color: {c.TEXT};
-    font-size: 24px;
+    font-size: {Metrics.PAGE_TITLE_FONT_PX}px;
     font-weight: 600;
     padding: 0 0 8px 0;
+}}
+QLabel#SectionTitle {{
+    color: {c.TEXT};
+    font-size: {Metrics.SECTION_TITLE_FONT_PX}px;
+    font-weight: 600;
+    padding: 0;
+}}
+QLabel#SectionLabel {{
+    color: {Colors.TEXT_SECONDARY};
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
+    font-weight: 500;
+    padding: 0;
+    background: transparent;
+}}
+QLabel#HelpText {{
+    color: {Colors.TEXT_SECONDARY};
+    font-size: {Metrics.HELP_TEXT_FONT_PX}px;
+    padding: 4px 0 8px 0;
+    background: transparent;
+}}
+QLabel#PageDescription {{
+    color: {Colors.TEXT_SECONDARY};
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
+    padding: 0;
+    background: transparent;
 }}
 
 /* ─── Checkboxes ─── */
@@ -92,7 +122,7 @@ QPushButton {{
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
     color: {c.TEXT};
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
     font-weight: 500;
 }}
 QPushButton:hover {{
@@ -113,62 +143,61 @@ QPushButton:disabled {{
 QPushButton:focus {{
     border-color: {c.PRIMARY};
 }}
-QPushButton#PrimaryBtn {{
+QPushButton#PrimaryBtn,
+QPushButton#FilesSubmitBtn,
+QPushButton#WorkflowDispatchBtn {{
     background: {c.PRIMARY};
     color: {c.PRIMARY_TEXT};
     border: 1px solid {c.PRIMARY};
     font-weight: 600;
 }}
-QPushButton#PrimaryBtn:hover {{
+QPushButton#PrimaryBtn:hover,
+QPushButton#FilesSubmitBtn:hover,
+QPushButton#WorkflowDispatchBtn:hover {{
     background: {c.PRIMARY_HOVER};
     border-color: {c.PRIMARY_HOVER};
 }}
-QPushButton#PrimaryBtn:pressed {{
+QPushButton#PrimaryBtn:pressed,
+QPushButton#FilesSubmitBtn:pressed,
+QPushButton#WorkflowDispatchBtn:pressed {{
     background: {c.PRIMARY_PRESSED};
     border-color: {c.PRIMARY_PRESSED};
 }}
 
 /* ─── Button Roles ─── */
+/* WinSCP-inspired neutral button styling: every action button shares the
+ * same surface palette so a screen user can scan by colour only what the
+ * feedback state is conveying, not what kind of action is queued. The
+ * primary CTAs opt into ``QPushButton#PrimaryBtn`` (above) by id, not by
+ * role, so multiple "primary_action" buttons on the same page no longer
+ * compete for the bold blue treatment. */
 QPushButton[buttonRole="primary_action"],
 QPushButton[buttonRole="refresh_action"],
 QPushButton[buttonRole="transfer_action"],
-QPushButton[buttonRole="instant_action"] {{
-    background: {c.PRIMARY};
-    color: {c.PRIMARY_TEXT};
-    border-color: {c.PRIMARY};
-    font-weight: 600;
-}}
-QPushButton[buttonRole="primary_action"]:hover,
-QPushButton[buttonRole="refresh_action"]:hover {{
-    background: {c.PRIMARY_HOVER};
-    border-color: {c.PRIMARY_HOVER};
-}}
-QPushButton[buttonRole="primary_action"]:pressed,
-QPushButton[buttonRole="refresh_action"]:pressed,
-QPushButton[buttonRole="transfer_action"]:pressed {{
-    background: {c.PRIMARY_PRESSED};
-    border-color: {c.PRIMARY_PRESSED};
-}}
-QPushButton[buttonRole="instant_action"]:hover {{
-    background: {c.PRIMARY_HOVER};
-    border-color: {c.PRIMARY_HOVER};
-}}
-QPushButton[buttonRole="danger_action"] {{
-    background: {c.ERROR_BG};
-    color: {c.ERROR};
-    border-color: {c.ERROR_BORDER};
-}}
-QPushButton[buttonRole="danger_action"]:hover {{
-    background: {c.ERROR};
-    color: {c.PRIMARY_TEXT};
-    border-color: {c.ERROR};
-}}
+QPushButton[buttonRole="danger_action"],
 QPushButton[buttonRole="settings_action"],
-QPushButton[buttonRole="test_action"] {{
+QPushButton[buttonRole="test_action"],
+QPushButton[buttonRole="instant_action"] {{
     background: {c.BG_SURFACE};
     color: {c.TEXT};
     border-color: {c.BORDER};
     font-weight: 500;
+}}
+QPushButton[buttonRole="primary_action"]:hover,
+QPushButton[buttonRole="refresh_action"]:hover,
+QPushButton[buttonRole="transfer_action"]:hover,
+QPushButton[buttonRole="danger_action"]:hover,
+QPushButton[buttonRole="settings_action"]:hover,
+QPushButton[buttonRole="test_action"]:hover,
+QPushButton[buttonRole="instant_action"]:hover {{
+    background: {c.CARD_HOVER};
+    border-color: {c.BORDER};
+}}
+/* Danger keeps a distinct outline colour but still shares the neutral
+ * hover surface — the "destructive" meaning comes from the label and
+ * the danger tooltip, not from turning red on hover. */
+QPushButton[buttonRole="danger_action"] {{
+    border-color: {c.ERROR_BORDER};
 }}
 
 /* ─── Button Feedback States ─── */
@@ -201,7 +230,7 @@ QLineEdit, QComboBox, QSpinBox {{
     min-height: {m.CONTROL_HEIGHT}px;
     max-height: {m.CONTROL_HEIGHT}px;
     padding: 0 14px;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
     color: {c.TEXT};
 }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{
@@ -226,7 +255,7 @@ QTextEdit {{
     background: {c.BG_SURFACE};
     border: 1px solid {c.BORDER};
     border-radius: {Radius.MD}px;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
 }}
 
 /* ─── GroupBox ─── */
@@ -256,11 +285,11 @@ QTableWidget {{
     alternate-background-color: {c.TABLE_ALT_ROW};
     selection-background-color: {c.TABLE_SELECTION};
     selection-color: {c.TEXT};
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
     outline: none;
 }}
 QTableWidget::item {{
-    padding: 12px 16px;
+    padding: 10px 14px;
     border: none;
     border-bottom: 1px solid {c.BORDER_SUBTLE};
 }}
@@ -274,16 +303,14 @@ QTableWidget::item:hover {{
 QHeaderView::section {{
     background: {c.TABLE_HEADER_BG};
     border: none;
-    border-bottom: 2px solid {c.BORDER};
+    border-bottom: 1px solid {c.BORDER};
     border-right: 1px solid {c.BORDER_SUBTLE};
-    padding: 14px 16px;
+    padding: 12px 14px;
     min-height: {m.TABLE_HEADER_HEIGHT}px;
     max-height: {m.TABLE_HEADER_HEIGHT}px;
-    color: {c.TEXT_SECONDARY};
-    font-weight: 600;
-    font-size: 15px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: #64748b;
+    font-weight: 500;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
 }}
 QHeaderView::section:hover {{
     background: {c.BORDER_SUBTLE};
@@ -307,9 +334,9 @@ QTabBar::tab {{
     color: {c.TEXT_SECONDARY};
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 14px 22px;
+    padding: 12px 20px;
     font-weight: 500;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
 }}
 QTabBar::tab:hover {{
     color: {c.PRIMARY};
@@ -379,6 +406,37 @@ QScrollBar::add-page, QScrollBar::sub-page {{
     border-radius: {Radius.MD}px;
 }}
 
+/* ─── Status Chip ─── */
+QLabel#StatusChip {{
+    background: {Colors.CHIP_BG};
+    color: {Colors.CHIP_TEXT};
+    border: 1px solid {Colors.CHIP_BORDER};
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: {Metrics.CHIP_FONT_PX}px;
+    font-weight: 500;
+}}
+QLabel#StatusChip[chipState="info"] {{
+    background: {Colors.CHIP_BG_INFO};
+    color: {Colors.CHIP_TEXT_INFO};
+    border-color: {Colors.CHIP_BORDER_INFO};
+}}
+QLabel#StatusChip[chipState="success"] {{
+    background: {Colors.CHIP_BG_SUCCESS};
+    color: {Colors.CHIP_TEXT_SUCCESS};
+    border-color: {Colors.CHIP_BORDER_SUCCESS};
+}}
+QLabel#StatusChip[chipState="warning"] {{
+    background: {Colors.CHIP_BG_WARNING};
+    color: {Colors.CHIP_TEXT_WARNING};
+    border-color: {Colors.CHIP_BORDER_WARNING};
+}}
+QLabel#StatusChip[chipState="error"] {{
+    background: {Colors.ERROR_BG};
+    color: {Colors.ERROR};
+    border-color: {Colors.ERROR_BORDER};
+}}
+
 /* ─── Card-embedded controls ─── */
 #BtnCard QPushButton, #SettingCard QPushButton, #LocalHeader QPushButton {{
     background: {c.BG_SURFACE};
@@ -426,9 +484,9 @@ QMenu {{
     padding: 6px;
 }}
 QMenu::item {{
-    padding: 12px 20px;
+    padding: 10px 18px;
     border-radius: {Radius.SM}px;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
 }}
 QMenu::item:selected {{
     background: {c.TABLE_HOVER};
@@ -448,6 +506,42 @@ QDialog {{
 
 
 def page_title_label(text: str = "") -> QLabel:
+    """Return a QLabel styled as the page-level title (24 px, weight 600)."""
     label = QLabel(text)
     label.setObjectName("PageTitle")
+    return label
+
+
+def section_title_label(text: str = "") -> QLabel:
+    """Return a QLabel styled as a sub-section header on a page.
+
+    Phase 18 visual cleanup: the Settings / Runs pages used to reuse
+    ``PageTitle`` styling (24 px / weight 600) for everything from
+    "Server Profiles" to "Software Profiles", which made every section
+    title compete with the page title for visual attention. This helper
+    gives sub-section headers their own ``SectionTitle`` ID (15 px,
+    weight 600) and is the canonical way for pages to label cards.
+    """
+    label = QLabel(text)
+    label.setObjectName("SectionTitle")
+    return label
+
+
+def section_label(text: str = "") -> QLabel:
+    """Return a small neutral label used for taxonomy / category headers
+    such as "Saved presets" / "Built-in". Phase 18 visual cleanup: the
+    Workflow page previously styled these as 16-18 px muted labels,
+    which still out-weighed the actual page title. This helper keeps
+    them at the body size so they read as classification, not content.
+    """
+    label = QLabel(text)
+    label.setObjectName("SectionLabel")
+    return label
+
+
+def help_text(text: str = "") -> QLabel:
+    """Return a small muted helper line (e.g. {name}={basename} hints)."""
+    label = QLabel(text)
+    label.setObjectName("HelpText")
+    label.setWordWrap(True)
     return label

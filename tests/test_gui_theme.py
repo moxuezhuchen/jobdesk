@@ -19,6 +19,8 @@ def test_build_app_stylesheet_contains_core_selectors_and_tokens():
     assert Colors.ERROR in css
     assert Colors.SUCCESS in css
     assert "QPushButton#PrimaryBtn" in css
+    assert "QPushButton#FilesSubmitBtn" in css
+    assert "QPushButton#WorkflowDispatchBtn" in css
     assert 'QPushButton[buttonRole="primary_action"]' in css
     assert 'QPushButton[buttonRole="refresh_action"]' in css
     assert 'QPushButton[buttonRole="transfer_action"]' in css

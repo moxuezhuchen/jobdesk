@@ -98,11 +98,24 @@ def test_settings_buttons_have_feedback_roles(qtbot, tmp_path):
 
 
 def test_settings_small_helper_text_uses_readable_size(qtbot, tmp_path):
+    """Helper-text labels must stay inside the readable-size band.
+
+    Phase 18 visual cleanup: the previous test asserted a single hard
+    ``font-size: 14pt`` value across three labels.  The new design
+    system centralises the readable-size values as
+    ``Metrics.CARD_BODY_FONT_PX`` (13 px) and ``Metrics.HELP_TEXT_FONT_PX``
+    (12 px); the test now pins those tokens so a future regression
+    to either "8 px illegible" or "16 px paragraph" is caught.
+    """
+    from jobdesk_app.gui.design.tokens import Metrics
+
     page, _, _ = _make_settings_page(qtbot, tmp_path)
 
-    assert "font-size: 14pt" in page._card_local.lbl_desc.styleSheet()
-    assert "font-size: 14pt" in page._dl_desc.styleSheet()
-    assert "font-size: 14pt" in page._confflow_note.styleSheet()
+    setting_card_desc_size = f"{Metrics.CARD_BODY_FONT_PX}px"
+    help_text_size = f"{Metrics.HELP_TEXT_FONT_PX}px"
+    assert setting_card_desc_size in page._card_local.lbl_desc.styleSheet()
+    assert help_text_size in page._dl_desc.styleSheet()
+    assert help_text_size in page._confflow_note.styleSheet()
 
 
 def test_settings_confflow_note_translates_to_chinese(qtbot, tmp_path):

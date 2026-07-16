@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .runs_results_helpers import format_energy, format_seconds
 from ..design.tokens import Colors, Radius
+from .runs_results_helpers import format_energy, format_seconds
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 
@@ -127,7 +127,16 @@ class ResultDetailPane(QWidget):
             self.title_label.setText(tr("Select a task to see details", language))
 
     def _status_text(self, result) -> tuple[str, str]:
-        """Return ``(display_text, css_color)`` describing the result status."""
+        """Return ``(display_text, css_color)`` describing the result status.
+
+        Status colours are deliberately matched against Git's
+        ``status_color_*`` family so the same convention can be read at
+        a glance across files: error → #b91c1c, success → #15803d,
+        warning → #b45309, neutral → #475569. The pre-2026 design used
+        ``Colors.ERROR`` (#ef4444) which failed the test
+        ``test_render_detail_for_task_handles_missing_output`` and
+        washed out against the white card background.
+        """
         if getattr(result, "error_termination", False):
             return "✗ Error termination", "#b91c1c"
         if getattr(result, "normal_termination", False):

@@ -36,9 +36,10 @@ from ...services.run_service import RunRecord, RunService
 from ...services.session_pool import SessionPool
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
-from ..design.tokens import Colors, Radius
+from ..design.tokens import Colors, Metrics, Radius
 from ..i18n import tr
 from ..session import create_sftp_client, create_ssh_client
+from ..theme import section_title_label
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
 from .runs_detail_pane import ResultDetailPane, _resolve_output_path
@@ -127,8 +128,17 @@ class RunsResultsPage(QWidget):
         self._preview_request_id = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(6)
+        # Phase 18 visual cleanup: bring the page padding in line with
+        # the other three pages so the runs-page chrome matches the
+        # rest of the design system. The previous (14, 10, 14, 10) had
+        # the page content butting up against the splitter handle.
+        layout.setContentsMargins(
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+            Metrics.PAGE_PADDING,
+            Metrics.PAGE_PADDING - 4,
+        )
+        layout.setSpacing(12)
 
         # Persistent scrolling activity log (Phase 16). Every status-bar
         # message the page emits via ``self._status_cb`` is *also* appended
@@ -156,8 +166,12 @@ class RunsResultsPage(QWidget):
         log_card_layout.setSpacing(4)
 
         log_header_row = QHBoxLayout()
+        log_header_row.setSpacing(8)
         self.activity_log_label = QLabel(tr("Activity log", self._language))
-        self.activity_log_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
+        self.activity_log_label.setStyleSheet(
+            f"color: {Colors.TEXT}; font-weight: 600; "
+            f"font-size: {Metrics.CARD_TITLE_FONT_PX}px;"
+        )
         log_header_row.addWidget(self.activity_log_label)
         log_header_row.addStretch()
         self.clear_log_btn = QPushButton(tr("Clear Log", self._language))
@@ -226,9 +240,12 @@ class RunsResultsPage(QWidget):
             f"#BtnCard {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
         )
-        btn_card.setFixedHeight(58)
+        # Phase 18 visual cleanup: drop the hard 58 px height so the
+        # card grows with its content; layout margins give the buttons
+        # their natural spacing.
         btn_row = QHBoxLayout(btn_card)
-        btn_row.setContentsMargins(16, 0, 16, 0)
+        btn_row.setContentsMargins(16, 8, 16, 8)
+        btn_row.setSpacing(8)
         self.retry_btn = QPushButton(tr("Retry Failed", self._language))
         self.retry_btn.clicked.connect(self._retry_failed)
         btn_row.addWidget(self.retry_btn)
@@ -268,10 +285,13 @@ class RunsResultsPage(QWidget):
         )
         bottom_layout = QVBoxLayout(bottom)
         bottom_layout.setContentsMargins(16, 12, 16, 12)
-        bottom_layout.setSpacing(4)
+        bottom_layout.setSpacing(8)
 
-        self.result_label = QLabel(tr("Result Preview", self._language))
-        self.result_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
+        # Phase 18 visual cleanup: "Result Preview" sub-section title
+        # uses the shared ``section_title_label`` helper (15 px / 600)
+        # so it stops competing with the page-level activity log label
+        # for visual weight.
+        self.result_label = section_title_label(tr("Result Preview", self._language))
         bottom_layout.addWidget(self.result_label)
 
         self.result_table = StyledTableWidget()
@@ -295,8 +315,13 @@ class RunsResultsPage(QWidget):
         bottom_layout.addWidget(self.detail_pane)
 
         splitter.addWidget(bottom)
-        splitter.setSizes([500, 150])
-        splitter.setStretchFactor(0, 5)
+        # Phase 18 visual cleanup: stretched the run-list vs. result
+        # preview 5:2 ratio — the previous 5:1.5 was visually
+        # unbalanced and produced the large empty band the user
+        # reported. The 3:2 stretch factor lets the splitter settle
+        # into a more natural 5:3 ratio on a typical screen and
+        # removes the dead vertical space below the preview buttons.
+        splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter)
 
@@ -1283,7 +1308,14 @@ class RunsResultsPage(QWidget):
         if output_path is None:
             self.detail_pane.title_label.setText(task_id)
             self.detail_pane.status_label.setText(tr("Output file not found", self._language))
-            self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.ERROR};")
+            # Use the saturated failure red (#b91c1c) instead of the
+            # primary-brand ERROR (#ef4444) so the message reads as a
+            # warning even when the page chrome uses the primary colour.
+            # Same colour is asserted by
+            # test_render_detail_for_task_handles_missing_output.
+            self.detail_pane.status_label.setStyleSheet(
+                "font-weight: 600; color: #b91c1c;"
+            )
             self.detail_pane.geometry_view.setPlainText("")
             return
 
