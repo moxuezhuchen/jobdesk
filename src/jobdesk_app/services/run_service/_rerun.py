@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import TaskRecord
-from jobdesk_app.services.run_repository import RunRepository
 
 
 def prepare_rerun(service, run_id: str) -> int:

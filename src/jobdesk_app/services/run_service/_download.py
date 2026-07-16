@@ -4,9 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.run import remote_run_dir
 from jobdesk_app.core.transfer import TransferStatus
-from jobdesk_app.services.run_repository import MergeResult, RunRecord, RunRepository
+from jobdesk_app.services.run_repository import RunRepository
 
 from ._helpers import _declared_outputs, _safe_declared_result_path
 

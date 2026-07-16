@@ -1,10 +1,7 @@
 """Tests for the AppConfig unified configuration module."""
 
-import os
 import threading
 from pathlib import Path
-
-import pytest
 
 from jobdesk_app.services.app_config import AppConfig, get_config
 

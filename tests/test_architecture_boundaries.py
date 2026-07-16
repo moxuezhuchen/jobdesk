@@ -3,13 +3,31 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import re
-import tomllib
 from pathlib import Path
 
 from jobdesk_app.services.run_repository import SCHEMA_VERSION
 
 _SRC_ROOT = Path(__file__).parents[1] / "src" / "jobdesk_app"
+
+
+def _get_strict_modules_from_mypy_ini() -> set[str]:
+    """Read disallow_untyped_defs modules from mypy.ini."""
+    mypy_ini = Path(__file__).parents[1] / "mypy.ini"
+    if not mypy_ini.exists():
+        return set()
+    config = configparser.ConfigParser()
+    config.read(mypy_ini, encoding="utf-8")
+    strict_modules: set[str] = set()
+    for section in config.sections():
+        if not config.getboolean(section, "disallow_untyped_defs", fallback=False):
+            continue
+        # Convert INI section format "mypy-jobdesk_app.services.run_repository"
+        # to module format "jobdesk_app.services.run_repository"
+        module = section.replace("mypy-", "")
+        strict_modules.add(module)
+    return strict_modules
 
 
 def _absolute_import(module_path: Path, node: ast.ImportFrom) -> str:
@@ -82,13 +100,7 @@ def test_session_pool_has_no_qt_or_gui_dependency() -> None:
 
 
 def test_new_architecture_modules_require_typed_definitions() -> None:
-    config = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
-    strict_modules: set[str] = set()
-    for override in config["tool"]["mypy"]["overrides"]:
-        if not override.get("disallow_untyped_defs"):
-            continue
-        modules = override["module"]
-        strict_modules.update([modules] if isinstance(modules, str) else modules)
+    strict_modules = _get_strict_modules_from_mypy_ini()
     assert {
         "jobdesk_app.services.run_repository",
         "jobdesk_app.services.run_coordinator",

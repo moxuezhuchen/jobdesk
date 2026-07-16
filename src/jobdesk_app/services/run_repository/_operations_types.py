@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # Seconds a non-leader worker will wait for another worker that just
 # authored the ``files_isolated`` journal advance to finish the cleanup
 # (rmtree + advance-to-files_deleted + advance-to-completed) before

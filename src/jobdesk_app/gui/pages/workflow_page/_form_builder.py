@@ -5,18 +5,15 @@ WorkflowPage, including headers, tabs, panels, and footers.
 """
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
-from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QMenu,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -26,15 +23,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ....services.method_presets import (
-    MethodPresetStore,
-    StepPresetStore,
-)
 from ...button_feedback import ButtonRole, apply_button_role
 from ...design.components import StatusChip
-from ...design.tokens import Colors, Metrics, Radius, Spacing
+from ...design.tokens import Colors, Metrics
 from ...i18n import tr
-from ...nodegraph.model import NodeKind
 from ...theme import help_text, section_title_label
 
 

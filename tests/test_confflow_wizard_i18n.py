@@ -155,9 +155,11 @@ def _extract_tr_keys(path: str) -> set[str]:
 
 # Sources that still ship in Phase 10.6 — the legacy widgets are gone, but
 # the live InputSourcePanel + Submit page are still here.
+# Note: workflow_page.py is excluded as it's a deprecated backward-compat shim
+# that just re-exports from workflow_page/__init__.py.
 _LIVE_WIDGET_SOURCES = (
     "src/jobdesk_app/gui/widgets/input_source_panel.py",
-    "src/jobdesk_app/gui/pages/workflow_page.py",
+    "src/jobdesk_app/gui/pages/workflow_page/__init__.py",
     "src/jobdesk_app/gui/pages/file_transfer_page.py",
     "src/jobdesk_app/gui/dialogs/submit_dialog.py",
 )

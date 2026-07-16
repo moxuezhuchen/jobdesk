@@ -88,6 +88,9 @@ ignore = ["E501"]
 # _DELETE_CLEANUP_LEADER_GRACE_SECONDS``. Refactoring that ordering is
 # out of scope for lint cleanup; ignore ``E402`` here only.
 "src/jobdesk_app/services/run_repository/__init__.py" = ["E402"]
+# workflow_page.py is a deprecated backward-compatibility shim that uses
+# delayed imports to avoid circular dependencies; E402 is expected here.
+"src/jobdesk_app/gui/pages/workflow_page.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["jobdesk_app"]

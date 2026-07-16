@@ -16,15 +16,14 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import yaml
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QFrame,
+    QInputDialog,
+    QLabel,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -36,13 +35,10 @@ from ....services.method_presets import (
 )
 from ...design.tokens import Colors, Metrics, Radius, Spacing
 from ...i18n import tr
-from ...nodegraph.model import Edge, NodeKind, NodeGraph, default_node
+from ...nodegraph.model import Edge, NodeGraph, NodeKind, default_node
 from ...nodegraph.spec_bridge import from_workflow_spec
-
-from . import _form_builder
-from . import _preview
-from ._state import WorkflowDraft, _ITASK_TO_KIND, _KIND_TO_ITASK, _STEP_KINDS, _dump_yaml, _node_fragment, _step_kind
-from .workflow_page_helpers import flow_step_detail
+from . import _form_builder, _preview
+from ._state import _STEP_KINDS, WorkflowDraft, _dump_yaml, _node_fragment, _step_kind
 
 
 class WorkflowPage(QWidget):
@@ -151,6 +147,7 @@ class WorkflowPage(QWidget):
         # Build step tab with widgets
         self._build_step_tab_widgets()
         self._build_global_tab_widgets()
+        self._build_left_panel()
 
         self._refresh_workflow_presets()
         self._refresh_step_presets()

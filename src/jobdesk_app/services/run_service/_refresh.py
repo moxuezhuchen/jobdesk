@@ -1,10 +1,8 @@
 """Refresh operations for run_service."""
 from __future__ import annotations
 
-from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import remote_run_dir
 from jobdesk_app.core.status import StatusRefreshResult
-from jobdesk_app.services.run_repository import RunRepository
 
 
 def refresh_run(service, run_id: str, ssh) -> StatusRefreshResult:

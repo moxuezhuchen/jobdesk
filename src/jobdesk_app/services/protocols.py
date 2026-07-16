@@ -17,7 +17,6 @@ from typing import Iterator, Protocol, runtime_checkable
 from ..core.lifecycle import TaskStatus
 from ..core.run import RunPlan
 
-
 # ---------------------------------------------------------------------------
 # SFTP Attribute 协议
 # ---------------------------------------------------------------------------

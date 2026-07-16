@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from jobdesk_app.core.run import RunPlan, RunSpec, build_run_plan
+
+# Explicit re-export for tests that monkeypatch run_service.JobSubmitter
+from jobdesk_app.remote.submitter import JobSubmitter as JobSubmitter
 from jobdesk_app.services.file_transfer_service import ensure_safe_remote_path
 from jobdesk_app.services.run_repository import (
     MigrationError,
@@ -14,21 +17,9 @@ from jobdesk_app.services.run_repository import (
     RunRepository,
     _lexical_absolute,
 )
-from jobdesk_app.services.submit_ownership import (
-    SUBMIT_HEARTBEAT_INTERVAL,
-    SUBMIT_LEASE_SECONDS,
-)
+from jobdesk_app.services.submit_ownership import SUBMIT_HEARTBEAT_INTERVAL
 
-from . import _cancel
-from . import _confirm
-from . import _delete
-from . import _download
-from . import _helpers
-from . import _refresh
-from . import _rerun
-from . import _submit
-
-from jobdesk_app.remote.submitter import JobSubmitter
+from . import _cancel, _confirm, _delete, _download, _helpers, _refresh, _rerun, _submit
 
 # re-export so tests can patch run_service.SUBMIT_HEARTBEAT_INTERVAL
 SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_HEARTBEAT_INTERVAL

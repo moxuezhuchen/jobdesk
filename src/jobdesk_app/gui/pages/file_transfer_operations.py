@@ -6,7 +6,7 @@ import posixpath
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 from ...services.file_transfer_service import FileTransferService
 from ..i18n import tr
