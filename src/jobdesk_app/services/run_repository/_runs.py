@@ -106,7 +106,7 @@ def create_run(
             break
         connection.rollback()
         if deadline is None:
-            from . import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
+            from ._operations_types import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
 
             deadline = _time.monotonic() + _DELETE_CLEANUP_LEADER_GRACE_SECONDS
         if _time.monotonic() >= deadline:
@@ -120,7 +120,6 @@ def create_run(
 
 
 def _replace_tasks(connection, run_id: str, tasks: list) -> None:
-    from jobdesk_app.core.manifest import TaskRecord
     mismatched = [task.task_id for task in tasks if task.batch_id != run_id]
     if mismatched:
         raise ValueError(

@@ -14,7 +14,6 @@ def _validated_operation_task_ids(
     expected_status,  # noqa: ARG001 — resolved at runtime via TaskStatus enum
 ) -> set | None:
     """Validate that an operation's task_ids match current task state."""
-    from jobdesk_app.core.lifecycle import TaskStatus
 
     payload_task_ids = operation.payload.get("task_ids")
     if not isinstance(payload_task_ids, list) or not payload_task_ids:

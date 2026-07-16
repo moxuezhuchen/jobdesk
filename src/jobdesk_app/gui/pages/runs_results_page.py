@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 import os
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QTextCursor
@@ -45,6 +46,8 @@ from ..worker_utils import WorkerContext, start_context_worker
 from .runs_detail_pane import ResultDetailPane, _resolve_output_path
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
+
+_logger = logging.getLogger(__name__)
 
 # Column indices for the analysis result table built by ``_show_analysis_rows``.
 # Order matches the header list at the call site and the row produced by
@@ -110,7 +113,13 @@ class RunsResultsPage(QWidget):
     # editor's ``open_examples_menu`` call after the page-switch.
     go_to_submit_with_examples_requested = Signal()
 
-    def __init__(self, state, log_cb, status_cb, coordinator_factory=None):
+    def __init__(
+        self,
+        state: Any,
+        log_cb: Callable[[str], None] | None,
+        status_cb: Callable[[str], None] | None,
+        coordinator_factory: Callable[..., RunCoordinator] | None = None,
+    ) -> None:
         super().__init__()
         self.state = state
         self._log = log_cb
@@ -380,7 +389,7 @@ class RunsResultsPage(QWidget):
                         batch_dir = remote_run_dir(record.remote_dir, record.run_id)
                         self._monitor.watch(record.run_id, record.server_id, batch_dir, srv)
         except Exception:
-            pass
+            _logger.exception("Failed to start monitoring")
 
     def _on_task_done(self, event):
         """Called when a remote task changes state — debounce before refresh.
@@ -485,7 +494,7 @@ class RunsResultsPage(QWidget):
             ):
                 self._monitor.unwatch(event.run_id, event.server_id)
         except Exception:
-            pass
+            _logger.exception("Failed to update monitor refresh state for %s", event.run_id)
 
     def on_activated(self):
         settings = GuiSettingsStore().load()
@@ -592,7 +601,7 @@ class RunsResultsPage(QWidget):
             try:
                 self._append_activity_log(message)
             except Exception:
-                pass
+                _logger.exception("Failed to append activity log entry")
             if status_cb is not None:
                 return status_cb(message, *args, **kwargs)
             return None
@@ -629,7 +638,7 @@ class RunsResultsPage(QWidget):
             try:
                 log_sink(text)
             except Exception:
-                pass
+                _logger.exception("Failed to write to log sink")
 
     def _clear_activity_log(self) -> None:
         """Clear the visible log lines. Sink log and status bar are untouched."""
@@ -1106,6 +1115,7 @@ class RunsResultsPage(QWidget):
                         r = parse_gaussian_log(log_file)
                         rows.append(_analysis_row(task.task_id, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
+                        _logger.exception("Failed to parse Gaussian log: %s", log_file)
                         rows.append(_placeholder_analysis_row(
                             task.task_id, log_file.name, "Gaussian",
                             tr("Parse Error", self._language),
@@ -1123,6 +1133,7 @@ class RunsResultsPage(QWidget):
                         ro = parse_orca_out(out_file)
                         rows.append(_analysis_row(task.task_id, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
+                        _logger.exception("Failed to parse ORCA output: %s", out_file)
                         rows.append(_placeholder_analysis_row(
                             task.task_id, out_file.name, "ORCA",
                             tr("Parse Error", self._language),
@@ -1157,6 +1168,7 @@ class RunsResultsPage(QWidget):
                         r = parse_gaussian_log(log_file)
                         rows.append(_analysis_row(stem, log_file.name, "Gaussian", r, diagnose_gaussian_result(r), self._language))
                     except Exception:
+                        _logger.exception("Failed to parse Gaussian log: %s", log_file)
                         rows.append(_placeholder_analysis_row(
                             stem, log_file.name, "Gaussian",
                             tr("Parse Error", self._language),
@@ -1174,6 +1186,7 @@ class RunsResultsPage(QWidget):
                         ro = parse_orca_out(out_file)
                         rows.append(_analysis_row(stem, out_file.name, "ORCA", ro, diagnose_orca_result(ro), self._language))
                     except Exception:
+                        _logger.exception("Failed to parse ORCA output: %s", out_file)
                         rows.append(_placeholder_analysis_row(
                             stem, out_file.name, "ORCA",
                             tr("Parse Error", self._language),
@@ -1202,6 +1215,7 @@ class RunsResultsPage(QWidget):
                         progress = _step_progress_text(result_dir, mol_name)
                         rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps, progress])
                     except Exception:
+                        _logger.exception("Failed to load ConfFlow summary: %s", summary_file)
                         rows.append([mol_name, "⚠ Parse Error", "", "", "", ""])
                 elif task.status == TaskStatus.failed:
                     reason = f" ({task.error_message})" if task.error_message else ""
@@ -1232,6 +1246,7 @@ class RunsResultsPage(QWidget):
                             progress = _step_progress_text(result_dir, mol_name)
                             rows.append([mol_name, "✓ Done", f"{s.initial_conformers}→{s.final_conformers}", f"{s.total_duration_seconds:.1f}", steps, progress])
                         except Exception:
+                            _logger.exception("Failed to load ConfFlow summary: %s", summary_file)
                             rows.append([mol_name, "⚠ Parse Error", "", "", "", ""])
                     else:
                         rows.append([mol_name, "✗ Missing", "", "", "", ""])

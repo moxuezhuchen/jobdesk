@@ -33,7 +33,13 @@ from ._operations import (
     prune_completed_operations,
     recover_legacy_orphan_submit_tasks,
 )
-from ._operations_types import MergeResult, MigrationError, OperationRecord, RunRecord
+from ._operations_types import (
+    MergeResult,
+    MigrationError,
+    OperationRecord,
+    RunRecord,
+    _DELETE_CLEANUP_LEADER_GRACE_SECONDS as _DELETE_CLEANUP_LEADER_GRACE_SECONDS,
+)
 from ._paths import (
     _lexical_absolute as _lexical_absolute,
 )
@@ -89,14 +95,6 @@ from ._submit import (
 )
 from ._tasks import merge_tasks, mutate_tasks
 from ._workspaces import delete_operation_workspace, list_workspace_roots
-
-# Seconds a non-leader worker will wait for another worker that just
-# authored the ``files_isolated`` journal advance to finish the cleanup
-# (rmtree + advance-to-files_deleted + advance-to-completed) before
-# taking over. Chosen to be well above normal local-filesystem rmtree
-# latency while still bounded so a paused/abandoned leader does not pin
-# the operation at ``files_isolated`` indefinitely.
-_DELETE_CLEANUP_LEADER_GRACE_SECONDS = 0.2
 
 
 class RunRepository:
