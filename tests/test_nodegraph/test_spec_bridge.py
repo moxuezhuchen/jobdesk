@@ -160,6 +160,51 @@ def test_from_workflow_spec_accepts_raw_dict():
     assert len(g.edges) == 3  # xyz -> opt -> sp -> output
 
 
+def test_from_workflow_spec_raw_defaults_do_not_create_advanced_node():
+    """Flat engine defaults are not editor ``ADVANCED`` options.
+
+    The DAG submit path writes ``GlobalConfigModel.model_dump()`` as a flat
+    YAML mapping.  Reloading that document must not materialise every
+    engine-owned default as a visible free-form node.
+    """
+    raw = {
+        "cores_per_task": 8,
+        "total_memory": "4GB",
+        "rmsd_threshold": 0.25,
+        "energy_tolerance": 0.05,
+        "noH": False,
+        "ts_rescue_scan": False,
+        "scan_coarse_step": 0.1,
+        "scan_fine_step": 0.02,
+        "scan_uphill_limit": 10,
+        "ts_bond_drift_threshold": 0.4,
+        "ts_rmsd_threshold": 1.0,
+        "enable_dynamic_resources": False,
+        "resume_from_backups": True,
+        "stop_check_interval_seconds": 1,
+        "force_consistency": False,
+        "steps": [{"name": "opt", "type": "calc", "params": {"itask": "opt"}}],
+    }
+
+    graph = from_workflow_spec(raw)
+
+    assert [n for n in graph.nodes.values() if n.kind is NodeKind.ADVANCED] == []
+
+
+def test_from_workflow_spec_raw_unknown_global_option_becomes_advanced_node():
+    """Unknown flat global keys remain editable as ``ADVANCED`` options."""
+    raw = {
+        "solvent": "water",
+        "steps": [{"name": "opt", "type": "calc", "params": {"itask": "opt"}}],
+    }
+
+    graph = from_workflow_spec(raw)
+
+    advanced = [n for n in graph.nodes.values() if n.kind is NodeKind.ADVANCED]
+    assert len(advanced) == 1
+    assert advanced[0].params == {"solvent": "water"}
+
+
 # ── error paths ──────────────────────────────────────────────────────────
 
 

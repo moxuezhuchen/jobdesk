@@ -193,7 +193,7 @@ def pull_artifacts(remote_tmp: str, target: pathlib.Path) -> None:
 
 
 def main() -> int:
-    target = RESULTS_DIR / "hcn_confflow_work"
+    target = RESULTS_DIR
     print("[win] stamping remote harness", flush=True)
     stamp_remote()
 
@@ -214,7 +214,7 @@ def main() -> int:
 
     print(f"[win] pulling artifacts from {remote_tmp}", flush=True)
     pull_artifacts(remote_tmp, target)
-    print(f"[win] artifacts staged at {target}", flush=True)
+    print(f"[win] artifacts staged at {target / 'hcn_confflow_work'}", flush=True)
     return 0
 
 

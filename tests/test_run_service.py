@@ -14,7 +14,7 @@ from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferStatus
-from jobdesk_app.remote.scheduler import ResourceSpec, SlurmAdapter
+from jobdesk_app.remote.scheduler import NohupAdapter, ResourceSpec, SlurmAdapter
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.services.run_repository import MergeResult, RunRepository
 from jobdesk_app.services.run_service import RunService
@@ -1900,6 +1900,49 @@ def test_lost_submit_lease_prevents_starting_next_remote_task(
         )
 
     assert len(launched) == 1
+
+
+def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(RunSpec(
+        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
+        max_parallel=2, mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+    ), run_id="shared_nohup")
+
+    class BatchSubmitter:
+        def __init__(self, **kwargs):
+            self.tasks = kwargs["tasks"]
+            self.started = kwargs["remote_started_callback"]
+            self.checkpoint = kwargs["task_update_callback"]
+
+        def submit_batch(self):
+            self.started([task.task_id for task in self.tasks])
+            submitted = [
+                task.model_copy(update={
+                    "status": TaskStatus.submitted,
+                    "scheduler_type": "nohup",
+                    "remote_job_id": "4321",
+                })
+                for task in self.tasks
+            ]
+            self.checkpoint(submitted)
+            return SubmitResult("shared_nohup", len(submitted), "/remote/jobs")
+
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", BatchSubmitter)
+
+    result = service.submit_run(
+        "shared_nohup", object(), object(), scheduler=NohupAdapter()
+    )
+
+    assert not result.errors
+    assert [task.status for task in service.repository.load_tasks("shared_nohup")] == [
+        TaskStatus.submitted,
+        TaskStatus.submitted,
+    ]
+    operations = service.repository.list_operations()
+    assert len(operations) == 1
+    assert operations[0].phase == "completed"
 
 
 def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(

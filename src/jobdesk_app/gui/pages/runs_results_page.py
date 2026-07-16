@@ -517,14 +517,26 @@ class RunsResultsPage(QWidget):
         def _recover(_ctx: WorkerContext):
             return self._coordinator_for(workspace).recover_operations()
 
-        start_context_worker(
-            self,
-            target=_recover,
-            registry_attr="_bg_workers",
-            on_result=self._apply_startup_recovery,
-            on_error=self._apply_startup_recovery_error,
-            on_finished=self._finish_startup_recovery,
-        )
+        try:
+            start_context_worker(
+                self,
+                target=_recover,
+                registry_attr="_bg_workers",
+                on_result=self._apply_startup_recovery,
+                on_error=self._apply_startup_recovery_error,
+                on_finished=self._finish_startup_recovery,
+            )
+        except Exception as exc:
+            # Worker creation can fail synchronously (for example while Qt is
+            # shutting down or when the thread factory rejects a new worker).
+            # Keep the page and MainWindow recovery gate from being stuck in
+            # the running state forever; this mirrors the asynchronous error
+            # path and still leaves a visible diagnostic for the user.
+            self._recovery_running = False
+            self._recovery_complete = True
+            if not self._shutting_down:
+                self._apply_startup_recovery_error(str(exc))
+                self.startup_recovery_finished.emit()
 
     def _apply_startup_recovery(self, outcome) -> None:
         if self._shutting_down:

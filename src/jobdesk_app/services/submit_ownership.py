@@ -100,6 +100,7 @@ class _CheckpointSink:
     repository: RunRepository
     guard: _SubmitOwnershipGuard
     operation_by_task: dict[str, OperationRecord]
+    started_operation_ids: set[str] = field(default_factory=set)
 
     def update_tasks(self, updates: list[TaskRecord]) -> None:
         groups: dict[str, list[TaskRecord]] = {}
@@ -136,8 +137,13 @@ class _CheckpointSink:
                 )
 
     def mark_remote_started(self, task_ids: list[str]) -> None:
-        for task_id in task_ids:
-            operation = self.operation_by_task[task_id]
+        operations = {
+            self.operation_by_task[task_id].operation_id: self.operation_by_task[task_id]
+            for task_id in task_ids
+        }
+        for operation_id, operation in operations.items():
+            if operation_id in self.started_operation_ids:
+                continue
             if not self.guard.renew_one(operation.operation_id):
                 raise RuntimeError(
                     f"submit operation ownership lost: {operation.operation_id}"
@@ -148,3 +154,4 @@ class _CheckpointSink:
                 raise RuntimeError(
                     f"submit operation could not start: {operation.operation_id}"
                 )
+            self.started_operation_ids.add(operation_id)

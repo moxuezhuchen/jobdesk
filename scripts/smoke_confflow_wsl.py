@@ -158,7 +158,7 @@ def main() -> int:
     args = parser.parse_args()
     results_dir = pathlib.Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
-    target = results_dir / "methane_confflow_work"
+    target = results_dir
 
     print("[windows] stamping remote harness", flush=True)
     stamp_remote()
@@ -179,7 +179,7 @@ def main() -> int:
 
     print(f"[windows] pulling artifacts from {remote_tmp}", flush=True)
     pull_artifacts(remote_tmp, target)
-    print(f"[windows] artifacts staged at {target}", flush=True)
+    print(f"[windows] artifacts staged at {target / 'methane_confflow_work'}", flush=True)
     return 0
 
 

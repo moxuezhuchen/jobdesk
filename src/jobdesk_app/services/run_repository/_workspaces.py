@@ -1,9 +1,32 @@
-"""Workspace root registry for trusted workspace enforcement."""
+"""Workspace root registry for trusted workspace enforcement, and cross-platform path comparison."""
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Path comparison (was _path_compare)
+# ---------------------------------------------------------------------------
+
+
+def paths_equal(a: Path, b: Path) -> bool:
+    """Return True if two paths are equivalent across platforms.
+
+    On Windows, comparison is case-insensitive and slash-insensitive.
+    On POSIX, comparison is strict lexical equality.
+    """
+    if sys.platform == "win32":
+        return os.path.normcase(str(a)) == os.path.normcase(str(b))
+    return a == b
+
+
+# ---------------------------------------------------------------------------
+# Workspace registry (was _workspaces)
+# ---------------------------------------------------------------------------
 
 
 def list_workspace_roots(connection: sqlite3.Connection) -> list[Path]:

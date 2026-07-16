@@ -780,14 +780,14 @@ class SettingsServersPage(QWidget):
         form = QFormLayout(dlg)
 
         id_edit = QLineEdit()
-        id_edit.setPlaceholderText("如: myserver")
+        id_edit.setPlaceholderText(tr("e.g. myserver", self._language))
         host_edit = QLineEdit()
-        host_edit.setPlaceholderText("如: 192.168.1.100")
+        host_edit.setPlaceholderText(tr("e.g. 192.168.1.100", self._language))
         port_edit = QSpinBox()
         port_edit.setRange(1, 65535)
         port_edit.setValue(22)
         user_edit = QLineEdit()
-        user_edit.setPlaceholderText("如: root")
+        user_edit.setPlaceholderText(tr("e.g. root", self._language))
         # Phase 3.2: tooltips parallel to the edit dialog
         host_edit.setToolTip(host_edit.placeholderText())
         user_edit.setToolTip(user_edit.placeholderText())

@@ -366,14 +366,22 @@ def _run_parallel_confgen(
         optimize,
     )
 
-    with multiprocessing.Pool(cpu_count, initializer=init_worker, initargs=init_args) as pool:
-        chunk = max(1, total_tasks // (cpu_count * 10))
-        results: list[Any] = []
-        with create_progress() as progress:
-            task_id = progress.add_task("ConfGen", total=total_tasks)
-            for res in pool.imap(process_task, combos, chunksize=chunk):
-                results.append(res)
+    results: list[Any] = []
+    with create_progress() as progress:
+        task_id = progress.add_task("ConfGen", total=total_tasks)
+        if os.name == "nt":
+            # Windows uses spawn, which cannot pickle RDKit Conformer objects.
+            # Keep the RDKit state in this process instead of failing the search.
+            init_worker(*init_args)
+            for combo in combos:
+                results.append(process_task(combo))
                 progress.advance(task_id)
+        else:
+            with multiprocessing.Pool(cpu_count, initializer=init_worker, initargs=init_args) as pool:
+                chunk = max(1, total_tasks // (cpu_count * 10))
+                for res in pool.imap(process_task, combos, chunksize=chunk):
+                    results.append(res)
+                    progress.advance(task_id)
 
     return [r for r in results if r is not None]
 

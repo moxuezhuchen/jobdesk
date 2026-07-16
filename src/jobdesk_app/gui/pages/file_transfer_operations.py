@@ -6,8 +6,9 @@ import posixpath
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
+from ...services.file_transfer_service import FileTransferService
 from ..i18n import tr
 from ..worker_utils import WorkerContext
 from .file_transfer_helpers import normalize_remote_path, remote_child_path
@@ -16,10 +17,24 @@ from .file_transfer_helpers import normalize_remote_path, remote_child_path
 class FileOperations:
     """Implement mkdir, move, delete, rename, and copy operations."""
 
-    def __init__(self, *, service_provider, local_root_provider, language_provider,
-                 on_status, on_error, on_refresh_local, on_refresh_remote,
-                 prompt_new_name, prompt_new_folder, prompt_text, ask_confirm,
-                 open_editor, start_worker, remote_dir_provider) -> None:
+    def __init__(
+        self,
+        *,
+        service_provider: Callable[[], FileTransferService | None],
+        local_root_provider: Callable[[], Path | None],
+        language_provider: Callable[[], str],
+        on_status: Callable[[str], None],
+        on_error: Callable[[str, str], None],
+        on_refresh_local: Callable[[], None],
+        on_refresh_remote: Callable[[], None],
+        prompt_new_name: Callable[[str, str, str], tuple[str, bool]],
+        prompt_new_folder: Callable[[str, str], tuple[str, bool]],
+        prompt_text: Callable[[str, str], tuple[str, bool]],
+        ask_confirm: Callable[[str, str], bool],
+        open_editor: Callable[[Path], None],
+        start_worker: Callable[..., Any],
+        remote_dir_provider: Callable[[], str],
+    ) -> None:
         self._service_provider = service_provider
         self._local_root_provider = local_root_provider
         self._language_provider = language_provider
@@ -123,11 +138,11 @@ class FileOperations:
         name, ok = self._prompt_new_folder(tr("New Folder", language), tr("Folder name:", language))
         if not ok or not name.strip():
             return
-        name = self.validate_rename_name(name, self._on_error)
-        if name is None:
+        validated = self.validate_rename_name(name, self._on_error)
+        if validated is None:
             return
         try:
-            (Path(self._local_root_provider() or Path.cwd()) / name).mkdir(parents=True, exist_ok=False)
+            (Path(self._local_root_provider() or Path.cwd()) / validated).mkdir(parents=True, exist_ok=False)
             self._on_refresh_local()
         except Exception as exc:
             self._on_error("Mkdir Error", str(exc))
@@ -137,10 +152,10 @@ class FileOperations:
         name, ok = self._prompt_text(tr("New File", language), tr("File name:", language))
         if not ok or not name.strip():
             return
-        name = self.validate_rename_name(name, self._on_error)
-        if name is None:
+        validated = self.validate_rename_name(name, self._on_error)
+        if validated is None:
             return
-        new_file = Path(self._local_root_provider() or Path.cwd()) / name
+        new_file = Path(self._local_root_provider() or Path.cwd()) / validated
         try:
             new_file.touch(exist_ok=False)
             self._on_refresh_local()
@@ -189,13 +204,16 @@ class FileOperations:
 
     def rename_local(self, local_path: Path) -> None:
         new_name, ok = self._prompt_new_name("Rename Local Path", "New name:", local_path.name)
-        if not ok or (new_name := self.validate_rename_name(new_name, self._on_error)) is None:
+        if not ok:
             return
-        new_path = local_path.with_name(new_name)
+        validated = self.validate_rename_name(new_name, self._on_error)
+        if validated is None:
+            return
+        new_path = local_path.with_name(validated)
         if new_path == local_path:
             return
         if new_path.exists():
-            self._on_error("Rename Error", f"Destination already exists: {new_name}")
+            self._on_error("Rename Error", f"Destination already exists: {validated}")
             return
         try:
             local_path.rename(new_path)
@@ -209,10 +227,13 @@ class FileOperations:
             self._on_status("Connect to a server first")
             return
         new_name, ok = self._prompt_new_name("Rename Remote Path", "New name:", Path(remote_path).name)
-        if not ok or (new_name := self.validate_rename_name(new_name, self._on_error)) is None:
+        if not ok:
+            return
+        validated = self.validate_rename_name(new_name, self._on_error)
+        if validated is None:
             return
         parent = remote_path.rsplit("/", 1)[0] or "/"
-        new_path = f"{parent}/{new_name}" if parent != "/" else f"/{new_name}"
+        new_path = f"{parent}/{validated}" if parent != "/" else f"/{validated}"
         try:
             service.rename_remote(remote_path, new_path)
             self._on_refresh_remote()
@@ -225,11 +246,14 @@ class FileOperations:
             message += f"\n... {len(paths) - 10} more"
         if not self._ask_confirm("Delete Local Path", f"Delete local path(s)?\n{message}"):
             return
-        def _run(_ctx: WorkerContext):
+        def _run(_ctx: WorkerContext) -> int:
             for path in paths:
                 shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
             return len(paths)
-        self._start_worker(_run, lambda count: (self._on_status(f"Deleted {count} local item(s)"), self._on_refresh_local()), lambda error: self._on_error("Delete Local Error", error))
+        def _on_result(count: Any) -> None:
+            self._on_status(f"Deleted {count} local item(s)")
+            self._on_refresh_local()
+        self._start_worker(_run, _on_result, lambda error: self._on_error("Delete Local Error", error))  # type: ignore[call-arg]
 
     def delete_remote(self, remote_paths: list[str], current_dir: str) -> None:
         service = self._service_provider()
@@ -247,11 +271,14 @@ class FileOperations:
         message = "\n".join(valid[:10]) + (f"\n... {len(valid) - 10} more" if len(valid) > 10 else "")
         if not self._ask_confirm("Delete Remote Path", f"Delete remote path(s)?\n{message}"):
             return
-        def _run(_ctx: WorkerContext):
+        def _run(_ctx: WorkerContext) -> int:
             for path in valid:
                 service.delete_remote(path, recursive=True, extra_allowed_roots=[current_dir])
             return len(valid)
-        self._start_worker(_run, lambda count: (self._on_status(f"Deleted {count} remote item(s)"), self._on_refresh_remote()), lambda error: self._on_error("Delete Error", error))
+        def _on_result(count: Any) -> None:
+            self._on_status(f"Deleted {count} remote item(s)")
+            self._on_refresh_remote()
+        self._start_worker(_run, _on_result, lambda error: self._on_error("Delete Error", error))  # type: ignore[call-arg]
 
     @staticmethod
     def validate_rename_name(name: str, error_cb: Callable[[str, str], None]) -> str | None:

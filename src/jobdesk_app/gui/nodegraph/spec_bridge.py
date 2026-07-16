@@ -647,7 +647,18 @@ def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
         "nproc", "memory_mb", "cores_per_task", "total_memory",
         "max_parallel_jobs", "energy_window",
         "keyword", "steps", "freeze", "gaussian_path", "orca_path",
-        "gaussian_path", "orca_path",
+        # Keep every field declared by ConfFlow's GlobalConfigModel here.
+        # ``from_workflow_spec`` also accepts the flat YAML emitted by the
+        # DAG submit path, which contains model defaults (for example
+        # ``rmsd_threshold`` and ``resume_from_backups``).  Treating those
+        # defaults as arbitrary extras creates a spurious ADVANCED node on
+        # every reload of a saved graph.  Unknown keys remain preserved as
+        # genuine free-form advanced options below.
+        "rmsd_threshold", "energy_tolerance", "noH", "ts_bond_atoms",
+        "ts_rescue_scan", "scan_coarse_step", "scan_fine_step",
+        "scan_uphill_limit", "ts_bond_drift_threshold", "ts_rmsd_threshold",
+        "enable_dynamic_resources", "resume_from_backups",
+        "stop_check_interval_seconds", "force_consistency",
     }
     # Prefer the legacy ``calc`` subsection; fall back to the flat top level.
     calc = data.get("calc")

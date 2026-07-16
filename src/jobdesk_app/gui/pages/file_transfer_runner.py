@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ...core.file_transfer import OverwritePolicy
 from ...services.file_transfer_service import FileTransferService
 from ..worker_utils import WorkerContext
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QProgressBar, QWidget
+
 from .file_transfer_helpers import format_queue_summary, format_transfer_speed, remote_child_path
 
 
@@ -18,19 +22,19 @@ class TransferRunner:
         self,
         *,
         owner: object,
-        progress_bar,
+        progress_bar: QProgressBar,
         service_provider: Callable[[], FileTransferService | None],
         language_provider: Callable[[], str],
-        worker_registry: list,
+        worker_registry: list[Any],
         on_status: Callable[[str], None],
         on_error: Callable[[str, str], None],
         on_refresh_local: Callable[[], None],
         on_refresh_remote: Callable[[], None],
-        run_transfer: Callable,
-        start_context: Callable,
-        start_tracked: Callable,
+        run_transfer: Callable[..., Any],
+        start_context: Callable[..., Any],
+        start_tracked: Callable[..., Any],
         clock: Callable[[], float],
-        show_preview: Callable[[object, str, str], None],
+        show_preview: Callable[[QWidget, str, str], None],
     ) -> None:
         self._owner = owner
         self._progress_bar = progress_bar
@@ -173,14 +177,19 @@ class TransferRunner:
             on_error=lambda error: self._on_error("Preview Error", error),
         )
 
-    def start_worker(self, run_fn_or_worker, label: str, on_done_refresh: Callable[[], None]) -> None:
+    def start_worker(
+        self,
+        run_fn_or_worker: Any,
+        label: str,
+        on_done_refresh: Callable[[], None],
+    ) -> None:
         started_at = self._clock()
         self._progress_bar.setValue(0)
         self._progress_bar.setMaximum(100)
         self._progress_bar.setFormat(f"{label}: %p%")
         self._progress_bar.setVisible(True)
 
-        def _on_progress(done, total):
+        def _on_progress(done: int, total: int) -> None:
             elapsed = max(self._clock() - started_at, 0.001)
             speed = format_transfer_speed(done / elapsed)
             if total > 0:
@@ -192,7 +201,7 @@ class TransferRunner:
                 self._progress_bar.setMaximum(0)
                 self._progress_bar.setFormat(f"{label}: {done // 1024}K @ {speed}")
 
-        def _on_done(records):
+        def _on_done(records: Any) -> None:
             self._reset_progress()
             if not isinstance(records, list):
                 records = [records]
@@ -204,7 +213,7 @@ class TransferRunner:
             )
             on_done_refresh()
 
-        def _on_error(message):
+        def _on_error(message: str) -> None:
             self._reset_progress()
             self._on_error(f"{label} Error", message)
 

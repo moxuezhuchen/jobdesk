@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ._operations_types import MergeResult
-from ._tasks_helpers import _load_tasks, _replace_tasks
+from ._runs import _load_tasks, _replace_tasks
 
 if TYPE_CHECKING:
     pass

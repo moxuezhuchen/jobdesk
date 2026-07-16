@@ -347,14 +347,29 @@ def check_yaml_round_trips_through_from_workflow_spec(yaml_path: Path) -> None:
     """
     parsed = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     rebuilt = from_workflow_spec(parsed)
-    # The rebuilt graph carries XYZ_FILE + 5 emitting steps + OUTPUT.
+    # The rebuilt graph carries XYZ_FILE + 5 emitting steps + OUTPUT.  Keep
+    # the emitter filter explicit rather than dropping every non-sentinel
+    # node: an ADVANCED node is a real editor node and must be checked below.
+    emitting_kinds = {
+        NodeKind.CONF_GEN,
+        NodeKind.PRE_OPT,
+        NodeKind.OPT,
+        NodeKind.SINGLE_POINT,
+        NodeKind.FREQUENCY,
+        NodeKind.TS,
+        NodeKind.REFINE,
+    }
     rebuilt_titles = sorted(
-        n.title for n in rebuilt.nodes.values()
-        if n.kind not in (NodeKind.XYZ_FILE, NodeKind.OUTPUT)
+        n.title for n in rebuilt.nodes.values() if n.kind in emitting_kinds
     )
     expected = sorted(["Generate", "Optimize", "Frequency", "SinglePoint", "Summary"])
     assert rebuilt_titles == expected, (
         f"rebuilt titles mismatch: got {rebuilt_titles}, expected {expected}"
+    )
+    advanced_nodes = [n for n in rebuilt.nodes.values() if n.kind is NodeKind.ADVANCED]
+    assert not advanced_nodes, (
+        "workflow defaults must not become a synthetic ADVANCED node: "
+        f"{[n.params for n in advanced_nodes]}"
     )
 
     # The bridge's inverse rebuilds edges from each step's ``inputs``

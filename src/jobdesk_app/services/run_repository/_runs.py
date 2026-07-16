@@ -1,14 +1,90 @@
-"""Run-level CRUD that wraps _runs_helpers."""
+"""Run-level CRUD — includes helpers for record serialization and row mapping."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time as _time
 from pathlib import Path
 
 from ._operations_types import RunRecord
-from ._runs_helpers import _insert_run, _row_to_record, _run_exists
-from ._tasks_helpers import _load_tasks, _replace_tasks
+
+
+# ---------------------------------------------------------------------------
+# Helpers (were _runs_helpers)
+# ---------------------------------------------------------------------------
+
+
+def _run_values(record: RunRecord) -> tuple:
+    return (
+        record.run_id,
+        record.server_id,
+        record.remote_dir,
+        record.command_template,
+        record.max_parallel,
+        record.mode,
+        record.created_at,
+        record.local_dir,
+        json.dumps(record.env_init_scripts, ensure_ascii=False),
+        record.scheduler_type,
+        json.dumps(record.resources, ensure_ascii=False),
+    )
+
+
+def _run_exists(connection: sqlite3.Connection, run_id: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone() is not None
+
+
+def _insert_run(connection: sqlite3.Connection, record: RunRecord) -> None:
+    connection.execute(
+        """
+        INSERT INTO runs(
+            run_id, server_id, remote_dir, command_template, max_parallel,
+            mode, created_at, local_dir, env_init_scripts_json,
+            scheduler_type, resources_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        _run_values(record),
+    )
+
+
+def _row_to_record(
+    connection: sqlite3.Connection, row: sqlite3.Row, runs_dir: Path
+) -> RunRecord:
+    run_id = str(row["run_id"])
+    run_dir = runs_dir / run_id
+    summary_rows = connection.execute(
+        """
+        SELECT status, COUNT(*) AS task_count
+        FROM tasks WHERE run_id = ? GROUP BY status ORDER BY status
+        """,
+        (run_id,),
+    ).fetchall()
+    return RunRecord(
+        run_id=run_id,
+        server_id=str(row["server_id"]),
+        remote_dir=str(row["remote_dir"]),
+        command_template=str(row["command_template"]),
+        max_parallel=int(row["max_parallel"]),
+        mode=str(row["mode"]),
+        created_at=str(row["created_at"]),
+        run_dir=run_dir,
+        manifest_path=run_dir / "manifest.tsv",
+        batch_path=run_dir / "batch.json",
+        local_dir=str(row["local_dir"]),
+        status_summary={str(item["status"]): int(item["task_count"]) for item in summary_rows},
+        env_init_scripts=list(json.loads(row["env_init_scripts_json"])),
+        scheduler_type=str(row["scheduler_type"]),
+        resources=dict(json.loads(row["resources_json"])),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public CRUD (were _runs)
+# ---------------------------------------------------------------------------
 
 
 def create_run(
@@ -16,19 +92,7 @@ def create_run(
     record: RunRecord,
     tasks: list,
 ) -> RunRecord:
-    """Create a run and its tasks atomically, erroring if a deletion is in progress.
-
-    A concurrent ``recover_delete_operations`` may briefly leave an
-    in-progress tombstone at ``phase = 'files_isolated'`` between the
-    isolation commit and the final ``advance_operation(..., complete=True)``
-    that sets ``completed_at``. The writer lock is released between those
-    two SQL steps, so a freshly-submitted ``create_run`` can acquire the
-    lock in that window and (incorrectly) observe the tombstone. To avoid
-    that spurious failure we wait for ``_DELETE_CLEANUP_LEADER_GRACE_SECONDS``
-    after acquiring the writer lock and seeing an incomplete tombstone,
-    releasing the lock between polls so the leader can finish. Stuck
-    leaders fail the wait cleanly with the original ``ValueError``.
-    """
+    """Create a run and its tasks atomically, erroring if a deletion is in progress."""
     deadline: float | None = None
     while True:
         connection.execute("BEGIN IMMEDIATE")
@@ -40,18 +104,7 @@ def create_run(
         ).fetchone()
         if tombstone is None:
             break
-        # We hold the writer lock — leader cannot progress while we do.
-        # Drop it so the leader can finish its cleanup, then retry.
         connection.rollback()
-        # First time we see a tombstone we anchor the grace window to
-        # *this* moment, not to the start of ``create_run`` (which may
-        # have been blocked on the writer lock for the entire pause).
-        # ``_DELETE_CLEANUP_LEADER_GRACE_SECONDS`` is defined in
-        # ``run_repository.__init__`` *after* all the sibling-module
-        # imports (intentional, to keep ruff happy), so we reach for it
-        # through the package object rather than via a top-level
-        # ``from . import`` (which would resolve before the constant
-        # exists and raise ``ImportError``).
         if deadline is None:
             from . import _DELETE_CLEANUP_LEADER_GRACE_SECONDS
 
@@ -64,6 +117,33 @@ def create_run(
     _insert_run(connection, record)
     _replace_tasks(connection, record.run_id, tasks)
     return record
+
+
+def _replace_tasks(connection, run_id: str, tasks: list) -> None:
+    from jobdesk_app.core.manifest import TaskRecord
+    mismatched = [task.task_id for task in tasks if task.batch_id != run_id]
+    if mismatched:
+        raise ValueError(
+            f"task batch_id does not match run_id {run_id!r}: "
+            + ", ".join(mismatched)
+        )
+    connection.execute("DELETE FROM tasks WHERE run_id = ?", (run_id,))
+    connection.executemany(
+        """
+        INSERT INTO tasks(run_id, task_id, status, position, payload_json)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                run_id,
+                task.task_id,
+                task.status.value,
+                position,
+                json.dumps(task.model_dump(mode="json"), ensure_ascii=False),
+            )
+            for position, task in enumerate(tasks)
+        ],
+    )
 
 
 def load_run(connection: sqlite3.Connection, runs_dir: Path, run_id: str) -> RunRecord:
@@ -89,8 +169,16 @@ def load_tasks(connection: sqlite3.Connection, run_id: str) -> list:
     return _load_tasks(connection, run_id)
 
 
+def _load_tasks(connection, run_id: str) -> list:
+    from jobdesk_app.core.manifest import TaskRecord
+    rows = connection.execute(
+        "SELECT payload_json FROM tasks WHERE run_id = ? ORDER BY position",
+        (run_id,),
+    ).fetchall()
+    return [TaskRecord.model_validate(json.loads(row["payload_json"])) for row in rows]
+
+
 def update_run(connection: sqlite3.Connection, record: RunRecord) -> RunRecord:
-    from ._runs_helpers import _run_values
     connection.execute("BEGIN IMMEDIATE")
     cursor = connection.execute(
         """

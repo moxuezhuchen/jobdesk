@@ -7,8 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from ._operations_types import MigrationError, RunRecord
-from ._runs_helpers import _insert_run, _run_exists
-from ._tasks_helpers import _replace_tasks
+from ._runs import _insert_run, _run_exists, _replace_tasks
 
 
 def retry_legacy_imports(

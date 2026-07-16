@@ -498,6 +498,28 @@ class TestRunsPage:
         refresh.assert_not_called()
         monitor.assert_not_called()
 
+    def test_startup_recovery_worker_creation_failure_releases_gate(
+        self, runs_page
+    ):
+        messages = []
+        failures = []
+        finished = []
+        runs_page._status_cb = messages.append
+        runs_page.startup_recovery_failed.connect(failures.append)
+        runs_page.startup_recovery_finished.connect(lambda: finished.append(True))
+
+        with patch(
+            "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+            side_effect=RuntimeError("thread unavailable"),
+        ):
+            runs_page.start_startup_recovery()
+
+        assert runs_page._recovery_running is False
+        assert runs_page._recovery_complete is True
+        assert failures == ["thread unavailable"]
+        assert finished == [True]
+        assert any("thread unavailable" in message for message in messages)
+
     def test_activation_never_replays_operations(self, runs_page):
         from jobdesk_app.services.gui_settings import GuiSettings
 

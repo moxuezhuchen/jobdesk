@@ -10,15 +10,14 @@
 """
 
 import os
-import tempfile
+import time
 import uuid
-from pathlib import Path
 
 import pytest
 
 from jobdesk_app.config.servers import load_servers
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest, TaskRecord
+from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.submit import SubmitMode
 from jobdesk_app.remote.sftp import SFTPClientWrapper
 from jobdesk_app.remote.ssh import SSHClientWrapper
@@ -66,28 +65,29 @@ class TestRealSubmitter:
                 rendered_command="echo 'JobDesk M5 integration test ok'",
                 status=TaskStatus.uploaded,
             )
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".tsv", delete=False, encoding="utf-8"
-            ) as f:
-                manifest_path = f.name
-            Manifest.write(Path(manifest_path), [task])
+            submitter = JobSubmitter(
+                tasks=[task],
+                ssh=ssh,
+                sftp=sftp,
+                max_parallel=1,
+                remote_batch_dir=remote_base,
+                batch_id=batch_id,
+            )
+            result = submitter.submit_batch(SubmitMode.all)
 
-            try:
-                submitter = JobSubmitter(
-                    manifest_path=Path(manifest_path),
-                    ssh=ssh,
-                    sftp=sftp,
-                    max_parallel=1,
-                    remote_batch_dir=remote_base,
-                    batch_id=batch_id,
-                )
-                result = submitter.submit_batch(SubmitMode.all)
+            assert not result.errors, f"submitter errors: {result.errors}"
+            assert result.submitted_task_count == 1
+            assert result.updated_task_ids == ["echo_test"]
 
-                assert not result.errors, f"submitter errors: {result.errors}"
-                assert result.submitted_task_count == 1
-                assert len(result.updated_task_ids) == 1
-            finally:
-                Path(manifest_path).unlink(missing_ok=True)
+            exit_code_path = f"{remote_base}/echo_test/.jobdesk_exit_code"
+            for _ in range(50):
+                status = ssh.run(f"test -f {exit_code_path!r} && cat {exit_code_path!r}")
+                if status.exit_code == 0:
+                    assert status.stdout.strip() == "0"
+                    break
+                time.sleep(0.2)
+            else:
+                pytest.fail("submitted echo task did not complete within 10 seconds")
         finally:
             cleanup_remote_test_dir(ssh, remote_base, remote_tmp)
             sftp.close()

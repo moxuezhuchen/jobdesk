@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import time
 from unittest.mock import MagicMock, patch
 
@@ -91,7 +92,7 @@ def test_convert_gjf_to_xyz(tmp_path):
 
 
 def test_stop_process_tree():
-    p = subprocess.Popen(["sleep", "10"])
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
     pid = p.pid
     kill_proc_tree(pid)
     time.sleep(0.2)
@@ -248,7 +249,7 @@ def test_kill_proc_tree_timeout():
     # Start a process that ignores SIGTERM
     p = subprocess.Popen(
         [
-            "python",
+            sys.executable,
             "-c",
             "import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); import time; time.sleep(60)",
         ],

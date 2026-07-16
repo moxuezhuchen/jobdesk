@@ -280,3 +280,84 @@ def test_mutating_reused_config_object_replaces_idle_session() -> None:
         assert new.ssh is not old_ssh
     assert factory.created_sftp[0].closed == 1
     assert old_ssh.closed == 1
+
+
+# --- Tests for acquire() context manager ---
+
+def test_acquire_basic_usage() -> None:
+    pool, factory = make_pool()
+    with pool.acquire("a", Config("a")) as lease:
+        assert lease.ssh is factory.created_ssh[0]
+        assert lease.sftp is factory.created_sftp[0]
+    assert factory.created_sftp[0].closed == 0
+    assert factory.created_ssh[0].closed == 0
+    pool.close()
+    assert factory.created_sftp[0].closed == 1
+    assert factory.created_ssh[0].closed == 1
+
+
+def test_acquire_without_sftp() -> None:
+    pool, factory = make_pool()
+    with pool.acquire("a", Config("a"), need_sftp=False) as lease:
+        assert lease.ssh is factory.created_ssh[0]
+        assert lease.sftp is None
+    assert factory.created_sftp == []
+    assert factory.created_ssh[0].closed == 0
+    pool.close()
+    assert factory.created_ssh[0].closed == 1
+
+
+def test_acquire_releases_on_exception() -> None:
+    pool, factory = make_pool()
+    with pytest.raises(RuntimeError, match="test"):
+        with pool.acquire("a", Config("a")) as _lease:
+            raise RuntimeError("test")
+    assert factory.created_sftp[0].closed == 0
+    assert factory.created_ssh[0].closed == 0
+    pool.close()
+    assert factory.created_sftp[0].closed == 1
+    assert factory.created_ssh[0].closed == 1
+
+
+def test_acquire_allows_reuse_after_exception() -> None:
+    pool, factory = make_pool()
+    with pytest.raises(RuntimeError):
+        with pool.acquire("a", Config("a")) as _lease:
+            raise RuntimeError("test")
+    with pool.acquire("a", Config("a")) as lease:
+        assert lease.ssh is factory.created_ssh[0]
+        assert lease.sftp is factory.created_sftp[0]
+
+
+def test_acquire_and_lease_compatibility() -> None:
+    pool, factory = make_pool()
+    with pool.acquire("a", Config("a")) as lease1:
+        ssh1 = lease1.ssh
+    with pool.lease("a", Config("a")) as lease2:
+        assert lease2.ssh is ssh1
+        assert lease2.sftp is factory.created_sftp[0]
+    assert factory.created_ssh[0].closed == 0
+    pool.close()
+    assert factory.created_ssh[0].closed == 1
+
+
+def test_acquire_creates_new_session_when_config_changes() -> None:
+    pool, factory = make_pool()
+    with pool.acquire("a", Config("old")) as old:
+        old_ssh = old.ssh
+    with pool.acquire("a", Config("new")) as new:
+        assert new.ssh is not old_ssh
+    assert factory.created_sftp[0].closed == 1
+    assert old_ssh.closed == 1
+
+
+def test_acquire_idempotent_release() -> None:
+    pool, factory = make_pool()
+    lease = pool.acquire("a", Config("a"))
+    handle = lease.__enter__()
+    handle.release()
+    handle.release()
+    lease.__exit__(None, None, None)
+    pool.close()
+    assert factory.created_sftp[0].closed == 1
+    assert factory.created_ssh[0].closed == 1

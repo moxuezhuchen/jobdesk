@@ -10,12 +10,41 @@ from typing import TYPE_CHECKING, cast
 
 from jobdesk_app.core.lifecycle import TaskStatus
 
-from ._leases import _parse_lease_timestamp, _utc_lease_timestamp
 from ._operations_types import OperationRecord
-from ._tasks_helpers import _load_tasks, _replace_tasks, _validated_operation_task_ids
+from ._runs import _load_tasks, _replace_tasks
+from ._tasks_helpers import _validated_operation_task_ids
 
 if TYPE_CHECKING:
     pass
+
+
+# ---------------------------------------------------------------------------
+# Lease timestamp utilities (was _leases)
+# ---------------------------------------------------------------------------
+
+
+def _utc_lease_timestamp(value: datetime) -> str:
+    """Serialize a lease instant in one lexically stable UTC representation."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _parse_lease_timestamp(value: str) -> datetime:
+    """Parse an explicitly zoned ISO lease timestamp as a UTC instant."""
+    parsed = datetime.fromisoformat(
+        value[:-1] + "+00:00" if value.endswith("Z") else value
+    )
+    if parsed.tzinfo is None:
+        raise ValueError("submit lease timestamp has no timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Submit operations
+# ---------------------------------------------------------------------------
 
 
 def claim_submit_tasks(

@@ -14,10 +14,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ._operations_types import OperationRecord
-from ._path_compare import paths_equal
 from ._paths import _lexical_absolute, _reject_reparse_chain
-from ._tasks_helpers import _load_tasks
-from ._workspaces import register_workspace
+from ._runs import _load_tasks
+from ._workspaces import paths_equal, register_workspace
 
 if TYPE_CHECKING:
     pass
@@ -73,7 +72,7 @@ def prepare_delete_run(
     ).fetchone()
     if row is None:
         raise KeyError(f"run not found: {run_id}")
-    from ._runs_helpers import _row_to_record
+    from ._runs import _row_to_record
     record = _row_to_record(connection, row, runs_dir)
     if not record.local_dir:
         raise ValueError(f"run {run_id!r} has no absolute local_dir workspace anchor")
@@ -217,14 +216,8 @@ def execute_delete_isolation(
     This function opens its own connection for ensure_delete_trash_paths,
     then uses the caller's connection for the isolation transaction.
     """
-    # ensure_delete_trash_paths manages its own transaction (no in_transaction guard)
     ensure_delete_trash_paths(connection, runs_dir, operation_id)
     return _execute_delete_isolation_impl(connection, runs_dir, operation_id, callback)
-
-
-class _CallbackError(BaseException):
-    """Wraps a callback exception so it can be suppressed and re-raised."""
-    pass
 
 
 def _execute_delete_isolation_impl(
@@ -302,7 +295,6 @@ def ensure_delete_trash_paths(
             if not results_root_str:
                 raise ValueError("operation has no results_root")
             results_root = Path(results_root_str)
-            # Use the passed runs_dir parameter for consistency with validation
             run_trash = _lexical_absolute(runs_dir / ".jobdesk-trash" / operation_id / "run")
             results_trash = _lexical_absolute(results_root / ".jobdesk-trash" / operation_id / "results")
             payload["trash_run_dir"] = str(run_trash)

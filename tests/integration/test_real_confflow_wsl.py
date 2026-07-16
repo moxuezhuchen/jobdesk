@@ -125,7 +125,7 @@ def test_real_confflow_batch_two_molecules(tmp_path):
 
         # Verify both molecule summaries
         for mol in ("water", "methane"):
-            summary_path = tmp_path / "results" / record.run_id / mol / f"{mol}_confflow_work" / "run_summary.json"
+            summary_path = tmp_path / f"{mol}_confflow_work" / "run_summary.json"
             assert summary_path.exists(), f"Missing summary for {mol}"
             summary = load_summary(summary_path)
             assert summary.final_conformers >= 1

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
-from .protocols import SFTPClientProtocol, SSHClientProtocol
+from .protocols import SFTPClient, SSHClient
 
 _MAX_CREATE_ATTEMPTS = 2
 
@@ -16,8 +17,8 @@ _MAX_CREATE_ATTEMPTS = 2
 class _Entry:
     mutex: threading.Lock = field(default_factory=threading.Lock)
     config: Any = None
-    ssh: SSHClientProtocol | None = None
-    sftp: SFTPClientProtocol | None = None
+    ssh: SSHClient | None = None
+    sftp: SFTPClient | None = None
     active_leases: int = 0
     closing: bool = False
 
@@ -39,8 +40,8 @@ class SessionLease:
         self._need_sftp = need_sftp
         self._entry: _Entry | None = None
         self._released = False
-        self.ssh: SSHClientProtocol
-        self.sftp: SFTPClientProtocol | None
+        self.ssh: SSHClient
+        self.sftp: SFTPClient | None
 
     def __enter__(self) -> SessionLease:
         if self._entry is not None:
@@ -70,8 +71,8 @@ class SessionPool:
 
     def __init__(
         self,
-        ssh_factory: Callable[[Any], SSHClientProtocol],
-        sftp_factory: Callable[[SSHClientProtocol], SFTPClientProtocol],
+        ssh_factory: Callable[[Any], SSHClient],
+        sftp_factory: Callable[[SSHClient], SFTPClient],
     ):
         self._ssh_factory = ssh_factory
         self._sftp_factory = sftp_factory
@@ -89,8 +90,39 @@ class SessionPool:
             need_sftp=need_sftp,
         )
 
+    @contextmanager
+    def acquire(
+        self, server_id: str, server_config: Any, *, need_sftp: bool = True
+    ) -> Generator[SessionLease, None, None]:
+        """Context manager for acquiring a session lease with automatic release.
+
+        This is a convenience wrapper around :meth:`lease` that automatically
+        enters and exits the lease context.
+
+        Example::
+
+            with pool.acquire("wsl", config) as lease:
+                ssh = lease.ssh
+                # ... operations ...
+            # Session is automatically released
+
+        Args:
+            server_id: Unique identifier for the server.
+            server_config: Configuration object passed to the SSH factory.
+            need_sftp: Whether to create an SFTP channel (default True).
+
+        Yields:
+            SessionLease: The acquired session lease with ssh/sftp populated.
+        """
+        lease = self.lease(server_id, server_config, need_sftp=need_sftp)
+        lease.__enter__()
+        try:
+            yield lease
+        finally:
+            lease.__exit__(None, None, None)
+
     def close(self) -> None:
-        clients_to_close: list[tuple[SFTPClientProtocol | None, SSHClientProtocol | None]] = []
+        clients_to_close: list[tuple[SFTPClient | None, SSHClient | None]] = []
         with self._metadata_lock:
             if self._closing:
                 return
@@ -104,7 +136,7 @@ class SessionPool:
 
     def _acquire(
         self, server_id: str, server_config: Any, *, need_sftp: bool
-    ) -> tuple[_Entry, SSHClientProtocol, SFTPClientProtocol | None]:
+    ) -> tuple[_Entry, SSHClient, SFTPClient | None]:
         with self._metadata_lock:
             if self._closing:
                 raise RuntimeError("session pool is closing")
@@ -117,7 +149,7 @@ class SessionPool:
                 raise RuntimeError("session pool is closing")
             entry.active_leases += 1
 
-        old_clients: tuple[SFTPClientProtocol | None, SSHClientProtocol | None] = (None, None)
+        old_clients: tuple[SFTPClient | None, SSHClient | None] = (None, None)
         try:
             if entry.ssh is not None and (
                 entry.config != server_config or not self._is_alive(entry.ssh)
@@ -158,7 +190,7 @@ class SessionPool:
             raise
 
     def _release(self, entry: _Entry) -> None:
-        clients: tuple[SFTPClientProtocol | None, SSHClientProtocol | None] = (None, None)
+        clients: tuple[SFTPClient | None, SSHClient | None] = (None, None)
         with self._metadata_lock:
             entry.active_leases -= 1
             if entry.closing and entry.active_leases == 0:
@@ -168,7 +200,7 @@ class SessionPool:
 
     def _create_clients(
         self, server_config: Any, *, need_sftp: bool
-    ) -> tuple[SSHClientProtocol, SFTPClientProtocol | None]:
+    ) -> tuple[SSHClient, SFTPClient | None]:
         ssh = self._ssh_factory(server_config)
         try:
             ssh.connect()
@@ -179,7 +211,7 @@ class SessionPool:
         return ssh, sftp
 
     @staticmethod
-    def _is_alive(client: SSHClientProtocol | SFTPClientProtocol) -> bool:
+    def _is_alive(client: SSHClient | SFTPClient) -> bool:
         try:
             return bool(client.is_alive())
         except Exception:
@@ -188,7 +220,7 @@ class SessionPool:
     @staticmethod
     def _detach_clients(
         entry: _Entry,
-    ) -> tuple[SFTPClientProtocol | None, SSHClientProtocol | None]:
+    ) -> tuple[SFTPClient | None, SSHClient | None]:
         clients = entry.sftp, entry.ssh
         entry.sftp = None
         entry.ssh = None
@@ -197,7 +229,7 @@ class SessionPool:
 
     @staticmethod
     def _close_clients(
-        sftp: SFTPClientProtocol | None, ssh: SSHClientProtocol | None
+        sftp: SFTPClient | None, ssh: SSHClient | None
     ) -> None:
         for client in (sftp, ssh):
             if client is not None:

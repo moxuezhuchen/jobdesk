@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from .protocols import SSHClientProtocol
+from .protocols import SSHClient
 
 _WATCHER_STABLE_SECONDS = 30.0
 _MAX_EVENT_LINE_CHARS = 64 * 1024
@@ -47,7 +47,7 @@ class RunMonitor:
 
     def __init__(
         self,
-        ssh_factory: Callable[[object], SSHClientProtocol],
+        ssh_factory: Callable[[object], SSHClient],
         callback: Callable[[DoneEvent], None],
         progress_callback: Callable[[DoneEvent], None] | None = None,
     ) -> None:
@@ -116,7 +116,7 @@ class _Watcher:
         remote_batch_dir: str,
         server_config: object,
         callback: Callable[[str, str, str], None],
-        ssh_factory: Callable[[object], SSHClientProtocol],
+        ssh_factory: Callable[[object], SSHClient],
         progress_callback: Callable[[DoneEvent], None] | None = None,
     ) -> None:
         self._run_id = run_id

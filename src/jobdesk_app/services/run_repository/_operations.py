@@ -11,6 +11,7 @@ from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import TaskRecord
 
 from ._operations_types import OperationRecord
+from ._runs import _load_tasks, _replace_tasks
 
 
 def create_operation(
@@ -181,44 +182,6 @@ def recover_legacy_orphan_submit_tasks(
         if changed:
             _replace_tasks(connection, run_id, updated)
     return recovered
-
-
-def _load_tasks(connection: sqlite3.Connection, run_id: str) -> list[TaskRecord]:
-    rows = connection.execute(
-        "SELECT payload_json FROM tasks WHERE run_id = ? ORDER BY position",
-        (run_id,),
-    ).fetchall()
-    return [TaskRecord.model_validate(json.loads(row["payload_json"])) for row in rows]
-
-
-def _replace_tasks(
-    connection: sqlite3.Connection,
-    run_id: str,
-    tasks: list[TaskRecord],
-) -> None:
-    mismatched = [task.task_id for task in tasks if task.batch_id != run_id]
-    if mismatched:
-        raise ValueError(
-            f"task batch_id does not match run_id {run_id!r}: "
-            + ", ".join(mismatched)
-        )
-    connection.execute("DELETE FROM tasks WHERE run_id = ?", (run_id,))
-    connection.executemany(
-        """
-        INSERT INTO tasks(run_id, task_id, status, position, payload_json)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        [
-            (
-                run_id,
-                task.task_id,
-                task.status.value,
-                position,
-                json.dumps(task.model_dump(mode="json"), ensure_ascii=False),
-            )
-            for position, task in enumerate(tasks)
-        ],
-    )
 
 
 def _row_to_operation(row: sqlite3.Row) -> OperationRecord:
