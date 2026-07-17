@@ -60,9 +60,7 @@ class TestLoadWorkflowConfigFile:
     def test_step_missing_name_raises(self, tmp_path):
         cfg = tmp_path / "no_name.yaml"
         cfg.write_text(
-            "global: {}\n"
-            "steps:\n"
-            "  - type: calc\n",
+            "global: {}\nsteps:\n  - type: calc\n",
             encoding="utf-8",
         )
         with pytest.raises(ConfigurationError, match="missing.*'name'"):
@@ -71,9 +69,7 @@ class TestLoadWorkflowConfigFile:
     def test_step_missing_type_raises(self, tmp_path):
         cfg = tmp_path / "no_type.yaml"
         cfg.write_text(
-            "global: {}\n"
-            "steps:\n"
-            "  - name: s1\n",
+            "global: {}\nsteps:\n  - name: s1\n",
             encoding="utf-8",
         )
         with pytest.raises(ConfigurationError, match="missing.*'type'"):

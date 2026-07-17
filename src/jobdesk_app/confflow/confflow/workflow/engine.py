@@ -267,16 +267,14 @@ def run_workflow(
     else:
         ordered_names = list(by_step_name.keys())
         predecessors = {
-            name: ([ordered_names[i - 1]] if i > 0 else [])
-            for i, name in enumerate(ordered_names)
+            name: ([ordered_names[i - 1]] if i > 0 else []) for i, name in enumerate(ordered_names)
         }
     waves = topo_order(predecessors)
 
     # Linear-order index for the checkpoint bookkeeping that the existing
     # resume semantics expect.
     position_by_name: dict[str, int] = {
-        name: idx
-        for idx, (name, _) in enumerate(zip(by_step_name.keys(), steps))
+        name: idx for idx, (name, _) in enumerate(zip(by_step_name.keys(), steps))
     }
     name_to_dirname: dict[str, str] = dict(zip(by_step_name.keys(), step_dirnames))
 

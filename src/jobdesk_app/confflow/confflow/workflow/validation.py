@@ -86,7 +86,7 @@ def validate_inputs_compatible(
                 diffs = []
                 for i, (a1, a2) in enumerate(zip(atoms, ref_atoms)):
                     if a1 != a2:
-                        diffs.append(f"#{i+1} {a1} vs {a2}")
+                        diffs.append(f"#{i + 1} {a1} vs {a2}")
                         if len(diffs) >= 3:
                             break
                 _raise_or_warn(

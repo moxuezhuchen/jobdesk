@@ -212,12 +212,14 @@ def greedy_permutation_rmsd(coords1, coords2, elem_ids1, elem_ids2):
     _, V2 = get_principal_axes(coords2)
 
     # 4 sign variants that preserve right-handedness (product of signs = +1)
-    signs = np.array([
-        [1.0, 1.0, 1.0],
-        [1.0, -1.0, -1.0],
-        [-1.0, 1.0, -1.0],
-        [-1.0, -1.0, 1.0],
-    ])
+    signs = np.array(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ]
+    )
 
     best_rmsd = 999.9
 
@@ -278,7 +280,13 @@ def check_one_against_many(args):
     cand_coords, cand_pmi, cand_elem_ids, cand_energy = cand_data
     if cand_coords.shape[0] == 0:
         return False, -1
-    for unique_coords, unique_pmi, unique_id, unique_elem_ids, unique_energy in unique_data_snapshot:
+    for (
+        unique_coords,
+        unique_pmi,
+        unique_id,
+        unique_elem_ids,
+        unique_energy,
+    ) in unique_data_snapshot:
         pmi_diff = np.abs(cand_pmi - unique_pmi)
         pmi_tol = (unique_pmi + cand_pmi) * 0.5 * PMI_TOLERANCE_FACTOR
         if np.any(pmi_diff > pmi_tol + 1e-4):
@@ -329,7 +337,9 @@ def get_topology_hash_worker(args):
         return "error"
 
 
-def process_topology_group(frames_in_group, rmsd_threshold, heavy_atoms_only, workers, energy_tolerance=0.05):
+def process_topology_group(
+    frames_in_group, rmsd_threshold, heavy_atoms_only, workers, energy_tolerance=0.05
+):
     frames_in_group.sort(key=lambda x: x["energy"])
     unique_frames, report_data = [], []
     if not frames_in_group:
@@ -365,12 +375,16 @@ def process_topology_group(frames_in_group, rmsd_threshold, heavy_atoms_only, wo
         with create_progress() as progress:
             task_id = progress.add_task("[cyan]RMSD dedup", total=len(candidates))
             while candidates:
-
                 curr_batch = candidates[:BATCH_SIZE]
                 candidates = candidates[BATCH_SIZE:]
                 unique_snap = [
-                    (u["heavy_coords"], u["pmi"], u["original_index"],
-                     u["heavy_elem_ids"], u["energy"])
+                    (
+                        u["heavy_coords"],
+                        u["pmi"],
+                        u["original_index"],
+                        u["heavy_elem_ids"],
+                        u["energy"],
+                    )
                     for u in unique_frames
                 ]
                 batch_data = [
@@ -382,8 +396,12 @@ def process_topology_group(frames_in_group, rmsd_threshold, heavy_atoms_only, wo
                 results = list(
                     executor.map(
                         check_one_against_many,
-                        zip(batch_data, repeat(unique_snap),
-                            repeat(rmsd_threshold), repeat(energy_tolerance)),
+                        zip(
+                            batch_data,
+                            repeat(unique_snap),
+                            repeat(rmsd_threshold),
+                            repeat(energy_tolerance),
+                        ),
                         chunksize=chunk,
                     )
                 )
@@ -403,11 +421,20 @@ def process_topology_group(frames_in_group, rmsd_threshold, heavy_atoms_only, wo
                         is_intra_dup = False
                         if newly_kept:
                             args = (
-                                (cand["heavy_coords"], cand["pmi"],
-                                 cand["heavy_elem_ids"], cand["energy"]),
+                                (
+                                    cand["heavy_coords"],
+                                    cand["pmi"],
+                                    cand["heavy_elem_ids"],
+                                    cand["energy"],
+                                ),
                                 [
-                                    (k["heavy_coords"], k["pmi"], k["original_index"],
-                                     k["heavy_elem_ids"], k["energy"])
+                                    (
+                                        k["heavy_coords"],
+                                        k["pmi"],
+                                        k["original_index"],
+                                        k["heavy_elem_ids"],
+                                        k["energy"],
+                                    )
                                     for k in newly_kept
                                 ],
                                 rmsd_threshold,

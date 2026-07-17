@@ -329,30 +329,56 @@ def build_task_config(
     # Known calc parameters — unknown keys are warned and ignored
     _KNOWN_CALC_PARAMS = {
         # Core
-        "iprog", "itask", "keyword",
+        "iprog",
+        "itask",
+        "keyword",
         # Resources
-        "cores_per_task", "total_memory", "max_parallel_jobs",
+        "cores_per_task",
+        "total_memory",
+        "max_parallel_jobs",
         # Molecule
-        "charge", "multiplicity", "freeze",
+        "charge",
+        "multiplicity",
+        "freeze",
         # Dedup / clean
-        "energy_window", "rmsd_threshold", "noH", "dedup_only", "keep_all_topos",
-        "max_conformers", "imag", "energy_tolerance", "clean_params",
+        "energy_window",
+        "rmsd_threshold",
+        "noH",
+        "dedup_only",
+        "keep_all_topos",
+        "max_conformers",
+        "imag",
+        "energy_tolerance",
+        "clean_params",
         # Programs
-        "gaussian_path", "orca_path", "orca_maxcore",
+        "gaussian_path",
+        "orca_path",
+        "orca_maxcore",
         # Blocks
         "blocks",
         # Gaussian-specific
-        "gaussian_write_chk", "gaussian_modredundant", "gaussian_link0",
+        "gaussian_write_chk",
+        "gaussian_modredundant",
+        "gaussian_link0",
         # Cross-step chk
         "chk_from_step",
         # TS
-        "ts_bond_atoms", "ts_rescue_scan", "ts_bond_drift_threshold", "ts_rmsd_threshold",
-        "scan_coarse_step", "scan_fine_step", "scan_uphill_limit", "scan_max_steps",
-        "scan_fine_half_window", "ts_rescue_keep_scan_dirs", "ts_rescue_scan_backup",
+        "ts_bond_atoms",
+        "ts_rescue_scan",
+        "ts_bond_drift_threshold",
+        "ts_rmsd_threshold",
+        "scan_coarse_step",
+        "scan_fine_step",
+        "scan_uphill_limit",
+        "scan_max_steps",
+        "scan_fine_half_window",
+        "ts_rescue_keep_scan_dirs",
+        "ts_rescue_scan_backup",
         # Backup / misc
         "ibkout",
         # Feature flags
-        "enable_dynamic_resources", "resume_from_backups",
+        "enable_dynamic_resources",
+        "resume_from_backups",
     }
     for k, v in params.items():
         if k not in _KNOWN_CALC_PARAMS:

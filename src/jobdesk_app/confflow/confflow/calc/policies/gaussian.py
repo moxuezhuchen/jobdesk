@@ -66,6 +66,7 @@ class GaussianPolicy(CalculationPolicy):
         blocks_raw = config.get("blocks", "")
         if isinstance(blocks_raw, dict):
             from ..components.input_helpers import format_orca_blocks as _fmt_blocks
+
             blocks_raw = _fmt_blocks(blocks_raw)
         blocks_raw = str(blocks_raw or "").strip()
         extra_section = (blocks_raw + "\n") if blocks_raw else ""

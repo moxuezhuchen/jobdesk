@@ -324,8 +324,11 @@ def process_xyz(args):
     # 4. RMSD deduplication
     if frames_to_process:
         final_unique, report_data = process_topology_group(
-            frames_to_process, args.threshold, args.noH, args.workers,
-            getattr(args, 'energy_tolerance', 0.05)
+            frames_to_process,
+            args.threshold,
+            args.noH,
+            args.workers,
+            getattr(args, "energy_tolerance", 0.05),
         )
     else:
         final_unique, report_data = [], []

@@ -185,7 +185,7 @@ def validate_xyz_file(filepath: str, strict: bool = False) -> tuple[bool, list[d
         for idx, sym in enumerate(atoms):
             if not re.match(r"^[A-Za-z]{1,2}$", sym):
                 atom_errors.append(
-                    f"Frame {fr.get('frame_index', '?')}, atom {idx+1}: invalid symbol '{sym}'"
+                    f"Frame {fr.get('frame_index', '?')}, atom {idx + 1}: invalid symbol '{sym}'"
                 )
         if atom_errors:
             errors.extend(atom_errors)

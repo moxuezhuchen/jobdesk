@@ -224,7 +224,7 @@ def load_mol_from_xyz(filename, bond_coeff):
     for b in mol.GetBonds():
         a1 = b.GetBeginAtom()
         a2 = b.GetEndAtom()
-        bonds_str.append(f"{a1.GetIdx()+1}({a1.GetSymbol()})-{a2.GetIdx()+1}({a2.GetSymbol()})")
+        bonds_str.append(f"{a1.GetIdx() + 1}({a1.GetSymbol()})-{a2.GetIdx() + 1}({a2.GetSymbol()})")
 
     # Dynamic columns based on console width
     cw = console.width or 80
@@ -261,8 +261,8 @@ def write_xyz(mol, conformers, filename):
 
             # Assign a stable ID for downstream workflow traceability
             if not cid:
-                cid = f"A{i+1:06d}"
-            f.write(f"{natoms}\nConformer {i+1} | CID={cid}\n")
+                cid = f"A{i + 1:06d}"
+            f.write(f"{natoms}\nConformer {i + 1} | CID={cid}\n")
             for j, s in enumerate(syms):
                 assert coords is not None
                 x, y, z = coords[j]
@@ -377,7 +377,9 @@ def _run_parallel_confgen(
                 results.append(process_task(combo))
                 progress.advance(task_id)
         else:
-            with multiprocessing.Pool(cpu_count, initializer=init_worker, initargs=init_args) as pool:
+            with multiprocessing.Pool(
+                cpu_count, initializer=init_worker, initargs=init_args
+            ) as pool:
                 chunk = max(1, total_tasks // (cpu_count * 10))
                 for res in pool.imap(process_task, combos, chunksize=chunk):
                     results.append(res)
@@ -538,6 +540,7 @@ def run_generation(
 
             # Print rotatable bond information
             from ...core.console import print_kv as _pkv
+
             _pkv("Rotatable", f"{len(rot_bonds)} bonds")
             if rot_bonds:
                 bond_items = []
@@ -545,7 +548,7 @@ def run_generation(
                     a1, a2, _ = b
                     aa1, aa2 = mol.GetAtomWithIdx(a1), mol.GetAtomWithIdx(a2)
                     bond_items.append(
-                        f"{i+1}: {a1+1}({aa1.GetSymbol()}) - {a2+1}({aa2.GetSymbol()})"
+                        f"{i + 1}: {a1 + 1}({aa1.GetSymbol()}) - {a2 + 1}({aa2.GetSymbol()})"
                     )
                 cw = console.width or 80
                 col_w = (cw - 8) // 2
@@ -555,6 +558,7 @@ def run_generation(
                     console.print(f"[muted]{'':14}{line_str}[/muted]")
 
             from ...core.console import print_kv as _pkv2
+
             _pkv2("Clash", f"threshold = {clash_threshold}")
 
             if not rot_bonds:

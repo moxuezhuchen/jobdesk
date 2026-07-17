@@ -98,9 +98,9 @@ def format_duration(seconds: float) -> str:
     if seconds < 60:
         return f"{seconds:.1f}s"
     elif seconds < 3600:
-        return f"{seconds/60:.1f}min"
+        return f"{seconds / 60:.1f}min"
     else:
-        return f"{seconds/3600:.1f}h"
+        return f"{seconds / 3600:.1f}h"
 
 
 def _extract_energies(conformers: list[dict]) -> list[float | None]:

@@ -22,7 +22,6 @@ __all__ = [
 logger = logging.getLogger("confflow.core.contracts")
 
 
-
 class ExitCode(IntEnum):
     SUCCESS = 0
     USAGE_ERROR = 1

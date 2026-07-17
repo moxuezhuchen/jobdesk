@@ -248,7 +248,6 @@ steps:
             patch("confflow.calc.ChemTaskManager.run", autospec=True, side_effect=mock_manager_run),
             patch("confflow.blocks.viz.generate_text_report", return_value=""),
         ):
-
             with patch(
                 "confflow.config.schema.ConfigSchema.validate_calc_config",
                 side_effect=[None, ValueError("stop here")],

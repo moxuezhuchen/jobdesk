@@ -58,9 +58,7 @@ def build_step_graph(
     for idx, step in enumerate(steps, start=1):
         name = _step_name(step, idx)
         if name in by_name:
-            raise ConfFlowError(
-                f"workflow step names must be unique; duplicate name: {name!r}"
-            )
+            raise ConfFlowError(f"workflow step names must be unique; duplicate name: {name!r}")
         by_name[name] = step
 
         raw_inputs = step.get("inputs")
@@ -107,9 +105,7 @@ def topo_order(predecessors: dict[str, list[str]]) -> list[list[str]]:
     try:
         sorter.prepare()
     except CycleError as exc:
-        raise ConfFlowError(
-            f"workflow contains a dependency cycle: {exc}"
-        ) from exc
+        raise ConfFlowError(f"workflow contains a dependency cycle: {exc}") from exc
 
     waves: list[list[str]] = []
     while sorter.is_active():
@@ -150,7 +146,12 @@ def resolve_step_outputs_map(
     declared_outputs = declared_outputs or {}
     step_dirnames = step_dirnames or []
     keys = list(by_name.keys())
-    fallback_for_type = {"confgen": "search.xyz", "gen": "search.xyz", "calc": "output.xyz", "task": "output.xyz"}
+    fallback_for_type = {
+        "confgen": "search.xyz",
+        "gen": "search.xyz",
+        "calc": "output.xyz",
+        "task": "output.xyz",
+    }
 
     result: dict[str, str] = {}
     for idx, name in enumerate(keys):

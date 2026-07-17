@@ -288,9 +288,24 @@ def test_dag_cycle_raises_conf_flow_error(tmp_path: Path):
             "max_parallel_jobs": 1,
         },
         "steps": [
-            {"name": "a", "type": "calc", "inputs": ["c"], "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
-            {"name": "b", "type": "calc", "inputs": ["a"], "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
-            {"name": "c", "type": "calc", "inputs": ["b"], "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
+            {
+                "name": "a",
+                "type": "calc",
+                "inputs": ["c"],
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
+            {
+                "name": "b",
+                "type": "calc",
+                "inputs": ["a"],
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
+            {
+                "name": "c",
+                "type": "calc",
+                "inputs": ["b"],
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
         ],
     }
     cfg_path = tmp_path / "wf.yaml"
@@ -333,8 +348,16 @@ def test_dag_linear_backward_compat(tmp_path: Path):
         },
         "steps": [
             {"name": "s1", "type": "confgen", "params": {"chains": ["1-2"]}},
-            {"name": "s2", "type": "calc", "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
-            {"name": "s3", "type": "calc", "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
+            {
+                "name": "s2",
+                "type": "calc",
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
+            {
+                "name": "s3",
+                "type": "calc",
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
         ],
     }
     cfg_path = tmp_path / "wf.yaml"
@@ -389,7 +412,11 @@ def test_dag_deterministic_tie_breaking(tmp_path: Path):
             "max_parallel_jobs": 1,
         },
         "steps": [
-            {"name": "zeta", "type": "calc", "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"}},
+            {
+                "name": "zeta",
+                "type": "calc",
+                "params": {"iprog": "orca", "itask": "sp", "keyword": "B3LYP"},
+            },
             {
                 "name": "alpha",
                 "type": "calc",

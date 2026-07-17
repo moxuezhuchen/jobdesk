@@ -107,16 +107,16 @@ def load_workflow_config_file(config_file: str) -> dict[str, Any]:
     # Validate basic structure of each step
     for i, step in enumerate(steps):
         if not isinstance(step, dict):
-            raise ConfigurationError(f"Step {i+1} must be a dict, got: {type(step).__name__}")
+            raise ConfigurationError(f"Step {i + 1} must be a dict, got: {type(step).__name__}")
         if "name" not in step:
-            raise ConfigurationError(f"Step {i+1} is missing the required 'name' field")
+            raise ConfigurationError(f"Step {i + 1} is missing the required 'name' field")
         if "type" not in step:
             raise ConfigurationError(
-                f"Step {i+1} ({step.get('name', 'unnamed')}) is missing the required 'type' field"
+                f"Step {i + 1} ({step.get('name', 'unnamed')}) is missing the required 'type' field"
             )
         params = step.get("params") or {}
         if isinstance(params, dict) and "ts_bond" in params:
-            step_name = step.get("name", f"step_{i+1}")
+            step_name = step.get("name", f"step_{i + 1}")
             raise ConfigurationError(
                 f"Legacy key 'ts_bond' is not supported in step '{step_name}'. Use 'ts_bond_atoms'."
             )

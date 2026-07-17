@@ -32,9 +32,7 @@ class TestTaskContext:
         assert ctx.config["charge"] == 0
 
     def test_extra_fields_allowed(self):
-        ctx = TaskContext(
-            job_name="j", work_dir="/w", coords=[], custom_field="hello"
-        )
+        ctx = TaskContext(job_name="j", work_dir="/w", coords=[], custom_field="hello")
         assert ctx.custom_field == "hello"  # type: ignore[attr-defined]
 
     def test_serialization_roundtrip(self):
@@ -172,7 +170,5 @@ class TestCalcConfigModel:
             CalcConfigModel(iprog="orca", itask="sp", keyword="   ")
 
     def test_extra_fields(self):
-        cfg = CalcConfigModel(
-            iprog="orca", itask="sp", keyword="HF", energy_window=5.0
-        )
+        cfg = CalcConfigModel(iprog="orca", itask="sp", keyword="HF", energy_window=5.0)
         assert cfg.energy_window == 5.0  # type: ignore[attr-defined]
