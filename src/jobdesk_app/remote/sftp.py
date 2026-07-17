@@ -130,14 +130,16 @@ class SFTPClientWrapper:
             name = attr.filename
             path = posixpath.join(remote_dir, name) if remote_dir != "/" else f"/{name}"
             perm_str = stat.filemode(attr.st_mode) if attr.st_mode else ""
-            entries.append(_RemoteEntry(
-                name=name,
-                path=path,
-                is_dir=is_dir,
-                size_bytes=attr.st_size if not is_dir else None,
-                modified_at=attr.st_mtime,
-                permissions=perm_str,
-            ))
+            entries.append(
+                _RemoteEntry(
+                    name=name,
+                    path=path,
+                    is_dir=is_dir,
+                    size_bytes=attr.st_size if not is_dir else None,
+                    modified_at=attr.st_mtime,
+                    permissions=perm_str,
+                )
+            )
         return entries
 
     def rename(self, old_path: str, new_path: str) -> None:
@@ -248,10 +250,7 @@ class SFTPClientWrapper:
                 return rec
             if not overwrite:
                 rec.status = TransferStatus.failed
-                rec.reason = (
-                    f"远程文件已存在但大小不同 (local={local_size}, remote={remote_size})"
-                    f"，overwrite=False"
-                )
+                rec.reason = f"远程文件已存在但大小不同 (local={local_size}, remote={remote_size})，overwrite=False"
                 return rec
 
         remote_dir = posixpath.dirname(remote_path)
@@ -336,10 +335,7 @@ class SFTPClientWrapper:
                 return rec
             if not overwrite:
                 rec.status = TransferStatus.failed
-                rec.reason = (
-                    f"本地文件已存在但大小不同 (local={local_size}, remote={remote_size})"
-                    f"，overwrite=False"
-                )
+                rec.reason = f"本地文件已存在但大小不同 (local={local_size}, remote={remote_size})，overwrite=False"
                 return rec
 
         local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -383,7 +379,8 @@ class SFTPClientWrapper:
         records: list[TransferRecord] = []
         for local_path, remote_path in files:
             rec = self.upload_file(
-                local_path, remote_path,
+                local_path,
+                remote_path,
                 overwrite=overwrite,
                 skip_if_same_size=skip_if_same_size,
                 dry_run=dry_run,
@@ -410,7 +407,8 @@ class SFTPClientWrapper:
         records: list[TransferRecord] = []
         for remote_path, local_path in files:
             rec = self.download_file(
-                remote_path, local_path,
+                remote_path,
+                local_path,
                 overwrite=overwrite,
                 skip_if_same_size=skip_if_same_size,
                 dry_run=dry_run,
@@ -457,7 +455,8 @@ class SFTPClientWrapper:
                 continue
             remote_path = posixpath.join(remote_base, rel.as_posix())
             rec = self.upload_file(
-                f, remote_path,
+                f,
+                remote_path,
                 overwrite=overwrite,
                 skip_if_same_size=skip_if_same_size,
                 dry_run=dry_run,
@@ -510,7 +509,8 @@ class SFTPClientWrapper:
                         continue
                     local_path = local_base / rel
                     rec = self.download_file(
-                        full, local_path,
+                        full,
+                        local_path,
                         overwrite=overwrite,
                         skip_if_same_size=skip_if_same_size,
                         dry_run=dry_run,
@@ -530,15 +530,40 @@ class SFTPClientWrapper:
 
 
 _TEXT_EXTENSIONS = {
-    ".txt", ".sh", ".bash", ".py", ".gjf", ".com", ".inp", ".yaml", ".yml",
-    ".json", ".xml", ".csv", ".tsv", ".log", ".md", ".rst", ".cfg", ".conf",
-    ".toml", ".ini", ".env", ".cif", ".xyz", ".mol", ".pdb", ".smi",
+    ".txt",
+    ".sh",
+    ".bash",
+    ".py",
+    ".gjf",
+    ".com",
+    ".inp",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".xml",
+    ".csv",
+    ".tsv",
+    ".log",
+    ".md",
+    ".rst",
+    ".cfg",
+    ".conf",
+    ".toml",
+    ".ini",
+    ".env",
+    ".cif",
+    ".xyz",
+    ".mol",
+    ".pdb",
+    ".smi",
 }
 
 _CRLF_CHUNK_SIZE = 256 * 1024  # 256KB chunks for streaming normalization
 
 
-def _upload_text_normalized(sftp, local_path: Path, remote_path: str, total_size: int | None, progress_callback) -> None:
+def _upload_text_normalized(
+    sftp, local_path: Path, remote_path: str, total_size: int | None, progress_callback
+) -> None:
     """Stream-upload a text file, normalizing CRLF/CR→LF in chunks."""
     total = total_size or 0
     bytes_read = 0

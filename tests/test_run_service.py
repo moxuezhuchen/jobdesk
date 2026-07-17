@@ -54,19 +54,20 @@ def test_create_run_persists_only_to_sqlite(tmp_path, runs_dir):
 
 def test_create_run_is_immediately_queryable_from_sqlite(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="sqlite-run")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="sqlite-run",
+    )
 
     with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
-        assert connection.execute(
-            "SELECT run_id FROM runs WHERE run_id = 'sqlite-run'"
-        ).fetchone() == ("sqlite-run",)
+        assert connection.execute("SELECT run_id FROM runs WHERE run_id = 'sqlite-run'").fetchone() == ("sqlite-run",)
 
 
 def test_run_service_exposes_legacy_migration_errors(tmp_path, runs_dir):
@@ -97,9 +98,7 @@ def test_create_run_rejects_duplicate_explicit_run_id(tmp_path, runs_dir):
         service.create_run(spec, run_id="duplicate")
 
 
-def test_create_run_rejects_local_dir_outside_service_workspace_before_writes(
-    tmp_path, runs_dir
-):
+def test_create_run_rejects_local_dir_outside_service_workspace_before_writes(tmp_path, runs_dir):
     workspace = tmp_path / "workspace"
     service = RunService(workspace, runs_dir=runs_dir)
     spec = RunSpec(
@@ -125,14 +124,17 @@ def test_create_run_rejects_local_dir_outside_service_workspace_before_writes(
 def test_next_run_id_considers_database_rows_without_directories(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     prefix = datetime.now().strftime("%y%m%d")
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id=f"{prefix}-001")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id=f"{prefix}-001",
+    )
     record.run_dir.rmdir()
 
     assert service._next_run_id() == f"{prefix}-002"
@@ -162,28 +164,34 @@ def test_load_run_rejects_path_traversal(tmp_path, runs_dir):
 
 def test_new_run_does_not_create_legacy_manifest(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_atomic")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_atomic",
+    )
     assert not record.manifest_path.exists()
 
 
 def test_list_runs_returns_latest_first(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     for run_id in ("run001", "run002"):
-        service.create_run(RunSpec(
-            server_id="s1",
-            remote_dir="/remote/jobs",
-            command_template="bash {name}",
-            max_parallel=1,
-            mode=RunMode.selected_files,
-            sources=[RunSource(f"/remote/jobs/{run_id}.sh")],
-        ), run_id=run_id)
+        service.create_run(
+            RunSpec(
+                server_id="s1",
+                remote_dir="/remote/jobs",
+                command_template="bash {name}",
+                max_parallel=1,
+                mode=RunMode.selected_files,
+                sources=[RunSource(f"/remote/jobs/{run_id}.sh")],
+            ),
+            run_id=run_id,
+        )
 
     runs = service.list_runs()
 
@@ -192,14 +200,17 @@ def test_list_runs_returns_latest_first(tmp_path, runs_dir):
 
 def test_load_run_counts_database_statuses(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run001")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run001",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.submitted
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -211,14 +222,17 @@ def test_load_run_counts_database_statuses(tmp_path, runs_dir):
 
 def test_download_completed_run_outputs(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run001")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run001",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -229,7 +243,10 @@ def test_download_completed_run_outputs(tmp_path, runs_dir):
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
-            return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+            return TransferRecord(
+                TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred
+            )
 
     records, failures = service.download_completed("run001", FakeSFTP(), [".log"])
 
@@ -240,18 +257,19 @@ def test_download_completed_run_outputs(tmp_path, runs_dir):
     assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.downloaded
 
 
-def test_download_completed_reports_cas_rejection_instead_of_success(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_download_completed_reports_cas_rejection_instead_of_success(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_download_race")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_download_race",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -261,6 +279,7 @@ def test_download_completed_reports_cas_rejection_instead_of_success(
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+
             return TransferRecord(
                 TransferDirection.download,
                 str(local_path),
@@ -274,28 +293,27 @@ def test_download_completed_reports_cas_rejection_instead_of_success(
         lambda *_args, **_kwargs: MergeResult(tasks=tasks, accepted_task_ids=set()),
     )
 
-    records, failures = service.download_completed(
-        record.run_id, FakeSFTP(), [".log"]
-    )
+    records, failures = service.download_completed(record.run_id, FakeSFTP(), [".log"])
 
     assert records == []
-    assert failures == [
-        ("a", "task state changed during download; downloaded status was not committed")
-    ]
+    assert failures == [("a", "task state changed during download; downloaded status was not committed")]
 
 
 def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="wsl",
-        remote_dir="/remote/jobs",
-        command_template="confflow {name} -c settings.yaml -w {basename}_confflow_work",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/water.xyz")],
-        supporting_sources=[RunSource("/remote/jobs/settings.yaml")],
-        result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
-    ), run_id="run004")
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/jobs",
+            command_template="confflow {name} -c settings.yaml -w {basename}_confflow_work",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/water.xyz")],
+            supporting_sources=[RunSource("/remote/jobs/settings.yaml")],
+            result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
+        ),
+        run_id="run004",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -307,7 +325,10 @@ def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
-            return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+            return TransferRecord(
+                TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred
+            )
 
     records, failures = service.download_completed("run004", FakeSFTP(), ["*.log"])
 
@@ -323,15 +344,18 @@ def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
 
 def test_download_completed_rejects_declared_result_path_traversal(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="wsl",
-        remote_dir="/remote/jobs",
-        command_template="echo run",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/water.xyz")],
-        result_templates=["../outside.json"],
-    ), run_id="run005")
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/jobs",
+            command_template="echo run",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/water.xyz")],
+            result_templates=["../outside.json"],
+        ),
+        run_id="run005",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -356,7 +380,9 @@ def test_declared_outputs_pattern_semantics(tmp_path, runs_dir):
     from jobdesk_app.services.run_service import _declared_outputs
 
     task = TaskRecord(
-        task_id="mol", batch_id="b1", remote_job_dir="/tmp/mol",
+        task_id="mol",
+        batch_id="b1",
+        remote_job_dir="/tmp/mol",
         remote_task_files=["mol.gjf"],
     )
     # glob patterns → stem expansion
@@ -370,14 +396,17 @@ def test_declared_outputs_pattern_semantics(tmp_path, runs_dir):
 
 def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run001")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run001",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.failed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -390,18 +419,25 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
 
 def test_manual_recovery_returns_only_cas_accepted_task_ids(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
-    ), run_id="run_recovery")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="run_recovery",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.uncertain
     tasks[1].status = TaskStatus.running
     replace_tasks_for_test(service.repository, record.run_id, tasks)
 
     assert service.confirm_submitted(
-        record.run_id, [tasks[0].task_id, tasks[1].task_id, "missing"],
+        record.run_id,
+        [tasks[0].task_id, tasks[1].task_id, "missing"],
         {tasks[0].task_id: "42"},
     ) == [tasks[0].task_id]
     confirmed = service.repository.load_tasks(record.run_id)
@@ -428,11 +464,17 @@ def test_abandon_submit_requires_selected_task_ids(tmp_path, runs_dir):
 
 def test_prepare_retry_failed_leaves_uncertain_tasks_unchanged(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_uncertain_retry")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_uncertain_retry",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.uncertain
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -443,11 +485,17 @@ def test_prepare_retry_failed_leaves_uncertain_tasks_unchanged(tmp_path, runs_di
 
 def test_prepare_rerun_rejects_uncertain_tasks(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_uncertain_rerun")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_uncertain_rerun",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.uncertain
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -458,14 +506,17 @@ def test_prepare_rerun_rejects_uncertain_tasks(tmp_path, runs_dir):
 
 def test_prepare_rerun_rejects_active_remote_tasks(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_active")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_active",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].remote_job_id = "12345"
@@ -481,14 +532,17 @@ def test_prepare_rerun_rejects_active_remote_tasks(tmp_path, runs_dir):
 
 def test_prepare_rerun_clears_execution_metadata_for_terminal_tasks(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_done")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_done",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.failed
     tasks[0].submitted_at = datetime(2026, 5, 31, 8, 0, 0)
@@ -512,14 +566,17 @@ def test_prepare_rerun_clears_execution_metadata_for_terminal_tasks(tmp_path, ru
 
 def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_strategy")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_strategy",
+    )
     captured = []
 
     class FakeSubmitter:
@@ -533,7 +590,9 @@ def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, m
     resources = ResourceSpec(cpus=8, memory_mb=4096, walltime_minutes=60)
 
     service.submit_run(
-        "run_strategy", object(), object(),
+        "run_strategy",
+        object(),
+        object(),
         env_init_scripts=["/opt/module.sh"],
         scheduler=SlurmAdapter(),
         resources=resources,
@@ -552,14 +611,17 @@ def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, m
 
 def test_submit_run_skips_tasks_claimed_by_another_process(tmp_path, runs_dir, monkeypatch):
     first = RunService(tmp_path, runs_dir=runs_dir)
-    first.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_claimed")
+    first.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_claimed",
+    )
     claimed, operations = first.repository.claim_submit_tasks(
         "run_claimed",
         scheduler_type="nohup",
@@ -571,26 +633,25 @@ def test_submit_run_skips_tasks_claimed_by_another_process(tmp_path, runs_dir, m
     submitter = MagicMock()
     monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", submitter)
 
-    result = RunService(tmp_path, runs_dir=runs_dir).submit_run(
-        "run_claimed", object(), object()
-    )
+    result = RunService(tmp_path, runs_dir=runs_dir).submit_run("run_claimed", object(), object())
 
     assert result.submitted_task_count == 0
     submitter.assert_not_called()
 
 
-def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
-    ), run_id="run_partial_submit")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="run_partial_submit",
+    )
 
     class CrashingSubmitter:
         def __init__(self, **kwargs):
@@ -600,20 +661,20 @@ def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(
 
         def submit_batch(self):
             self.remote_started([self.tasks[0].task_id])
-            submitted = self.tasks[0].model_copy(update={
-                "status": TaskStatus.submitted,
-                "scheduler_type": "slurm",
-                "remote_job_id": "12345",
-            })
+            submitted = self.tasks[0].model_copy(
+                update={
+                    "status": TaskStatus.submitted,
+                    "scheduler_type": "slurm",
+                    "remote_job_id": "12345",
+                }
+            )
             self.checkpoint([submitted])
             raise RuntimeError("process crashed after first remote submission")
 
     monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", CrashingSubmitter)
 
     with pytest.raises(RuntimeError, match="process crashed"):
-        service.submit_run(
-            "run_partial_submit", object(), object(), scheduler=SlurmAdapter()
-        )
+        service.submit_run("run_partial_submit", object(), object(), scheduler=SlurmAdapter())
 
     tasks = service.repository.load_tasks("run_partial_submit")
     assert tasks[0].status == TaskStatus.submitted
@@ -628,11 +689,17 @@ def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(
 
 def test_submit_run_releases_claim_when_nohup_chmod_fails(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_chmod_failure")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_chmod_failure",
+    )
     ssh = MagicMock()
     ssh.run.return_value = SSHResult("chmod", 1, "", "permission denied", 0.01)
     sftp = MagicMock()
@@ -648,32 +715,40 @@ def test_submit_run_releases_claim_when_nohup_chmod_fails(tmp_path, runs_dir):
 
 def test_submit_run_releases_claim_when_scheduler_preflight_raises(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_scheduler_preflight")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_scheduler_preflight",
+    )
     sftp = MagicMock()
     sftp.mkdir_p.side_effect = RuntimeError("upload path unavailable")
 
-    result = service.submit_run(
-        "run_scheduler_preflight", MagicMock(), sftp, scheduler=SlurmAdapter()
-    )
+    result = service.submit_run("run_scheduler_preflight", MagicMock(), sftp, scheduler=SlurmAdapter())
 
     assert result.errors
     assert service.repository.load_tasks("run_scheduler_preflight")[0].status == TaskStatus.uploaded
     assert service.repository.list_operations()[0].phase == "completed"
 
 
-def test_submit_exception_recovers_owned_remote_started_operation(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_exception_recovers_owned_remote_started_operation(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_started_exception")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_started_exception",
+    )
 
     class StartedThenCrashingSubmitter:
         def __init__(self, **kwargs):
@@ -684,9 +759,7 @@ def test_submit_exception_recovers_owned_remote_started_operation(
             self.remote_started([self.tasks[0].task_id])
             raise RuntimeError("process died after remote start")
 
-    monkeypatch.setattr(
-        "jobdesk_app.services.run_service.JobSubmitter", StartedThenCrashingSubmitter
-    )
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", StartedThenCrashingSubmitter)
 
     with pytest.raises(RuntimeError, match="process died"):
         service.submit_run("run_started_exception", object(), object())
@@ -697,15 +770,19 @@ def test_submit_exception_recovers_owned_remote_started_operation(
     assert operation.completed_at is not None
 
 
-def test_submit_run_recovers_claim_when_operation_payload_mapping_is_invalid(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_run_recovers_claim_when_operation_payload_mapping_is_invalid(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_invalid_submit_payload")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_invalid_submit_payload",
+    )
     original_claim = service.repository.claim_submit_tasks
 
     def claim_with_invalid_payload(*args, **kwargs):
@@ -722,15 +799,19 @@ def test_submit_run_recovers_claim_when_operation_payload_mapping_is_invalid(
     assert service.repository.list_operations(incomplete_only=True) == []
 
 
-def test_submit_run_preserves_primary_error_and_notes_incomplete_failed_recovery(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_run_preserves_primary_error_and_notes_incomplete_failed_recovery(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_failed_recovery")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_failed_recovery",
+    )
 
     class CrashingSubmitter:
         def __init__(self, **kwargs):
@@ -748,21 +829,22 @@ def test_submit_run_preserves_primary_error_and_notes_incomplete_failed_recovery
         service.submit_run("run_failed_recovery", object(), object())
 
     assert str(caught.value) == "primary submit failure"
-    assert any(
-        "submit recovery left operation incomplete" in note
-        for note in caught.value.__notes__
-    )
+    assert any("submit recovery left operation incomplete" in note for note in caught.value.__notes__)
 
 
-def test_submit_run_preserves_primary_error_when_release_raises(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_run_preserves_primary_error_when_release_raises(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_release_failure")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_release_failure",
+    )
 
     class CrashingSubmitter:
         def __init__(self, **_kwargs):
@@ -785,15 +867,19 @@ def test_submit_run_preserves_primary_error_when_release_raises(
     assert any("release database locked" in note for note in caught.value.__notes__)
 
 
-def test_submit_run_reports_release_failure_after_success(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_run_reports_release_failure_after_success(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_success_cleanup_failure")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_success_cleanup_failure",
+    )
 
     class SuccessfulSubmitter:
         def __init__(self, **_kwargs):
@@ -815,14 +901,17 @@ def test_submit_run_reports_release_failure_after_success(
 
 def test_losing_submitter_does_not_overwrite_execution_resources(tmp_path, runs_dir):
     first = RunService(tmp_path, runs_dir=runs_dir)
-    first.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_claimed_resources")
+    first.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_claimed_resources",
+    )
     claimed, operations = first.repository.claim_submit_tasks(
         "run_claimed_resources",
         scheduler_type="nohup",
@@ -844,14 +933,23 @@ def test_losing_submitter_does_not_overwrite_execution_resources(tmp_path, runs_
 
 def test_recover_submit_claimed_releases_tasks_and_completes(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_recover_claimed")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_recover_claimed",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_recover_claimed", scheduler_type="nohup", resources={},
-        env_init_scripts=[], per_task=False,
+        "run_recover_claimed",
+        scheduler_type="nohup",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
     )
 
     reopened = RunService(tmp_path, runs_dir=runs_dir)
@@ -863,20 +961,30 @@ def test_recover_submit_claimed_releases_tasks_and_completes(tmp_path, runs_dir)
 
 def test_startup_recovery_does_not_take_over_live_submit_lease(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="live_submit")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="live_submit",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "live_submit", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="active-owner", lease_seconds=120,
+        "live_submit",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="active-owner",
+        lease_seconds=120,
     )
 
     assert service.recover_submit_operations("live_submit") == 0
     stored = next(
-        item for item in service.repository.list_operations()
-        if item.operation_id == operations[0].operation_id
+        item for item in service.repository.list_operations() if item.operation_id == operations[0].operation_id
     )
     assert stored.phase == "claimed"
     assert stored.owner_id == "active-owner"
@@ -884,14 +992,23 @@ def test_startup_recovery_does_not_take_over_live_submit_lease(tmp_path, runs_di
 
 def test_recover_submit_remote_started_marks_uncertain_and_is_idempotent(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_recover_started")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_recover_started",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_recover_started", scheduler_type="slurm", resources={},
-        env_init_scripts=[], per_task=True,
+        "run_recover_started",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=True,
     )
     assert service.repository.start_submit_operation(operations[0].operation_id)
 
@@ -908,14 +1025,23 @@ def test_recover_submit_remote_started_marks_uncertain_and_is_idempotent(tmp_pat
 
 def test_concurrent_submit_recovery_advances_operation_once(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_concurrent_recovery")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_concurrent_recovery",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_concurrent_recovery", scheduler_type="nohup", resources={},
-        env_init_scripts=[], per_task=False,
+        "run_concurrent_recovery",
+        scheduler_type="nohup",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
     )
     assert service.repository.start_submit_operation(operations[0].operation_id)
 
@@ -928,18 +1054,20 @@ def test_concurrent_submit_recovery_advances_operation_once(tmp_path, runs_dir):
     assert service.repository.list_operations(incomplete_only=True) == []
 
 
-def test_application_recovery_quarantines_orphan_submit_and_prunes_old_history(
-    tmp_path, runs_dir
-):
+def test_application_recovery_quarantines_orphan_submit_and_prunes_old_history(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_legacy_orphan")
-    task = service.repository.load_tasks("run_legacy_orphan")[0].model_copy(
-        update={"status": TaskStatus.submitting}
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_legacy_orphan",
     )
+    task = service.repository.load_tasks("run_legacy_orphan")[0].model_copy(update={"status": TaskStatus.submitting})
     replace_tasks_for_test(service.repository, "run_legacy_orphan", [task])
     old = service.repository.create_operation("old", "delete", "completed", {})
     recent = service.repository.create_operation("recent", "delete", "completed", {})
@@ -966,29 +1094,38 @@ def test_application_recovery_quarantines_orphan_submit_and_prunes_old_history(
 
 def test_recover_confirmed_submit_verifies_durable_job_id_before_completion(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_confirmed_recovery")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_confirmed_recovery",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_confirmed_recovery", scheduler_type="slurm", resources={},
-        env_init_scripts=[], per_task=True,
+        "run_confirmed_recovery",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=True,
     )
     operation = operations[0]
     assert service.repository.start_submit_operation(operation.operation_id)
-    task = service.repository.load_tasks("run_confirmed_recovery")[0].model_copy(update={
-        "status": TaskStatus.submitted,
-        "scheduler_type": "slurm",
-        "remote_job_id": "123",
-    })
+    task = service.repository.load_tasks("run_confirmed_recovery")[0].model_copy(
+        update={
+            "status": TaskStatus.submitted,
+            "scheduler_type": "slurm",
+            "remote_job_id": "123",
+        }
+    )
     replace_tasks_for_test(service.repository, "run_confirmed_recovery", [task])
     payload = dict(operation.payload)
     payload["outcome_phase"] = "confirmed"
     payload["results"] = {"a": {"job_id": "123"}}
-    assert service.repository.advance_operation(
-        operation.operation_id, "remote_started", "confirmed", payload=payload
-    )
+    assert service.repository.advance_operation(operation.operation_id, "remote_started", "confirmed", payload=payload)
 
     assert RunService(tmp_path, runs_dir=runs_dir).recover_submit_operations() == 1
     completed = service.repository.list_operations()[0]
@@ -1010,27 +1147,38 @@ def test_recover_confirmed_submit_rejects_missing_or_mismatched_payload_job_id(
     tmp_path, runs_dir, results, expected_error
 ):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_invalid_confirmed")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_invalid_confirmed",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_invalid_confirmed", scheduler_type="slurm", resources={},
-        env_init_scripts=[], per_task=True,
+        "run_invalid_confirmed",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=True,
     )
     operation = operations[0]
     assert service.repository.start_submit_operation(operation.operation_id)
-    task = service.repository.load_tasks("run_invalid_confirmed")[0].model_copy(update={
-        "status": TaskStatus.submitted, "scheduler_type": "slurm", "remote_job_id": "123",
-    })
+    task = service.repository.load_tasks("run_invalid_confirmed")[0].model_copy(
+        update={
+            "status": TaskStatus.submitted,
+            "scheduler_type": "slurm",
+            "remote_job_id": "123",
+        }
+    )
     replace_tasks_for_test(service.repository, "run_invalid_confirmed", [task])
     payload = dict(operation.payload)
     payload["outcome_phase"] = "confirmed"
     payload["results"] = results
-    assert service.repository.advance_operation(
-        operation.operation_id, "remote_started", "confirmed", payload=payload
-    )
+    assert service.repository.advance_operation(operation.operation_id, "remote_started", "confirmed", payload=payload)
 
     assert RunService(tmp_path, runs_dir=runs_dir).recover_submit_operations() == 0
     persisted = service.repository.list_operations()[0]
@@ -1060,28 +1208,37 @@ def test_recover_confirmed_submit_rejects_corrupt_task_id_result_sets(
     tmp_path, runs_dir, task_ids, results, expected_error
 ):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_corrupt_confirmed")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_corrupt_confirmed",
+    )
     _, operations = service.repository.claim_submit_tasks(
-        "run_corrupt_confirmed", scheduler_type="slurm", resources={},
-        env_init_scripts=[], per_task=True,
+        "run_corrupt_confirmed",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=True,
     )
     operation = operations[0]
     assert service.repository.start_submit_operation(operation.operation_id)
-    task = service.repository.load_tasks("run_corrupt_confirmed")[0].model_copy(update={
-        "status": TaskStatus.submitted, "scheduler_type": "slurm", "remote_job_id": "123",
-    })
+    task = service.repository.load_tasks("run_corrupt_confirmed")[0].model_copy(
+        update={
+            "status": TaskStatus.submitted,
+            "scheduler_type": "slurm",
+            "remote_job_id": "123",
+        }
+    )
     replace_tasks_for_test(service.repository, "run_corrupt_confirmed", [task])
     payload = dict(operation.payload)
-    payload.update(
-        {"task_ids": task_ids, "outcome_phase": "confirmed", "results": results}
-    )
-    assert service.repository.advance_operation(
-        operation.operation_id, "remote_started", "confirmed", payload=payload
-    )
+    payload.update({"task_ids": task_ids, "outcome_phase": "confirmed", "results": results})
+    assert service.repository.advance_operation(operation.operation_id, "remote_started", "confirmed", payload=payload)
 
     assert RunService(tmp_path, runs_dir=runs_dir).recover_submit_operations() == 0
     persisted = service.repository.list_operations()[0]
@@ -1092,14 +1249,17 @@ def test_recover_confirmed_submit_rejects_corrupt_task_id_result_sets(
 
 def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_cancel")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_cancel",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "slurm"
@@ -1117,18 +1277,19 @@ def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path,
     assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.cancelled
 
 
-def test_cancel_run_does_not_count_same_status_row_rejected_by_full_cas(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_cancel_run_does_not_count_same_status_row_rejected_by_full_cas(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_cancel_race")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_cancel_race",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "slurm"
@@ -1165,18 +1326,19 @@ def test_cancel_run_does_not_count_same_status_row_rejected_by_full_cas(
     assert persisted.error_message == "cancelled by concurrent worker"
 
 
-def test_cancel_run_reports_cas_rejection_when_task_is_not_cancelled(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_cancel_run_reports_cas_rejection_when_task_is_not_cancelled(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_cancel_conflict")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_cancel_conflict",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "slurm"
@@ -1205,9 +1367,7 @@ def test_cancel_run_reports_cas_rejection_when_task_is_not_cancelled(
 
     adapter.cancel.assert_called_once()
     assert changed == 0
-    assert errors == [
-        "a: task state changed during cancellation; cancellation status was not committed"
-    ]
+    assert errors == ["a: task state changed during cancellation; cancellation status was not committed"]
     persisted = service.repository.load_tasks(record.run_id)[0]
     assert persisted.status == TaskStatus.running
     assert persisted.error_message == "updated by concurrent refresh"
@@ -1215,14 +1375,17 @@ def test_cancel_run_reports_cas_rejection_when_task_is_not_cancelled(
 
 def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_cancel_fail")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_cancel_fail",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.running
     tasks[0].scheduler_type = "pbs"
@@ -1242,14 +1405,17 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, run
 def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir):
     """When SFTP download fails, error_message should be written to manifest."""
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_err")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_err",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -1270,14 +1436,17 @@ def test_download_failure_persists_error_message_to_manifest(tmp_path, runs_dir)
 def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
     """After retry succeeds, the download error_message must be cleared."""
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/b.sh")],
-    ), run_id="run_retry")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="run_retry",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     tasks[0].error_message = "download: b.log: old error"
@@ -1289,7 +1458,10 @@ def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_text("ok", encoding="utf-8")
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
-            return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+
+            return TransferRecord(
+                TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred
+            )
 
     _records, failures = service.download_completed("run_retry", OkSFTP(), [".log"])
 
@@ -1302,14 +1474,17 @@ def test_successful_download_clears_previous_download_error(tmp_path, runs_dir):
 def test_download_directory_creation_failure_persists_error_message(tmp_path, runs_dir, monkeypatch):
     download_dir = tmp_path / "downloads"
     service = RunService(download_dir, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/c.sh")],
-    ), run_id="run_mkdir_fail")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/c.sh")],
+        ),
+        run_id="run_mkdir_fail",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -1331,18 +1506,20 @@ def test_download_directory_creation_failure_persists_error_message(tmp_path, ru
     assert task.error_message == "download: download directory denied"
 
 
-
 def test_download_completed_persists_transfer_record_failed_reason(tmp_path, runs_dir):
     """When sftp.download_file returns TransferStatus.failed, the reason must be persisted."""
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_failed_rec")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_failed_rec",
+    )
     tasks = service.repository.load_tasks(record.run_id)
     tasks[0].status = TaskStatus.remote_completed
     replace_tasks_for_test(service.repository, record.run_id, tasks)
@@ -1350,8 +1527,11 @@ def test_download_completed_persists_transfer_record_failed_reason(tmp_path, run
     class FailedRecordSFTP:
         def download_file(self, remote_path, local_path, **kwargs):
             from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+
             return TransferRecord(
-                TransferDirection.download, str(local_path), remote_path,
+                TransferDirection.download,
+                str(local_path),
+                remote_path,
                 status=TransferStatus.failed,
                 reason="remote file not found",
             )
@@ -1365,22 +1545,22 @@ def test_download_completed_persists_transfer_record_failed_reason(tmp_path, run
     assert task.error_message.startswith("download:")
 
 
-
-def test_wrong_workspace_service_cannot_bind_or_delete_run_results(
-    tmp_path, runs_dir
-):
+def test_wrong_workspace_service_cannot_bind_or_delete_run_results(tmp_path, runs_dir):
     workspace_a = tmp_path / "workspace-a"
     workspace_b = tmp_path / "workspace-b"
     service_a = RunService(workspace_a, runs_dir=runs_dir)
     service_b = RunService(workspace_b, runs_dir=runs_dir)
-    record = service_a.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="wrong-workspace")
+    record = service_a.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="wrong-workspace",
+    )
     wrong_results = workspace_b / "results" / record.run_id
     wrong_results.mkdir(parents=True)
     sentinel = wrong_results / "keep.txt"
@@ -1397,14 +1577,17 @@ def test_wrong_workspace_service_cannot_bind_or_delete_run_results(
 def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, runs_dir, monkeypatch):
     """A filesystem failure remains journaled and retryable."""
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_locked")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_locked",
+    )
 
     # Create a results directory
     results_dir = tmp_path / "results" / "run_locked"
@@ -1415,6 +1598,7 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
     assert service.load_run(record.run_id).run_id == record.run_id
 
     import shutil
+
     original_rmtree = shutil.rmtree
 
     def failing_rmtree(path, *args, **kwargs):
@@ -1445,14 +1629,17 @@ def test_delete_run_preserves_metadata_when_results_deletion_fails(tmp_path, run
 
 def test_delete_run_keeps_files_when_database_delete_fails(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_db_locked")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_db_locked",
+    )
     monkeypatch.setattr(
         service.repository,
         "delete_run_metadata",
@@ -1467,16 +1654,24 @@ def test_delete_run_keeps_files_when_database_delete_fails(tmp_path, runs_dir, m
 
 def test_recover_delete_resumes_from_prepared(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_prepared")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_prepared",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     service.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
 
     assert service.recover_delete_operations() == 1
@@ -1486,21 +1681,27 @@ def test_recover_delete_resumes_from_prepared(tmp_path, runs_dir):
         service.load_run(record.run_id)
 
 
-def test_recover_delete_resumes_after_only_run_directory_was_isolated(
-    tmp_path, runs_dir
-):
+def test_recover_delete_resumes_after_only_run_directory_was_isolated(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_half_isolated")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_half_isolated",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     (results_dir / "old.txt").write_text("old", encoding="utf-8")
     operation = service.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     trash_run = Path(str(operation.payload["trash_run_dir"]))
@@ -1512,22 +1713,23 @@ def test_recover_delete_resumes_after_only_run_directory_was_isolated(
     assert not record.run_dir.exists()
     assert not results_dir.exists()
     assert not trash_run.exists()
-    stored = next(
-        item for item in service.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    stored = next(item for item in service.repository.list_operations() if item.operation_id == operation.operation_id)
     assert stored.phase == "completed"
 
 
-def test_delete_rename_failure_is_journaled_and_retryable(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_delete_rename_failure_is_journaled_and_retryable(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_rename_locked")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_rename_locked",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     original_replace = Path.replace
@@ -1542,9 +1744,7 @@ def test_delete_rename_failure_is_journaled_and_retryable(
     with pytest.raises(PermissionError, match="rename locked"):
         service.delete_run(record.run_id)
 
-    operation = next(
-        item for item in service.repository.list_operations() if item.kind == "delete"
-    )
+    operation = next(item for item in service.repository.list_operations() if item.kind == "delete")
     assert operation.phase == "metadata_deleted"
     assert operation.last_error == "rename locked"
     assert Path(str(operation.payload["trash_run_dir"])).is_dir()
@@ -1559,40 +1759,44 @@ def test_delete_recovery_rejects_untrusted_trash_path(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     outside = tmp_path / "outside-trash"
     operation = service.repository.create_operation(
-        "missing", "delete", "metadata_deleted",
+        "missing",
+        "delete",
+        "metadata_deleted",
         {
             "run_dir": str((runs_dir / "missing").resolve()),
             "results_root": str((tmp_path / "results").resolve()),
             "results_dir": str((tmp_path / "results" / "missing").resolve()),
             "trash_run_dir": str(outside / "run"),
             "trash_results_dir": str(outside / "results"),
-            "run": {}, "tasks": [],
+            "run": {},
+            "tasks": [],
         },
     )
 
     assert service.recover_delete_operations() == 0
     assert not outside.exists()
-    stored = next(
-        item for item in service.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    stored = next(item for item in service.repository.list_operations() if item.operation_id == operation.operation_id)
     assert "binding" in (stored.last_error or "")
 
 
 @pytest.mark.parametrize("linked_kind", ["run", "results"])
-def test_delete_rejects_managed_source_directory_link(
-    tmp_path, runs_dir, linked_kind
-):
+def test_delete_rejects_managed_source_directory_link(tmp_path, runs_dir, linked_kind):
     import os
     import shutil
     import subprocess
 
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_link")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_link",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     target = (runs_dir if linked_kind == "run" else tmp_path / "results") / "victim"
@@ -1620,15 +1824,19 @@ def test_delete_rejects_managed_source_directory_link(
 
 
 @pytest.mark.parametrize("initial_phase", ["prepared", "metadata_deleted"])
-def test_recover_legacy_delete_journal_without_trash_paths(
-    tmp_path, runs_dir, initial_phase
-):
+def test_recover_legacy_delete_journal_without_trash_paths(tmp_path, runs_dir, initial_phase):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id=f"legacy_{initial_phase}")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id=f"legacy_{initial_phase}",
+    )
     results_root = tmp_path / "results"
     results_dir = results_root / record.run_id
     results_dir.mkdir(parents=True)
@@ -1652,10 +1860,7 @@ def test_recover_legacy_delete_journal_without_trash_paths(
 
     assert service.recover_delete_operations() == 1
 
-    stored = next(
-        item for item in service.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    stored = next(item for item in service.repository.list_operations() if item.operation_id == operation.operation_id)
     assert stored.phase == "completed"
     assert stored.payload["trash_run_dir"]
     assert stored.payload["trash_results_dir"]
@@ -1663,15 +1868,19 @@ def test_recover_legacy_delete_journal_without_trash_paths(
     assert not results_dir.exists()
 
 
-def test_concurrent_recovery_backfills_legacy_delete_trash_once(
-    tmp_path, runs_dir
-):
+def test_concurrent_recovery_backfills_legacy_delete_trash_once(tmp_path, runs_dir):
     creator = RunService(tmp_path, runs_dir=runs_dir)
-    record = creator.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="legacy_concurrent")
+    record = creator.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="legacy_concurrent",
+    )
     results_root = tmp_path / "results"
     results_dir = results_root / record.run_id
     results_dir.mkdir(parents=True)
@@ -1700,10 +1909,7 @@ def test_concurrent_recovery_backfills_legacy_delete_trash_once(
         outcomes = list(pool.map(lambda item: item.recover_delete_operations(), workers))
 
     assert sum(outcomes) == 1
-    stored = next(
-        item for item in creator.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    stored = next(item for item in creator.repository.list_operations() if item.operation_id == operation.operation_id)
     assert stored.phase == "completed"
     assert operation.operation_id in str(stored.payload["trash_run_dir"])
     assert operation.operation_id in str(stored.payload["trash_results_dir"])
@@ -1714,7 +1920,9 @@ def test_delete_recovery_rejects_untrusted_journal_path(tmp_path, runs_dir):
     outside = tmp_path / "outside"
     outside.mkdir()
     operation = service.repository.create_operation(
-        "missing", "delete", "metadata_deleted",
+        "missing",
+        "delete",
+        "metadata_deleted",
         {"run_dir": str(outside), "results_dir": str(outside), "run": {}, "tasks": []},
     )
 
@@ -1727,11 +1935,14 @@ def test_delete_recovery_rejects_untrusted_journal_path(tmp_path, runs_dir):
 def test_recover_delete_completes_files_deleted_phase(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     operation = service.repository.create_operation(
-        "run_gone", "delete", "files_deleted",
+        "run_gone",
+        "delete",
+        "files_deleted",
         {
             "run_dir": str((runs_dir / "run_gone").resolve()),
             "results_dir": str((tmp_path / "results" / "run_gone").resolve()),
-            "run": {}, "tasks": [],
+            "run": {},
+            "tasks": [],
         },
     )
 
@@ -1742,20 +1953,21 @@ def test_recover_delete_completes_files_deleted_phase(tmp_path, runs_dir):
     assert "binding" in (stored.last_error or "").lower()
 
 
-def test_delete_recovery_rejects_other_workspace_with_diagnostic(
-    tmp_path, runs_dir
-):
+def test_delete_recovery_rejects_other_workspace_with_diagnostic(tmp_path, runs_dir):
     workspace_a = tmp_path / "workspace-a"
     workspace_b = tmp_path / "workspace-b"
     owner = RunService(workspace_a, runs_dir=runs_dir)
-    record = owner.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="cross_workspace")
+    record = owner.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="cross_workspace",
+    )
     operation = owner.repository.prepare_delete_run(
         record.run_id,
         run_dir=record.run_dir,
@@ -1765,69 +1977,68 @@ def test_delete_recovery_rejects_other_workspace_with_diagnostic(
     outsider = RunService(workspace_b, runs_dir=runs_dir)
 
     assert outsider.recover_delete_operations() == 0
-    stored = next(
-        item
-        for item in outsider.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    stored = next(item for item in outsider.repository.list_operations() if item.operation_id == operation.operation_id)
     assert stored.phase == "prepared"
     assert "binding mismatch" in (stored.last_error or "")
 
 
-def test_scoped_delete_recovery_rejects_operation_bound_to_other_workspace(
-    tmp_path, runs_dir
-):
+def test_scoped_delete_recovery_rejects_operation_bound_to_other_workspace(tmp_path, runs_dir):
     workspace_a = tmp_path / "workspace-a"
     workspace_b = tmp_path / "workspace-b"
     owner = RunService(workspace_a, runs_dir=runs_dir)
-    record = owner.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="forged_delete")
+    record = owner.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="forged_delete",
+    )
     operation = owner.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
+        record.run_id,
+        run_dir=record.run_dir,
         results_root=workspace_a / "results",
         results_dir=workspace_a / "results" / record.run_id,
     )
     victim = workspace_b / "results" / record.run_id
     victim.mkdir(parents=True)
     forged = dict(operation.payload)
-    forged.update({
-        "results_root": str((workspace_b / "results").resolve()),
-        "results_dir": str(victim.resolve()),
-        "trash_results_dir": str(
-            (workspace_b / "results" / ".jobdesk-trash"
-             / operation.operation_id / "results").resolve()
-        ),
-        "run": {**forged["run"], "local_dir": str(workspace_b.resolve())},
-    })
-    assert owner.repository.advance_operation(
-        operation.operation_id, "prepared", "metadata_deleted", payload=forged
+    forged.update(
+        {
+            "results_root": str((workspace_b / "results").resolve()),
+            "results_dir": str(victim.resolve()),
+            "trash_results_dir": str(
+                (workspace_b / "results" / ".jobdesk-trash" / operation.operation_id / "results").resolve()
+            ),
+            "run": {**forged["run"], "local_dir": str(workspace_b.resolve())},
+        }
     )
+    assert owner.repository.advance_operation(operation.operation_id, "prepared", "metadata_deleted", payload=forged)
 
     outsider = RunService(workspace_b, runs_dir=runs_dir)
     assert outsider.recover_delete_operations() == 0
     assert victim.exists()
-    assert owner.repository.delete_operation_workspace(
-        operation.operation_id
-    ) == workspace_a.resolve()
-    stored = next(
-        item for item in owner.repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    assert owner.repository.delete_operation_workspace(operation.operation_id) == workspace_a.resolve()
+    stored = next(item for item in owner.repository.list_operations() if item.operation_id == operation.operation_id)
     assert "binding mismatch" in (stored.last_error or "")
 
 
-def test_live_submit_finishes_after_concurrent_recovery_declines_lease(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_live_submit_finishes_after_concurrent_recovery_declines_lease(tmp_path, runs_dir, monkeypatch):
     service_a = RunService(tmp_path, runs_dir=runs_dir)
-    service_a.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="concurrent_live_submit")
+    service_a.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="concurrent_live_submit",
+    )
     remote_started = threading.Event()
     release_remote = threading.Event()
 
@@ -1841,18 +2052,29 @@ def test_live_submit_finishes_after_concurrent_recovery_declines_lease(
             self.started([self.task.task_id])
             remote_started.set()
             assert release_remote.wait(10)
-            self.checkpoint([self.task.model_copy(update={
-                "status": TaskStatus.submitted,
-                "scheduler_type": "slurm",
-                "remote_job_id": "job-123",
-            })])
+            self.checkpoint(
+                [
+                    self.task.model_copy(
+                        update={
+                            "status": TaskStatus.submitted,
+                            "scheduler_type": "slurm",
+                            "remote_job_id": "job-123",
+                        }
+                    )
+                ]
+            )
             return SubmitResult("concurrent_live_submit", 1, "/remote/jobs")
 
     monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", PausedSubmitter)
     with ThreadPoolExecutor(max_workers=1) as pool:
         submitting = pool.submit(
-            service_a.submit_run, "concurrent_live_submit", object(), object(),
-            None, SlurmAdapter(), ResourceSpec(),
+            service_a.submit_run,
+            "concurrent_live_submit",
+            object(),
+            object(),
+            None,
+            SlurmAdapter(),
+            ResourceSpec(),
         )
         assert remote_started.wait(10)
         service_b = RunService(tmp_path, runs_dir=runs_dir)
@@ -1865,15 +2087,19 @@ def test_live_submit_finishes_after_concurrent_recovery_declines_lease(
     assert task.remote_job_id == "job-123"
 
 
-def test_lost_submit_lease_prevents_starting_next_remote_task(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_lost_submit_lease_prevents_starting_next_remote_task(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
-    ), run_id="lost_lease_submit")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="lost_lease_submit",
+    )
     launched: list[str] = []
 
     class TwoTaskSubmitter:
@@ -1890,25 +2116,30 @@ def test_lost_submit_lease_prevents_starting_next_remote_task(
     renewals = iter([True, False])
     monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", TwoTaskSubmitter)
     monkeypatch.setattr(
-        service.repository, "renew_submit_lease",
+        service.repository,
+        "renew_submit_lease",
         lambda *_args, **_kwargs: next(renewals),
     )
 
     with pytest.raises(RuntimeError, match="ownership lost"):
-        service.submit_run(
-            "lost_lease_submit", object(), object(), scheduler=SlurmAdapter()
-        )
+        service.submit_run("lost_lease_submit", object(), object(), scheduler=SlurmAdapter())
 
     assert len(launched) == 1
 
 
 def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=2, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
-    ), run_id="shared_nohup")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=2,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="shared_nohup",
+    )
 
     class BatchSubmitter:
         def __init__(self, **kwargs):
@@ -1919,11 +2150,13 @@ def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, mon
         def submit_batch(self):
             self.started([task.task_id for task in self.tasks])
             submitted = [
-                task.model_copy(update={
-                    "status": TaskStatus.submitted,
-                    "scheduler_type": "nohup",
-                    "remote_job_id": "4321",
-                })
+                task.model_copy(
+                    update={
+                        "status": TaskStatus.submitted,
+                        "scheduler_type": "nohup",
+                        "remote_job_id": "4321",
+                    }
+                )
                 for task in self.tasks
             ]
             self.checkpoint(submitted)
@@ -1931,9 +2164,7 @@ def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, mon
 
     monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", BatchSubmitter)
 
-    result = service.submit_run(
-        "shared_nohup", object(), object(), scheduler=NohupAdapter()
-    )
+    result = service.submit_run("shared_nohup", object(), object(), scheduler=NohupAdapter())
 
     assert not result.errors
     assert [task.status for task in service.repository.load_tasks("shared_nohup")] == [
@@ -1945,15 +2176,19 @@ def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, mon
     assert operations[0].phase == "completed"
 
 
-def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="blocked_heartbeat")
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="blocked_heartbeat",
+    )
     entered = threading.Event()
     release = threading.Event()
     original_renew = service.repository.renew_submit_lease
@@ -1977,9 +2212,7 @@ def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(
     monkeypatch.setattr(run_service_module, "JobSubmitter", WaitingSubmitter)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
-        submitting = pool.submit(
-            service.submit_run, "blocked_heartbeat", object(), object()
-        )
+        submitting = pool.submit(service.submit_run, "blocked_heartbeat", object(), object())
         assert entered.wait(10)
         assert not submitting.done()
         threading.Event().wait(2.2)
@@ -1988,8 +2221,7 @@ def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(
         submitting.result(timeout=10)
 
     assert not any(
-        thread.name == "submit-lease-blocked_heartbeat" and thread.is_alive()
-        for thread in threading.enumerate()
+        thread.name == "submit-lease-blocked_heartbeat" and thread.is_alive() for thread in threading.enumerate()
     )
 
 
@@ -1997,16 +2229,21 @@ def test_concurrent_delete_recovery_completes_once(tmp_path, runs_dir):
     from concurrent.futures import ThreadPoolExecutor
 
     creator = RunService(tmp_path, runs_dir=runs_dir)
-    record = creator.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_delete_race")
+    record = creator.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_delete_race",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     creator.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir
+        record.run_id, run_dir=record.run_dir, results_root=tmp_path / "results", results_dir=results_dir
     )
     services = [RunService(tmp_path, runs_dir=runs_dir), RunService(tmp_path, runs_dir=runs_dir)]
 
@@ -2023,18 +2260,23 @@ def test_concurrent_delete_recovery_completes_once(tmp_path, runs_dir):
 def test_create_run_cleans_directory_when_delete_tombstone_rejects_id(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
     record = service.create_run(spec, run_id="run_generation")
     operation = service.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
+        record.run_id,
+        run_dir=record.run_dir,
         results_root=tmp_path / "results",
         results_dir=tmp_path / "results" / record.run_id,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     import shutil
+
     shutil.rmtree(record.run_dir)
 
     with pytest.raises(ValueError, match="delete is incomplete"):
@@ -2045,13 +2287,14 @@ def test_create_run_cleans_directory_when_delete_tombstone_rejects_id(tmp_path, 
         service.load_run(record.run_id)
 
 
-def test_create_run_preserves_repository_error_when_directory_cleanup_fails(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_create_run_preserves_repository_error_when_directory_cleanup_fails(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
 
@@ -2070,19 +2313,24 @@ def test_create_run_preserves_repository_error_when_directory_cleanup_fails(
 def test_automatic_run_id_skips_incomplete_delete_tombstone(tmp_path, runs_dir):
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
     prefix = datetime.now().strftime("%y%m%d")
     old = service.create_run(spec, run_id=f"{prefix}-001")
     operation = service.repository.prepare_delete_run(
-        old.run_id, run_dir=old.run_dir,
+        old.run_id,
+        run_dir=old.run_dir,
         results_root=tmp_path / "results",
         results_dir=tmp_path / "results" / old.run_id,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     import shutil
+
     shutil.rmtree(old.run_dir)
 
     created = service.create_run(spec)
@@ -2090,23 +2338,26 @@ def test_automatic_run_id_skips_incomplete_delete_tombstone(tmp_path, runs_dir):
     assert created.run_id == f"{prefix}-002"
 
 
-def test_create_and_delete_recovery_race_leaves_new_generation_consistent(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_create_and_delete_recovery_race_leaves_new_generation_consistent(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
     old = service.create_run(spec, run_id="run_race_generation")
     operation = service.repository.prepare_delete_run(
-        old.run_id, run_dir=old.run_dir,
+        old.run_id,
+        run_dir=old.run_dir,
         results_root=tmp_path / "results",
         results_dir=tmp_path / "results" / old.run_id,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     import shutil
+
     shutil.rmtree(old.run_dir)
     original_create = service.repository.create_run
 
@@ -2124,24 +2375,27 @@ def test_create_and_delete_recovery_race_leaves_new_generation_consistent(
     assert service.load_run(old.run_id).run_id == old.run_id
 
 
-def test_delete_workers_only_touch_trash_after_new_generation_is_created(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_delete_workers_only_touch_trash_after_new_generation_is_created(tmp_path, runs_dir, monkeypatch):
     import shutil
     import threading
 
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
     old = service.create_run(spec, run_id="run_serialized_delete")
     results_dir = tmp_path / "results" / old.run_id
     results_dir.mkdir(parents=True)
     operation = service.repository.prepare_delete_run(
-        old.run_id, run_dir=old.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        old.run_id,
+        run_dir=old.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     first_entered_trash_delete = threading.Event()
@@ -2150,10 +2404,7 @@ def test_delete_workers_only_touch_trash_after_new_generation_is_created(
 
     def paused_rmtree(path, *args, **kwargs):
         resolved = Path(path).resolve()
-        is_results_trash = (
-            resolved.name == "results"
-            and resolved.parent.parent.name == ".jobdesk-trash"
-        )
+        is_results_trash = resolved.name == "results" and resolved.parent.parent.name == ".jobdesk-trash"
         if is_results_trash and not first_entered_trash_delete.is_set():
             first_entered_trash_delete.set()
             assert release_first.wait(10)
@@ -2177,16 +2428,17 @@ def test_delete_workers_only_touch_trash_after_new_generation_is_created(
     assert RunService(tmp_path, runs_dir=runs_dir).load_run(old.run_id).run_id == old.run_id
 
 
-def test_delete_isolation_transaction_has_one_rename_winner(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_delete_isolation_transaction_has_one_rename_winner(tmp_path, runs_dir, monkeypatch):
     import threading
     import time
 
     service = RunService(tmp_path, runs_dir=runs_dir)
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="bash {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.sh")],
     )
     old = service.create_run(spec, run_id="run_isolation_winner")
@@ -2194,8 +2446,10 @@ def test_delete_isolation_transaction_has_one_rename_winner(
     results_dir = tmp_path / "results" / old.run_id
     results_dir.mkdir(parents=True)
     operation = service.repository.prepare_delete_run(
-        old.run_id, run_dir=old.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        old.run_id,
+        run_dir=old.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     entered_first_rename = threading.Event()
@@ -2233,23 +2487,29 @@ def test_delete_isolation_transaction_has_one_rename_winner(
     assert marker.read_text(encoding="utf-8") == "new"
 
 
-def test_slow_trash_delete_does_not_hold_sqlite_write_lock(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_slow_trash_delete_does_not_hold_sqlite_write_lock(tmp_path, runs_dir, monkeypatch):
     import shutil
     import threading
 
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_slow_trash")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_slow_trash",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     operation = service.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     entered = threading.Event()
@@ -2268,7 +2528,10 @@ def test_slow_trash_delete_does_not_hold_sqlite_write_lock(
         assert entered.wait(5)
         unrelated = pool.submit(
             RunRepository(runs_dir).create_operation,
-            "other", "submit", "claimed", {},
+            "other",
+            "submit",
+            "claimed",
+            {},
         )
         try:
             assert unrelated.result(timeout=1).run_id == "other"
@@ -2277,23 +2540,29 @@ def test_slow_trash_delete_does_not_hold_sqlite_write_lock(
         assert deleting.result(timeout=5) == 1
 
 
-def test_slow_trash_parent_creation_does_not_hold_sqlite_write_lock(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_slow_trash_parent_creation_does_not_hold_sqlite_write_lock(tmp_path, runs_dir, monkeypatch):
     import threading
 
     service = RunService(tmp_path, runs_dir=runs_dir)
     other_repository = RunRepository(runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="bash {name}",
-        max_parallel=1, mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_slow_trash_mkdir")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_slow_trash_mkdir",
+    )
     results_dir = tmp_path / "results" / record.run_id
     results_dir.mkdir(parents=True)
     operation = service.repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert service.repository.delete_run_metadata(operation.operation_id)
     entered = threading.Event()
@@ -2312,7 +2581,10 @@ def test_slow_trash_parent_creation_does_not_hold_sqlite_write_lock(
         assert entered.wait(5)
         unrelated = pool.submit(
             other_repository.create_operation,
-            "other-mkdir", "submit", "claimed", {},
+            "other-mkdir",
+            "submit",
+            "claimed",
+            {},
         )
         try:
             assert unrelated.result(timeout=1).run_id == "other-mkdir"
@@ -2321,22 +2593,21 @@ def test_slow_trash_parent_creation_does_not_hold_sqlite_write_lock(
         assert deleting.result(timeout=5) == 1
 
 
-def test_refresh_run_reports_only_changes_committed_by_compare_and_swap(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_refresh_run_reports_only_changes_committed_by_compare_and_swap(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_refresh_race")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_refresh_race",
+    )
     original = service.repository.load_tasks(record.run_id)
-    refreshed = [
-        original[0].model_copy(update={"status": TaskStatus.running}, deep=True)
-    ]
+    refreshed = [original[0].model_copy(update={"status": TaskStatus.running}, deep=True)]
     refresh_result = StatusRefreshResult(
         batch_id=record.run_id,
         task_count=1,
@@ -2365,18 +2636,19 @@ def test_refresh_run_reports_only_changes_committed_by_compare_and_swap(
     assert result.changed_count == 0
 
 
-def test_refresh_run_filters_all_rejected_task_diagnostics(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_refresh_run_filters_all_rejected_task_diagnostics(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
-    ), run_id="run_refresh_partial_race")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh"), RunSource("/remote/jobs/b.sh")],
+        ),
+        run_id="run_refresh_partial_race",
+    )
     original = service.repository.load_tasks(record.run_id)
     refreshed = [
         task.model_copy(
@@ -2421,9 +2693,7 @@ def test_refresh_run_filters_all_rejected_task_diagnostics(
         service.repository.mutate_tasks(
             record.run_id,
             lambda tasks: [
-                task.model_copy(update={"status": TaskStatus.cancelled}, deep=True)
-                if task.task_id == "b"
-                else task
+                task.model_copy(update={"status": TaskStatus.cancelled}, deep=True) if task.task_id == "b" else task
                 for task in tasks
             ],
         )
@@ -2444,18 +2714,19 @@ def test_refresh_run_filters_all_rejected_task_diagnostics(
     ]
 
 
-def test_refresh_run_keeps_accepted_unchanged_task_diagnostics(
-    tmp_path, runs_dir, monkeypatch
-):
+def test_refresh_run_keeps_accepted_unchanged_task_diagnostics(tmp_path, runs_dir, monkeypatch):
     service = RunService(tmp_path, runs_dir=runs_dir)
-    record = service.create_run(RunSpec(
-        server_id="s1",
-        remote_dir="/remote/jobs",
-        command_template="bash {name}",
-        max_parallel=1,
-        mode=RunMode.selected_files,
-        sources=[RunSource("/remote/jobs/a.sh")],
-    ), run_id="run_refresh_unchanged")
+    record = service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="run_refresh_unchanged",
+    )
     original = service.repository.load_tasks(record.run_id)
     snapshot = TaskStatusSnapshot(
         task_id="a",
@@ -2489,12 +2760,16 @@ def test_refresh_run_keeps_accepted_unchanged_task_diagnostics(
     assert result.failures == [failure]
 
 
-
 def test_create_run_rejects_relative_remote_dir(tmp_path, runs_dir):
     from jobdesk_app.remote.errors import RemotePathError
+
     spec = RunSpec(
-        server_id="s1", remote_dir="relative/path", command_template="g16 {name}",
-        max_parallel=1, mode=RunMode.selected_files, sources=[RunSource("/remote/a.gjf")],
+        server_id="s1",
+        remote_dir="relative/path",
+        command_template="g16 {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/a.gjf")],
     )
     with pytest.raises(RemotePathError):
         RunService(tmp_path, runs_dir=runs_dir).create_run(spec, run_id="rel")
@@ -2502,9 +2777,13 @@ def test_create_run_rejects_relative_remote_dir(tmp_path, runs_dir):
 
 def test_create_run_rejects_remote_source_with_parent_ref(tmp_path, runs_dir):
     from jobdesk_app.remote.errors import RemotePathError
+
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="g16 {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="g16 {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/../etc/passwd")],
     )
     with pytest.raises(RemotePathError):
@@ -2513,9 +2792,13 @@ def test_create_run_rejects_remote_source_with_parent_ref(tmp_path, runs_dir):
 
 def test_download_completed_rejects_backslash_result_traversal(tmp_path, runs_dir):
     from unittest.mock import MagicMock
+
     spec = RunSpec(
-        server_id="s1", remote_dir="/remote/jobs", command_template="g16 {name}",
-        max_parallel=1, mode=RunMode.selected_files,
+        server_id="s1",
+        remote_dir="/remote/jobs",
+        command_template="g16 {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
         sources=[RunSource("/remote/jobs/a.gjf")],
         result_templates=["..\\evil.txt"],
     )

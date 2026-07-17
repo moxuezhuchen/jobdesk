@@ -11,6 +11,7 @@ This module is organized into the following submodules:
 - ``_preview``: Flow diagram and YAML preview rendering
 - ``workflow_page_helpers``: Utility functions for step detail formatting
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -208,6 +209,7 @@ class WorkflowPage(QWidget):
         layout.setSpacing(8)
 
         from PySide6.QtWidgets import QTabWidget
+
         self.settings_tabs = QTabWidget(left_panel)
 
         # Build step tab
@@ -396,8 +398,7 @@ class WorkflowPage(QWidget):
     def _restore_step_preset_selection(self) -> None:
         self.step_preset_combo.blockSignals(True)
         self.step_preset_combo.setCurrentIndex(
-            self.step_preset_combo.findData(self._loaded_step_preset)
-            if self._loaded_step_preset else -1
+            self.step_preset_combo.findData(self._loaded_step_preset) if self._loaded_step_preset else -1
         )
         self.step_preset_combo.blockSignals(False)
 
@@ -479,11 +480,7 @@ class WorkflowPage(QWidget):
         _step_kind(fragment)
         if require_unique:
             for node_id, node in self._draft.graph.nodes.items():
-                if (
-                    node_id != self._selected_node_id
-                    and node.kind in _STEP_KINDS
-                    and node.title == fragment["name"]
-                ):
+                if node_id != self._selected_node_id and node.kind in _STEP_KINDS and node.title == fragment["name"]:
                     raise ValueError("Step names must be unique.")
         return fragment
 
@@ -732,10 +729,12 @@ class WorkflowPage(QWidget):
             step = _node_fragment(node)
             step["inputs"] = upstream
             steps.append(step)
-        return _dump_yaml({
-            "global": global_config if global_config is not None else self._draft.global_config,
-            "steps": steps,
-        })
+        return _dump_yaml(
+            {
+                "global": global_config if global_config is not None else self._draft.global_config,
+                "steps": steps,
+            }
+        )
 
     def _refresh_flow_diagram(self) -> None:
         _preview.refresh_flow_diagram(
@@ -782,9 +781,7 @@ class WorkflowPage(QWidget):
             self._on_error(tr("Save workflow", self._language), str(exc))
             return
         default = (
-            self._draft.preset.name
-            if self._draft.preset and self._draft.preset.source == "user"
-            else "new_workflow"
+            self._draft.preset.name if self._draft.preset and self._draft.preset.source == "user" else "new_workflow"
         )
         name, ok = QInputDialog.getText(
             self,
@@ -798,10 +795,7 @@ class WorkflowPage(QWidget):
         self._store.save_user_yaml(name, yaml_text)
         self._refresh_workflow_presets()
         saved_preset = next(
-            (
-                preset for preset in self._store.list_presets()
-                if preset.name == name and preset.source == "user"
-            ),
+            (preset for preset in self._store.list_presets() if preset.name == name and preset.source == "user"),
             None,
         )
         if saved_preset is None:
@@ -832,9 +826,7 @@ class WorkflowPage(QWidget):
 
     def _refresh_dirty_label(self) -> None:
         self.dirty_label.setText(
-            tr("Modified — save workflow before submitting.", self._language)
-            if self._draft.dirty
-            else ""
+            tr("Modified — save workflow before submitting.", self._language) if self._draft.dirty else ""
         )
 
     def _confirm_discard_step_text(self) -> bool:
@@ -844,9 +836,7 @@ class WorkflowPage(QWidget):
             self,
             tr("Unsaved step YAML", self._language),
             tr("Apply the current step YAML before switching?", self._language),
-            QMessageBox.StandardButton.Apply
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Apply | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Apply,
         )
         if reply == QMessageBox.StandardButton.Apply:

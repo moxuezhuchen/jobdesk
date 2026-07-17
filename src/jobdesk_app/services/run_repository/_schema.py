@@ -87,12 +87,8 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
         )
         """
     )
-    connection.execute(
-        "CREATE INDEX operations_run_id_idx ON operations(run_id)"
-    )
-    connection.execute(
-        "UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'"
-    )
+    connection.execute("CREATE INDEX operations_run_id_idx ON operations(run_id)")
+    connection.execute("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'")
 
 
 def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
@@ -117,9 +113,7 @@ def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
         """
     )
     timestamp = datetime.now().isoformat()
-    rows = connection.execute(
-        "SELECT DISTINCT local_dir FROM runs WHERE local_dir <> ''"
-    ).fetchall()
+    rows = connection.execute("SELECT DISTINCT local_dir FROM runs WHERE local_dir <> ''").fetchall()
     for row in rows:
         raw_workspace = str(row["local_dir"])
         workspace_path = Path(raw_workspace)
@@ -127,30 +121,20 @@ def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
             continue
         workspace = _lexical_absolute(workspace_path)
         connection.execute(
-            "INSERT OR IGNORE INTO workspace_roots(workspace_root, registered_at) "
-            "VALUES (?, ?)",
+            "INSERT OR IGNORE INTO workspace_roots(workspace_root, registered_at) VALUES (?, ?)",
             (str(workspace), timestamp),
         )
-    connection.execute(
-        "UPDATE schema_metadata SET value = '3' WHERE key = 'schema_version'"
-    )
+    connection.execute("UPDATE schema_metadata SET value = '3' WHERE key = 'schema_version'")
 
 
 def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
     """Add nullable ownership leases for submit operation recovery."""
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(operations)")
-    }
+    columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(operations)")}
     if "owner_id" not in columns:
         connection.execute("ALTER TABLE operations ADD COLUMN owner_id TEXT")
     if "lease_expires_at" not in columns:
-        connection.execute(
-            "ALTER TABLE operations ADD COLUMN lease_expires_at TEXT"
-        )
-    connection.execute(
-        "UPDATE schema_metadata SET value = '4' WHERE key = 'schema_version'"
-    )
+        connection.execute("ALTER TABLE operations ADD COLUMN lease_expires_at TEXT")
+    connection.execute("UPDATE schema_metadata SET value = '4' WHERE key = 'schema_version'")
 
 
 def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
@@ -168,13 +152,8 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
         )
         """
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS submit_activity_log_ts_idx "
-        "ON submit_activity_log(ts)"
-    )
-    connection.execute(
-        "UPDATE schema_metadata SET value = '5' WHERE key = 'schema_version'"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS submit_activity_log_ts_idx ON submit_activity_log(ts)")
+    connection.execute("UPDATE schema_metadata SET value = '5' WHERE key = 'schema_version'")
 
 
 def validate_future_schema(connection: sqlite3.Connection) -> None:
@@ -184,11 +163,6 @@ def validate_future_schema(connection: sqlite3.Connection) -> None:
     ).fetchone()
     if not metadata_exists:
         return
-    row = connection.execute(
-        "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-    ).fetchone()
+    row = connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()
     if row is not None and int(row[0]) > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"database uses newer schema version {row[0]} "
-            f"(supported={SCHEMA_VERSION})"
-        )
+        raise RuntimeError(f"database uses newer schema version {row[0]} (supported={SCHEMA_VERSION})")

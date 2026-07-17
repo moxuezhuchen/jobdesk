@@ -3,6 +3,7 @@
 Verifies auto-detected Mode (Single / Workflow) and payload assembly
 for both branches.
 """
+
 from __future__ import annotations
 
 import os
@@ -95,14 +96,19 @@ def test_workflow_payload_uses_selected_preset(qapp_instance, tmp_path, monkeypa
     )
     store = MethodPresetStore()
     spec = WorkflowSpec.from_form(
-        work_dir_name="x", program="gaussian", method="B3LYP",
-        basis="6-31G(d)", charge=0, multiplicity=1, nproc=4, memory_mb=4096,
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=4,
+        memory_mb=4096,
     )
     store.save_user("my_preset", spec)
 
     sources = [_src("a.xyz", "xyz")]
-    dlg = SubmitDialog("en", files=sources, server_id="prod-01",
-                       preset_store=store)
+    dlg = SubmitDialog("en", files=sources, server_id="prod-01", preset_store=store)
     dlg.set_selected_preset_name("my_preset")
     payload = dlg.build_payload()
     assert payload.kind in {"confflow", "dag"}
@@ -114,7 +120,9 @@ def test_stale_workflow_selection_cannot_accept(qapp_instance, tmp_path, monkeyp
     monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
     dlg = SubmitDialog(
-        "en", files=[_src("a.xyz", "xyz")], preset_store=MethodPresetStore(),
+        "en",
+        files=[_src("a.xyz", "xyz")],
+        preset_store=MethodPresetStore(),
         preset_name="b3lyp_631gd_opt_freq",
     )
     try:

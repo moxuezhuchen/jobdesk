@@ -12,6 +12,7 @@ This file tests the fix at the RunsResultsPage layer: the two action
 ids now raise two distinct signals so the MainWindow wiring can
 chain a ``editor.open_examples_menu()`` call after the page switch.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -62,9 +63,7 @@ def test_show_examples_emits_with_examples_signal(page):
     plain: list[None] = []
     with_examples: list[None] = []
     page.go_to_submit_requested.connect(lambda: plain.append(None))
-    page.go_to_submit_with_examples_requested.connect(
-        lambda: with_examples.append(None)
-    )
+    page.go_to_submit_with_examples_requested.connect(lambda: with_examples.append(None))
 
     page._on_empty_action("show_examples")
 
@@ -77,9 +76,7 @@ def test_unknown_action_is_a_noop(page):
     plain: list[None] = []
     with_examples: list[None] = []
     page.go_to_submit_requested.connect(lambda: plain.append(None))
-    page.go_to_submit_with_examples_requested.connect(
-        lambda: with_examples.append(None)
-    )
+    page.go_to_submit_with_examples_requested.connect(lambda: with_examples.append(None))
 
     page._on_empty_action("nothing_matches_this")
 

@@ -5,6 +5,7 @@ hide-dotfiles, polling snapshot) independent of any Qt widget. The
 page wires its ``QTimer`` to :meth:`LocalNavigator.check_local_changes`
 and forwards the rows back through :attr:`on_rows_loaded`.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -142,7 +143,5 @@ class LocalNavigator:
             target=_run,
             registry_attr=self._worker_registry_attr,
             on_result=_done,
-            on_error=lambda error: self._log_provider()(
-                f"Local refresh failed: {error.splitlines()[0]}"
-            ),
+            on_error=lambda error: self._log_provider()(f"Local refresh failed: {error.splitlines()[0]}"),
         )

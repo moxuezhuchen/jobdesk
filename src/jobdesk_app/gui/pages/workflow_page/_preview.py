@@ -3,6 +3,7 @@
 This module contains functions for rendering workflow previews, including
 YAML preview, flow diagram cards, and validation feedback.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -111,8 +112,7 @@ def build_step_card(
 
     detail = QLabel(flow_step_detail(node), card)
     detail.setStyleSheet(
-        f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px; "
-        f"border: none; background: transparent;"
+        f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px; border: none; background: transparent;"
     )
     content.addWidget(detail)
 
@@ -123,8 +123,7 @@ def build_step_card(
     up.setEnabled(index > 0)
     up.setFixedSize(36, 32)
     up.setStyleSheet(
-        f"padding: 0; background: {Colors.BG_SURFACE}; "
-        f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
     )
     up.setToolTip(tr("Move up", language))
     up.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, -1))
@@ -135,8 +134,7 @@ def build_step_card(
     down.setEnabled(index < total - 1)
     down.setFixedSize(36, 32)
     down.setStyleSheet(
-        f"padding: 0; background: {Colors.BG_SURFACE}; "
-        f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
     )
     down.setToolTip(tr("Move down", language))
     down.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, 1))
@@ -201,15 +199,10 @@ def refresh_flow_diagram(
 
     # Step cards
     if not ordered_nodes:
-        hint = QLabel(
-            tr("Choose a step on the left, then add it to the workflow.", language),
-            flow_body
-        )
+        hint = QLabel(tr("Choose a step on the left, then add it to the workflow.", language), flow_body)
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setFixedHeight(48)
-        hint.setStyleSheet(
-            f"color: {Colors.TEXT_MUTED}; border: none; background: transparent;"
-        )
+        hint.setStyleSheet(f"color: {Colors.TEXT_MUTED}; border: none; background: transparent;")
         flow_layout.addWidget(hint)
     else:
         for index, node in enumerate(ordered_nodes):
@@ -217,9 +210,7 @@ def refresh_flow_diagram(
             arrow = QLabel("\u2193", flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
             arrow.setFixedHeight(28)
-            arrow.setStyleSheet(
-                f"font-weight: 600; color: {Colors.TEXT_MUTED};"
-            )
+            arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
             flow_layout.addWidget(arrow)
 
             # Step card
@@ -240,9 +231,7 @@ def refresh_flow_diagram(
         arrow = QLabel("\u2193", flow_body)
         arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
         arrow.setFixedHeight(28)
-        arrow.setStyleSheet(
-            f"font-weight: 600; color: {Colors.TEXT_MUTED};"
-        )
+        arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
         flow_layout.addWidget(arrow)
 
     # Output label

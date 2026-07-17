@@ -122,10 +122,7 @@ class StyledTableWidget(QTableWidget):
         settings_store = GuiSettingsStore()
         settings = settings_store.load()
         widths = dict(settings.column_widths or {})
-        widths[key] = [
-            self.horizontalHeader().sectionSize(column)
-            for column in range(self.columnCount())
-        ]
+        widths[key] = [self.horizontalHeader().sectionSize(column) for column in range(self.columnCount())]
         settings_store.update(column_widths=widths)
 
     def _save_bound_column_widths(self) -> None:
@@ -378,10 +375,7 @@ class Sidebar(QWidget):
         # the design system.
         logo_container = QFrame(self)
         logo_container.setFixedHeight(48)
-        logo_container.setStyleSheet(
-            f"background: {Colors.PRIMARY}; "
-            f"border-radius: {Radius.MD}px; margin: 0 8px;"
-        )
+        logo_container.setStyleSheet(f"background: {Colors.PRIMARY}; border-radius: {Radius.MD}px; margin: 0 8px;")
         logo_layout = QVBoxLayout(logo_container)
         logo_layout.setContentsMargins(0, 0, 0, 0)
         logo = QLabel("J", logo_container)
@@ -410,7 +404,7 @@ class Sidebar(QWidget):
             return
         self._current = index
         for i, item in enumerate(self._items):
-            item.active = (i == index)
+            item.active = i == index
         self.current_changed.emit(index)
 
     def set_item_label(self, index: int, text: str) -> None:
@@ -504,9 +498,7 @@ class _SidebarAccessible(QAccessibleWidget, QAccessibleSelectionInterface):
         return False
 
 
-def _sidebar_accessibility_factory(
-    _class_name: str, obj: object
-) -> _SidebarItemAccessible | _SidebarAccessible | None:
+def _sidebar_accessibility_factory(_class_name: str, obj: object) -> _SidebarItemAccessible | _SidebarAccessible | None:
     if isinstance(obj, _SidebarItem):
         return _SidebarItemAccessible(obj)
     if isinstance(obj, Sidebar):
@@ -605,13 +597,9 @@ class SettingCard(QFrame):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(
-            f"color: {Colors.TEXT}; font-size: {Metrics.CARD_TITLE_FONT_PX}px; font-weight: 600;"
-        )
+        lbl_title.setStyleSheet(f"color: {Colors.TEXT}; font-size: {Metrics.CARD_TITLE_FONT_PX}px; font-weight: 600;")
         lbl_desc = QLabel(description)
-        lbl_desc.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-        )
+        lbl_desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
         lbl_desc.setWordWrap(True)
         text_layout.addWidget(lbl_title)
         text_layout.addWidget(lbl_desc)

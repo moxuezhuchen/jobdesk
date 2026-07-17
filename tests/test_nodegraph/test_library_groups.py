@@ -11,6 +11,7 @@ Tests cover the four behaviors the IMP-04 deliverable lists:
 4. Persisted collapsed state round-trips through ``GuiSettingsStore``:
    collapsing a group, reloading the panel, sees it still collapsed.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -74,9 +75,7 @@ def test_collapse_calcs_hides_only_calcs_members(panel):
     panel.set_group_collapsed(GROUP_CALCS, True)
 
     visible = {k for k in _all_kinds() if panel.is_kind_shown(k)}
-    assert visible == {NodeKind.XYZ_FILE, NodeKind.OUTPUT}, (
-        f"only Inputs + Sentinels should remain: got {visible}"
-    )
+    assert visible == {NodeKind.XYZ_FILE, NodeKind.OUTPUT}, f"only Inputs + Sentinels should remain: got {visible}"
 
 
 def test_collapse_calcs_persists_via_set_group_collapsed(panel, store):

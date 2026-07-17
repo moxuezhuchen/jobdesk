@@ -3,6 +3,7 @@
 Maintains one SSH connection per server, tailing _batch/events.log.
 Emits a signal when a task completes (DONE line received).
 """
+
 from __future__ import annotations
 
 import codecs
@@ -100,10 +101,14 @@ class RunMonitor:
                     rc = int(parts[2])
                 except ValueError:
                     rc = -1
-            self._callback(DoneEvent(
-                run_id=run_id, server_id=server_id, task_id=task_id,
-                exit_code=rc if parts[0] == "DONE" else None,
-            ))
+            self._callback(
+                DoneEvent(
+                    run_id=run_id,
+                    server_id=server_id,
+                    task_id=task_id,
+                    exit_code=rc if parts[0] == "DONE" else None,
+                )
+            )
 
 
 class _Watcher:
@@ -186,7 +191,8 @@ class _Watcher:
                                 if line_length + len(fragment) > _MAX_EVENT_LINE_CHARS:
                                     logger.warning(
                                         "watcher %s/%s discarded oversized event line",
-                                        self._server_id, self._run_id,
+                                        self._server_id,
+                                        self._run_id,
                                     )
                                     line_parts.clear()
                                     line_length = 0
@@ -205,7 +211,9 @@ class _Watcher:
                         except socket.timeout as exc:
                             logger.debug(
                                 "watcher %s/%s channel read timeout, continuing: %s",
-                                self._server_id, self._run_id, exc,
+                                self._server_id,
+                                self._run_id,
+                                exc,
                             )
                             if time.monotonic() - connected_at >= _WATCHER_STABLE_SECONDS:
                                 backoff = 10
@@ -213,7 +221,9 @@ class _Watcher:
                         except Exception as exc:
                             logger.debug(
                                 "watcher %s/%s channel read error, reconnecting: %s",
-                                self._server_id, self._run_id, exc,
+                                self._server_id,
+                                self._run_id,
+                                exc,
                             )
                             break
                 finally:
@@ -226,7 +236,10 @@ class _Watcher:
             except Exception as exc:
                 logger.warning(
                     "watcher %s/%s connection lost, reconnecting in %ds: %s",
-                    self._server_id, self._run_id, backoff, exc,
+                    self._server_id,
+                    self._run_id,
+                    backoff,
+                    exc,
                 )
                 if ssh:
                     try:
@@ -273,10 +286,10 @@ class _Watcher:
         probe_script = (
             "set +e\n"
             f"marker={shlex.quote(self._events_path.rsplit('/', 1)[0])}/.jobdesk_checkpoint_marker\n"
-            "[ -f \"$marker\" ] || touch \"$marker\"\n"
+            '[ -f "$marker" ] || touch "$marker"\n'
             f"updated=$(find {shlex.quote(self._events_path.rsplit('/', 1)[0])} "
-            "-name workflow_stats.json -newer \"$marker\" -print -quit 2>/dev/null)\n"
-            "touch \"$marker\"\n"
+            '-name workflow_stats.json -newer "$marker" -print -quit 2>/dev/null)\n'
+            'touch "$marker"\n'
             "if [ -n \"$updated\" ]; then printf '__JD_CHECKPOINT_CHANGED__\\n'; fi\n"
         )
         try:
@@ -284,16 +297,21 @@ class _Watcher:
             if r.exit_code == 0 and "__JD_CHECKPOINT_CHANGED__" in r.stdout:
                 logger.debug(
                     "watcher %s/%s detected ConfFlow checkpoint change",
-                    self._server_id, self._run_id,
+                    self._server_id,
+                    self._run_id,
                 )
-                self._progress_callback(DoneEvent(
-                    run_id=self._run_id,
-                    server_id=self._server_id,
-                    task_id="_ckpt_progress",
-                    exit_code=None,
-                ))
+                self._progress_callback(
+                    DoneEvent(
+                        run_id=self._run_id,
+                        server_id=self._server_id,
+                        task_id="_ckpt_progress",
+                        exit_code=None,
+                    )
+                )
         except Exception as exc:
             logger.debug(
                 "watcher %s/%s checkpoint probe failed (ignored): %s",
-                self._server_id, self._run_id, exc,
+                self._server_id,
+                self._run_id,
+                exc,
             )

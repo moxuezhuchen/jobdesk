@@ -1,4 +1,5 @@
 """JobDesk Prep CLI — input building, molecule viewing, and SMILES conversion."""
+
 from __future__ import annotations
 
 import argparse
@@ -78,6 +79,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_input_list_presets(args) -> int:
     from .core.input_builder import list_presets
+
     for name, desc in sorted(list_presets().items()):
         print(f"{name}: {desc}")
     return 0
@@ -91,6 +93,7 @@ def _cmd_input_build(args) -> int:
         build_gjf,
         build_inp,
     )
+
     if args.preset:
         content = build_from_preset(args.xyz_path.name, args.preset, None)
     elif args.orca:
@@ -124,6 +127,7 @@ def _cmd_input_build(args) -> int:
 
 def _cmd_viewer_list(args) -> int:
     from .core.viewer import list_available_viewers
+
     viewers = list_available_viewers()
     if not viewers:
         print("No molecular viewers found. Install Avogadro, GaussView, or ChemCraft.")
@@ -135,6 +139,7 @@ def _cmd_viewer_list(args) -> int:
 
 def _cmd_viewer_open(args) -> int:
     from .core.viewer import open_in_viewer
+
     if open_in_viewer(args.file_path.name, args.viewer, args.exe):
         print(f"Opened {args.file_path.name} in {args.viewer}")
         return 0
@@ -147,6 +152,7 @@ def _cmd_viewer_open(args) -> int:
 
 def _cmd_smiles_to_xyz(args) -> int:
     from .core.viewer import is_rdkit_available, smiles_to_xyz
+
     if not is_rdkit_available():
         print("rdkit is required. Install with: pip install rdkit")
         return 2
@@ -165,6 +171,7 @@ def _cmd_smiles_to_xyz(args) -> int:
 
 def _cmd_smiles_to_gjf(args) -> int:
     from .core.viewer import is_rdkit_available, smiles_to_gjf
+
     if not is_rdkit_available():
         print("rdkit is required. Install with: pip install rdkit")
         return 2

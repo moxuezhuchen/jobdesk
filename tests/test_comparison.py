@@ -72,8 +72,10 @@ class TestCompareRuns:
         # Create two runs
         svc = RunService(tmp_path, runs_dir=runs_dir)
         spec = RunSpec(
-            server_id="s", remote_dir="/tmp/x",
-            command_template="g16 {name}", max_parallel=1,
+            server_id="s",
+            remote_dir="/tmp/x",
+            command_template="g16 {name}",
+            max_parallel=1,
             mode=RunMode.selected_files,
             sources=[RunSource(path="/remote/mol.gjf")],
         )
@@ -122,8 +124,10 @@ class TestCompareRuns:
         from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 
         spec = RunSpec(
-            server_id="s", remote_dir="/tmp/x",
-            command_template="g16 {name}", max_parallel=1,
+            server_id="s",
+            remote_dir="/tmp/x",
+            command_template="g16 {name}",
+            max_parallel=1,
             mode=RunMode.selected_files,
             sources=[RunSource(path="/remote/mol.gjf")],
         )

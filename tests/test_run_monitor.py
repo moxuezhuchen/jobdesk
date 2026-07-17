@@ -119,10 +119,7 @@ def _run_watcher_sessions(session_actions, max_waits, monotonic_values=None):
 
     patches = []
     if monotonic_values is not None:
-        patches.append(
-            patch("jobdesk_app.services.run_monitor.time.monotonic",
-                  side_effect=monotonic_values)
-        )
+        patches.append(patch("jobdesk_app.services.run_monitor.time.monotonic", side_effect=monotonic_values))
 
     if patches:
         with patches[0]:
@@ -218,8 +215,8 @@ def test_watcher_resets_backoff_after_30s_stable_silent_connection():
         [[], [], [socket.timeout(), b""], []],
         max_waits=4,
         monotonic_values=[
-            0.0,    # Session 1: connected_at
-            1.0,    # Session 2: connected_at
+            0.0,  # Session 1: connected_at
+            1.0,  # Session 2: connected_at
             100.0,  # Session 3: connected_at
             131.0,  # Session 3: exception check (131 - 100 = 31 >= 30)
             200.0,  # Session 4: connected_at
@@ -255,7 +252,6 @@ def test_watcher_does_not_dispatch_data_returned_after_stop():
     watcher._run()
 
     assert events == []
-
 
 
 def test_watcher_logs_connection_failure(caplog):

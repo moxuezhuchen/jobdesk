@@ -96,9 +96,7 @@ def read_remote_task_status(
                 try:
                     snapshot.exit_code = int(content.strip())
                 except ValueError:
-                    snapshot.warnings.append(
-                        f"exit_code 文件内容不是有效整数: {content.strip()!r}"
-                    )
+                    snapshot.warnings.append(f"exit_code 文件内容不是有效整数: {content.strip()!r}")
         elif found is False:
             snapshot.exit_code_exists = False
         else:
@@ -145,7 +143,7 @@ def _parse_envelope(stdout: str) -> tuple[bool | None, str]:
         rest = ""
     else:
         first_line = stdout[:first_nl].strip()
-        rest = stdout[first_nl + 1:]
+        rest = stdout[first_nl + 1 :]
     if first_line == "__JD_FOUND__":
         return True, rest
     if first_line == "__JD_MISSING__":
@@ -178,15 +176,15 @@ _BATCH_PROLOGUE = (
     "    else\n"
     '      cat -- "$path" > "$_jd_tmp" 2>/dev/null\n'
     "    fi\n"
-    '    if [ $? -eq 0 ]; then\n'
+    "    if [ $? -eq 0 ]; then\n"
     "      printf '##JD-BEGIN %s F\\n' \"$key\"\n"
-    '      base64 "$_jd_tmp" | tr -d \'\\n\'\n'
+    "      base64 \"$_jd_tmp\" | tr -d '\\n'\n"
     "      printf '\\n##JD-END %s\\n' \"$key\"\n"
     "    else\n"
-    "      printf '##JD-BEGIN %s E\\n##JD-END %s\\n' \"$key\" \"$key\"\n"
+    '      printf \'##JD-BEGIN %s E\\n##JD-END %s\\n\' "$key" "$key"\n'
     "    fi\n"
     "  else\n"
-    "    printf '##JD-BEGIN %s M\\n##JD-END %s\\n' \"$key\" \"$key\"\n"
+    '    printf \'##JD-BEGIN %s M\\n##JD-END %s\\n\' "$key" "$key"\n'
     "  fi\n"
     "}\n"
 )
@@ -242,9 +240,7 @@ def read_remote_task_statuses_batch(
         return snapshots
 
     script = _build_batch_script(pending, log_tail_lines, extra)
-    effective_timeout = (
-        timeout if timeout is not None else max(30, 5 + (len(pending) + len(extra)) // 4)
-    )
+    effective_timeout = timeout if timeout is not None else max(30, 5 + (len(pending) + len(extra)) // 4)
 
     try:
         result = ssh.run(script, timeout=effective_timeout)
@@ -302,12 +298,10 @@ def _build_batch_script(
         d = shlex.quote(remote_job_dir)
         lines.append(f"encode_block 'T{idx}:S' {d}/.jobdesk_status 0")
         lines.append(f"encode_block 'T{idx}:E' {d}/.jobdesk_exit_code 0")
-        lines.append(
-            f"encode_block 'T{idx}:L' {d}/.jobdesk_submit.log {int(log_tail_lines)}"
-        )
-    for key, path, tail in (extra_files or []):
+        lines.append(f"encode_block 'T{idx}:L' {d}/.jobdesk_submit.log {int(log_tail_lines)}")
+    for key, path, tail in extra_files or []:
         lines.append(f"encode_block {shlex.quote(key)} {shlex.quote(path)} {int(tail)}")
-    lines.append("rm -f \"$_jd_tmp\"")
+    lines.append('rm -f "$_jd_tmp"')
     lines.append(f"printf '{_BATCH_DONE_MARK}\\n'")
     return "\n".join(lines)
 

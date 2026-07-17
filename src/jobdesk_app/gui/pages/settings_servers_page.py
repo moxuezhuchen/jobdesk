@@ -132,6 +132,7 @@ class SettingsServersPage(QWidget):
         # Page title (using the shared ``page_title_label`` helper from
         # ``theme.py`` so it picks up the new PAGE_TITLE_FONT_PX token).
         from ..theme import page_title_label
+
         self._page_title = page_title_label(tr("Settings", self._language))
         layout.addWidget(self._page_title)
         layout.addSpacing(8)
@@ -166,7 +167,11 @@ class SettingsServersPage(QWidget):
         self.browse_btn.clicked.connect(self._browse)
         fc_layout.addWidget(self.local_folder_edit, 1)
         fc_layout.addWidget(self.browse_btn)
-        self._card_local = SettingCard(tr("Local Directory", self._language), tr("Default save path for downloaded results", self._language), folder_ctrl)
+        self._card_local = SettingCard(
+            tr("Local Directory", self._language),
+            tr("Default save path for downloaded results", self._language),
+            folder_ctrl,
+        )
         layout.addWidget(self._card_local)
 
         editor_ctrl = QWidget()
@@ -187,14 +192,22 @@ class SettingsServersPage(QWidget):
         # ─── 最大并发 ───
         self.max_parallel_spin = QSpinBox()
         self.max_parallel_spin.setRange(1, 9999)
-        self._card_parallel = SettingCard(tr("Max Parallel", self._language), tr("Maximum concurrent remote tasks", self._language), self.max_parallel_spin)
+        self._card_parallel = SettingCard(
+            tr("Max Parallel", self._language),
+            tr("Maximum concurrent remote tasks", self._language),
+            self.max_parallel_spin,
+        )
         layout.addWidget(self._card_parallel)
 
         # ─── 语言 ───
         self.language_combo = QComboBox()
         self.language_combo.addItem(tr("Chinese", self._language), "zh")
         self.language_combo.addItem("English", "en")
-        self._card_language = SettingCard(tr("Language", self._language), tr("UI language, takes effect immediately", self._language), self.language_combo)
+        self._card_language = SettingCard(
+            tr("Language", self._language),
+            tr("UI language, takes effect immediately", self._language),
+            self.language_combo,
+        )
         layout.addWidget(self._card_language)
 
         # ─── 隐藏.文件 ───
@@ -204,14 +217,20 @@ class SettingsServersPage(QWidget):
         toggle_layout = QHBoxLayout(toggle_ctrl)
         toggle_layout.setContentsMargins(0, 0, 0, 0)
         toggle_layout.setSpacing(20)
-        self._toggle_label = QLabel(tr("On", self._language) if self.hide_dotfiles_cb.isChecked() else tr("Off", self._language))
+        self._toggle_label = QLabel(
+            tr("On", self._language) if self.hide_dotfiles_cb.isChecked() else tr("Off", self._language)
+        )
         toggle_layout.addStretch()
         toggle_layout.addWidget(self._toggle_label)
         toggle_layout.addWidget(self.hide_dotfiles_cb)
         self.hide_dotfiles_cb.toggled.connect(
             lambda v: self._toggle_label.setText(tr("On", self._language) if v else tr("Off", self._language))
         )
-        self._card_dotfiles = SettingCard(tr("Hide Dotfiles", self._language), tr("Hide files starting with . in remote listing", self._language), toggle_ctrl)
+        self._card_dotfiles = SettingCard(
+            tr("Hide Dotfiles", self._language),
+            tr("Hide files starting with . in remote listing", self._language),
+            toggle_ctrl,
+        )
         layout.addWidget(self._card_dotfiles)
 
         # ─── 服务器配置 ───
@@ -244,7 +263,15 @@ class SettingsServersPage(QWidget):
         self.server_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.server_table.verticalHeader().setVisible(False)
         self.server_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.server_table.setHorizontalHeaderLabels(["ID", tr("Host", self._language), tr("Port", self._language), tr("User", self._language), tr("Status", self._language)])
+        self.server_table.setHorizontalHeaderLabels(
+            [
+                "ID",
+                tr("Host", self._language),
+                tr("Port", self._language),
+                tr("User", self._language),
+                tr("Status", self._language),
+            ]
+        )
         self.server_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.server_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.server_table.bind_column_widths("settings.servers", [120, 260, 80, 180, 120])
@@ -278,9 +305,7 @@ class SettingsServersPage(QWidget):
         self._dl_title = section_title_label(tr("Software Profiles", self._language))
         dl_header.addWidget(self._dl_title)
         self._dl_desc = help_text(tr("{name}=filename, {basename}=name without extension", self._language))
-        self._dl_desc.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;"
-        )
+        self._dl_desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;")
         dl_header.addWidget(self._dl_desc)
         dl_header.addStretch()
         layout.addLayout(dl_header)
@@ -288,7 +313,14 @@ class SettingsServersPage(QWidget):
 
         self.profile_table = StyledTableWidget()
         self.profile_table.setColumnCount(4)
-        self.profile_table.setHorizontalHeaderLabels([tr("Name", self._language), tr("Input Ext", self._language), tr("Command", self._language), tr("Output Ext", self._language)])
+        self.profile_table.setHorizontalHeaderLabels(
+            [
+                tr("Name", self._language),
+                tr("Input Ext", self._language),
+                tr("Command", self._language),
+                tr("Output Ext", self._language),
+            ]
+        )
         self.profile_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.profile_table.horizontalHeader().setStretchLastSection(False)
         self.profile_table.horizontalHeader().resizeSection(0, 120)
@@ -321,12 +353,13 @@ class SettingsServersPage(QWidget):
         profile_card_inner.addWidget(self.profile_table)
         profile_card_inner.addLayout(profile_btns)
         self._confflow_note = help_text(
-            tr("ConfFlow downloads are managed from declared task outputs; "
-               "shown patterns describe the default artifacts.", self._language)
+            tr(
+                "ConfFlow downloads are managed from declared task outputs; "
+                "shown patterns describe the default artifacts.",
+                self._language,
+            )
         )
-        self._confflow_note.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;"
-        )
+        self._confflow_note.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.HELP_TEXT_FONT_PX}px;")
         profile_card_inner.addWidget(self._confflow_note)
         layout.addWidget(profile_card)
 
@@ -382,8 +415,11 @@ class SettingsServersPage(QWidget):
         self._dl_title.setText(tr("Software Profiles", language))
         self._dl_desc.setText(tr("{name}=filename, {basename}=name without extension", language))
         self._confflow_note.setText(
-            tr("ConfFlow downloads are managed from declared task outputs; "
-               "shown patterns describe the default artifacts.", language)
+            tr(
+                "ConfFlow downloads are managed from declared task outputs; "
+                "shown patterns describe the default artifacts.",
+                language,
+            )
         )
         self._srv_title.setText(tr("Server Profiles", language))
         # Setting cards
@@ -420,12 +456,12 @@ class SettingsServersPage(QWidget):
         self._discard_feedback.set_idle_text(tr("Discard", language))
         self._toggle_label.setText(tr("On", language) if self.hide_dotfiles_cb.isChecked() else tr("Off", language))
         # Table headers
-        self.profile_table.setHorizontalHeaderLabels([
-            tr("Name", language), tr("Input Ext", language), tr("Command", language), tr("Output Ext", language)
-        ])
-        self.server_table.setHorizontalHeaderLabels([
-            "ID", tr("Host", language), tr("Port", language), tr("User", language), tr("Status", language)
-        ])
+        self.profile_table.setHorizontalHeaderLabels(
+            [tr("Name", language), tr("Input Ext", language), tr("Command", language), tr("Output Ext", language)]
+        )
+        self.server_table.setHorizontalHeaderLabels(
+            ["ID", tr("Host", language), tr("Port", language), tr("User", language), tr("Status", language)]
+        )
         # Phase 2.1: retranslate the empty-state hint alongside the rest.
         self._empty_hint.apply_language(language)
 
@@ -481,10 +517,9 @@ class SettingsServersPage(QWidget):
                 "      - /opt/g16/bsd/g16.profile\n"
             )
             from PySide6.QtWidgets import QApplication
+
             QApplication.clipboard().setText(sample)
-            self._status_cb(
-                tr("Sample YAML copied to clipboard", self._language)
-            )
+            self._status_cb(tr("Sample YAML copied to clipboard", self._language))
             return
 
     def _test_connection(self):
@@ -568,6 +603,7 @@ class SettingsServersPage(QWidget):
 
     def _save_settings(self):
         from dataclasses import replace
+
         self._save_feedback.pending(tr("Saving...", self._language))
         try:
             existing = self._store.load()
@@ -612,7 +648,9 @@ class SettingsServersPage(QWidget):
             self._fit_table_height(self.profile_table)
 
     def _browse(self):
-        path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language), self.local_folder_edit.text())
+        path = QFileDialog.getExistingDirectory(
+            self, tr("Select local directory", self._language), self.local_folder_edit.text()
+        )
         if path:
             self.local_folder_edit.setText(path)
 
@@ -628,13 +666,20 @@ class SettingsServersPage(QWidget):
 
     def _delete_server(self):
         import yaml
+
         row = self.server_table.currentRow()
         if row < 0:
             self._status_cb(tr("Select a server first", self._language))
             return
         sid = self.server_table.item(row, 0).text()
         from PySide6.QtWidgets import QMessageBox
-        if QMessageBox.question(self, tr("Delete Server", self._language), tr("Delete {sid}?", self._language, sid=sid)) != QMessageBox.Yes:
+
+        if (
+            QMessageBox.question(
+                self, tr("Delete Server", self._language), tr("Delete {sid}?", self._language, sid=sid)
+            )
+            != QMessageBox.Yes
+        ):
             return
         path = get_default_servers_path()
         # ``servers.yaml`` is opt-in: a fresh install simply doesn't
@@ -664,11 +709,7 @@ class SettingsServersPage(QWidget):
         # Same fall-back as ``_delete_server``: an empty / missing
         # ``servers.yaml`` should still let the user edit metadata on
         # an existing in-memory row.
-        data = (
-            yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            if path.exists()
-            else {}
-        )
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {} if path.exists() else {}
         srv = data.get("servers", {}).get(sid, {})
 
         dlg = QDialog(self)
@@ -689,32 +730,51 @@ class SettingsServersPage(QWidget):
             auth_combo.setCurrentIndex(idx)
         else:
             auth_combo.setCurrentText("key")
-        auth_combo.setToolTip(tr(
-            "Key-based SSH authentication. Password auth is not supported.",
-            self._language,
-        ))
+        auth_combo.setToolTip(
+            tr(
+                "Key-based SSH authentication. Password auth is not supported.",
+                self._language,
+            )
+        )
         key_edit = QLineEdit(srv.get("key_path", ""))
         # Phase 3.2: tooltips for the most-confusing fields. The dialog
         # labels themselves stay short; the hover-time tooltip explains
         # what to type and falls back to placeholder text first.
-        host_edit.setToolTip(tr(
-            "The hostname or IP address of the remote server. Examples: "
-            "login.cluster.example.org or 10.0.0.42.", self._language))
-        user_edit.setToolTip(tr(
-            "Your SSH username on the remote server (the one you would "
-            "type at the Password: prompt).", self._language))
-        key_edit.setToolTip(tr(
-            "Absolute path to your SSH private key. Use ~ for your home "
-            "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
-            "viewer shows known keys under %USERPROFILE%\\.ssh\\.", self._language))
+        host_edit.setToolTip(
+            tr(
+                "The hostname or IP address of the remote server. Examples: login.cluster.example.org or 10.0.0.42.",
+                self._language,
+            )
+        )
+        user_edit.setToolTip(
+            tr(
+                "Your SSH username on the remote server (the one you would type at the Password: prompt).",
+                self._language,
+            )
+        )
+        key_edit.setToolTip(
+            tr(
+                "Absolute path to your SSH private key. Use ~ for your home "
+                "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
+                "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
+                self._language,
+            )
+        )
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.addWidget(key_edit, 1)
         key_browse = QPushButton(" ... ")
-        key_browse.clicked.connect(lambda: key_edit.setText(
-            QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
-                                        key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
+        key_browse.clicked.connect(
+            lambda: key_edit.setText(
+                QFileDialog.getOpenFileName(
+                    dlg,
+                    tr("Select SSH Key", self._language),
+                    key_edit.text() or str(__import__("pathlib").Path.home() / ".ssh"),
+                )[0]
+                or key_edit.text()
+            )
+        )
         key_layout.addWidget(key_browse)
         tofu_toggle = ToggleSwitch(bool(srv.get("trust_on_first_use", False)))
 
@@ -746,13 +806,15 @@ class SettingsServersPage(QWidget):
             data["servers"].pop(sid, None)
         # Preserve existing keys not shown in dialog (e.g. env_init_scripts)
         existing = srv.copy()
-        existing.update({
-            "host": host_edit.text().strip(),
-            "port": port_edit.value(),
-            "username": user_edit.text().strip(),
-            "auth_method": auth_combo.currentText(),
-            "trust_on_first_use": tofu_toggle.isChecked(),
-        })
+        existing.update(
+            {
+                "host": host_edit.text().strip(),
+                "port": port_edit.value(),
+                "username": user_edit.text().strip(),
+                "auth_method": auth_combo.currentText(),
+                "trust_on_first_use": tofu_toggle.isChecked(),
+            }
+        )
         existing["scheduler"] = scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
         existing["external_tools"] = external_tools_dict(
             external_widgets,
@@ -793,11 +855,14 @@ class SettingsServersPage(QWidget):
         user_edit.setToolTip(user_edit.placeholderText())
         key_edit = QLineEdit()
         key_edit.setPlaceholderText("~/.ssh/id_ed25519")
-        key_edit.setToolTip(tr(
-            "Absolute path to your SSH private key. Use ~ for your home "
-            "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
-            "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
-            self._language))
+        key_edit.setToolTip(
+            tr(
+                "Absolute path to your SSH private key. Use ~ for your home "
+                "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
+                "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
+                self._language,
+            )
+        )
         # -- Auth method combo --
         # JobDesk only supports key-based SSH auth today (ServerConfig
         # rejects password auth); the combo is built explicitly so the
@@ -805,18 +870,27 @@ class SettingsServersPage(QWidget):
         auth_combo = QComboBox()
         auth_combo.addItems(["key"])
         auth_combo.setCurrentText("key")
-        auth_combo.setToolTip(tr(
-            "Key-based SSH authentication. Password auth is not supported.",
-            self._language,
-        ))
+        auth_combo.setToolTip(
+            tr(
+                "Key-based SSH authentication. Password auth is not supported.",
+                self._language,
+            )
+        )
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.addWidget(key_edit, 1)
         key_browse = QPushButton(" ... ")
-        key_browse.clicked.connect(lambda: key_edit.setText(
-            QFileDialog.getOpenFileName(dlg, tr("Select SSH Key", self._language),
-                                        key_edit.text() or str(__import__('pathlib').Path.home() / ".ssh"))[0] or key_edit.text()))
+        key_browse.clicked.connect(
+            lambda: key_edit.setText(
+                QFileDialog.getOpenFileName(
+                    dlg,
+                    tr("Select SSH Key", self._language),
+                    key_edit.text() or str(__import__("pathlib").Path.home() / ".ssh"),
+                )[0]
+                or key_edit.text()
+            )
+        )
         key_layout.addWidget(key_browse)
         tofu_toggle = ToggleSwitch(False)
 

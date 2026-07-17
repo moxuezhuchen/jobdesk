@@ -72,10 +72,7 @@ class _FileTable(StyledTableWidget):
         if candidate is None or event.button() != Qt.LeftButton:
             return
         released_item = self.itemAt(pos)
-        if (
-            released_item is candidate
-            and self._can_start_selected_click_rename(candidate, pos, event.modifiers())
-        ):
+        if released_item is candidate and self._can_start_selected_click_rename(candidate, pos, event.modifiers()):
             self.selected_item_clicked.emit(candidate)
 
     @staticmethod
@@ -206,6 +203,7 @@ class _FileTable(StyledTableWidget):
 
 def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[int] | None = None) -> None:
     from PySide6.QtCore import QSize
+
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
     table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -222,6 +220,7 @@ def _setup_table(table: QTableWidget, headers: list[str], hidden_columns: list[i
 
 def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
     from PySide6.QtWidgets import QStyle
+
     style = table.style()
     folder_icon = style.standardIcon(QStyle.SP_DirIcon)
     file_icon = style.standardIcon(QStyle.SP_FileIcon)
@@ -232,7 +231,7 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
     table.setRowCount(len(rows))
     for r, row in enumerate(rows):
         kind = row[kind_col] if kind_col < len(row) else ""
-        is_parent = (str(row[0]) == "..")
+        is_parent = str(row[0]) == ".."
         # Sort rank: ".." = 0, dir = 1, file = 2
         sort_rank = 0 if is_parent else (1 if kind == "dir" else 2)
         for c, value in enumerate(row):
@@ -288,12 +287,12 @@ def _parse_size_bytes(text: str) -> float | None:
         "BYTES": 1,
         "KB": 1024,
         "KIB": 1024,
-        "MB": 1024 ** 2,
-        "MIB": 1024 ** 2,
-        "GB": 1024 ** 3,
-        "GIB": 1024 ** 3,
-        "TB": 1024 ** 4,
-        "TIB": 1024 ** 4,
+        "MB": 1024**2,
+        "MIB": 1024**2,
+        "GB": 1024**3,
+        "GIB": 1024**3,
+        "TB": 1024**4,
+        "TIB": 1024**4,
     }
     factor = factors.get(unit)
     if factor is None:
@@ -316,7 +315,4 @@ def _default_column_widths(key: str) -> list[int]:
 
 def _clamp_column_widths(key: str, widths: list[int]) -> list[int]:
     minimums = [90, 60, 110, 55]
-    return [
-        max(minimums[min(index, len(minimums) - 1)], int(width))
-        for index, width in enumerate(widths)
-    ]
+    return [max(minimums[min(index, len(minimums) - 1)], int(width)) for index, width in enumerate(widths)]

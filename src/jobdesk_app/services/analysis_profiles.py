@@ -3,6 +3,7 @@
 Built-in profiles cover common Gaussian/ORCA output patterns.
 Users can also define custom profiles stored in %APPDATA%/JobDesk/analysis_profiles/.
 """
+
 from __future__ import annotations
 
 import json
@@ -160,6 +161,7 @@ BUILTIN_PROFILES: dict[str, AnalysisProfile] = {
 
 
 # ---- User profile store ----------------------------------------------------
+
 
 class AnalysisProfileStore:
     """Load/save user-defined analysis profiles from disk."""

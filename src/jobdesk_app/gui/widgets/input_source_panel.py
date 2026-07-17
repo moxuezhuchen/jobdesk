@@ -26,6 +26,7 @@ dialog (which can show different default dirs / filters depending on
 whether the user is picking local or remote files - and the remote
 case doesn't make sense anyway since the Files page is the source).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -368,9 +369,7 @@ class _TabBody(QWidget):
                 )
             )
         else:
-            self.count_label.setText(
-                tr("{n} file{suffix} selected", self._language, n=n, suffix=suffix)
-            )
+            self.count_label.setText(tr("{n} file{suffix} selected", self._language, n=n, suffix=suffix))
 
     def add_directory(self, directory: Path, *, recursive: bool) -> int:
         if not directory.is_dir():
@@ -410,17 +409,13 @@ class _TabBody(QWidget):
     # -- Drag / drop -------------------------------------------------------
 
     def _dragEnterEvent(self, event):  # noqa: N802
-        if event.mimeData().hasUrls() and any(
-            url.isLocalFile() for url in event.mimeData().urls()
-        ):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
             event.acceptProposedAction()
             return
         event.ignore()
 
     def _dragMoveEvent(self, event):  # noqa: N802
-        if event.mimeData().hasUrls() and any(
-            url.isLocalFile() for url in event.mimeData().urls()
-        ):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
             event.acceptProposedAction()
             return
         event.ignore()

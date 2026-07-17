@@ -4,6 +4,7 @@ Supports nohup (default), Slurm, and PBS/Torque.
 Each adapter translates JobDesk's internal submit/poll/cancel into
 the scheduler-specific commands.
 """
+
 from __future__ import annotations
 
 import shlex
@@ -24,6 +25,7 @@ class JobState(str, Enum):
 @dataclass
 class ResourceSpec:
     """Resource requirements for a single task."""
+
     cpus: int = 1
     memory_mb: int = 2048
     walltime_minutes: int = 1440  # 24h default
@@ -107,9 +109,7 @@ class NohupAdapter:
         if job_id and job_id != "0":
             pid_q = shlex.quote(job_id)
             # Group-priority check command (reused after TERM and KILL)
-            check_cmd = (
-                f"kill -0 -- -{pid_q} 2>/dev/null || kill -0 {pid_q} 2>/dev/null"
-            )
+            check_cmd = f"kill -0 -- -{pid_q} 2>/dev/null || kill -0 {pid_q} 2>/dev/null"
             # TERM with process-group preference
             ssh.run(
                 f"kill -TERM -- -{pid_q} 2>/dev/null || kill -TERM {pid_q} 2>/dev/null",

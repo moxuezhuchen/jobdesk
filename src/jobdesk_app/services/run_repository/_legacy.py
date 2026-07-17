@@ -21,28 +21,18 @@ def retry_legacy_imports(
 
 
 def list_migration_errors(connection: sqlite3.Connection) -> list[MigrationError]:
-    rows = connection.execute(
-        "SELECT legacy_path, message FROM migration_errors ORDER BY legacy_path"
-    ).fetchall()
-    return [
-        MigrationError(legacy_path=Path(row["legacy_path"]), message=str(row["message"]))
-        for row in rows
-    ]
+    rows = connection.execute("SELECT legacy_path, message FROM migration_errors ORDER BY legacy_path").fetchall()
+    return [MigrationError(legacy_path=Path(row["legacy_path"]), message=str(row["message"])) for row in rows]
 
 
 def _import_legacy_runs(connection: sqlite3.Connection, runs_dir: Path) -> None:
-    marker = connection.execute(
-        "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
-    ).fetchone()
+    marker = connection.execute("SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'").fetchone()
     failed_paths = {
-        str(row["legacy_path"])
-        for row in connection.execute("SELECT legacy_path FROM migration_errors").fetchall()
+        str(row["legacy_path"]) for row in connection.execute("SELECT legacy_path FROM migration_errors").fetchall()
     }
     run_dirs = sorted(path for path in runs_dir.iterdir() if path.is_dir())
     legacy_paths = {
-        str(run_dir)
-        for run_dir in run_dirs
-        if (run_dir / "run.json").exists() or (run_dir / "manifest.tsv").exists()
+        str(run_dir) for run_dir in run_dirs if (run_dir / "run.json").exists() or (run_dir / "manifest.tsv").exists()
     }
     stale_failed_paths = failed_paths - legacy_paths
     if stale_failed_paths:
@@ -94,9 +84,7 @@ def _load_legacy_record(run_dir: Path) -> RunRecord:
     data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     run_id = str(data["run_id"])
     if run_id != run_dir.name:
-        raise ValueError(
-            f"legacy run_id {run_id!r} does not match directory {run_dir.name!r}"
-        )
+        raise ValueError(f"legacy run_id {run_id!r} does not match directory {run_dir.name!r}")
     return RunRecord(
         run_id=run_id,
         server_id=str(data["server_id"]),
@@ -119,4 +107,5 @@ def _load_legacy_tasks(manifest_path: Path) -> list:
     if not manifest_path.exists():
         raise FileNotFoundError(f"legacy manifest not found: {manifest_path}")
     from jobdesk_app.core.manifest import Manifest
+
     return Manifest.read(manifest_path)

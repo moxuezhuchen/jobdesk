@@ -40,6 +40,7 @@ Notes
   :class:`GraphScene` is expected to refresh its visual registry
   between calls (see :meth:`GraphScene._sync_from_model`).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -236,7 +237,8 @@ class RemoveNodeCommand(_GraphMutation):
             return
         self._node_snapshot = node
         self._edge_snapshots = [
-            edge for edge in self._graph.edges.values()
+            edge
+            for edge in self._graph.edges.values()
             if edge.src_node == self._node_id or edge.dst_node == self._node_id
         ]
         self._graph.remove_node(self._node_id)

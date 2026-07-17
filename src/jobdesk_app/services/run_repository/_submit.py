@@ -27,16 +27,12 @@ def _utc_lease_timestamp(value: datetime) -> str:
     """Serialize a lease instant in one lexically stable UTC representation."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
-        "+00:00", "Z"
-    )
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _parse_lease_timestamp(value: str) -> datetime:
     """Parse an explicitly zoned ISO lease timestamp as a UTC instant."""
-    parsed = datetime.fromisoformat(
-        value[:-1] + "+00:00" if value.endswith("Z") else value
-    )
+    parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     if parsed.tzinfo is None:
         raise ValueError("submit lease timestamp has no timezone")
     return parsed.astimezone(timezone.utc)
@@ -61,9 +57,7 @@ def claim_submit_tasks(
     """Claim uploaded tasks and create their submit journal entries atomically."""
     timestamp = datetime.now().isoformat()
     lease_expires_at = (
-        _utc_lease_timestamp(
-            datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
-        )
+        _utc_lease_timestamp(datetime.now(timezone.utc) + timedelta(seconds=lease_seconds))
         if owner_id is not None
         else None
     )
@@ -71,11 +65,7 @@ def claim_submit_tasks(
     if not connection.in_transaction:
         connection.execute("BEGIN IMMEDIATE")
     current = _load_tasks(connection, run_id)
-    claimed = [
-        task.model_copy(deep=True)
-        for task in current
-        if task.status == TaskStatus.uploaded
-    ]
+    claimed = [task.model_copy(deep=True) for task in current if task.status == TaskStatus.uploaded]
     if not claimed:
         return [], []
     claimed_ids = {task.task_id for task in claimed}
@@ -93,9 +83,7 @@ def claim_submit_tasks(
             for task in current
         ],
     )
-    groups = [[task.task_id] for task in claimed] if per_task else [
-        [task.task_id for task in claimed]
-    ]
+    groups = [[task.task_id] for task in claimed] if per_task else [[task.task_id for task in claimed]]
     for task_ids in groups:
         operation_id = str(uuid.uuid4())
         payload: dict = {
@@ -114,15 +102,30 @@ def claim_submit_tasks(
             ) VALUES (?, ?, 'submit', 'claimed', ?, NULL, ?, ?, NULL, ?, ?)
             """,
             (
-                operation_id, run_id, payload_json, timestamp, timestamp,
-                owner_id, lease_expires_at,
+                operation_id,
+                run_id,
+                payload_json,
+                timestamp,
+                timestamp,
+                owner_id,
+                lease_expires_at,
             ),
         )
-        operations.append(OperationRecord(
-            operation_id, run_id, "submit", "claimed",
-            dict(json.loads(payload_json)), None, timestamp, timestamp, None,
-            owner_id, lease_expires_at,
-        ))
+        operations.append(
+            OperationRecord(
+                operation_id,
+                run_id,
+                "submit",
+                "claimed",
+                dict(json.loads(payload_json)),
+                None,
+                timestamp,
+                timestamp,
+                None,
+                owner_id,
+                lease_expires_at,
+            )
+        )
     return claimed, operations
 
 
@@ -140,7 +143,9 @@ def renew_submit_lease(
         "AND completed_at IS NULL",
         (
             _utc_lease_timestamp(timestamp + timedelta(seconds=lease_seconds)),
-            timestamp.isoformat(), operation_id, owner_id,
+            timestamp.isoformat(),
+            operation_id,
+            owner_id,
         ),
     )
     if cursor.rowcount == 1:
@@ -188,7 +193,10 @@ def acquire_submit_recovery(
         (
             owner_id,
             _utc_lease_timestamp(now + timedelta(seconds=lease_seconds)),
-            now.isoformat(), operation_id, current_owner, current_lease,
+            now.isoformat(),
+            operation_id,
+            current_owner,
+            current_lease,
         ),
     )
     return cursor.rowcount == 1
@@ -228,9 +236,7 @@ def finish_submit_operation(
         job_ids=job_ids,
         error=error,
         owner_id=owner_id,
-    ) and complete_submit_operation(
-        connection, operation_id, phase, owner_id=owner_id
-    )
+    ) and complete_submit_operation(connection, operation_id, phase, owner_id=owner_id)
 
 
 def record_submit_outcome(
@@ -262,20 +268,20 @@ def record_submit_outcome(
             "AND completed_at IS NULL",
             (
                 "remote_started submit payload is invalid",
-                timestamp, operation_id,
+                timestamp,
+                operation_id,
             ),
         )
         return False
-    if error is not None and (
-        not isinstance(error, str) or not error.strip()
-    ):
+    if error is not None and (not isinstance(error, str) or not error.strip()):
         connection.execute(
             "UPDATE operations SET last_error = ?, updated_at = ? "
             "WHERE operation_id = ? AND phase = 'remote_started' "
             "AND completed_at IS NULL",
             (
                 "submit outcome error must be a non-empty string",
-                timestamp, operation_id,
+                timestamp,
+                operation_id,
             ),
         )
         return False
@@ -285,24 +291,14 @@ def record_submit_outcome(
         and len(set(task_ids)) == len(task_ids)
     )
     current = _load_tasks(connection, operation.run_id)
-    selected = _validated_operation_task_ids(
-        operation, current, TaskStatus.submitting
-    )
-    if (
-        selected is None
-        or not valid_requested_ids
-        or selected != set(task_ids)
-    ):
+    selected = _validated_operation_task_ids(operation, current, TaskStatus.submitting)
+    if selected is None or not valid_requested_ids or selected != set(task_ids):
         return False
     uncertain = error is not None
     if uncertain and job_ids:
         return False
     if not uncertain and (
-        set(job_ids) != selected
-        or any(
-            not isinstance(job_id, str) or not job_id
-            for job_id in job_ids.values()
-        )
+        set(job_ids) != selected or any(not isinstance(job_id, str) or not job_id for job_id in job_ids.values())
     ):
         return False
     updated = []
@@ -310,19 +306,23 @@ def record_submit_outcome(
         if task.task_id not in selected:
             updated.append(task)
             continue
-        updated.append(task.model_copy(update={
-            "status": TaskStatus.uncertain if uncertain else TaskStatus.submitted,
-            "scheduler_type": scheduler_type,
-            "remote_job_id": None if uncertain else job_ids.get(task.task_id),
-            "error_message": error,
-        }, deep=True))
+        updated.append(
+            task.model_copy(
+                update={
+                    "status": TaskStatus.uncertain if uncertain else TaskStatus.submitted,
+                    "scheduler_type": scheduler_type,
+                    "remote_job_id": None if uncertain else job_ids.get(task.task_id),
+                    "error_message": error,
+                },
+                deep=True,
+            )
+        )
     _replace_tasks(connection, operation.run_id, updated)
     phase = "uncertain" if uncertain else "confirmed"
     payload = dict(operation.payload)
     payload["outcome_phase"] = phase
     payload["results"] = {
-        task_id: ({"error": error} if uncertain else {"job_id": job_ids.get(task_id)})
-        for task_id in task_ids
+        task_id: ({"error": error} if uncertain else {"job_id": job_ids.get(task_id)}) for task_id in task_ids
     }
     cursor = connection.execute(
         """
@@ -332,8 +332,12 @@ def record_submit_outcome(
             AND owner_id IS ?
         """,
         (
-            phase, json.dumps(payload, ensure_ascii=False), error, timestamp,
-            operation_id, owner_id,
+            phase,
+            json.dumps(payload, ensure_ascii=False),
+            error,
+            timestamp,
+            operation_id,
+            owner_id,
         ),
     )
     return cursor.rowcount == 1
@@ -365,8 +369,7 @@ def complete_submit_operation(
     if operation.phase == "completed":
         return (
             operation.completed_at is not None
-            and _submit_journal_outcome_validation_error(operation, expected_phase)
-            is None
+            and _submit_journal_outcome_validation_error(operation, expected_phase) is None
         )
     current = _load_tasks(connection, operation.run_id)
     if _submit_outcome_validation_error(connection, operation, current, expected_phase) is not None:
@@ -391,10 +394,7 @@ def _submit_journal_outcome_validation_error(
     if (
         not isinstance(payload_task_ids, list)
         or not payload_task_ids
-        or not all(
-            isinstance(task_id, str) and bool(task_id)
-            for task_id in payload_task_ids
-        )
+        or not all(isinstance(task_id, str) and bool(task_id) for task_id in payload_task_ids)
         or len(set(payload_task_ids)) != len(payload_task_ids)
     ):
         return invalid
@@ -435,11 +435,7 @@ def _submit_outcome_validation_error(
     journal_error = _submit_journal_outcome_validation_error(operation, expected_phase)
     if journal_error is not None:
         return journal_error
-    expected_status = (
-        TaskStatus.submitted
-        if expected_phase == "confirmed"
-        else TaskStatus.uncertain
-    )
+    expected_status = TaskStatus.submitted if expected_phase == "confirmed" else TaskStatus.uncertain
     task_ids = _validated_operation_task_ids(operation, current, expected_status)
     results = operation.payload["results"]
     if task_ids is None:
@@ -452,15 +448,9 @@ def _submit_outcome_validation_error(
         task = current_by_id[task_id]
         if expected_phase == "confirmed":
             job_id = result.get("job_id")
-            if (
-                task.error_message is not None
-                or job_id != task.remote_job_id
-            ):
+            if task.error_message is not None or job_id != task.remote_job_id:
                 return "confirmed submit outcome is invalid"
-        elif (
-            task.error_message != operation.last_error
-            or task.remote_job_id is not None
-        ):
+        elif task.error_message != operation.last_error or task.remote_job_id is not None:
             return "uncertain submit outcome is invalid"
     return None
 
@@ -484,9 +474,7 @@ def release_claimed_submit_operation(
         return False
     operation = _row_to_operation(row)
     current = _load_tasks(connection, operation.run_id)
-    validated = _validated_operation_task_ids(
-        operation, current, TaskStatus.submitting
-    )
+    validated = _validated_operation_task_ids(operation, current, TaskStatus.submitting)
     if validated is None:
         _record_operation_validation_error(connection, operation, timestamp)
         return False
@@ -546,7 +534,8 @@ def recover_submit_operation(
                 "AND completed_at IS NULL",
                 (
                     "remote_started submit payload is invalid",
-                    timestamp, operation_id,
+                    timestamp,
+                    operation_id,
                 ),
             )
             return False
@@ -577,11 +566,14 @@ def recover_submit_operation(
                 (outcome_error, timestamp, operation_id, operation.phase),
             )
             return False
-        return connection.execute(
-            "UPDATE operations SET phase = 'completed', updated_at = ?, completed_at = ? "
-            "WHERE operation_id = ? AND phase = ? AND completed_at IS NULL",
-            (timestamp, timestamp, operation_id, operation.phase),
-        ).rowcount == 1
+        return (
+            connection.execute(
+                "UPDATE operations SET phase = 'completed', updated_at = ?, completed_at = ? "
+                "WHERE operation_id = ? AND phase = ? AND completed_at IS NULL",
+                (timestamp, timestamp, operation_id, operation.phase),
+            ).rowcount
+            == 1
+        )
     updated = []
     for task in current:
         if task.task_id not in task_ids or task.status != TaskStatus.submitting:
@@ -594,11 +586,14 @@ def recover_submit_operation(
             values["scheduler_type"] = scheduler_type
         updated.append(task.model_copy(update=values, deep=True))
     _replace_tasks(connection, operation.run_id, updated)
-    return connection.execute(
-        "UPDATE operations SET phase = 'completed', last_error = ?, updated_at = ?, "
-        "completed_at = ? WHERE operation_id = ? AND phase = ? AND completed_at IS NULL",
-        (error, timestamp, timestamp, operation_id, operation.phase),
-    ).rowcount == 1
+    return (
+        connection.execute(
+            "UPDATE operations SET phase = 'completed', last_error = ?, updated_at = ?, "
+            "completed_at = ? WHERE operation_id = ? AND phase = ? AND completed_at IS NULL",
+            (error, timestamp, timestamp, operation_id, operation.phase),
+        ).rowcount
+        == 1
+    )
 
 
 def resolve_uncertain_tasks(
@@ -678,13 +673,7 @@ def _row_to_operation(row: sqlite3.Row) -> OperationRecord:
         last_error=None if row["last_error"] is None else str(row["last_error"]),
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
-        completed_at=(
-            None if row["completed_at"] is None else str(row["completed_at"])
-        ),
+        completed_at=(None if row["completed_at"] is None else str(row["completed_at"])),
         owner_id=None if row["owner_id"] is None else str(row["owner_id"]),
-        lease_expires_at=(
-            None
-            if row["lease_expires_at"] is None
-            else str(row["lease_expires_at"])
-        ),
+        lease_expires_at=(None if row["lease_expires_at"] is None else str(row["lease_expires_at"])),
     )

@@ -12,6 +12,7 @@ The visual style deliberately mirrors the existing node-graph
 14px rounded corners) so the two empty-state surfaces feel like the
 same family without needing to share a stylesheet file.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
@@ -92,9 +93,7 @@ class EmptyStateHint(QFrame):
             for action_id, _text_key in action_texts:
                 btn = QPushButton(self)
                 btn.setObjectName(f"EmptyStateAction_{action_id}")
-                btn.clicked.connect(
-                    lambda _checked=False, aid=action_id: self.action_requested.emit(aid)
-                )
+                btn.clicked.connect(lambda _checked=False, aid=action_id: self.action_requested.emit(aid))
                 self._action_buttons[action_id] = btn
                 actions_row.addWidget(btn)
             actions_row.addStretch()

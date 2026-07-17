@@ -35,10 +35,13 @@ class TestManifestLock:
         import time
 
         p = tmp_path / "manifest.tsv"
-        Manifest.write(p, [
-            TaskRecord(task_id="a", batch_id="b", remote_job_dir="/x", error_message="0"),
-            TaskRecord(task_id="b", batch_id="b", remote_job_dir="/y", error_message="0"),
-        ])
+        Manifest.write(
+            p,
+            [
+                TaskRecord(task_id="a", batch_id="b", remote_job_dir="/x", error_message="0"),
+                TaskRecord(task_id="b", batch_id="b", remote_job_dir="/y", error_message="0"),
+            ],
+        )
         iterations = 30
         barrier = threading.Barrier(2)
 
@@ -62,7 +65,6 @@ class TestManifestLock:
         final = Manifest.read(p)
         assert final[0].error_message == str(iterations)
         assert final[1].error_message == str(iterations)
-
 
 
 class TestTaskRecord:
@@ -399,16 +401,17 @@ class TestManifestCorruption:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "manifest.tsv"
             row = {col: "" for col in _MANIFEST_COLUMNS}
-            row.update({
-                "task_id": "t1",
-                "batch_id": "b1",
-                "remote_job_dir": "/r/b1/t1",
-                "status": "local_ready",
-                "task_files": "[broken",
-            })
+            row.update(
+                {
+                    "task_id": "t1",
+                    "batch_id": "b1",
+                    "remote_job_dir": "/r/b1/t1",
+                    "status": "local_ready",
+                    "task_files": "[broken",
+                }
+            )
             path.write_text(
-                "\t".join(_MANIFEST_COLUMNS) + "\n"
-                + "\t".join(row[col] for col in _MANIFEST_COLUMNS) + "\n",
+                "\t".join(_MANIFEST_COLUMNS) + "\n" + "\t".join(row[col] for col in _MANIFEST_COLUMNS) + "\n",
                 encoding="utf-8",
             )
 

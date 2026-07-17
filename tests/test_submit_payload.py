@@ -6,6 +6,7 @@ all exchange data via :class:`SubmitPayload` / :class:`InputSource` /
 (immutability, defaults, repr-safety) so a future refactor can't
 silently change the data contract.
 """
+
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
@@ -141,12 +142,20 @@ def test_submit_payload_distinguishes_kinds():
     """The kind field is the discriminator for the use case's branch."""
     src = InputSource(path=Path("a.xyz"))
     single = SubmitPayload(
-        kind="single", inputs=[src], program="gaussian", calc=None,
-        workflow=None, output_dir=Path("."),
+        kind="single",
+        inputs=[src],
+        program="gaussian",
+        calc=None,
+        workflow=None,
+        output_dir=Path("."),
     )
     confflow = SubmitPayload(
-        kind="confflow", inputs=[src], program="gaussian", calc=None,
-        workflow=WorkflowFields(work_dir_name="x"), output_dir=Path("."),
+        kind="confflow",
+        inputs=[src],
+        program="gaussian",
+        calc=None,
+        workflow=WorkflowFields(work_dir_name="x"),
+        output_dir=Path("."),
     )
     assert single.kind == "single"
     assert confflow.kind == "confflow"
@@ -184,8 +193,13 @@ def test_submit_payload_accepts_dag_kind():
     src = InputSource(path=Path("a.xyz"))
     dag = DagWorkflowFields(work_dir_name="fanout_run")
     payload = SubmitPayload(
-        kind="dag", inputs=[src], program="orca", calc=None,
-        workflow=None, output_dir=Path("."), dag=dag,
+        kind="dag",
+        inputs=[src],
+        program="orca",
+        calc=None,
+        workflow=None,
+        output_dir=Path("."),
+        dag=dag,
     )
     assert payload.kind == "dag"
     assert payload.dag is not None
@@ -197,8 +211,12 @@ def test_submit_payload_dag_defaults_to_none():
     """A legacy confflow/single payload keeps dag=None by default."""
     src = InputSource(path=Path("a.xyz"))
     payload = SubmitPayload(
-        kind="confflow", inputs=[src], program="gaussian", calc=None,
-        workflow=WorkflowFields(work_dir_name="x"), output_dir=Path("."),
+        kind="confflow",
+        inputs=[src],
+        program="gaussian",
+        calc=None,
+        workflow=WorkflowFields(work_dir_name="x"),
+        output_dir=Path("."),
     )
     assert payload.dag is None
 

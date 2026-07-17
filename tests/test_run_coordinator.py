@@ -93,9 +93,7 @@ def test_submit_preserves_success_when_client_close_fails(tmp_path, monkeypatch)
     ssh.close.assert_called_once_with()
 
 
-def test_submit_failure_after_remote_start_is_recovered_immediately(
-    tmp_path, monkeypatch
-) -> None:
+def test_submit_failure_after_remote_start_is_recovered_immediately(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-started-failure")
 
@@ -108,9 +106,7 @@ def test_submit_failure_after_remote_start_is_recovered_immediately(
             self.remote_started([self.tasks[0].task_id])
             raise RuntimeError("connection lost after remote start")
 
-    monkeypatch.setattr(
-        "jobdesk_app.services.run_service.JobSubmitter", StartedThenFailingSubmitter
-    )
+    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", StartedThenFailingSubmitter)
     coordinator = RunCoordinator(
         service,
         server_lookup=_server,
@@ -127,9 +123,7 @@ def test_submit_failure_after_remote_start_is_recovered_immediately(
     assert operation.completed_at is not None
 
 
-def test_submit_preflight_failure_does_not_recover_other_operations(
-    tmp_path, monkeypatch
-) -> None:
+def test_submit_preflight_failure_does_not_recover_other_operations(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-preflight-failure")
     recover = MagicMock()
@@ -182,9 +176,7 @@ def test_non_owning_coordinator_does_not_close_shared_clients(tmp_path, monkeypa
     ssh.close.assert_not_called()
 
 
-def test_refresh_and_download_downloads_after_refresh_reveals_completed_task(
-    tmp_path, monkeypatch
-) -> None:
+def test_refresh_and_download_downloads_after_refresh_reveals_completed_task(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-1")
     refresh_ssh = MagicMock()
@@ -196,10 +188,7 @@ def test_refresh_and_download_downloads_after_refresh_reveals_completed_task(
     def refresh_to_completed(run_id, _ssh):
         service.repository.mutate_tasks(
             run_id,
-            lambda tasks: [
-                task.model_copy(update={"status": TaskStatus.remote_completed})
-                for task in tasks
-            ],
+            lambda tasks: [task.model_copy(update={"status": TaskStatus.remote_completed}) for task in tasks],
         )
         return refresh_result
 
@@ -225,9 +214,7 @@ def test_refresh_and_download_downloads_after_refresh_reveals_completed_task(
     download_ssh.close.assert_called_once_with()
 
 
-def test_refresh_and_download_preserves_refresh_when_sftp_is_unavailable(
-    tmp_path, monkeypatch
-) -> None:
+def test_refresh_and_download_preserves_refresh_when_sftp_is_unavailable(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-1")
     refresh_result = MagicMock(changed_count=1, warnings=[])
@@ -235,10 +222,7 @@ def test_refresh_and_download_preserves_refresh_when_sftp_is_unavailable(
     def refresh_to_completed(run_id, _ssh):
         service.repository.mutate_tasks(
             run_id,
-            lambda tasks: [
-                task.model_copy(update={"status": TaskStatus.remote_completed})
-                for task in tasks
-            ],
+            lambda tasks: [task.model_copy(update={"status": TaskStatus.remote_completed}) for task in tasks],
         )
         return refresh_result
 
@@ -263,7 +247,7 @@ def test_refresh_and_download_preserves_refresh_when_sftp_is_unavailable(
 def test_confirm_submitted_returns_consistent_outcome(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-1")
-    monkeypatch.setattr(service, "confirm_submitted", MagicMock(return_value=["a"] ))
+    monkeypatch.setattr(service, "confirm_submitted", MagicMock(return_value=["a"]))
     coordinator = RunCoordinator(service, server_lookup=_server, ssh_factory=MagicMock(), sftp_factory=MagicMock())
 
     outcome = coordinator.confirm_submitted(record.run_id, ["a"])
@@ -285,9 +269,7 @@ def test_abandon_submit_converts_service_error_to_outcome(tmp_path, monkeypatch)
     assert outcome.errors == ["ValueError: bad selection"]
 
 
-def test_recover_operations_replays_all_kinds_without_retrying_legacy_imports(
-    tmp_path, monkeypatch
-) -> None:
+def test_recover_operations_replays_all_kinds_without_retrying_legacy_imports(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     retry_migrations = MagicMock(return_value=[])
     monkeypatch.setattr(service, "retry_legacy_imports", retry_migrations)
@@ -306,9 +288,7 @@ def test_recover_operations_replays_all_kinds_without_retrying_legacy_imports(
     retry_migrations.assert_not_called()
 
 
-def test_recover_operations_can_explicitly_retry_legacy_imports(
-    tmp_path, monkeypatch
-) -> None:
+def test_recover_operations_can_explicitly_retry_legacy_imports(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     migration_error = SimpleNamespace(
         legacy_path=tmp_path / "legacy" / "run.json",
@@ -333,9 +313,7 @@ def test_recover_operations_can_explicitly_retry_legacy_imports(
 
     retry_migrations.assert_called_once_with()
     assert outcome.changed_count == 0
-    assert outcome.errors == [
-        f"legacy migration failed for {migration_error.legacy_path}: invalid manifest"
-    ]
+    assert outcome.errors == [f"legacy migration failed for {migration_error.legacy_path}: invalid manifest"]
 
 
 def test_recover_operations_replays_delete_journals_from_all_workspaces(tmp_path) -> None:
@@ -436,9 +414,7 @@ def test_recover_operations_rejects_forged_registered_workspace_binding(
     service_a = RunService(workspace_a, runs_dir=runs_dir)
     service_b = RunService(workspace_b, runs_dir=runs_dir)
 
-    anchor = service_b.create_run(
-        _spec(), run_id="workspace-b-anchor", local_dir=str(workspace_b)
-    )
+    anchor = service_b.create_run(_spec(), run_id="workspace-b-anchor", local_dir=str(workspace_b))
     anchor_operation = service_b.repository.prepare_delete_run(
         anchor.run_id,
         run_dir=anchor.run_dir,
@@ -447,9 +423,7 @@ def test_recover_operations_rejects_forged_registered_workspace_binding(
     )
     service_b._recover_delete_operation(anchor_operation, raise_errors=True)
 
-    record = service_a.create_run(
-        _spec(), run_id="forged-binding", local_dir=str(workspace_a)
-    )
+    record = service_a.create_run(_spec(), run_id="forged-binding", local_dir=str(workspace_a))
     operation = service_a.repository.prepare_delete_run(
         record.run_id,
         run_dir=record.run_dir,
@@ -465,13 +439,7 @@ def test_recover_operations_rejects_forged_registered_workspace_binding(
     forged_payload["results_root"] = str((workspace_b / "results").resolve())
     forged_payload["results_dir"] = str(external_results.resolve())
     forged_payload["trash_results_dir"] = str(
-        (
-            workspace_b
-            / "results"
-            / ".jobdesk-trash"
-            / operation.operation_id
-            / "results"
-        ).resolve()
+        (workspace_b / "results" / ".jobdesk-trash" / operation.operation_id / "results").resolve()
     )
     service_a.repository.advance_operation(
         operation.operation_id,

@@ -4,6 +4,7 @@ We use the public ``node_params_changed`` signal as the assertion
 hook: the editor (and the scene in our tests) subscribes to it and
 pushes a :class:`SetParamsCommand` onto the undo stack.
 """
+
 from __future__ import annotations
 
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView

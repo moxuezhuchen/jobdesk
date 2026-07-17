@@ -24,6 +24,7 @@ Public API
   the status pill.
 * :meth:`apply_language` — retranslate labels.
 """
+
 from __future__ import annotations
 
 import json
@@ -189,6 +190,7 @@ class WorkflowGraphEditor(QWidget):
             # widget construction where the parent layout isn't
             # realised yet.
             from PySide6.QtCore import QCoreApplication
+
             QCoreApplication.processEvents()
             self._view.fit_to_items()
             # During page construction the editor may not have received its
@@ -329,14 +331,10 @@ class WorkflowGraphEditor(QWidget):
     def _build_onboarding_overlay(self) -> None:
         self._onboarding_card = OnboardingCard(self._language, self._canvas_area)
         self._onboarding_card.hide()
-        self._onboarding_card.example_template_requested.connect(
-            self._on_examples_selected
-        )
+        self._onboarding_card.example_template_requested.connect(self._on_examples_selected)
         self._onboarding_card.tour_requested.connect(lambda: self.tour_requested.emit())
         self._onboarding_card.hide_forever_requested.connect(self._hide_onboarding_forever)
-        self._onboarding_card.quick_start_requested.connect(
-            lambda: self._on_examples_selected("linear_opt_freq")
-        )
+        self._onboarding_card.quick_start_requested.connect(lambda: self._on_examples_selected("linear_opt_freq"))
         self._canvas_area.installEventFilter(self)
 
     def _position_onboarding_card(self) -> None:
@@ -397,6 +395,7 @@ class WorkflowGraphEditor(QWidget):
 
     def _on_toggle_grid(self, checked: bool) -> None:
         from jobdesk_app.gui.nodegraph.canvas import make_blank_brush, make_grid_brush
+
         self._scene.setBackgroundBrush(make_grid_brush() if checked else make_blank_brush())
 
     def _on_clear(self) -> None:
@@ -465,13 +464,12 @@ class WorkflowGraphEditor(QWidget):
         issues = self.validate()
         n_err = sum(1 for i in issues if i.severity == "error")
         n_warn = sum(1 for i in issues if i.severity == "warning")
-        self._validate_feedback.success(
-            tr("{n} error(s), {m} warning(s)", self._language, n=n_err, m=n_warn)
-        )
+        self._validate_feedback.success(tr("{n} error(s), {m} warning(s)", self._language, n=n_err, m=n_warn))
 
     def _add_at_centre(self, kind: NodeKind) -> None:
         centre = self._view.mapToScene(self._view.viewport().rect().center())
         from jobdesk_app.gui.nodegraph.nodes import NODE_WIDTH
+
         self._scene.add_node(kind, (centre.x() - NODE_WIDTH / 2.0, centre.y() - 12.0))
 
     # ── scene handlers ───────────────────────────────────────────────
@@ -504,9 +502,7 @@ class WorkflowGraphEditor(QWidget):
             for edge in graph.edges.values()
             if edge.dst_node == node.id and edge.src_node in graph.nodes
         ]
-        self._properties.show_node_with_inputs(
-            node.id, node.kind, dict(node.params), incoming_names
-        )
+        self._properties.show_node_with_inputs(node.id, node.kind, dict(node.params), incoming_names)
         self.selected_node_changed.emit(node.id)
 
     def _on_params_changed(self, node_id: str, params: dict) -> None:
@@ -567,33 +563,25 @@ class WorkflowGraphEditor(QWidget):
         if self.is_empty():
             self._status_pill.setText(tr("Empty canvas", self._language))
             self._status_pill.setStyleSheet(
-                "background-color: #eef1f5; color: #4b5563; padding: 4px 12px;"
-                " border-radius: 10px; font-weight: 600;"
+                "background-color: #eef1f5; color: #4b5563; padding: 4px 12px; border-radius: 10px; font-weight: 600;"
             )
             return
         n_err = sum(1 for i in issues if i.severity == "error")
         n_warn = sum(1 for i in issues if i.severity == "warning")
         if n_err > 0:
-            self._status_pill.setText(
-                tr("{n} error(s) \u2014 see properties panel", self._language, n=n_err)
-            )
+            self._status_pill.setText(tr("{n} error(s) \u2014 see properties panel", self._language, n=n_err))
             self._status_pill.setStyleSheet(
-                "background-color: #fdecea; color: #c0392b; padding: 4px 12px;"
-                " border-radius: 10px; font-weight: 600;"
+                "background-color: #fdecea; color: #c0392b; padding: 4px 12px; border-radius: 10px; font-weight: 600;"
             )
         elif n_warn > 0:
-            self._status_pill.setText(
-                tr("{n} warning(s)", self._language, n=n_warn)
-            )
+            self._status_pill.setText(tr("{n} warning(s)", self._language, n=n_warn))
             self._status_pill.setStyleSheet(
-                "background-color: #fff4e0; color: #a35d00; padding: 4px 12px;"
-                " border-radius: 10px; font-weight: 600;"
+                "background-color: #fff4e0; color: #a35d00; padding: 4px 12px; border-radius: 10px; font-weight: 600;"
             )
         else:
             self._status_pill.setText(tr("Workflow OK", self._language))
             self._status_pill.setStyleSheet(
-                "background-color: #e7f5ec; color: #1f7a3a; padding: 4px 12px;"
-                " border-radius: 10px; font-weight: 600;"
+                "background-color: #e7f5ec; color: #1f7a3a; padding: 4px 12px; border-radius: 10px; font-weight: 600;"
             )
 
 

@@ -3,6 +3,7 @@
 Generates .gjf (Gaussian) or .inp (ORCA) input files from XYZ coordinates
 and a method/basis specification.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from typing import Any
 @dataclass
 class GaussianInputSpec:
     """Parameters for a Gaussian input file."""
+
     method_basis: str = "B3LYP/6-31G(d)"
     job_keywords: list[str] = field(default_factory=lambda: ["opt", "freq"])
     charge: int = 0
@@ -26,6 +28,7 @@ class GaussianInputSpec:
 @dataclass
 class OrcaInputSpec:
     """Parameters for an ORCA input file."""
+
     keywords: str = "! B3LYP def2-TZVP opt freq"
     charge: int = 0
     multiplicity: int = 1
@@ -40,47 +43,56 @@ GAUSSIAN_PRESETS: dict[str, GaussianInputSpec] = {
     "b3lyp_631gd_opt_freq": GaussianInputSpec(
         method_basis="B3LYP/6-31G(d)",
         job_keywords=["opt", "freq"],
-        nproc=8, mem="16GB",
+        nproc=8,
+        mem="16GB",
     ),
     "b3lyp_d3_def2tzvp_opt": GaussianInputSpec(
         method_basis="B3LYP/def2-TZVP EmpiricalDispersion=GD3BJ",
         job_keywords=["opt"],
-        nproc=8, mem="16GB",
+        nproc=8,
+        mem="16GB",
     ),
     "m062x_def2tzvp_opt_freq": GaussianInputSpec(
         method_basis="M062X/def2-TZVP",
         job_keywords=["opt", "freq"],
-        nproc=8, mem="16GB",
+        nproc=8,
+        mem="16GB",
     ),
     "wb97xd_def2tzvp_sp": GaussianInputSpec(
         method_basis="wB97X-D/def2-TZVP",
         job_keywords=["SP"],
-        nproc=8, mem="16GB",
+        nproc=8,
+        mem="16GB",
     ),
     "ccsd_t_ccpvtz_sp": GaussianInputSpec(
         method_basis="CCSD(T)/cc-pVTZ",
         job_keywords=["SP"],
-        nproc=16, mem="32GB",
+        nproc=16,
+        mem="32GB",
     ),
 }
 
 ORCA_PRESETS: dict[str, OrcaInputSpec] = {
     "b3lyp_def2tzvp_opt_freq": OrcaInputSpec(
         keywords="! B3LYP D3BJ def2-TZVP def2/J RIJCOSX TightSCF opt freq",
-        nproc=8, mem_per_core_mb=2000,
+        nproc=8,
+        mem_per_core_mb=2000,
     ),
     "dlpno_ccsd_t_sp": OrcaInputSpec(
         keywords="! DLPNO-CCSD(T) cc-pVTZ cc-pVTZ/C TightSCF",
-        nproc=16, mem_per_core_mb=4000,
+        nproc=16,
+        mem_per_core_mb=4000,
     ),
     "r2scan3c_opt_freq": OrcaInputSpec(
         keywords="! r2SCAN-3c opt freq",
-        nproc=8, mem_per_core_mb=2000,
+        nproc=8,
+        mem_per_core_mb=2000,
     ),
 }
 
 
 # ---- Builders --------------------------------------------------------------
+
 
 def build_gjf(
     xyz_path: Path | str,
@@ -184,10 +196,7 @@ def build_from_preset(
         return build_gjf(xyz_path, GAUSSIAN_PRESETS[preset_name], output_path)
     if preset_name in ORCA_PRESETS:
         return build_inp(xyz_path, ORCA_PRESETS[preset_name], output_path)
-    raise ValueError(
-        f"Unknown preset: {preset_name!r}. "
-        f"Available: {sorted(GAUSSIAN_PRESETS) + sorted(ORCA_PRESETS)}"
-    )
+    raise ValueError(f"Unknown preset: {preset_name!r}. Available: {sorted(GAUSSIAN_PRESETS) + sorted(ORCA_PRESETS)}")
 
 
 def list_presets() -> dict[str, str]:
@@ -270,13 +279,26 @@ def _mem_to_mb(mem_str: str) -> int:
 # Tokens that look like basis-set names or auxiliary basis names — used by
 # :func:`_split_orca_method_basis` to split an ORCA keyword line.
 _ORCA_BASIS_TOKENS = {
-    "def2-SVP", "def2-TZVP", "def2-QZVP",
-    "def2-SV(P)", "def2-TZVPP", "def2-TZVPD",
-    "def2/J", "def2-SVP/C", "def2-TZVP/C",
-    "cc-pVDZ", "cc-pVTZ", "cc-pVQZ",
-    "aug-cc-pVDZ", "aug-cc-pVTZ", "aug-cc-pVQZ",
-    "cc-pVDZ/C", "cc-pVTZ/C", "cc-pVQZ/C",
-    "MINIS", "MINAO",
+    "def2-SVP",
+    "def2-TZVP",
+    "def2-QZVP",
+    "def2-SV(P)",
+    "def2-TZVPP",
+    "def2-TZVPD",
+    "def2/J",
+    "def2-SVP/C",
+    "def2-TZVP/C",
+    "cc-pVDZ",
+    "cc-pVTZ",
+    "cc-pVQZ",
+    "aug-cc-pVDZ",
+    "aug-cc-pVTZ",
+    "aug-cc-pVQZ",
+    "cc-pVDZ/C",
+    "cc-pVTZ/C",
+    "cc-pVQZ/C",
+    "MINIS",
+    "MINAO",
 }
 
 
@@ -290,9 +312,21 @@ def _split_orca_method_basis(tokens: list[str]) -> tuple[str, str]:
     Anything else (dispersion, RI flags, …) is included in the method string.
     """
     job_keywords = {
-        "Opt", "SP", "Freq", "NumFreq", "TS", "OptTS",
-        "TightSCF", "LooseSCF", "NormalSCF", "MiniPrint", "NormalPrint",
-        "RIJCOSX", "RI", "RIJK", "RI-MP2",
+        "Opt",
+        "SP",
+        "Freq",
+        "NumFreq",
+        "TS",
+        "OptTS",
+        "TightSCF",
+        "LooseSCF",
+        "NormalSCF",
+        "MiniPrint",
+        "NormalPrint",
+        "RIJCOSX",
+        "RI",
+        "RIJK",
+        "RI-MP2",
         # Dispersion flags (D3BJ etc.) are NOT job keywords — they describe
         # the method. Keep them out of this set so they end up in the method
         # string the wizard sends to ConfFlow.
@@ -317,6 +351,7 @@ def _split_orca_method_basis(tokens: list[str]) -> tuple[str, str]:
 
 # ---- Internal helpers ------------------------------------------------------
 
+
 def _read_xyz(path: Path) -> list[tuple[str, float, float, float]]:
     """Parse an XYZ file, return list of (symbol, x, y, z)."""
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -334,8 +369,7 @@ def _read_xyz(path: Path) -> list[tuple[str, float, float, float]]:
         coordinate_lines.pop()
     if len(coordinate_lines) != n_atoms:
         raise ValueError(
-            f"XYZ file {path} declares {n_atoms} atoms but contains "
-            f"{len(coordinate_lines)} coordinate rows"
+            f"XYZ file {path} declares {n_atoms} atoms but contains {len(coordinate_lines)} coordinate rows"
         )
 
     atoms: list[tuple[str, float, float, float]] = []

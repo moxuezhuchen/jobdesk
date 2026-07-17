@@ -1,4 +1,5 @@
 """Cancel operations for run_service."""
+
 from __future__ import annotations
 
 from jobdesk_app.core.lifecycle import TaskStatus
@@ -74,20 +75,13 @@ def _cancel_run_locked(
         for task in tasks
         if task.status == TaskStatus.cancelled
         and task.task_id not in merged.accepted_task_ids
-        and (
-            task.task_id not in merged_by_id
-            or merged_by_id[task.task_id].status != TaskStatus.cancelled
-        )
+        and (task.task_id not in merged_by_id or merged_by_id[task.task_id].status != TaskStatus.cancelled)
     )
     errors.extend(
-        f"{task_id}: task state changed during cancellation; "
-        "cancellation status was not committed"
+        f"{task_id}: task state changed during cancellation; cancellation status was not committed"
         for task_id in rejected_cancellations
     )
     confirmed = sum(
-        1
-        for task in tasks
-        if task.status == TaskStatus.cancelled
-        and task.task_id in merged.accepted_task_ids
+        1 for task in tasks if task.status == TaskStatus.cancelled and task.task_id in merged.accepted_task_ids
     )
     return confirmed, errors

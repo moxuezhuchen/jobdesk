@@ -8,6 +8,7 @@ by the ``WorkflowGraphEditor`` under :mod:`jobdesk_app.gui.nodegraph`.
 Phase 2.1 added :class:`EmptyStateHint` for the other 3 pages of the shell.
 Phase 3.1 added :class:`InlineBanner` for non-modal warning/error feedback.
 """
+
 from .empty_state_hint import EmptyStateHint
 from .inline_banner import InlineBanner
 from .input_source_panel import InputSourcePanel

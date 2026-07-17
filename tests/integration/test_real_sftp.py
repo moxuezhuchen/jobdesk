@@ -25,11 +25,13 @@ from jobdesk_app.remote.ssh import SSHClientWrapper
 from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(
-    not all((
-        os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
-        os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
-        os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
-    )),
+    not all(
+        (
+            os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
+            os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
+            os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
+        )
+    ),
     reason="需要 JOBDESK_TEST_SSH_SERVER_ID / JOBDESK_TEST_SERVERS_YAML / JOBDESK_TEST_REMOTE_TMP_DIR",
 )
 
@@ -56,9 +58,9 @@ class TestRealSFTP:
         try:
             # 创建临时本地文件
             import tempfile
+
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8",
-                prefix="jobdesk_test_"
+                mode="w", suffix=".txt", delete=False, encoding="utf-8", prefix="jobdesk_test_"
             ) as f:
                 f.write("Hello from JobDesk M4 integration test!\n")
                 local_file = f.name

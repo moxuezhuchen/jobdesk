@@ -12,6 +12,7 @@ Behavioural notes vs. the old wizard:
 * ``isComplete()`` is gone — call :meth:`InputSourcePanel.sources`
   instead.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

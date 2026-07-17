@@ -338,8 +338,7 @@ ZH: dict[str, str] = {
     "Saved": "\u5df2\u4fdd\u5b58",
     "Save failed": "\u4fdd\u5b58\u5931\u8d25",
     "Discarded": "\u5df2\u653e\u5f03",
-    "ConfFlow downloads are managed from declared task outputs; "
-    "shown patterns describe the default artifacts.": (
+    "ConfFlow downloads are managed from declared task outputs; shown patterns describe the default artifacts.": (
         "ConfFlow \u4e0b\u8f7d\u7531\u4efb\u52a1\u58f0\u660e\u7684\u8f93\u51fa\u7ba1\u7406\uff1b"
         "\u8868\u4e2d\u6a21\u5f0f\u7528\u4e8e\u63cf\u8ff0\u9ed8\u8ba4\u4ea7\u7269\u3002"
     ),
@@ -514,12 +513,8 @@ ZH: dict[str, str] = {
     "Aggregate all upstream paths into workflow.yaml terminator": (
         "\u5c06\u4e0a\u6e38\u6240\u6709\u5206\u652f\u5408\u5e76\u5230 workflow.yaml \u7ec8\u6b62\u8282\u70b9"
     ),
-    "Inputs: {names} ({n} incoming edges)": (
-        "\u8f93\u5165: {names}\uff08{n} \u6761\u8f93\u5165\u8fb9\uff09"
-    ),
-    "Inputs: {names} (1 incoming edge)": (
-        "\u8f93\u5165: {names}\uff081 \u6761\u8f93\u5165\u8fb9\uff09"
-    ),
+    "Inputs: {names} ({n} incoming edges)": ("\u8f93\u5165: {names}\uff08{n} \u6761\u8f93\u5165\u8fb9\uff09"),
+    "Inputs: {names} (1 incoming edge)": ("\u8f93\u5165: {names}\uff081 \u6761\u8f93\u5165\u8fb9\uff09"),
     "Inputs: {names}": "\u8f93\u5165: {names}",
     "Inputs: 0 incoming edges": "\u8f93\u5165: 0 \u6761\u8f93\u5165\u8fb9",
     # -- Phase 2: submit page buttons --
@@ -625,37 +620,26 @@ ZH: dict[str, str] = {
     ),
     # -- Phase 19: Empty-state hints (Files / Runs / Settings pages) --
     "No server connected": "\u672a\u8fde\u63a5\u670d\u52a1\u5668",
-    (
-        "Add a Linux SSH server from the Settings tab to browse and transfer files."
-    ): (
+    ("Add a Linux SSH server from the Settings tab to browse and transfer files."): (
         "\u8bf7\u5148\u5728\u8bbe\u7f6e\u9875\u6dfb\u52a0 Linux SSH \u670d\u52a1\u5668\uff0c"
         "\u624d\u80fd\u6d4f\u89c8\u548c\u4f20\u8f93\u6587\u4ef6\u3002"
     ),
     "Open Settings": "\u6253\u5f00\u8bbe\u7f6e",
     "Import sample servers.yaml": "\u5bfc\u5165\u793a\u4f8b servers.yaml",
     "Browse a remote directory": "\u6d4f\u89c8\u8fdc\u7a0b\u76ee\u5f55",
-    (
-        "Pick a folder on the right, then drop .xyz / .gjf / .inp files into "
-        "the input list below."
-    ): (
+    ("Pick a folder on the right, then drop .xyz / .gjf / .inp files into the input list below."): (
         "\u5728\u53f3\u4fa7\u9009\u62e9\u4e00\u4e2a\u6587\u4ef6\u5939\uff0c"
         "\u7136\u540e\u628a .xyz / .gjf / .inp \u6587\u4ef6\u62d6\u5230\u4e0b\u9762\u7684\u8f93\u5165\u5217\u8868\u3002"
     ),
     "No runs yet": "\u5c1a\u65e0\u8fd0\u884c\u8bb0\u5f55",
-    (
-        "Build a workflow on the Submit tab and click Submit to Remote. "
-        "Your runs will appear here."
-    ): (
+    ("Build a workflow on the Submit tab and click Submit to Remote. Your runs will appear here."): (
         "\u8bf7\u5728\u63d0\u4ea4\u9875\u6784\u5efa\u5de5\u4f5c\u6d41\u5e76\u70b9\u51fb\u63d0\u4ea4\u5230\u8fdc\u7a0b\uff0c"
         "\u8fd0\u884c\u8bb0\u5f55\u4f1a\u51fa\u73b0\u5728\u8fd9\u91cc\u3002"
     ),
     "Go to Submit": "\u8d70\u5230\u63d0\u4ea4\u9875",
     "Show example templates": "\u67e5\u770b\u793a\u4f8b\u6a21\u677f",
     "Add a server to get started": "\u5148\u6dfb\u52a0\u4e00\u4e2a\u670d\u52a1\u5668",
-    (
-        "JobDesk uses SSH to talk to your Linux compute server. "
-        "You need host, port, username, and an auth method."
-    ): (
+    ("JobDesk uses SSH to talk to your Linux compute server. You need host, port, username, and an auth method."): (
         "JobDesk \u901a\u8fc7 SSH \u8fde\u63a5 Linux \u8ba1\u7b97\u670d\u52a1\u5668\uff0c"
         "\u9700\u8981 host\u3001port\u3001username \u548c\u8ba4\u8bc1\u65b9\u5f0f\u3002"
     ),
@@ -665,8 +649,7 @@ ZH: dict[str, str] = {
     "Imported sample server '{sid}'. Edit host/key in Settings.": "\u5df2\u5bfc\u5165\u793a\u4f8b\u670d\u52a1\u5668 '{sid}'\u3002\u8bf7\u5230\u8bbe\u7f6e\u9875\u7f16\u8f91\u4e3b\u673a/\u5bc6\u94a5\u3002",
     "Import sample failed": "\u5bfc\u5165\u793a\u4f8b\u5931\u8d25",
     "Cannot import sample": "\u65e0\u6cd5\u5bfc\u5165\u793a\u4f8b",
-    "{path} could not be parsed. Fix the file manually "
-    "(or move it aside) and try again.\n\n{err}": (
+    "{path} could not be parsed. Fix the file manually (or move it aside) and try again.\n\n{err}": (
         "{path} \u65e0\u6cd5\u88ab\u89e3\u6790\u3002\u8bf7\u624b\u52a8\u4fee\u590d\u6587\u4ef6"
         "\uff08\u6216\u5148\u79fb\u5230\u522b\u5904\uff09\u540e\u91cd\u8bd5\u3002\n\n{err}"
     ),
@@ -676,13 +659,11 @@ ZH: dict[str, str] = {
     "Add a node to start your workflow.": "\u8bf7\u6dfb\u52a0\u4e00\u4e2a\u8282\u70b9\u4ee5\u5f00\u59cb\u6784\u5efa\u5de5\u4f5c\u6d41\u3002",
     "Quick start: load Linear OPT + FREQ": "\u5feb\u901f\u5f00\u59cb\uff1a\u52a0\u8f7d\u7ebf\u6027 OPT + FREQ",
     "\u2192 {target}": "\u2192 \u8fdc\u7aef\u76ee\u6807\uff1a{target}",
-    "The hostname or IP address of the remote server. Examples: "
-    "login.cluster.example.org or 10.0.0.42.": (
+    "The hostname or IP address of the remote server. Examples: login.cluster.example.org or 10.0.0.42.": (
         "\u8fdc\u7a0b\u670d\u52a1\u5668\u7684\u4e3b\u673a\u540d\u6216 IP \u5730\u5740\u3002\u4f8b\u5982\uff1a"
         "login.cluster.example.org \u6216 10.0.0.42\u3002"
     ),
-    "Your SSH username on the remote server (the one you would "
-    "type at the Password: prompt).": (
+    "Your SSH username on the remote server (the one you would type at the Password: prompt).": (
         "\u8fdc\u7a0b\u670d\u52a1\u5668\u4e0a\u7684 SSH \u7528\u6237\u540d\uff08\u5728\u5bc6\u7801\u63d0\u793a\u4e0b\u8f93\u5165\u7684\u90a3\u4e2a\uff09\u3002"
     ),
     "Absolute path to your SSH private key. Use ~ for your home "
@@ -692,9 +673,7 @@ ZH: dict[str, str] = {
         "\u2014\u5982 ~/.ssh/id_ed25519\u3002\u5728 Windows \u4e0a\uff0c"
         "\u5bf9\u8bdd\u6846\u5728 %USERPROFILE%\\.ssh\\ \u4e0b\u663e\u793a\u5df2\u77e5\u5bc6\u94a5\u3002"
     ),
-    (
-        "Import sample: see docs/USER_GUIDE.md#sample-yaml"
-    ): (
+    ("Import sample: see docs/USER_GUIDE.md#sample-yaml"): (
         "\u5bfc\u5165\u793a\u4f8b\uff1a\u8bf7\u53c2\u9605 docs/USER_GUIDE.md#sample-yaml"
     ),
     # -- 2.0: Workflow Builder + Submit dual entry --
@@ -750,7 +729,7 @@ ZH: dict[str, str] = {
     "Workflow builder closed without saving.": "\u5de5\u4f5c\u6d41\u7f16\u8f91\u5668\u5df2\u53d6\u6d88\u3002",
     "Workflow saved.": "\u5de5\u4f5c\u6d41\u5df2\u4fdd\u5b58\u3002",
     "Workflow failed to save: {message}": "\u5de5\u4f5c\u6d41\u4fdd\u5b58\u5931\u8d25\uff1a{message}",
-    "Preset \"{name}\" already exists. Overwrite?": "\u9884\u8bbe \"{name}\" \u5df2\u5b58\u5728\u3002\u662f\u5426\u8986\u76d6\uff1f",
+    'Preset "{name}" already exists. Overwrite?': '\u9884\u8bbe "{name}" \u5df2\u5b58\u5728\u3002\u662f\u5426\u8986\u76d6\uff1f',
     "Workflow preset loaded: {name}": "\u5df2\u52a0\u8f7d\u5de5\u4f5c\u6d41\u9884\u8bbe\uff1a{name}",
     "Loaded workflow preset.": "\u5df2\u52a0\u8f7d\u5de5\u4f5c\u6d41\u9884\u8bbe\u3002",
     "Submit for calculation": "\u63d0\u4ea4\u8ba1\u7b97\u4efb\u52a1",
@@ -798,11 +777,9 @@ ZH: dict[str, str] = {
     "[G]": "[Gaussian]",
     "[O]": "[ORCA]",
     "Workflow YAML": "\u5de5\u4f5c\u6d41 YAML",
-    "Edit per-step keywords, program, and task type.":
-        "\u7f16\u8f91\u6bcf\u4e00\u6b65\u7684\u5173\u952e\u8bcd\u3001\u7a0b\u5e8f\u4e0e\u4efb\u52a1\u7c7b\u578b\u3002",
+    "Edit per-step keywords, program, and task type.": "\u7f16\u8f91\u6bcf\u4e00\u6b65\u7684\u5173\u952e\u8bcd\u3001\u7a0b\u5e8f\u4e0e\u4efb\u52a1\u7c7b\u578b\u3002",
     "Apply": "\u5e94\u7528",
-    "Apply the YAML text to the current workflow.":
-    "\u5c06 YAML \u6587\u672c\u5e94\u7528\u5230\u5f53\u524d\u5de5\u4f5c\u6d41\u3002",
+    "Apply the YAML text to the current workflow.": "\u5c06 YAML \u6587\u672c\u5e94\u7528\u5230\u5f53\u524d\u5de5\u4f5c\u6d41\u3002",
     "YAML applied successfully.": "YAML \u5e94\u7528\u6210\u529f\u3002",
     "YAML parse error": "YAML \u89e3\u6790\u9519\u8bef",
     # Phase 2.0 dual-entry follow-ups: the SubmitDialog tolerates an
@@ -812,23 +789,19 @@ ZH: dict[str, str] = {
     "Pick at least one input file in the Files page, then "
     "reopen this dialog. Until then the dialog stays open "
     "so you can still pick a workflow preset and queue a "
-    "submission later.":
-        "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
-        "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002\u672a\u9009\u62e9\u6587\u4ef6\u65f6\u5bf9\u8bdd\u6846\u4fdd\u6301\u6253\u5f00\uff0c"
-        "\u4f60\u4ecd\u53ef\u4ee5\u9884\u9009\u5de5\u4f5c\u6d41\u9884\u8bbe\u4ee5\u4fbf\u4ee5\u540e\u63d0\u4ea4\u3002",
-    "Workflow required while no input files are selected":
-        "\u672a\u9009\u62e9\u8f93\u5165\u6587\u4ef6\u65f6\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
+    "submission later.": "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
+    "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002\u672a\u9009\u62e9\u6587\u4ef6\u65f6\u5bf9\u8bdd\u6846\u4fdd\u6301\u6253\u5f00\uff0c"
+    "\u4f60\u4ecd\u53ef\u4ee5\u9884\u9009\u5de5\u4f5c\u6d41\u9884\u8bbe\u4ee5\u4fbf\u4ee5\u540e\u63d0\u4ea4\u3002",
+    "Workflow required while no input files are selected": "\u672a\u9009\u62e9\u8f93\u5165\u6587\u4ef6\u65f6\u5fc5\u987b\u4f7f\u7528\u5de5\u4f5c\u6d41\u6a21\u5f0f",
     # Review-round 3: SubmitDialog grew "Save workflow.yaml..."
     # strings + a brief "Pick at least one input file in the Files
     # page, then reopen this dialog." line for the OK-click guard.
     # Add ZH entries below; EN falls back from ``tr()`` if missing.
-    "Pick at least one input file in the Files page, then reopen this dialog.":
-        "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
-        "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002",
+    "Pick at least one input file in the Files page, then reopen this dialog.": "\u8bf7\u5728\u300c\u6587\u4ef6\u300d\u9875\u9009\u62e9\u81f3\u5c11\u4e00\u4e2a\u8f93\u5165\u6587\u4ef6\uff0c"
+    "\u7136\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5bf9\u8bdd\u6846\u3002",
     "Save workflow.yaml\u2026": "\u4fdd\u5b58 workflow.yaml\u2026",
     "Save workflow.yaml": "\u4fdd\u5b58 workflow.yaml",
-    "Switch to Workflow mode to save a workflow.yaml.":
-        "\u8bf7\u5207\u6362\u5230\u5de5\u4f5c\u6d41\u6a21\u5f0f\u540e\u518d\u4fdd\u5b58 workflow.yaml\u3002",
+    "Switch to Workflow mode to save a workflow.yaml.": "\u8bf7\u5207\u6362\u5230\u5de5\u4f5c\u6d41\u6a21\u5f0f\u540e\u518d\u4fdd\u5b58 workflow.yaml\u3002",
     "YAML (*.yaml);;All files (*.*)": "YAML (*.yaml)\uff1b\u6240\u6709\u6587\u4ef6 (*.*)",
     "workflow.yaml": "workflow.yaml",
     # Workflow page: collapsible Global settings card (Phase 6
@@ -838,8 +811,7 @@ ZH: dict[str, str] = {
     "Show global settings": "\u5c55\u5f00\u5168\u5c40\u8bbe\u7f6e",
     "Hide global settings": "\u6536\u8d77\u5168\u5c40\u8bbe\u7f6e",
     "Default program: ": "\u9ed8\u8ba4\u7a0b\u5e8f\uff1a",
-    "Override per step in the YAML editor.":
-        "\u5982\u9700\u9488\u5bf9\u67d0\u4e00\u6b65\u8986\u76d6\uff0c\u8bf7\u5728 YAML \u7f16\u8f91\u5668\u4e2d\u4fee\u6539\u3002",
+    "Override per step in the YAML editor.": "\u5982\u9700\u9488\u5bf9\u67d0\u4e00\u6b65\u8986\u76d6\uff0c\u8bf7\u5728 YAML \u7f16\u8f91\u5668\u4e2d\u4fee\u6539\u3002",
     "Work directory:": "\u5de5\u4f5c\u76ee\u5f55\uff1a",
     "Cores per task:": "\u6bcf\u4efb\u52a1\u6838\u6570\uff1a",
     "Total memory:": "\u603b\u5185\u5b58\uff1a",
@@ -847,12 +819,9 @@ ZH: dict[str, str] = {
     "Charge:": "\u7535\u8377\uff1a",
     "Multiplicity:": "\u81ea\u65cb\u591a\u91cd\u5ea6\uff1a",
     "Frozen atoms:": "\u51bb\u7ed3\u539f\u5b50\uff1a",
-    "Comma-separated 1-based atom indices, e.g. 86, 92":
-        "\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u539f\u5b50\u7f16\u53f7\uff0c\u5982 86, 92",
-    "Frozen atoms must be a comma-separated list of positive integers (1-based).":
-        "\u51bb\u7ed3\u539f\u5b50\u5fc5\u987b\u662f\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u6b63\u6574\u6570\u5217\u8868\u3002",
-    "YAML did not produce any steps.":
-        "YAML \u672a\u4ea7\u751f\u4efb\u4f55\u6b65\u9aa4\u3002",
+    "Comma-separated 1-based atom indices, e.g. 86, 92": "\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u539f\u5b50\u7f16\u53f7\uff0c\u5982 86, 92",
+    "Frozen atoms must be a comma-separated list of positive integers (1-based).": "\u51bb\u7ed3\u539f\u5b50\u5fc5\u987b\u662f\u4ee5\u9017\u53f7\u5206\u9694\u7684 1-\u57fa\u6b63\u6574\u6570\u5217\u8868\u3002",
+    "YAML did not produce any steps.": "YAML \u672a\u4ea7\u751f\u4efb\u4f55\u6b65\u9aa4\u3002",
     "e.g. 16GB": "\u5982 16GB",
     "Gaussian": "Gaussian \u8ba1\u7b97",
     "ORCA": "ORCA \u8ba1\u7b97",

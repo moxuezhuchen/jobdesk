@@ -18,9 +18,7 @@ def configure_file_logging(logger_name: str = "jobdesk") -> logging.Logger:
                 return logger
 
         handler = logging.FileHandler(log_path, encoding="utf-8")
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s: %(message)s"
-        ))
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
     except OSError:
         if not logger.handlers:

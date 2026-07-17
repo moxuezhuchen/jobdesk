@@ -265,17 +265,12 @@ class SSHClientWrapper:
         port = int(str(lookup_port)) if lookup_port is not None else self._server.port
         key_path = self._server.key_path or _first_identity_file(ssh_lookup)
         proxy_command = (
-            self._server.ssh_access.proxy_command.strip()
-            or str(ssh_lookup.get("proxycommand") or "").strip()
+            self._server.ssh_access.proxy_command.strip() or str(ssh_lookup.get("proxycommand") or "").strip()
         )
-        proxy_jump = (
-            self._server.ssh_access.proxy_jump.strip()
-            or str(ssh_lookup.get("proxyjump") or "").strip()
-        )
+        proxy_jump = self._server.ssh_access.proxy_jump.strip() or str(ssh_lookup.get("proxyjump") or "").strip()
         if self._server.auth_method == "password":
             raise SSHConnectionError(
-                f"password 认证在代码中不支持直接传入密码（服务器 {self._server.display_name!r}）。"
-                f"请使用 key 认证。",
+                f"password 认证在代码中不支持直接传入密码（服务器 {self._server.display_name!r}）。请使用 key 认证。",
                 host=hostname,
                 port=port,
             )
@@ -378,9 +373,7 @@ class SSHClientWrapper:
             jump_user = user or str(jump_lookup.get("user") or fallback_username)
             lookup_port = jump_lookup.get("port")
             jump_port = (
-                explicit_port
-                if explicit_port is not None
-                else int(str(lookup_port)) if lookup_port is not None else 22
+                explicit_port if explicit_port is not None else int(str(lookup_port)) if lookup_port is not None else 22
             )
             jump_key_path = _first_identity_file(jump_lookup) or fallback_key_path
 
@@ -464,10 +457,7 @@ class SSHClientWrapper:
                 return
             # Cooldown based on last attempt (success or failure)
             now = time.monotonic()
-            if (
-                _wsl_boot_last_attempt is not None
-                and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN
-            ):
+            if _wsl_boot_last_attempt is not None and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN:
                 return
             _wsl_boot_last_attempt = now
             try:
@@ -523,9 +513,7 @@ class SSHClientWrapper:
         t0 = time.monotonic()
         _timeout = timeout or self._timeout
         try:
-            stdin, stdout, stderr = self._client.exec_command(
-                command, timeout=_timeout
-            )
+            stdin, stdout, stderr = self._client.exec_command(command, timeout=_timeout)
             # Drain stdout and stderr concurrently to prevent deadlock.
             channel = stdout.channel
             channel.settimeout(_timeout)

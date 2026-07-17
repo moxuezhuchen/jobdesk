@@ -218,9 +218,7 @@ class RunCoordinator:
             lambda: self.service.abandon_submit(run_id, task_ids),
         )
 
-    def _resolve_uncertain(
-        self, run_id: str, action: Callable[[], list[str]]
-    ) -> RunOperationOutcome:
+    def _resolve_uncertain(self, run_id: str, action: Callable[[], list[str]]) -> RunOperationOutcome:
         try:
             changed = action()
             return RunOperationOutcome(
@@ -230,17 +228,14 @@ class RunCoordinator:
         except Exception as exc:
             return RunOperationOutcome(errors=[_error_text(exc)])
 
-    def recover_operations(
-        self, *, include_legacy_imports: bool = False
-    ) -> RunOperationOutcome:
+    def recover_operations(self, *, include_legacy_imports: bool = False) -> RunOperationOutcome:
         changed = 0
         errors: list[str] = []
         if include_legacy_imports:
             try:
                 migration_errors = self.service.retry_legacy_imports()
                 errors.extend(
-                    f"legacy migration failed for {error.legacy_path}: {error.message}"
-                    for error in migration_errors
+                    f"legacy migration failed for {error.legacy_path}: {error.message}" for error in migration_errors
                 )
             except Exception as exc:
                 errors.append(_error_text(exc))
@@ -249,9 +244,7 @@ class RunCoordinator:
         except Exception as exc:
             errors.append(_error_text(exc))
         try:
-            delete_changed, delete_errors = (
-                self.service.recover_delete_operations_globally()
-            )
+            delete_changed, delete_errors = self.service.recover_delete_operations_globally()
             changed += delete_changed
             errors.extend(delete_errors)
         except Exception as exc:
@@ -300,13 +293,9 @@ class RunCoordinator:
                 pass
 
     @contextmanager
-    def _clients(
-        self, server_id: str, server: ServerConfig, *, need_sftp: bool
-    ) -> Iterator[tuple[Any, Any | None]]:
+    def _clients(self, server_id: str, server: ServerConfig, *, need_sftp: bool) -> Iterator[tuple[Any, Any | None]]:
         if self._session_pool is not None:
-            with self._session_pool.lease(
-                server_id, server, need_sftp=need_sftp
-            ) as lease:
+            with self._session_pool.lease(server_id, server, need_sftp=need_sftp) as lease:
                 yield lease.ssh, lease.sftp
             return
         ssh = None

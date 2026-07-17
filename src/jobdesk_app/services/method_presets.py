@@ -5,6 +5,7 @@ Bundled YAML is deliberately limited to reusable *steps* under
 ``jobdesk_app.resources.step_presets``: a workflow is created only after
 the user composes steps and saves that composition.
 """
+
 from __future__ import annotations
 
 import importlib.resources
@@ -78,9 +79,7 @@ class MethodPresetStore:
     def list_presets(self) -> list[MethodPreset]:
         presets: list[MethodPreset] = []
         for path in self._iter_user():
-            presets.append(MethodPreset(
-                name=path.stem, source="user", path=path, spec=_read_spec_from_path(path)
-            ))
+            presets.append(MethodPreset(name=path.stem, source="user", path=path, spec=_read_spec_from_path(path)))
         return presets
 
     def load(self, name: str, *, source: PresetSource | None = None) -> WorkflowSpec:
@@ -161,10 +160,7 @@ class StepPresetStore:
             raise ValueError(f"step preset {path.name!r} must be a YAML mapping")
         forbidden = {"name", "inputs", "global", "steps"}.intersection(value)
         if forbidden:
-            raise ValueError(
-                f"step preset {path.name!r} contains workflow-owned keys: "
-                + ", ".join(sorted(forbidden))
-            )
+            raise ValueError(f"step preset {path.name!r} contains workflow-owned keys: " + ", ".join(sorted(forbidden)))
         step_type = value.get("type")
         params = value.get("params", {})
         if not isinstance(step_type, str) or not step_type.strip() or not isinstance(params, dict):

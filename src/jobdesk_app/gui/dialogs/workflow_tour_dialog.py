@@ -6,6 +6,7 @@ connect, pick inputs, build a graph, submit, and read results.
 The dialog is intentionally text-only (ASCII art for visual emphasis).
 Screenshots would be fragile across themes / OS scaling.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -219,11 +220,7 @@ class WorkflowTourDialog(QDialog):
 
     def _refresh_footer(self) -> None:
         current = self._stack.currentIndex()  # 0-based
-        self._indicator.setText(
-            tr("Slide {n} of {total}", self._language).format(
-                n=current + 1, total=_TOTAL_SLIDES
-            )
-        )
+        self._indicator.setText(tr("Slide {n} of {total}", self._language).format(n=current + 1, total=_TOTAL_SLIDES))
         # Back disabled on slide 1.
         self._back_btn.setEnabled(current > 0)
         is_last = current >= _TOTAL_SLIDES - 1

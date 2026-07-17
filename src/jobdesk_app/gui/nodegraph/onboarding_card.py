@@ -1,4 +1,5 @@
 """Empty-canvas onboarding card for the workflow graph editor."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
@@ -87,9 +88,7 @@ class OnboardingCard(QFrame):
         # the chain contained exactly one step. The new wording mirrors
         # the model label that NodeLibraryPanel already exposes, so the
         # button does what the label says.
-        self._quick_start_btn.setText(
-            tr("Quick start: load Linear OPT + FREQ", language)
-        )
+        self._quick_start_btn.setText(tr("Quick start: load Linear OPT + FREQ", language))
         self._hide_btn.setText(tr("Hide forever", language))
 
 

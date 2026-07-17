@@ -31,10 +31,15 @@ def _make_task(task_id: str, status: TaskStatus, remote_job_dir: str = "") -> Ta
     )
 
 
-def _mock_ssh_for_refresh(marker: str = "", exit_code: int | None = None,
-                           marker_exists: bool = True, exit_code_exists: bool = True,
-                           log_tail: str = ""):
+def _mock_ssh_for_refresh(
+    marker: str = "",
+    exit_code: int | None = None,
+    marker_exists: bool = True,
+    exit_code_exists: bool = True,
+    log_tail: str = "",
+):
     """创建 mock SSH，read_remote_task_status 返回预设值。"""
+
     def fake_read(ssh, task_id, remote_job_dir, log_tail_lines=50):
         return RemoteTaskStatusSnapshot(
             task_id=task_id,
@@ -46,6 +51,7 @@ def _mock_ssh_for_refresh(marker: str = "", exit_code: int | None = None,
             exit_code_exists=exit_code_exists,
             log_exists=bool(log_tail),
         )
+
     return fake_read
 
 
@@ -69,13 +75,9 @@ class TestRecoveryRules:
             ("failed", 1, TaskStatus.failed),
         ],
     )
-    def test_uncertain_is_resolved_immediately_by_authoritative_marker(
-        self, marker, exit_code, expected
-    ):
+    def test_uncertain_is_resolved_immediately_by_authoritative_marker(self, marker, exit_code, expected):
         task = _make_task("t1", TaskStatus.uncertain)
-        remote = RemoteTaskStatusSnapshot(
-            "t1", "/r/t1", marker, exit_code, "", True, exit_code is not None, False
-        )
+        remote = RemoteTaskStatusSnapshot("t1", "/r/t1", marker, exit_code, "", True, exit_code is not None, False)
 
         new, _snapshot = _recover_status(
             TaskStatus.uncertain,
@@ -111,9 +113,7 @@ class TestRecoveryRules:
     def test_stale_submitting_claim_survives_incomplete_remote_read(self):
         task = _make_task("t1", TaskStatus.submitting)
         task.submitted_at = datetime.now() - timedelta(seconds=61)
-        rs = RemoteTaskStatusSnapshot(
-            "t1", "/r/t1", warnings=["batch read failed"], marker_exists=False
-        )
+        rs = RemoteTaskStatusSnapshot("t1", "/r/t1", warnings=["batch read failed"], marker_exists=False)
 
         new, snap = _recover_status(
             TaskStatus.submitting,
@@ -271,11 +271,7 @@ class TestRefreshBatchStatus:
         mock_ssh = MagicMock()
         with patch(
             "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
-            return_value={
-                "t1": RemoteTaskStatusSnapshot(
-                    "t1", "/r/t1", "completed", 0, "", True, True, False
-                )
-            },
+            return_value={"t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)},
         ):
             result, updated = refresh_task_statuses(mock_ssh, tasks, "/r", "b1")
 
@@ -409,9 +405,7 @@ class TestRefreshBatchStatus:
             with patch(
                 "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
-                    "t1": RemoteTaskStatusSnapshot(
-                        "t1", "/r/t1", "failed", 1, "error log", True, True, True
-                    ),
+                    "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "failed", 1, "error log", True, True, True),
                 },
             ):
                 result = refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
@@ -440,9 +434,7 @@ class TestRefreshBatchStatus:
             with patch(
                 "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
-                    t.task_id: RemoteTaskStatusSnapshot(
-                        t.task_id, t.remote_job_dir, "", None, "", False, False, False
-                    )
+                    t.task_id: RemoteTaskStatusSnapshot(t.task_id, t.remote_job_dir, "", None, "", False, False, False)
                     for t in tasks
                 },
             ) as mock_batch:

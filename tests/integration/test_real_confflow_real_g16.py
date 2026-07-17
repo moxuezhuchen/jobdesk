@@ -19,6 +19,7 @@ The integration marker is opt-in (see ``pyproject.toml``::
 
 so this suite does not run on a plain ``pytest tests/`` regression.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,9 +56,7 @@ def test_g16_log_is_parseable_by_parse_gaussian_log(real_g16_smoke_work_dir):
     assert result.error_message is None
     assert result.final_energy_au is not None
     # b3lyp/6-31g(d) methane opt: published benchmark ~ -40.5183 a.u.
-    assert abs(result.final_energy_au - (-40.51838331)) < 1e-5, (
-        f"final_energy_au off: {result.final_energy_au}"
-    )
+    assert abs(result.final_energy_au - (-40.51838331)) < 1e-5, f"final_energy_au off: {result.final_energy_au}"
     assert result.atom_symbols == ["C", "H", "H", "H", "H"]
     assert result.final_xyz is not None
     assert len(result.final_xyz.splitlines()) == 5

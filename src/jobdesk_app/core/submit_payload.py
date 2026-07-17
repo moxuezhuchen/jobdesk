@@ -19,6 +19,7 @@ We keep these in ``core/`` rather than ``gui/`` because they're plain
 dataclasses — the GUI layer is the only consumer today, but tests and the
 future CLI use case can pick them up without pulling in PySide6.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

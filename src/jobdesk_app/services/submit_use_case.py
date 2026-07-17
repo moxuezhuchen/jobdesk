@@ -29,6 +29,7 @@ The class is intentionally framework-free: no Qt, no asyncio, no I/O.
 The coordinator factory is passed in (defaults to ``RunCoordinator``)
 so tests can substitute a fake without monkeypatching.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -124,9 +125,7 @@ class SubmitUseCase:
                 remote_targets.append(str(source.path))
             else:
                 local_paths.append(source.path)
-                remote_targets.append(
-                    remote_child_path(payload.remote_dir, source.path.name)
-                )
+                remote_targets.append(remote_child_path(payload.remote_dir, source.path.name))
 
         if not remote_targets:
             errors.append("No remote targets resolved from inputs")
@@ -172,9 +171,7 @@ class SubmitUseCase:
         sources = [RunSource(path=p) for p in remote_targets]
         chunks = chunk_sources(sources, batch_size=None)
         specs: list[RunSpec] = []
-        workflow_kind = (
-            WorkflowKind.orca if payload.program == "orca" else WorkflowKind.gaussian
-        )
+        workflow_kind = WorkflowKind.orca if payload.program == "orca" else WorkflowKind.gaussian
         for chunk in chunks:
             specs.append(
                 RunSpec(

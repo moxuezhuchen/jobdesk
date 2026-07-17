@@ -10,13 +10,18 @@ from jobdesk_app.services.confflow_results import (
 
 def test_load_and_format_confflow_run_summary(tmp_path):
     path = tmp_path / "run_summary.json"
-    path.write_text(json.dumps({
-        "initial_conformers": 12,
-        "final_conformers": 3,
-        "total_duration_seconds": 42.5,
-        "step_status_counts": {"completed": 4},
-        "lowest_conformer": {"cid": "water_0001", "energy": -76.4},
-    }), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "initial_conformers": 12,
+                "final_conformers": 3,
+                "total_duration_seconds": 42.5,
+                "step_status_counts": {"completed": 4},
+                "lowest_conformer": {"cid": "water_0001", "energy": -76.4},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     summary = load_summary(path)
     text = format_summary(summary)
@@ -30,15 +35,20 @@ def test_load_and_format_confflow_run_summary(tmp_path):
 def test_load_step_progress_completed_and_running(tmp_path):
     """Workflow-stats file yields (completed, current) for the Runs page."""
     path = tmp_path / "workflow_stats.json"
-    path.write_text(json.dumps({
-        "steps": [
-            {"name": "confgen", "status": "completed"},
-            {"name": "preopt",  "status": "completed"},
-            {"name": "opt",     "status": "running"},
-            {"name": "refine",  "status": "pending"},
-        ],
-        "last_updated": "2026-07-06T22:00:00",
-    }), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {"name": "confgen", "status": "completed"},
+                    {"name": "preopt", "status": "completed"},
+                    {"name": "opt", "status": "running"},
+                    {"name": "refine", "status": "pending"},
+                ],
+                "last_updated": "2026-07-06T22:00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     progress = load_step_progress(path)
     assert progress.completed == ("confgen", "preopt")

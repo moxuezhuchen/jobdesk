@@ -12,6 +12,7 @@ then run pytest from the repo root::
 
     python -m pytest tests/test_confflow_real_g16_chk_smoke.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -69,9 +70,8 @@ def test_step_07_sp_log_terminates_normally_and_reads_chk():
     assert "SCF Done:" in text, "no SCF Done line in step_07 .log"
     # Gaussian only emits these when it actually opened A000001.old.chk.
     # They are the load-bearing signals that `chk_from_step` worked.
-    assert "Copying data from \"A000001.old.chk\"" in text, (
-        "step_07 .log does not show 'Copying data from A000001.old.chk'; "
-        "the OldChk directive was not honoured"
+    assert 'Copying data from "A000001.old.chk"' in text, (
+        "step_07 .log does not show 'Copying data from A000001.old.chk'; the OldChk directive was not honoured"
     )
     assert "Structure from the checkpoint file" in text
     assert "Initial guess from the checkpoint file" in text
@@ -102,25 +102,16 @@ def test_step_07_log_geometry_matches_step_06_optimised_geometry():
         rows = atom_re.findall(text)
         assert len(rows) >= 5, f"too few atom rows: {len(rows)}"
         last5 = rows[-5:]
-        return [
-            (int(z), float(x), float(y), float(z_))
-            for (idx, z, x, y, z_) in last5
-        ]
+        return [(int(z), float(x), float(y), float(z_)) for (idx, z, x, y, z_) in last5]
 
     atoms06 = _last_block_xyz(text06)
     atoms07 = _last_block_xyz(text07)
     assert len(atoms06) == 5 and len(atoms07) == 5
     # Compute C-H distances sorted (C is atom index 1).
     cx, cy, cz = atoms06[0][1], atoms06[0][2], atoms06[0][3]
-    d06 = sorted(
-        ((ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2) ** 0.5
-        for (z, ax, ay, az) in atoms06[1:]
-    )
+    d06 = sorted(((ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2) ** 0.5 for (z, ax, ay, az) in atoms06[1:])
     cx, cy, cz = atoms07[0][1], atoms07[0][2], atoms07[0][3]
-    d07 = sorted(
-        ((ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2) ** 0.5
-        for (z, ax, ay, az) in atoms07[1:]
-    )
+    d07 = sorted(((ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2) ** 0.5 for (z, ax, ay, az) in atoms07[1:])
     # 1e-4 A tolerance covers Gaussian's printf rounding between the two logs.
     for a, b in zip(d06, d07):
         assert abs(a - b) < 1e-4, f"C-H distance mismatch: step_06={d06} step_07={d07}"
@@ -146,8 +137,7 @@ def test_step_06_emitted_chk_and_step_07_copied_it():
     assert old_chk.stat().st_size > 1024, "step_07 .old.chk is empty / truncated"
     # Sizes should match (it is a copy of step_06's chk).
     assert chk06.stat().st_size == old_chk.stat().st_size, (
-        f"step_07 .old.chk size {old_chk.stat().st_size} != "
-        f"step_06 .chk size {chk06.stat().st_size}"
+        f"step_07 .old.chk size {old_chk.stat().st_size} != step_06 .chk size {chk06.stat().st_size}"
     )
 
 
@@ -159,9 +149,7 @@ def test_step_07_gjf_has_oldchk_directive():
     point of chk_from_step."""
     gjf = _require_artifact("step_07_g16_sp_readchk/backups/A000001.gjf")
     text = gjf.read_text(encoding="utf-8")
-    assert "%OldChk=A000001.old.chk" in text, (
-        f"step_07 .gjf missing %OldChk directive; contents:\n{text}"
-    )
+    assert "%OldChk=A000001.old.chk" in text, f"step_07 .gjf missing %OldChk directive; contents:\n{text}"
     # And the chk itself must still be requested for this step.
     assert "%Chk=A000001.chk" in text
 
@@ -175,9 +163,7 @@ def test_run_summary_loads_with_two_completed_steps():
     assert summary.initial_conformers >= 1
     assert summary.final_conformers >= 1
     counts = summary.step_status_counts
-    assert counts.get("completed") == 2, (
-        f"expected step_status_counts['completed'] == 2, got {counts}"
-    )
+    assert counts.get("completed") == 2, f"expected step_status_counts['completed'] == 2, got {counts}"
     assert summary.lowest_conformer is not None
     # After sp-on-opt geometry, the wavefunction is read from chk so the
     # energy must differ from a fresh guess — assert it is finite/negative
@@ -203,8 +189,6 @@ def test_final_output_points_into_step_07():
     summary_path = _require_artifact("run_summary.json")
     raw = json.loads(summary_path.read_text(encoding="utf-8"))
     final = raw.get("final_output", "")
-    assert "step_07_g16_sp_readchk" in final, (
-        f"final_output should point at step_07, got: {final}"
-    )
+    assert "step_07_g16_sp_readchk" in final, f"final_output should point at step_07, got: {final}"
     # And the analogous local file must be present after the pull.
     assert (_require_artifact("step_07_g16_sp_readchk/output.xyz")).exists()

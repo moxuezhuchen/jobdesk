@@ -13,6 +13,7 @@ def main():
     configure_qt_windows_dpi_environment()
 
     import logging
+
     logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 
     from PySide6.QtGui import QFont

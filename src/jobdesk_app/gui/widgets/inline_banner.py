@@ -7,6 +7,7 @@ button or :meth:`dismiss`. The banner is intentionally NOT modal: it
 sits at the top of the page so the user can keep the offending widget
 visible while reading the message.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
@@ -22,7 +23,7 @@ from jobdesk_app.gui.i18n import tr
 
 _SEVERITY_COLORS = {
     "warning": ("#fff8e1", "#f0b400", "\u26a0"),  # soft yellow, amber, ⚠
-    "error": ("#fdecea", "#d93025", "\u2716"),    # soft red, strong red, ✖
+    "error": ("#fdecea", "#d93025", "\u2716"),  # soft red, strong red, ✖
 }
 
 

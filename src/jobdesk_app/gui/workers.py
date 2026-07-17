@@ -64,6 +64,7 @@ class BackgroundWorker(QThread):
                 self.result.emit(value)
         except Exception as e:
             import traceback
+
             msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
             if not self.isInterruptionRequested():
                 self.error.emit(msg)

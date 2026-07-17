@@ -1,4 +1,5 @@
 """Parse and validate --job-id task=id overrides for run confirm-submitted."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -8,9 +9,7 @@ class JobIdOverridesError(ValueError):
     """Raised when --job-id arguments are malformed or reference unknown tasks."""
 
 
-def parse_job_id_overrides(
-    values: Iterable[str], selected_task_ids: Iterable[str]
-) -> dict[str, str]:
+def parse_job_id_overrides(values: Iterable[str], selected_task_ids: Iterable[str]) -> dict[str, str]:
     """Parse --job-id task=id arguments.
 
     Each value must contain "=" with non-empty task and id (after stripping).

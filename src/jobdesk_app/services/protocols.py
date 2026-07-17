@@ -21,6 +21,7 @@ from ..core.run import RunPlan
 # SFTP Attribute 协议
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class SFTPAttr(Protocol):
     """SFTP 文件属性协议（对应 paramiko.SFTPAttributes）。"""
@@ -35,6 +36,7 @@ class SFTPAttr(Protocol):
 # ---------------------------------------------------------------------------
 # SSH 客户端协议
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class SSHClient(Protocol):
@@ -111,6 +113,7 @@ class SSHChannel(Protocol):
 # ---------------------------------------------------------------------------
 # SFTP 客户端协议
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class SFTPClient(Protocol):
@@ -278,6 +281,7 @@ class TransferRecord(Protocol):
 # 调度器适配器协议
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class SchedulerAdapter(Protocol):
     """调度器适配器协议。
@@ -368,6 +372,7 @@ class ResourceSpec(Protocol):
 # 复合调度服务协议（用于 submit_use_case 等高层业务逻辑）
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class JobSubmitter(Protocol):
     """作业提交服务协议。
@@ -436,6 +441,7 @@ class FileTransferrer(Protocol):
 # ---------------------------------------------------------------------------
 # 生命周期状态协议
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class RunRecordInterface(Protocol):

@@ -5,6 +5,7 @@ We compare field-by-field rather than relying on ``__eq__`` because
 equality. The round-trip must preserve ``id``, ``kind``, port shapes,
 ``params``, ``position``, and edge endpoints.
 """
+
 from __future__ import annotations
 
 from jobdesk_app.gui.nodegraph.model import (
@@ -25,8 +26,7 @@ def test_round_trip_3_node_linear_graph():
     graph.add_node(xyz)
     graph.add_node(opt)
     graph.add_node(out)
-    graph.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                        dst_node=opt.id, dst_port="in"))
+    graph.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=opt.id, dst_port="in"))
 
     payload = to_json(graph)
     assert "nodes" in payload and "edges" in payload
@@ -44,7 +44,10 @@ def test_round_trip_3_node_linear_graph():
 
     edge = rebuilt.edges["e1"]
     assert (edge.src_node, edge.src_port, edge.dst_node, edge.dst_port) == (
-        xyz.id, "out", opt.id, "in",
+        xyz.id,
+        "out",
+        opt.id,
+        "in",
     )
 
 
@@ -57,12 +60,20 @@ def test_round_trip_empty_graph():
 def test_from_json_rejects_unknown_kind():
     bad = {
         "nodes": [
-            {"id": "x", "kind": "nonsense", "title": "x",
-             "inputs": [], "outputs": [], "params": {}, "position": [0, 0]},
+            {
+                "id": "x",
+                "kind": "nonsense",
+                "title": "x",
+                "inputs": [],
+                "outputs": [],
+                "params": {},
+                "position": [0, 0],
+            },
         ],
         "edges": [],
     }
     import pytest
+
     with pytest.raises(ValueError, match="unknown node kind"):
         from_json(bad)
 

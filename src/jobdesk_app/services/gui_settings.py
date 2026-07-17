@@ -11,8 +11,16 @@ from ..core.atomic_write import atomic_write_text
 
 _BUILTIN_PROFILES: dict[str, dict[str, str]] = {
     "Gaussian": {"input_extensions": ".gjf,.com", "command_template": "g16 {name}", "download_patterns": "*.log,*.chk"},
-    "ORCA": {"input_extensions": ".inp", "command_template": "orca {name} > {basename}.out", "download_patterns": "*.out,*.gbw"},
-    "ConfFlow": {"input_extensions": ".xyz", "command_template": "confflow {name}", "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json"},
+    "ORCA": {
+        "input_extensions": ".inp",
+        "command_template": "orca {name} > {basename}.out",
+        "download_patterns": "*.out,*.gbw",
+    },
+    "ConfFlow": {
+        "input_extensions": ".xyz",
+        "command_template": "confflow {name}",
+        "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json",
+    },
 }
 
 

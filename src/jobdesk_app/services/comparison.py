@@ -3,6 +3,7 @@
 Collects results from multiple runs, computes relative energies,
 and exports to CSV/TSV/Markdown.
 """
+
 from __future__ import annotations
 
 import csv
@@ -16,6 +17,7 @@ HARTREE_TO_KCAL = 627.5094740631
 @dataclass
 class RunComparison:
     """Aggregated comparison data across multiple runs."""
+
     rows: list[dict] = field(default_factory=list)
     field_names: list[str] = field(default_factory=list)
 

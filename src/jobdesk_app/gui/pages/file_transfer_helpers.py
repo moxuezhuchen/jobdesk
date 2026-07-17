@@ -67,12 +67,12 @@ def format_queue_summary(statuses: list[TransferStatus], language: str = "en") -
 def build_file_button_reasons(local_selected: bool, remote_selected: bool, connected: bool) -> dict[str, str]:
     return {
         "upload": "" if local_selected else "Select a local file or folder",
-        "download": "" if connected and remote_selected else (
-            "Connect to a server first" if not connected else "Select a remote file or folder"
-        ),
-        "preview": "" if connected and remote_selected else (
-            "Connect to a server first" if not connected else "Select a remote file"
-        ),
+        "download": ""
+        if connected and remote_selected
+        else ("Connect to a server first" if not connected else "Select a remote file or folder"),
+        "preview": ""
+        if connected and remote_selected
+        else ("Connect to a server first" if not connected else "Select a remote file"),
     }
 
 
@@ -114,14 +114,17 @@ def format_command_preview_rows(
     mode = RunMode(run_mode)
     sources = [RunSource(path=p, is_dir=False) for p in remote_paths]
     sources.extend(RunSource(path=p, is_dir=True) for p in remote_dirs)
-    plan = build_run_plan(RunSpec(
-        server_id="preview",
-        remote_dir=remote_dir,
-        command_template=command_template,
-        max_parallel=1,
-        mode=mode,
-        sources=sources,
-    ), run_id="preview")
+    plan = build_run_plan(
+        RunSpec(
+            server_id="preview",
+            remote_dir=remote_dir,
+            command_template=command_template,
+            max_parallel=1,
+            mode=mode,
+            sources=sources,
+        ),
+        run_id="preview",
+    )
     return [f"{task.task_id}: {task.command}" for task in plan.tasks[:max_preview]]
 
 
@@ -151,10 +154,7 @@ def choose_confflow_xyz(local_files: list[str], remote_files: list[str]) -> tupl
 
 def choose_confflow_yaml(remote_files: list[str], xyz_origin: str) -> tuple[str, str]:
     """Find a single remote YAML for ConfFlow. Returns (yaml_path, error)."""
-    remote_yamls = [
-        p for p in remote_files
-        if posixpath.splitext(p)[1].lower() in {".yaml", ".yml"}
-    ]
+    remote_yamls = [p for p in remote_files if posixpath.splitext(p)[1].lower() in {".yaml", ".yml"}]
     if not remote_yamls:
         return "", ""
     if xyz_origin == "local":

@@ -10,6 +10,7 @@ Currently:
   ``--resume`` lets a disconnected SSH session pick up where it left off via
   ConfFlow's checkpoint directory.
 """
+
 from __future__ import annotations
 
 import posixpath
@@ -33,10 +34,7 @@ class ConfFlowAdapter:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
         config_name = posixpath.basename(config_path)
-        command = (
-            f"confflow {{name}} -c {shlex.quote(config_name)} "
-            "-w {basename}_confflow_work"
-        )
+        command = f"confflow {{name}} -c {shlex.quote(config_name)} -w {{basename}}_confflow_work"
         if resume:
             command += " --resume"
         return RunSpec(
@@ -78,10 +76,7 @@ class ConfFlowAdapter:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
         config_name = posixpath.basename(config_path)
-        command = (
-            f"confflow {{name}} -c {shlex.quote(config_name)} "
-            "-w {basename}_confflow_work"
-        )
+        command = f"confflow {{name}} -c {shlex.quote(config_name)} -w {{basename}}_confflow_work"
         if resume:
             command += " --resume"
         return RunSpec(

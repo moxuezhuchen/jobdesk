@@ -11,7 +11,7 @@ def test_gui_resources_are_declared_as_package_data():
 def test_pyinstaller_bundle_includes_gui_resources():
     spec = Path("packaging/pyinstaller/jobdesk-gui.spec").read_text(encoding="utf-8")
 
-    assert "gui\" / \"resources" in spec
+    assert 'gui" / "resources' in spec
     assert "jobdesk_app/gui/resources" in spec
 
 

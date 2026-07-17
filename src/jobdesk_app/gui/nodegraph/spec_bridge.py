@@ -64,15 +64,17 @@ _CALC_ITASK_BY_KIND: dict[NodeKind, str] = {
 }
 
 # Node kinds that produce a confflow "step" entry in the YAML.
-_STEP_EMITTING_KINDS: frozenset[NodeKind] = frozenset({
-    NodeKind.CONF_GEN,
-    NodeKind.PRE_OPT,
-    NodeKind.OPT,
-    NodeKind.SINGLE_POINT,
-    NodeKind.FREQUENCY,
-    NodeKind.TS,
-    NodeKind.REFINE,
-})
+_STEP_EMITTING_KINDS: frozenset[NodeKind] = frozenset(
+    {
+        NodeKind.CONF_GEN,
+        NodeKind.PRE_OPT,
+        NodeKind.OPT,
+        NodeKind.SINGLE_POINT,
+        NodeKind.FREQUENCY,
+        NodeKind.TS,
+        NodeKind.REFINE,
+    }
+)
 
 
 class WorkflowSpecError(ValueError):
@@ -161,9 +163,7 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     issues = graph.validate()
     cycle = [i for i in issues if i.code == "CYCLE_DETECTED"]
     if cycle:
-        raise WorkflowSpecError(
-            "graph contains a cycle; only acyclic workflows are supported"
-        )
+        raise WorkflowSpecError("graph contains a cycle; only acyclic workflows are supported")
     port_issues = [i for i in issues if i.code in {"INVALID_PORT_TYPE", "MISSING_REQUIRED_INPUT"}]
     if port_issues:
         # These are authoring errors; surface them as one combined message.
@@ -196,9 +196,7 @@ def to_workflow_spec(graph: NodeGraph) -> WorkflowGraphPayload:
     # Determine the program / method / basis from the first emitting
     # node that has them (typically an OPT or SINGLE_POINT). If none
     # are supplied, the WorkflowSpec.from_form defaults apply.
-    program, method, basis, extra = _infer_program_and_keyword(
-        graph, ordered_nodes, advanced_params
-    )
+    program, method, basis, extra = _infer_program_and_keyword(graph, ordered_nodes, advanced_params)
 
     # Build steps list in topological order, naming each step uniquely.
     steps: list[dict[str, Any]] = []
@@ -250,15 +248,11 @@ def from_workflow_spec(
 
     if isinstance(payload, WorkflowGraphPayload):
         steps = list(payload.steps)
-        dump = payload.spec.global_config.model_dump(
-            mode="json", exclude_none=True
-        )
+        dump = payload.spec.global_config.model_dump(mode="json", exclude_none=True)
         # Tag the dump with which model fields the user actually wrote,
         # so ``_extract_extra`` can ignore the dozens of confflow
         # defaults that ``model_dump`` always emits.
-        dump["_user_set_keys"] = set(
-            payload.spec.global_config.model_fields_set
-        )
+        dump["_user_set_keys"] = set(payload.spec.global_config.model_fields_set)
         extra = _extract_extra(dump)
     else:
         steps = list(payload.get("steps", []))
@@ -403,18 +397,12 @@ def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
         if node.kind is NodeKind.XYZ_FILE:
             incoming = graph.incoming_edges(node.id)
             if incoming:
-                raise WorkflowSpecError(
-                    f"{label(node)} (XYZ_FILE) must not have incoming edges; "
-                    f"found {len(incoming)}"
-                )
+                raise WorkflowSpecError(f"{label(node)} (XYZ_FILE) must not have incoming edges; found {len(incoming)}")
             continue
         if node.kind is NodeKind.OUTPUT:
             outgoing = graph.outgoing_edges(node.id)
             if outgoing:
-                raise WorkflowSpecError(
-                    f"{label(node)} (OUTPUT) must not have outgoing edges; "
-                    f"found {len(outgoing)}"
-                )
+                raise WorkflowSpecError(f"{label(node)} (OUTPUT) must not have outgoing edges; found {len(outgoing)}")
             continue
         if node.kind in (NodeKind.ADVANCED,):
             continue
@@ -422,6 +410,7 @@ def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
     # Many-to-one fan-in is only allowed on ``STRUCTURES``-typed input
     # ports. For every other port type we expect ≤ 1 incoming edge.
     from jobdesk_app.gui.nodegraph.model import PortType
+
     for node in ordered:
         if node.kind not in _STEP_EMITTING_KINDS:
             continue
@@ -496,8 +485,7 @@ def _infer_program_and_keyword(
         method = ""
         basis = ""
 
-    extra = {k: v for k, v in advanced.items()
-             if k not in {"program", "method", "basis", "keyword"}}
+    extra = {k: v for k, v in advanced.items() if k not in {"program", "method", "basis", "keyword"}}
     return program, method, basis, extra
 
 
@@ -572,9 +560,7 @@ def _upstream_step_names(
         insert_at = len(ordered_names)
         for idx, existing in enumerate(ordered_names):
             existing_pos = name_pos.get(
-                next(
-                    src for src, name in step_name_by_node_id.items() if name == existing
-                ),
+                next(src for src, name in step_name_by_node_id.items() if name == existing),
                 len(name_pos),
             )
             if upstream_pos < existing_pos:
@@ -642,11 +628,24 @@ def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     well_known = {
-        "work_dir", "calc",
-        "program", "method", "basis", "charge", "multiplicity",
-        "nproc", "memory_mb", "cores_per_task", "total_memory",
-        "max_parallel_jobs", "energy_window",
-        "keyword", "steps", "freeze", "gaussian_path", "orca_path",
+        "work_dir",
+        "calc",
+        "program",
+        "method",
+        "basis",
+        "charge",
+        "multiplicity",
+        "nproc",
+        "memory_mb",
+        "cores_per_task",
+        "total_memory",
+        "max_parallel_jobs",
+        "energy_window",
+        "keyword",
+        "steps",
+        "freeze",
+        "gaussian_path",
+        "orca_path",
         # Keep every field declared by ConfFlow's GlobalConfigModel here.
         # ``from_workflow_spec`` also accepts the flat YAML emitted by the
         # DAG submit path, which contains model defaults (for example
@@ -654,11 +653,20 @@ def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
         # defaults as arbitrary extras creates a spurious ADVANCED node on
         # every reload of a saved graph.  Unknown keys remain preserved as
         # genuine free-form advanced options below.
-        "rmsd_threshold", "energy_tolerance", "noH", "ts_bond_atoms",
-        "ts_rescue_scan", "scan_coarse_step", "scan_fine_step",
-        "scan_uphill_limit", "ts_bond_drift_threshold", "ts_rmsd_threshold",
-        "enable_dynamic_resources", "resume_from_backups",
-        "stop_check_interval_seconds", "force_consistency",
+        "rmsd_threshold",
+        "energy_tolerance",
+        "noH",
+        "ts_bond_atoms",
+        "ts_rescue_scan",
+        "scan_coarse_step",
+        "scan_fine_step",
+        "scan_uphill_limit",
+        "ts_bond_drift_threshold",
+        "ts_rmsd_threshold",
+        "enable_dynamic_resources",
+        "resume_from_backups",
+        "stop_check_interval_seconds",
+        "force_consistency",
     }
     # Prefer the legacy ``calc`` subsection; fall back to the flat top level.
     calc = data.get("calc")

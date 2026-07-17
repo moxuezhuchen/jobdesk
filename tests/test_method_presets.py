@@ -1,4 +1,5 @@
 """Tests for saved workflows and reusable step presets."""
+
 from __future__ import annotations
 
 import pytest
@@ -47,8 +48,14 @@ def test_save_user_yaml_preserves_composed_workflow_exactly(store):
 
 def test_save_user_then_list_includes_user_workflow(store):
     spec = WorkflowSpec.from_form(
-        work_dir_name="x", program="gaussian", method="B3LYP", basis="6-31G(d)",
-        charge=0, multiplicity=1, nproc=4, memory_mb=4096,
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=4,
+        memory_mb=4096,
     )
     store.save_user("user_x", spec)
     assert [preset.name for preset in store.list_presets()] == ["user_x"]
@@ -70,9 +77,7 @@ def test_step_presets_are_the_only_bundled_presets(tmp_path, monkeypatch):
     assert {"confgen", "b3lyp_631gd_opt_freq", "b3lyp_def2tzvp_opt_freq"} <= names
     step = step_store.load("b3lyp_def2tzvp_opt_freq", source="builtin")
     assert step["type"] == "calc"
-    assert step["params"] == {
-        "iprog": "orca", "itask": "opt_freq", "keyword": "B3LYP D3BJ def2-TZVP"
-    }
+    assert step["params"] == {"iprog": "orca", "itask": "opt_freq", "keyword": "B3LYP D3BJ def2-TZVP"}
     assert "inputs" not in step
 
 

@@ -9,6 +9,7 @@ Kinds not present in :data:`PARAM_SCHEMA` (XYZ_FILE, OUTPUT, FREQ,
 TS, REFINE) render a one-line "no editable parameters" placeholder
 so the panel never goes blank.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -81,16 +82,12 @@ _OPT_SCHEMA: list[ParamField] = [
 
 PARAM_SCHEMA: dict[NodeKind, list[ParamField]] = {
     NodeKind.CONF_GEN: [
-        ParamField("rmsd_threshold", float, default=0.25,
-                   spinbox=QDoubleSpinBox, suffix=" A"),
-        ParamField("energy_window", float, default=2.0,
-                   spinbox=QDoubleSpinBox, suffix=" kcal/mol"),
-        ParamField("n_confs", int, default=50,
-                   spinbox=QSpinBox, min=1, max=10000),
+        ParamField("rmsd_threshold", float, default=0.25, spinbox=QDoubleSpinBox, suffix=" A"),
+        ParamField("energy_window", float, default=2.0, spinbox=QDoubleSpinBox, suffix=" kcal/mol"),
+        ParamField("n_confs", int, default=50, spinbox=QSpinBox, min=1, max=10000),
     ],
     NodeKind.PRE_OPT: [
-        ParamField("theory", str, default="GFNFF",
-                   combobox=["GFNFF", "MMFF", "UFF"]),
+        ParamField("theory", str, default="GFNFF", combobox=["GFNFF", "MMFF", "UFF"]),
         ParamField("maxcycle", int, default=200, spinbox=QSpinBox),
     ],
     NodeKind.OPT: _OPT_SCHEMA,
@@ -99,8 +96,7 @@ PARAM_SCHEMA: dict[NodeKind, list[ParamField]] = {
     NodeKind.TS: _OPT_SCHEMA,
     NodeKind.REFINE: _OPT_SCHEMA,
     NodeKind.ADVANCED: [
-        ParamField("raw", str, default="", multiline=True,
-                   placeholder="solvent=water\nempirical_dispersion=GD3\n"),
+        ParamField("raw", str, default="", multiline=True, placeholder="solvent=water\nempirical_dispersion=GD3\n"),
     ],
 }
 
@@ -327,9 +323,7 @@ class PropertiesPanel(QWidget):
     def _render_incoming_summary(self, incoming_names: list[str]) -> None:
         """Render the upstream node list in the inputs header label."""
         if not incoming_names:
-            self._inputs_label.setText(
-                tr("Inputs: 0 incoming edges", self._language)
-            )
+            self._inputs_label.setText(tr("Inputs: 0 incoming edges", self._language))
             self._inputs_label.setVisible(True)
             return
         names = ", ".join(incoming_names)

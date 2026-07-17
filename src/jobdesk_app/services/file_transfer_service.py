@@ -36,9 +36,7 @@ class FileTransferService:
         self._read_lock = threading.RLock()
         self._write_lock = threading.RLock()
         self._protected_roots = {ensure_safe_remote_path(p) for p in (protected_remote_roots or [])}
-        self._allowed_delete_roots = {
-            ensure_safe_remote_path(p) for p in (allowed_delete_roots or [])
-        }
+        self._allowed_delete_roots = {ensure_safe_remote_path(p) for p in (allowed_delete_roots or [])}
 
     def list_remote(self, remote_dir: str):
         remote_dir = ensure_safe_remote_path(remote_dir)
@@ -51,22 +49,54 @@ class FileTransferService:
             with self._read_sftp() as sftp:
                 return sftp.list_dir_info(remote_dir)
 
-    def upload_path(self, local_path: str | Path, remote_path: str, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
+    def upload_path(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        policy: OverwritePolicy = OverwritePolicy.skip_same_size,
+        dry_run: bool = False,
+        progress_callback=None,
+    ):
         overwrite, skip_same = policy_to_transfer_flags(policy)
         local_path = Path(local_path)
         remote_path = ensure_safe_remote_path(remote_path)
         with self._write_sftp() as sftp:
             if local_path.is_dir():
-                return sftp.upload_dir(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
-            return sftp.upload_file(local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run, progress_callback=progress_callback)
+                return sftp.upload_dir(
+                    local_path, remote_path, overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run
+                )
+            return sftp.upload_file(
+                local_path,
+                remote_path,
+                overwrite=overwrite,
+                skip_if_same_size=skip_same,
+                dry_run=dry_run,
+                progress_callback=progress_callback,
+            )
 
-    def download_path(self, remote_path: str, local_path: str | Path, policy: OverwritePolicy = OverwritePolicy.skip_same_size, dry_run: bool = False, progress_callback=None):
+    def download_path(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+        policy: OverwritePolicy = OverwritePolicy.skip_same_size,
+        dry_run: bool = False,
+        progress_callback=None,
+    ):
         overwrite, skip_same = policy_to_transfer_flags(policy)
         remote_path = ensure_safe_remote_path(remote_path)
         with self._write_sftp() as sftp:
             if sftp.is_dir(remote_path):
-                return sftp.download_dir(remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run)
-            return sftp.download_file(remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run, progress_callback=progress_callback)
+                return sftp.download_dir(
+                    remote_path, Path(local_path), overwrite=overwrite, skip_if_same_size=skip_same, dry_run=dry_run
+                )
+            return sftp.download_file(
+                remote_path,
+                Path(local_path),
+                overwrite=overwrite,
+                skip_if_same_size=skip_same,
+                dry_run=dry_run,
+                progress_callback=progress_callback,
+            )
 
     def mkdir_remote(self, remote_dir: str) -> None:
         with self._write_sftp() as sftp:

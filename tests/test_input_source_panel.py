@@ -11,6 +11,7 @@ focuses on the *panel-level* API the Submit page actually uses:
 * The Remote tab's visibility based on ``remote_available``
 * The ``sources_changed`` signal lifecycle
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -84,10 +85,12 @@ def test_add_remote_paths_routes_to_remote_tab(panel_factory, tmp_path):
 
 def test_set_sources_replaces_existing(panel_factory):
     panel = panel_factory(remote_available=True)
-    panel.set_sources([
-        InputSource(path=Path("a.xyz"), side="local", kind="xyz"),
-        InputSource(path=Path("/remote/b.xyz"), side="remote", kind="xyz"),
-    ])
+    panel.set_sources(
+        [
+            InputSource(path=Path("a.xyz"), side="local", kind="xyz"),
+            InputSource(path=Path("/remote/b.xyz"), side="remote", kind="xyz"),
+        ]
+    )
     names = {s.path.name for s in panel.sources()}
     assert names == {"a.xyz", "b.xyz"}
     panel.set_sources([InputSource(path=Path("c.xyz"))])
@@ -237,6 +240,7 @@ def test_apply_language_re_translates_tabs(panel_factory):
 @pytest.fixture
 def panel_factory(qtbot):
     """Returns a factory that builds a panel with the given remote_available."""
+
     def _make(remote_available: bool) -> InputSourcePanel:
         panel = InputSourcePanel(language="en", remote_available=remote_available)
         qtbot.addWidget(panel)

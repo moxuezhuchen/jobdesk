@@ -1,4 +1,5 @@
 """Smoke test for the Files-page ``[Submit]`` button (Phase 2.0)."""
+
 from __future__ import annotations
 
 import os
@@ -52,7 +53,7 @@ def test_submit_button_emits_signal_with_selection(qapp):
         captured.append(sources)
 
     page.submit_requested_with_files.connect(_on_submit)
-    page._selected_paths_for_side = lambda side: (["/tmp/a.gjf"] if side == "local" else [])
+    page._selected_paths_for_side = lambda side: ["/tmp/a.gjf"] if side == "local" else []
     page._build_input_sources = staticmethod(  # type: ignore[assignment]
         lambda paths, *, side: [
             type("S", (), {"path": type("P", (), {"name": "a.gjf"})(), "side": side, "kind": "gjf"})()

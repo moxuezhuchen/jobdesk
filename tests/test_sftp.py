@@ -63,19 +63,25 @@ class FakeSFTPClient:
     def open(self, remote_path: str, mode: str = "rb"):
         """Fake file-like object for reading/writing remote files."""
         fake = self
+
         class _FakeFile:
             def __init__(self):
                 self._buf = b""
+
             def write(self, data: bytes):
                 self._buf += data
+
             def read(self, size: int = -1):
                 return fake._files.get(remote_path, b"")[:size] if size > 0 else fake._files.get(remote_path, b"")
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *args):
                 if "w" in mode:
                     fake._files[remote_path] = self._buf
                     fake._attrs[remote_path] = FakeStat.from_bytes(self._buf)
+
         return _FakeFile()
 
     def stat(self, remote_path: str):
@@ -93,7 +99,7 @@ class FakeSFTPClient:
             if p == prefix.rstrip("/"):
                 continue
             if p.startswith(prefix):
-                rest = p[len(prefix):]
+                rest = p[len(prefix) :]
                 name = rest.split("/")[0]
                 names.add(name)
         return sorted(names)
@@ -105,7 +111,7 @@ class FakeSFTPClient:
             if p == prefix.rstrip("/"):
                 continue
             if p.startswith(prefix):
-                rest = p[len(prefix):]
+                rest = p[len(prefix) :]
                 name = rest.split("/")[0]
                 if name not in entries:
                     child_path = prefix + name
@@ -363,6 +369,7 @@ class TestUploadFile:
     def test_upload_large_text_streaming_normalizes_crlf(self, fake_sftp, monkeypatch):
         """Large text files use streaming normalization (not full read_bytes)."""
         import jobdesk_app.remote.sftp as sftp_mod
+
         # Use a tiny chunk size to exercise multi-chunk path
         monkeypatch.setattr(sftp_mod, "_CRLF_CHUNK_SIZE", 16)
         # Build content with CRLF split across chunk boundary
@@ -512,10 +519,12 @@ class TestBatchTransfer:
             f.write("bb")
             f2 = f.name
         try:
-            records = fake_sftp.upload_many([
-                (Path(f1), "/remote/f1.txt"),
-                (Path(f2), "/remote/f2.txt"),
-            ])
+            records = fake_sftp.upload_many(
+                [
+                    (Path(f1), "/remote/f1.txt"),
+                    (Path(f2), "/remote/f2.txt"),
+                ]
+            )
             assert len(records) == 2
             assert all(r.status == TransferStatus.transferred for r in records)
         finally:
@@ -528,10 +537,12 @@ class TestBatchTransfer:
         fake_sftp._sftp._files["/b.txt"] = b"y"
         fake_sftp._sftp._attrs["/b.txt"] = FakeStat(st_size=1)
         with tempfile.TemporaryDirectory() as tmpdir:
-            records = fake_sftp.download_many([
-                ("/a.txt", Path(tmpdir) / "a.txt"),
-                ("/b.txt", Path(tmpdir) / "b.txt"),
-            ])
+            records = fake_sftp.download_many(
+                [
+                    ("/a.txt", Path(tmpdir) / "a.txt"),
+                    ("/b.txt", Path(tmpdir) / "b.txt"),
+                ]
+            )
             assert len(records) == 2
             assert all(r.status == TransferStatus.transferred for r in records)
 
@@ -549,7 +560,8 @@ class TestDirTransfer:
             (base / "skip.log").write_text("log", encoding="utf-8")
 
             records = fake_sftp.upload_dir(
-                base, "/remote/base",
+                base,
+                "/remote/base",
                 include_globs=["*.txt"],
                 exclude_globs=["*.log"],
             )
@@ -590,7 +602,8 @@ class TestDirTransfer:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             records = fake_sftp.download_dir(
-                "/remote/dir", Path(tmpdir),
+                "/remote/dir",
+                Path(tmpdir),
                 include_globs=["*.txt"],
                 exclude_globs=["*.log"],
             )
@@ -666,7 +679,6 @@ class TestUtf8Filenames:
             assert fake_sftp.exists("/remote/中文路径/文件.txt")
         finally:
             Path(tmp).unlink(missing_ok=True)
-
 
 
 def test_remove_dir_unlinks_symlink_without_traversing():

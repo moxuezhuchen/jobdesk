@@ -35,6 +35,7 @@ package collapses that surface into one editable picture: each ConfFlow
 step is a single node type with a single property panel, and the
 topology *is* the workflow.
 """
+
 from __future__ import annotations
 
 from jobdesk_app.gui.nodegraph.spec_bridge import (

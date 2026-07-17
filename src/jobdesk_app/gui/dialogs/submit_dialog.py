@@ -30,6 +30,7 @@ Review-round 3 fix-ups:
   between ``refresh`` and ``accept`` cannot smuggle a stale preset
   into the upload.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -147,10 +148,7 @@ class SubmitDialog(QDialog):
         layout.addWidget(self._build_workflow_yaml_box())
         layout.addWidget(self._build_globals_box())
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Cancel
-            | QDialogButtonBox.StandardButton.Ok
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         self._ok_button.setText(tr("Submit \u25b6", language))
         self._ok_button.setEnabled(self._has_files)
@@ -283,9 +281,7 @@ class SubmitDialog(QDialog):
         self._yaml_label.setFont(font)
         header.addWidget(self._yaml_label)
         header.addStretch()
-        self.btn_save_yaml = QPushButton(
-            tr("Save workflow.yaml\u2026", self._language)
-        )
+        self.btn_save_yaml = QPushButton(tr("Save workflow.yaml\u2026", self._language))
         self.btn_save_yaml.clicked.connect(self._on_save_yaml_clicked)
         header.addWidget(self.btn_save_yaml)
         layout.addLayout(header)
@@ -341,9 +337,7 @@ class SubmitDialog(QDialog):
             self.workflow_radio.setEnabled(False)
             self.charge_spin.setEnabled(False)
             self.mult_spin.setEnabled(False)
-            self._mode_hint.setText(
-                tr("Workflow required while no input files are selected", self._language)
-            )
+            self._mode_hint.setText(tr("Workflow required while no input files are selected", self._language))
             self.preset_combo.setEnabled(True)
             if hasattr(self, "_ok_button"):
                 self._ok_button.setEnabled(False)
@@ -358,9 +352,7 @@ class SubmitDialog(QDialog):
             self.single_radio.setEnabled(False)
             self.single_radio.setChecked(False)
             self.workflow_radio.setChecked(True)
-            self._mode_hint.setText(
-                tr("Workflow required for non-Gaussian/ORCA inputs", self._language)
-            )
+            self._mode_hint.setText(tr("Workflow required for non-Gaussian/ORCA inputs", self._language))
         else:
             self.single_radio.setEnabled(True)
             if not self.workflow_radio.isChecked() and not self.single_radio.isChecked():
@@ -493,9 +485,7 @@ class SubmitDialog(QDialog):
                 str(exc),
             )
             return
-        self._status_callback(
-            tr("Workflow saved.", self._language) + f" ({target})"
-        )
+        self._status_callback(tr("Workflow saved.", self._language) + f" ({target})")
 
     def set_status_callback(self, callback: Callable[[str], None] | None) -> None:
         """External code (typically ``MainWindow``) wires a status sink."""
@@ -552,9 +542,7 @@ class SubmitDialog(QDialog):
         except ConfFlowUnavailableError as exc:
             self._yaml_view.setPlainText(str(exc))
         except Exception as exc:
-            self._yaml_view.setPlainText(
-                tr("Preview failed: {exc}", self._language, exc=exc)
-            )
+            self._yaml_view.setPlainText(tr("Preview failed: {exc}", self._language, exc=exc))
 
     # -- Payload assembly --
 
@@ -573,8 +561,7 @@ class SubmitDialog(QDialog):
                 self,
                 tr("Submit for calculation", self._language),
                 tr(
-                    "Pick at least one input file in the Files page, then "
-                    "reopen this dialog.",
+                    "Pick at least one input file in the Files page, then reopen this dialog.",
                     self._language,
                 ),
             )
@@ -690,5 +677,6 @@ class SubmitDialog(QDialog):
             max_parallel=max_parallel,
             dag=None,
         )
+
 
 __all__ = ["SubmitDialog"]

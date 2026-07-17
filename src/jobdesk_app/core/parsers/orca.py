@@ -3,6 +3,7 @@
 Extracts energies, thermochemistry, frequencies, geometry, and error info
 from ORCA .out files without any external dependencies.
 """
+
 from __future__ import annotations
 
 import re
@@ -25,7 +26,7 @@ class OrcaResult:
     final_energy_au: float | None = None
     # DLPNO-CCSD(T) / MP2 / etc.
     correlation_energy_au: float | None = None
-    total_energy_au: float | None = None        # final total energy (may differ from SCF)
+    total_energy_au: float | None = None  # final total energy (may differ from SCF)
 
     # Thermochemistry
     zpe_au: float | None = None
@@ -137,7 +138,7 @@ def parse_orca_out(path: Path | str) -> OrcaResult:
     # Geometry: last CARTESIAN COORDINATES block
     coord_positions = [m.start() for m in _RE_COORD_HEADER.finditer(text)]
     if coord_positions:
-        block_text = text[coord_positions[-1]:]
+        block_text = text[coord_positions[-1] :]
         atoms: list[tuple[str, float, float, float]] = []
         in_table = False
         for line in block_text.splitlines()[1:]:  # skip the header line itself
@@ -153,9 +154,7 @@ def parse_orca_out(path: Path | str) -> OrcaResult:
                 break
         if atoms:
             result.atom_symbols = [a[0] for a in atoms]
-            result.final_xyz = "\n".join(
-                f"{a[0]:2s}  {a[1]:12.6f}  {a[2]:12.6f}  {a[3]:12.6f}" for a in atoms
-            )
+            result.final_xyz = "\n".join(f"{a[0]:2s}  {a[1]:12.6f}  {a[2]:12.6f}  {a[3]:12.6f}" for a in atoms)
 
     # Mulliken charges
     in_mulliken = False

@@ -18,6 +18,7 @@ This file is skipped in two cases:
    (``C:\\Windows\\System32\\bash.exe``) that has no distros installed.
 CI default (``-m 'not integration'``) also skips it.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,6 +51,7 @@ def _to_bash_path(p: Path) -> str:
         rest = raw[2:].replace("\\", "/")
         return f"/mnt/{drive}{rest}"
     return raw.replace("\\", "/")
+
 
 METHANE_GJF = """\
 %chk=methane.chk
@@ -98,8 +100,12 @@ def _run_g16(tmp_path: Path, gjf_text: str, basename: str = "methane") -> Path:
     bash_script_path = _to_bash_path(script_path)
     proc = subprocess.run(
         ["bash", bash_script_path, f"{basename}.gjf"],
-        cwd=tmp_path, env=env,
-        capture_output=True, text=False, encoding="utf-8", errors="replace",
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=False,
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.returncode == 0, f"mock l1.exe failed: stderr={proc.stderr!r}"
     return log
@@ -190,7 +196,11 @@ def test_g16_wrapper_exits_zero(tmp_path: Path):
     bash_script_path = _to_bash_path(script_path)
     proc = subprocess.run(
         ["bash", bash_script_path, "methane.gjf"],
-        cwd=tmp_path, env=env,
-        capture_output=True, text=False, encoding="utf-8", errors="replace",
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=False,
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.returncode == 0

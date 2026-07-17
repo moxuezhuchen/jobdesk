@@ -1,4 +1,5 @@
 """Tests for BackgroundWorker registry and start_tracked_worker lifecycle."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

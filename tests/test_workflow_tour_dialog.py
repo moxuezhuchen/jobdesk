@@ -1,4 +1,5 @@
 """Tests for the WorkflowTourDialog (Phase 1.1)."""
+
 from __future__ import annotations
 
 import os

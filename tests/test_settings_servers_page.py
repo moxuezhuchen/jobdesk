@@ -23,26 +23,26 @@ from jobdesk_app.services.gui_settings import GuiSettings
 def _make_settings_page(qtbot, tmp_path):
     servers_path = tmp_path / "servers.yaml"
     servers_path.write_text(
-        "servers:\n"
-        "  wsl:\n"
-        "    host: 127.0.0.1\n"
-        "    username: root\n"
-        "    auth_method: key\n",
+        "servers:\n  wsl:\n    host: 127.0.0.1\n    username: root\n    auth_method: key\n",
         encoding="utf-8",
     )
     settings_store = MagicMock()
     settings_store.load.return_value = GuiSettings()
     statuses: list[str] = []
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
     ):
         page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
         qtbot.addWidget(page)
@@ -61,15 +61,19 @@ def _make_empty_settings_page(qtbot, tmp_path):
     settings_store.load.return_value = GuiSettings()
     statuses: list[str] = []
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
     ):
         page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
         qtbot.addWidget(page)
@@ -238,31 +242,31 @@ def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
     settings_store.load.return_value = GuiSettings()
 
     def accept_with_browsed_key(dialog):
-        browse_button = next(
-            button for button in dialog.findChildren(QPushButton)
-            if button.text().strip() == "..."
-        )
+        browse_button = next(button for button in dialog.findChildren(QPushButton) if button.text().strip() == "...")
         browse_button.click()
-        key_edits = [
-            edit for edit in dialog.findChildren(QLineEdit)
-            if edit.text() == selected_key
-        ]
+        key_edits = [edit for edit in dialog.findChildren(QLineEdit) if edit.text() == selected_key]
         assert key_edits
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch(
-        "PySide6.QtWidgets.QFileDialog.getOpenFileName",
-        return_value=(selected_key, ""),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_browsed_key):
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch(
+            "PySide6.QtWidgets.QFileDialog.getOpenFileName",
+            return_value=(selected_key, ""),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_browsed_key),
+    ):
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
         qtbot.addWidget(page)
         page.server_table.selectRow(0)
@@ -295,7 +299,8 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
 
     def accept_with_external_tools(dialog):
         provider_combo = next(
-            c for c in dialog.findChildren(QComboBox)
+            c
+            for c in dialog.findChildren(QComboBox)
             if "windows_terminal" in [c.itemText(i) for i in range(c.count())]
             and "putty" in [c.itemText(i) for i in range(c.count())]
         )
@@ -309,16 +314,21 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
         terminal_path.setText("C:/Tools/PuTTY/putty.exe")
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_external_tools):
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_external_tools),
+    ):
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
         qtbot.addWidget(page)
         page.server_table.selectRow(0)
@@ -358,16 +368,21 @@ def test_edit_server_saves_ssh_access_fields(qtbot, tmp_path):
         proxy_jump.setText("login-node")
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_ssh_access):
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_ssh_access),
+    ):
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
         qtbot.addWidget(page)
         page.server_table.selectRow(0)
@@ -417,11 +432,7 @@ def test_text_editor_setting_loads_and_saves(qtbot):
 def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_path):
     servers_path = tmp_path / "servers.yaml"
     servers_path.write_text(
-        "servers:\n"
-        "  wsl:\n"
-        "    host: 127.0.0.1\n"
-        "    username: root\n"
-        "    auth_method: key\n",
+        "servers:\n  wsl:\n    host: 127.0.0.1\n    username: root\n    auth_method: key\n",
         encoding="utf-8",
     )
     settings_store = MagicMock()
@@ -434,16 +445,21 @@ def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_pa
         toggle.setChecked(True)
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_tofu):
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_tofu),
+    ):
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
         qtbot.addWidget(page)
         page.server_table.selectRow(0)
@@ -456,6 +472,7 @@ def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_pa
 
 def test_edit_server_saves_scheduler_fields_and_preserves_hidden_keys(qtbot, tmp_path):
     from PySide6.QtWidgets import QComboBox, QSpinBox
+
     servers_path = tmp_path / "servers.yaml"
     servers_path.write_text(
         "servers:\n"
@@ -475,27 +492,33 @@ def test_edit_server_saves_scheduler_fields_and_preserves_hidden_keys(qtbot, tmp
 
     def accept_with_scheduler(dialog):
         type_combo = next(
-            c for c in dialog.findChildren(QComboBox)
+            c
+            for c in dialog.findChildren(QComboBox)
             if [c.itemText(i) for i in range(c.count())] == ["nohup", "slurm", "pbs"]
         )
         type_combo.setCurrentIndex(1)  # slurm
         spins = dialog.findChildren(QSpinBox)
         # spins order: port, cpus, mem, walltime
-        spins[1].setValue(16)   # cpus
+        spins[1].setValue(16)  # cpus
         spins[2].setValue(32000)  # memory MB
         spins[3].setValue(720)  # walltime minutes
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_scheduler):
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_scheduler),
+    ):
         page = SettingsServersPage(MagicMock(), lambda message: None, lambda message: None)
         qtbot.addWidget(page)
         page.server_table.selectRow(0)
@@ -532,17 +555,23 @@ def test_edit_server_rejects_duplicate_server_id(qtbot, tmp_path):
         id_edit.setText("hpc")
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id), patch(
-        "PySide6.QtWidgets.QMessageBox.warning",
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id),
+        patch(
+            "PySide6.QtWidgets.QMessageBox.warning",
+        ),
     ):
         page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
         qtbot.addWidget(page)
@@ -561,11 +590,7 @@ def test_edit_server_rejects_duplicate_server_id(qtbot, tmp_path):
 def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
     servers_path = tmp_path / "servers.yaml"
     servers_path.write_text(
-        "servers:\n"
-        "  wsl:\n"
-        "    host: 127.0.0.1\n"
-        "    username: root\n"
-        "    auth_method: key\n",
+        "servers:\n  wsl:\n    host: 127.0.0.1\n    username: root\n    auth_method: key\n",
         encoding="utf-8",
     )
     settings_store = MagicMock()
@@ -582,17 +607,23 @@ def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
         user_edit.setText("chemist")
         return QDialog.Accepted
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
-        return_value=settings_store,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
-        return_value=servers_path,
-    ), patch(
-        "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-        side_effect=lambda: load_servers_from_path(servers_path),
-    ), patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id), patch(
-        "PySide6.QtWidgets.QMessageBox.warning",
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.GuiSettingsStore",
+            return_value=settings_store,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.get_default_servers_path",
+            return_value=servers_path,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_duplicate_id),
+        patch(
+            "PySide6.QtWidgets.QMessageBox.warning",
+        ),
     ):
         page = SettingsServersPage(MagicMock(), lambda message: None, statuses.append)
         qtbot.addWidget(page)
@@ -602,7 +633,6 @@ def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
     assert set(saved) == {"wsl"}
     assert saved["wsl"]["host"] == "127.0.0.1"
     assert statuses == ["Server ID already exists: wsl"]
-
 
 
 # -- Phase 2.1: empty-state hint tests --

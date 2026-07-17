@@ -11,6 +11,7 @@ focuses on:
 * the **invariant** that every ``tr()`` key in the still-live widget /
   page sources has a Chinese counterpart in :data:`ZH`.
 """
+
 from __future__ import annotations
 
 import ast
@@ -87,14 +88,12 @@ def test_zh_xyz_buttons_are_translated(zh_panel):
     translated_texts = {
         "\u6dfb\u52a0\u6587\u4ef6\u2026",  # Add files…
         "\u6dfb\u52a0\u76ee\u5f55\u2026",  # Add directory…
-        "\u79fb\u9664",                    # Remove
-        "\u6e05\u7a7a",                    # Clear
+        "\u79fb\u9664",  # Remove
+        "\u6e05\u7a7a",  # Clear
     }
     actual = {
         btn.text()
-        for btn in zh_panel.findChildren(
-            __import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton
-        )
+        for btn in zh_panel.findChildren(__import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton)
     }
     missing = translated_texts - actual
     assert not missing, f"missing Chinese buttons: {missing}"

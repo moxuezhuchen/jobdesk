@@ -13,6 +13,7 @@ The drawer is exercised via the public ``selected`` signal so the
 test doesn't depend on Qt's popup positioning or menu event loop
 quirks in offscreen mode.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -54,10 +55,7 @@ def test_example_fixture_validates_clean(template_id):
     graph = get_example(template_id).load_graph()
     issues = graph.validate()
     errors = [i for i in issues if i.severity == "error"]
-    assert errors == [], (
-        f"{template_id} has validation errors: "
-        f"{[i.message for i in errors]}"
-    )
+    assert errors == [], f"{template_id} has validation errors: {[i.message for i in errors]}"
 
 
 @pytest.mark.parametrize("template_id", list(EXPECTED_IDS))
@@ -141,14 +139,7 @@ def test_editor_examples_drawer_round_trips_each_template(qtbot, tmp_path):
         # After a fresh load the editor must carry the same nodes as
         # the file-level loader sees.
         expected = get_example(template_id).load_graph()
-        assert set(editor.graph().nodes) == set(expected.nodes), (
-            f"editor mismatch for {template_id}"
-        )
+        assert set(editor.graph().nodes) == set(expected.nodes), f"editor mismatch for {template_id}"
         # And the loaded graph must validate with no errors.
-        errors = [
-            i for i in editor.graph().validate() if i.severity == "error"
-        ]
-        assert errors == [], (
-            f"{template_id} produced errors after editor load: "
-            f"{[i.message for i in errors]}"
-        )
+        errors = [i for i in editor.graph().validate() if i.severity == "error"]
+        assert errors == [], f"{template_id} produced errors after editor load: {[i.message for i in errors]}"

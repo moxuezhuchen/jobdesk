@@ -5,6 +5,7 @@ prior state, and that redoing restores it. We also confirm that
 deleting a node cascades edge removal and that undoing the deletion
 restores the edges too.
 """
+
 from __future__ import annotations
 
 from jobdesk_app.gui.nodegraph.model import NodeKind

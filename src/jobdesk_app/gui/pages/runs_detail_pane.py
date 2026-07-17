@@ -1,4 +1,5 @@
 """Result detail pane — parsed Gaussian/ORCA output viewer widget."""
+
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
@@ -105,6 +106,7 @@ class ResultDetailPane(QWidget):
     def clear(self) -> None:
         self._program = "—"
         from ..i18n import tr
+
         self.title_label.setText(tr("Select a task to see details", self._language))
         self.status_label.setText("—")
         self.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_SECONDARY};")
@@ -122,6 +124,7 @@ class ResultDetailPane(QWidget):
     def apply_language(self, language: str) -> None:
         """Re-translate the placeholder shown when no task is selected."""
         from ..i18n import tr
+
         self._language = language
         if not self.title_label.text() or self.title_label.text() == tr("Select a task to see details", language):
             self.title_label.setText(tr("Select a task to see details", language))

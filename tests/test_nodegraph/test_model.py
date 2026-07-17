@@ -4,6 +4,7 @@ These tests cover the model API directly, without Qt or the editor
 scene, so the assertions stay fast and don't need an offscreen
 ``QApplication``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -35,16 +36,11 @@ def _make_fanout_graph() -> NodeGraph:
     g.add_node(pre1)
     g.add_node(pre2)
     g.add_node(opt)
-    g.add_edge(Edge(id="e0", src_node=xyz.id, src_port="out",
-                    dst_node=conf.id, dst_port="in"))
-    g.add_edge(Edge(id="e1", src_node=conf.id, src_port="out",
-                    dst_node=pre1.id, dst_port="in"))
-    g.add_edge(Edge(id="e2", src_node=conf.id, src_port="out",
-                    dst_node=pre2.id, dst_port="in"))
-    g.add_edge(Edge(id="e3", src_node=pre1.id, src_port="out",
-                    dst_node=opt.id, dst_port="in"))
-    g.add_edge(Edge(id="e4", src_node=pre2.id, src_port="out",
-                    dst_node=opt.id, dst_port="in"))
+    g.add_edge(Edge(id="e0", src_node=xyz.id, src_port="out", dst_node=conf.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=conf.id, src_port="out", dst_node=pre1.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=conf.id, src_port="out", dst_node=pre2.id, dst_port="in"))
+    g.add_edge(Edge(id="e3", src_node=pre1.id, src_port="out", dst_node=opt.id, dst_port="in"))
+    g.add_edge(Edge(id="e4", src_node=pre2.id, src_port="out", dst_node=opt.id, dst_port="in"))
     return g
 
 
@@ -82,13 +78,11 @@ def test_add_edge_blocks_exact_4_tuple_duplicate():
     b = default_node(NodeKind.SINGLE_POINT, position=(200, 0))
     g.add_node(a)
     g.add_node(b)
-    g.add_edge(Edge(id="e1", src_node=a.id, src_port="out",
-                    dst_node=b.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=a.id, src_port="out", dst_node=b.id, dst_port="in"))
     # Same (src, src_port, dst, dst_port) tuple with a different id
     # must still be rejected.
     with pytest.raises(ValueError, match="duplicate"):
-        g.add_edge(Edge(id="e2", src_node=a.id, src_port="out",
-                        dst_node=b.id, dst_port="in"))
+        g.add_edge(Edge(id="e2", src_node=a.id, src_port="out", dst_node=b.id, dst_port="in"))
 
 
 def test_add_edge_allows_fan_out_same_src_different_dst():
@@ -99,11 +93,9 @@ def test_add_edge_allows_fan_out_same_src_different_dst():
     g.add_node(src)
     g.add_node(a)
     g.add_node(b)
-    g.add_edge(Edge(id="e1", src_node=src.id, src_port="out",
-                    dst_node=a.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=src.id, src_port="out", dst_node=a.id, dst_port="in"))
     # Same source, same source port, different destination — allowed.
-    g.add_edge(Edge(id="e2", src_node=src.id, src_port="out",
-                    dst_node=b.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=src.id, src_port="out", dst_node=b.id, dst_port="in"))
     assert len(g.edges) == 2
 
 
@@ -114,9 +106,6 @@ def test_add_edge_allows_allow_duplicate_kwarg():
     b = default_node(NodeKind.SINGLE_POINT, position=(200, 0))
     g.add_node(a)
     g.add_node(b)
-    g.add_edge(Edge(id="e1", src_node=a.id, src_port="out",
-                    dst_node=b.id, dst_port="in"))
-    g.add_edge(Edge(id="e2", src_node=a.id, src_port="out",
-                    dst_node=b.id, dst_port="in"),
-               allow_duplicate=True)
+    g.add_edge(Edge(id="e1", src_node=a.id, src_port="out", dst_node=b.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=a.id, src_port="out", dst_node=b.id, dst_port="in"), allow_duplicate=True)
     assert len(g.edges) == 2

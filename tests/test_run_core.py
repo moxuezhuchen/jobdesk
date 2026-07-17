@@ -73,11 +73,14 @@ def test_build_run_plan_for_single_current_directory_command():
 
 
 def test_chunk_sources_splits_selected_inputs():
-    chunks = chunk_sources([
-        RunSource("/r/a.gjf"),
-        RunSource("/r/b.gjf"),
-        RunSource("/r/c.gjf"),
-    ], batch_size=2)
+    chunks = chunk_sources(
+        [
+            RunSource("/r/a.gjf"),
+            RunSource("/r/b.gjf"),
+            RunSource("/r/c.gjf"),
+        ],
+        batch_size=2,
+    )
 
     assert [[source.name for source in chunk] for chunk in chunks] == [["a.gjf", "b.gjf"], ["c.gjf"]]
 

@@ -75,9 +75,7 @@ servers:
     auth_method: key
     key_path: C:/Users/xianj/.ssh/id_ed25519
 """
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             f.write(yaml_content)
             tmp_path = f.name
 
@@ -94,9 +92,7 @@ servers:
 
     def test_servers_config_empty(self):
         yaml_content = ""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             f.write(yaml_content)
             tmp_path = f.name
 
@@ -105,8 +101,6 @@ servers:
                 load_servers(tmp_path)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
-
-
 
 
 def test_password_auth_config_loads_but_surfaces_unsupported_message():

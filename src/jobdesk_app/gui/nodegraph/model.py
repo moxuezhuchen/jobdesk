@@ -44,6 +44,7 @@ step consumes exactly one predecessor's output. ``STRUCTURES`` →
 must pick the lowest-energy conformer. Fan-out and fan-in are NOT
 supported yet — those land in Phase 3.
 """
+
 from __future__ import annotations
 
 import enum
@@ -71,15 +72,15 @@ class NodeKind(str, enum.Enum):
     """
 
     XYZ_FILE = "xyz_file"  # input node; carries a single STRUCTURE
-    CONF_GEN = "confgen"   # confflow step type="confgen"
-    PRE_OPT = "preopt"     # confflow calc step, itask=preopt
-    OPT = "opt"            # confflow calc step, itask=opt
-    REFINE = "refine"      # confflow calc step, itask=refine
-    SINGLE_POINT = "sp"    # confflow calc step, itask=sp
-    FREQUENCY = "freq"     # confflow calc step, itask=freq
-    TS = "ts"              # confflow calc step, itask=ts
+    CONF_GEN = "confgen"  # confflow step type="confgen"
+    PRE_OPT = "preopt"  # confflow calc step, itask=preopt
+    OPT = "opt"  # confflow calc step, itask=opt
+    REFINE = "refine"  # confflow calc step, itask=refine
+    SINGLE_POINT = "sp"  # confflow calc step, itask=sp
+    FREQUENCY = "freq"  # confflow calc step, itask=freq
+    TS = "ts"  # confflow calc step, itask=ts
     ADVANCED = "advanced"  # arbitrary key=value overrides
-    OUTPUT = "output"      # terminal node; emits workflow.yaml
+    OUTPUT = "output"  # terminal node; emits workflow.yaml
 
 
 @dataclass(frozen=True)
@@ -260,8 +261,7 @@ class NodeGraph:
             raise KeyError(node_id)
         del self.nodes[node_id]
         # Cascade-remove edges that touched the node.
-        for edge_id in [eid for eid, e in self.edges.items()
-                        if e.src_node == node_id or e.dst_node == node_id]:
+        for edge_id in [eid for eid, e in self.edges.items() if e.src_node == node_id or e.dst_node == node_id]:
             del self.edges[edge_id]
 
     def add_edge(
@@ -414,10 +414,7 @@ class NodeGraph:
                     yield GraphIssue(
                         severity="error",
                         code="CYCLE_DETECTED",
-                        message=(
-                            "Workflow contains a cycle. Phase 1 supports only "
-                            "linear (acyclic) workflows."
-                        ),
+                        message=("Workflow contains a cycle. Phase 1 supports only linear (acyclic) workflows."),
                         node_id=nid,
                     )
                     break

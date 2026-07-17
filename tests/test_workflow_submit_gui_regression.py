@@ -1,4 +1,5 @@
 """Regression tests for the step-library / saved-workflow submit boundary."""
+
 from __future__ import annotations
 
 import os
@@ -76,7 +77,9 @@ def test_submit_dialog_lists_only_saved_workflows_and_shows_exact_yaml(qapp, mon
     monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
     store = MethodPresetStore()
     expected = _save_rich_workflow(store)
-    dlg = SubmitDialog("en", files=[_src(tmp_path / "a.xyz")], server_id="prod", preset_store=store, preset_name="my_workflow")
+    dlg = SubmitDialog(
+        "en", files=[_src(tmp_path / "a.xyz")], server_id="prod", preset_store=store, preset_name="my_workflow"
+    )
     try:
         assert dlg.preset_combo.currentData() == "my_workflow"
         assert dlg._yaml_view.toPlainText() == expected

@@ -1,4 +1,5 @@
 """Submit operations for run_service."""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -82,9 +83,7 @@ def submit_run(
             for operation in operations:
                 task_ids = operation.payload.get("task_ids")
                 if not isinstance(task_ids, list):
-                    raise RuntimeError(
-                        f"submit operation has invalid task ids: {operation.operation_id}"
-                    )
+                    raise RuntimeError(f"submit operation has invalid task ids: {operation.operation_id}")
                 for task_id in task_ids:
                     operation_by_task[str(task_id)] = operation
 
@@ -115,9 +114,7 @@ def submit_run(
         guard.stop_heartbeat()
         for operation in operations:
             try:
-                service.repository.recover_submit_operation(
-                    operation.operation_id, owner_id=owner_id
-                )
+                service.repository.recover_submit_operation(operation.operation_id, owner_id=owner_id)
             except Exception as recovery_exc:
                 recovery_diagnostics.append(
                     f"submit recovery failed for {operation.operation_id}: "
@@ -128,9 +125,7 @@ def submit_run(
         guard.stop_heartbeat()
         for operation in operations:
             try:
-                service.repository.release_claimed_submit_operation(
-                    operation.operation_id, owner_id=owner_id
-                )
+                service.repository.release_claimed_submit_operation(operation.operation_id, owner_id=owner_id)
             except Exception as release_exc:
                 release_diagnostics.append(
                     f"submit claim release failed for {operation.operation_id}: "
@@ -140,29 +135,22 @@ def submit_run(
         incomplete_ids: set[str] = set()
         try:
             incomplete_ids = {
-                operation.operation_id
-                for operation in service.repository.list_operations(incomplete_only=True)
+                operation.operation_id for operation in service.repository.list_operations(incomplete_only=True)
             }
         except Exception as inspection_exc:
             release_diagnostics.append(
-                "submit cleanup state inspection failed: "
-                f"{type(inspection_exc).__name__}: {inspection_exc}"
+                f"submit cleanup state inspection failed: {type(inspection_exc).__name__}: {inspection_exc}"
             )
         for operation in operations:
             if operation.operation_id in incomplete_ids:
-                release_diagnostics.append(
-                    "submit recovery left operation incomplete: "
-                    f"{operation.operation_id}"
-                )
+                release_diagnostics.append(f"submit recovery left operation incomplete: {operation.operation_id}")
 
         cleanup_diagnostics = recovery_diagnostics + release_diagnostics
         if primary_error is not None:
             for diagnostic in cleanup_diagnostics:
                 primary_error.add_note(diagnostic)
         elif cleanup_diagnostics:
-            raise RuntimeError(
-                "submit cleanup failed: " + "; ".join(cleanup_diagnostics)
-            )
+            raise RuntimeError("submit cleanup failed: " + "; ".join(cleanup_diagnostics))
     return result
 
 
@@ -172,22 +160,14 @@ def recover_submit_operations(service, run_id: str | None = None) -> int:
     This is a module-level function to enable method extraction from RunService.
     The ``service`` argument must be a RunService instance.
     """
-    recovered = (
-        service.repository.recover_legacy_orphan_submit_tasks()
-        if run_id is None
-        else 0
-    )
+    recovered = service.repository.recover_legacy_orphan_submit_tasks() if run_id is None else 0
     for operation in service.repository.list_operations(incomplete_only=True):
         recovery_owner = str(uuid4())
         if (
             operation.kind == "submit"
             and (run_id is None or operation.run_id == run_id)
-            and service.repository.acquire_submit_recovery(
-                operation.operation_id, recovery_owner
-            )
-            and service.repository.recover_submit_operation(
-                operation.operation_id, owner_id=recovery_owner
-            )
+            and service.repository.acquire_submit_recovery(operation.operation_id, recovery_owner)
+            and service.repository.recover_submit_operation(operation.operation_id, owner_id=recovery_owner)
         ):
             recovered += 1
     service.repository.prune_completed_operations(datetime.now() - timedelta(days=7))

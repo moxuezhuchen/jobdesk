@@ -9,6 +9,7 @@ Phase 14C.2 behavioural note: the new ``_TabBody._dropEvent`` always
 uses ``recursive=False`` for directory drops. The recursive checkbox
 is only honoured by the explicit "Add directory…" button flow.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

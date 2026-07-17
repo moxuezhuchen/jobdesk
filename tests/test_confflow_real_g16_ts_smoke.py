@@ -20,6 +20,7 @@ must converge with exactly one imaginary frequency.  All other tests
 mirror the Phase 9G methane suite and confirm the parser contract still
 holds against a different job-type (itask: ts vs itask: opt).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,8 +49,7 @@ SMOKE = _locate_smoke_root()
 def _require_artifact(name: str) -> Path:
     if SMOKE is None:
         pytest.skip(
-            "Real-g16 TS smoke artifacts not present; run "
-            "`python scripts/smoke_confflow_real_g16_ts_wsl.py` first"
+            "Real-g16 TS smoke artifacts not present; run `python scripts/smoke_confflow_real_g16_ts_wsl.py` first"
         )
     path = SMOKE / name
     if not path.exists():
@@ -105,8 +105,7 @@ def test_g16_ts_log_contains_exactly_one_imaginary_frequency():
     assert "1 imaginary frequencies (negative Signs)" in text, (
         "TS .log must report exactly 1 imaginary frequency; got:\n"
         + "\n".join(
-            line for line in text.splitlines()
-            if "Imaginary Frequencies" in line or "imaginary" in line.lower()
+            line for line in text.splitlines() if "Imaginary Frequencies" in line or "imaginary" in line.lower()
         )
     )
 
@@ -117,16 +116,13 @@ def test_g16_ts_imaginary_freq_count_is_one_via_parser():
 
     log = _require_artifact("g16_ts/backups/A000001.log")
     result = parse_gaussian_log(log)
-    assert result.imaginary_freq_count == 1, (
-        f"parser saw {result.imaginary_freq_count} imag freq(s); expected 1"
-    )
+    assert result.imaginary_freq_count == 1, f"parser saw {result.imaginary_freq_count} imag freq(s); expected 1"
     # And the lowest frequency (the only imag one) should be meaningfully
     # negative (g16 prints > 100 cm-1 for a real saddle).
     imag = [f for f in result.frequencies_cm1 if f < 0]
     assert imag, "parser found no negative frequencies at all"
     assert min(imag) < -100.0, (
-        f"imaginary frequency {min(imag)} cm-1 too small; g16 likely "
-        "converged to a minimum, not a saddle"
+        f"imaginary frequency {min(imag)} cm-1 too small; g16 likely converged to a minimum, not a saddle"
     )
 
 

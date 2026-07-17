@@ -5,6 +5,7 @@ sub-package. This module re-exports everything from that sub-package so that
 existing imports (e.g. in tests and monkeypatch paths) continue to work without
 modification.
 """
+
 from __future__ import annotations
 
 from jobdesk_app.services.run_service import (

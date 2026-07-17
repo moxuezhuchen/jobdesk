@@ -4,6 +4,7 @@ The ConfFlow Pydantic models are an optional dependency. These tests verify
 the wrapper behaves correctly regardless: graceful degradation when the
 package is missing, round-trip serialization when it is available.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -159,14 +160,8 @@ def test_assemble_orca_keyword_strips_bang():
 
 def test_assemble_orca_keyword_extra_tokens():
     """Extra tokens (e.g. Opt, MiniPrint) are appended and '!'-stripped."""
-    assert (
-        assemble_orca_keyword("b3lyp", "def2-svp", "Opt MiniPrint")
-        == "b3lyp def2-svp Opt MiniPrint"
-    )
-    assert (
-        assemble_orca_keyword("b3lyp", "def2-svp", "! Opt MiniPrint")
-        == "b3lyp def2-svp Opt MiniPrint"
-    )
+    assert assemble_orca_keyword("b3lyp", "def2-svp", "Opt MiniPrint") == "b3lyp def2-svp Opt MiniPrint"
+    assert assemble_orca_keyword("b3lyp", "def2-svp", "! Opt MiniPrint") == "b3lyp def2-svp Opt MiniPrint"
 
 
 def test_assemble_orca_keyword_skips_empty_components():
@@ -227,8 +222,7 @@ def test_from_form_orca_keyword_keeps_user_override():
     keyword_value = keyword_match.group(1)
     assert "def2-TZVP" in keyword_value
     assert "def2-svp" not in keyword_value, (
-        f"user-supplied keyword overrode the auto-assembled one; "
-        f"got keyword={keyword_value!r}"
+        f"user-supplied keyword overrode the auto-assembled one; got keyword={keyword_value!r}"
     )
 
 
@@ -420,13 +414,17 @@ def test_user_yaml_round_trip_through_confflow_loader():
     # Re-attach global from base + lift top-level keys via the
     # normaliser (the wizard's merge routine does the same).
     from jobdesk_app.core.workflow_spec import _normalise_yaml_to_schema
+
     normalised = _normalise_yaml_to_schema(user_data)
     merged = {
         "global": {**(base.get("global") or {}), **(normalised.get("global") or {})},
         "steps": normalised.get("steps") or [],
     }
     merged_text = yamllib.safe_dump(
-        merged, sort_keys=False, allow_unicode=True, default_flow_style=False,
+        merged,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
     )
     rebuilt = WorkflowSpec.from_yaml(merged_text)
     # And the rebuilt spec still loads via the confflow loader.
@@ -438,7 +436,10 @@ def test_user_yaml_round_trip_through_confflow_loader():
     )
 
     with tempfile.NamedTemporaryFile(
-        "w", suffix=".yaml", delete=False, encoding="utf-8",
+        "w",
+        suffix=".yaml",
+        delete=False,
+        encoding="utf-8",
     ) as f:
         f.write(rebuilt.to_yaml())
         path = f.name

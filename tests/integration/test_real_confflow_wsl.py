@@ -22,12 +22,14 @@ from jobdesk_app.services.scheduler_helpers import (
 from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(
-    not all((
-        os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
-        os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
-        os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
-        os.environ.get("JOBDESK_TEST_REAL_CONFFLOW") == "1",
-    )),
+    not all(
+        (
+            os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
+            os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
+            os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
+            os.environ.get("JOBDESK_TEST_REAL_CONFFLOW") == "1",
+        )
+    ),
     reason="需要 WSL 配置和 JOBDESK_TEST_REAL_CONFFLOW=1",
 )
 

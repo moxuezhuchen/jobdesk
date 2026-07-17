@@ -1,4 +1,5 @@
 """Smoke tests for MainWindow wiring (Phase 1.1)."""
+
 from __future__ import annotations
 
 import os

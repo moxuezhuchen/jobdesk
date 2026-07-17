@@ -3,6 +3,7 @@
 This module contains the WorkflowDraft dataclass, node kind mappings, and
 helper functions for YAML serialization and step parsing.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,15 +21,17 @@ __all__ = ["WorkflowDraft", "_STEP_KINDS", "_dump_yaml", "_step_kind", "_node_fr
 
 from ...nodegraph.model import NodeKind
 
-_STEP_KINDS: frozenset = frozenset({
-    NodeKind.CONF_GEN,
-    NodeKind.PRE_OPT,
-    NodeKind.OPT,
-    NodeKind.SINGLE_POINT,
-    NodeKind.FREQUENCY,
-    NodeKind.TS,
-    NodeKind.REFINE,
-})
+_STEP_KINDS: frozenset = frozenset(
+    {
+        NodeKind.CONF_GEN,
+        NodeKind.PRE_OPT,
+        NodeKind.OPT,
+        NodeKind.SINGLE_POINT,
+        NodeKind.FREQUENCY,
+        NodeKind.TS,
+        NodeKind.REFINE,
+    }
+)
 
 _ITASK_TO_KIND: dict[str, NodeKind] = {
     "preopt": NodeKind.PRE_OPT,
@@ -43,6 +46,7 @@ _KIND_TO_ITASK: dict[NodeKind, str] = {value: key for key, value in _ITASK_TO_KI
 
 
 # ---- YAML helpers ---------------------------------------------------------
+
 
 def _dump_yaml(value: dict[str, Any]) -> str:
     """Dump a dictionary as formatted YAML."""
@@ -71,6 +75,7 @@ def _node_fragment(node: Node) -> dict[str, Any]:
 
 
 # ---- draft state ----------------------------------------------------------
+
 
 @dataclass
 class WorkflowDraft:

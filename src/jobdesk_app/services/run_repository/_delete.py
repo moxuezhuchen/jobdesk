@@ -43,10 +43,7 @@ def prepare_delete_run(
     connection.execute("BEGIN IMMEDIATE")
     runs_root = _lexical_absolute(runs_dir)
     expected_run_dir = _lexical_absolute(runs_dir / run_id)
-    if (
-        not paths_equal(_lexical_absolute(run_dir), expected_run_dir)
-        or not expected_run_dir.is_relative_to(runs_root)
-    ):
+    if not paths_equal(_lexical_absolute(run_dir), expected_run_dir) or not expected_run_dir.is_relative_to(runs_root):
         raise ValueError(f"unsafe run directory for deletion: {run_dir}")
     _reject_reparse_chain(runs_root, expected_run_dir)
     resolved_results_root = _lexical_absolute(results_root)
@@ -67,12 +64,11 @@ def prepare_delete_run(
         raise ValueError("unsafe delete trash root")
     run_trash_root = _lexical_absolute(run_trash_base / operation_id)
     results_trash_root = _lexical_absolute(results_trash_base / operation_id)
-    row = connection.execute(
-        "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-    ).fetchone()
+    row = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         raise KeyError(f"run not found: {run_id}")
     from ._runs import _row_to_record
+
     record = _row_to_record(connection, row, runs_dir)
     if not record.local_dir:
         raise ValueError(f"run {run_id!r} has no absolute local_dir workspace anchor")
@@ -82,8 +78,7 @@ def prepare_delete_run(
     recorded_workspace = _lexical_absolute(recorded_workspace_path)
     if not paths_equal(recorded_workspace, trusted_workspace):
         raise ValueError(
-            f"run local_dir does not match deletion workspace: "
-            f"{recorded_workspace} != {trusted_workspace}"
+            f"run local_dir does not match deletion workspace: {recorded_workspace} != {trusted_workspace}"
         )
     tasks = _load_tasks(connection, run_id)
     incomplete_submit = connection.execute(
@@ -93,24 +88,18 @@ def prepare_delete_run(
         (run_id,),
     ).fetchone()
     if incomplete_submit is not None:
-        raise ValueError(
-            f"cannot delete run {run_id!r} with incomplete submit operation"
-        )
+        raise ValueError(f"cannot delete run {run_id!r} with incomplete submit operation")
     from jobdesk_app.core.lifecycle import TaskStatus
+
     active_statuses = {
         TaskStatus.submitting,
         TaskStatus.uncertain,
         TaskStatus.submitted,
         TaskStatus.running,
     }
-    active_tasks = [
-        task.task_id for task in tasks if task.status in active_statuses
-    ]
+    active_tasks = [task.task_id for task in tasks if task.status in active_statuses]
     if active_tasks:
-        raise ValueError(
-            f"cannot delete run {run_id!r} with active remote tasks: "
-            + ", ".join(active_tasks)
-        )
+        raise ValueError(f"cannot delete run {run_id!r} with active remote tasks: " + ", ".join(active_tasks))
     payload: dict = {
         "run": {
             "run_id": record.run_id,
@@ -144,13 +133,19 @@ def prepare_delete_run(
         (operation_id, run_id, payload_json, timestamp, timestamp),
     )
     connection.execute(
-        "INSERT INTO delete_operation_workspaces(operation_id, workspace_root) "
-        "VALUES (?, ?)",
+        "INSERT INTO delete_operation_workspaces(operation_id, workspace_root) VALUES (?, ?)",
         (operation_id, str(trusted_workspace)),
     )
     return OperationRecord(
-        operation_id, run_id, "delete", "prepared",
-        dict(json.loads(payload_json)), None, timestamp, timestamp, None,
+        operation_id,
+        run_id,
+        "delete",
+        "prepared",
+        dict(json.loads(payload_json)),
+        None,
+        timestamp,
+        timestamp,
+        None,
     )
 
 
@@ -233,6 +228,7 @@ def _execute_delete_isolation_impl(
     """
     timestamp = datetime.now().isoformat()
     from ._operations import _row_to_operation
+
     row = connection.execute(
         """SELECT * FROM operations
            WHERE operation_id = ? AND kind = 'delete'
@@ -274,6 +270,7 @@ def ensure_delete_trash_paths(
         connection.execute("BEGIN IMMEDIATE")
     timestamp = datetime.now().isoformat()
     from ._operations import _row_to_operation
+
     try:
         row = connection.execute(
             "SELECT * FROM operations WHERE operation_id = ? AND kind = 'delete'",

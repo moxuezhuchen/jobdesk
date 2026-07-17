@@ -112,18 +112,22 @@ def _write_legacy_run(runs_dir: Path, run_id: str = "legacy-1") -> dict[str, byt
 def test_confirm_uncertain_tasks_uses_cas_and_preserves_metadata(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
     submitted_at = datetime(2026, 6, 27, 9, 0, 0)
-    uncertain_a = _task("a", TaskStatus.uncertain).model_copy(update={
-        "scheduler_type": "slurm",
-        "error_message": "submit response lost",
-        "submitted_at": submitted_at,
-        "task_files": ["a.gjf"],
-    })
+    uncertain_a = _task("a", TaskStatus.uncertain).model_copy(
+        update={
+            "scheduler_type": "slurm",
+            "error_message": "submit response lost",
+            "submitted_at": submitted_at,
+            "task_files": ["a.gjf"],
+        }
+    )
     uncertain_b = _task("b", TaskStatus.uncertain)
     uploaded = _task("c", TaskStatus.uploaded)
     repository.create_run(_record(repository.runs_dir), [uncertain_a, uncertain_b, uploaded])
 
     accepted, durable = repository.resolve_uncertain_tasks(
-        "run-1", ["a", "c", "missing"], action="confirm",
+        "run-1",
+        ["a", "c", "missing"],
+        action="confirm",
         remote_job_ids={"a": "123", "c": "wrong"},
     )
 
@@ -165,17 +169,22 @@ def test_abandon_uncertain_resets_execution_metadata_for_selected_tasks(
 ) -> None:
     repository = RunRepository(tmp_path / "runs")
     timestamp = datetime(2026, 6, 27, 9, 0, 0)
-    task = _task("a", TaskStatus.uncertain).model_copy(update={
-        "scheduler_type": "pbs", "remote_job_id": "77", "error_message": "unknown",
-        "submitted_at": timestamp, "started_at": timestamp, "completed_at": timestamp,
-        "downloaded_at": timestamp, "analyzed_at": timestamp,
-        "rendered_command": "custom command",
-    })
+    task = _task("a", TaskStatus.uncertain).model_copy(
+        update={
+            "scheduler_type": "pbs",
+            "remote_job_id": "77",
+            "error_message": "unknown",
+            "submitted_at": timestamp,
+            "started_at": timestamp,
+            "completed_at": timestamp,
+            "downloaded_at": timestamp,
+            "analyzed_at": timestamp,
+            "rendered_command": "custom command",
+        }
+    )
     repository.create_run(_record(repository.runs_dir), [task])
 
-    accepted, durable = repository.resolve_uncertain_tasks(
-        "run-1", ["a", "unknown"], action="abandon"
-    )
+    accepted, durable = repository.resolve_uncertain_tasks("run-1", ["a", "unknown"], action="abandon")
 
     assert accepted == ["a"]
     resolved = durable[0]
@@ -200,9 +209,7 @@ def test_resolve_uncertain_rejects_status_changed_by_concurrent_writer(
     stale_selection = [task.task_id for task in repository.load_tasks("run-1")]
     _set_status_in_process(str(runs_dir), "a", TaskStatus.running.value)
 
-    accepted, durable = repository.resolve_uncertain_tasks(
-        "run-1", stale_selection, action="abandon"
-    )
+    accepted, durable = repository.resolve_uncertain_tasks("run-1", stale_selection, action="abandon")
 
     assert accepted == []
     assert durable[0].status == TaskStatus.running
@@ -212,16 +219,9 @@ def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
 
     with sqlite3.connect(repository.database_path) as connection:
-        version = connection.execute(
-            "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-        ).fetchone()[0]
+        version = connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0]
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
     assert version == "5"
     assert repository.schema_version() == 5
@@ -252,14 +252,17 @@ def test_submit_recovery_acquisition_rejects_live_lease_and_takes_expired_lease(
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
-        "run-1", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="owner-a", lease_seconds=120,
+        "run-1",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="owner-a",
+        lease_seconds=120,
     )
     operation = operations[0]
 
-    assert not repository.acquire_submit_recovery(
-        operation.operation_id, "recovery-b", lease_seconds=120
-    )
+    assert not repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
@@ -268,13 +271,8 @@ def test_submit_recovery_acquisition_rejects_live_lease_and_takes_expired_lease(
                 operation.operation_id,
             ),
         )
-    assert repository.acquire_submit_recovery(
-        operation.operation_id, "recovery-b", lease_seconds=120
-    )
-    stored = next(
-        item for item in repository.list_operations()
-        if item.operation_id == operation.operation_id
-    )
+    assert repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
+    stored = next(item for item in repository.list_operations() if item.operation_id == operation.operation_id)
     assert stored.owner_id == "recovery-b"
 
 
@@ -284,15 +282,18 @@ def test_submit_leases_use_utc_z_and_compare_offset_timestamps_by_instant(
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
-        "run-1", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="owner-a", lease_seconds=120,
+        "run-1",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="owner-a",
+        lease_seconds=120,
     )
     operation = operations[0]
     assert operation.lease_expires_at is not None
     assert operation.lease_expires_at.endswith("Z")
-    assert datetime.fromisoformat(
-        operation.lease_expires_at.removesuffix("Z") + "+00:00"
-    ).tzinfo == timezone.utc
+    assert datetime.fromisoformat(operation.lease_expires_at.removesuffix("Z") + "+00:00").tzinfo == timezone.utc
 
     future = datetime.now(timezone.utc) + timedelta(minutes=5)
     future_offset = future.astimezone(timezone(timedelta(hours=-12))).isoformat()
@@ -301,9 +302,7 @@ def test_submit_leases_use_utc_z_and_compare_offset_timestamps_by_instant(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             (future_offset, operation.operation_id),
         )
-    assert not repository.acquire_submit_recovery(
-        operation.operation_id, "recovery-b", lease_seconds=120
-    )
+    assert not repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
 
     past = datetime.now(timezone.utc) - timedelta(minutes=5)
     past_offset = past.astimezone(timezone(timedelta(hours=14))).isoformat()
@@ -312,9 +311,7 @@ def test_submit_leases_use_utc_z_and_compare_offset_timestamps_by_instant(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             (past_offset, operation.operation_id),
         )
-    assert repository.acquire_submit_recovery(
-        operation.operation_id, "recovery-b", lease_seconds=120
-    )
+    assert repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
 
 
 def test_naive_submit_lease_is_invalid_and_does_not_block_recovery(
@@ -323,8 +320,13 @@ def test_naive_submit_lease_is_invalid_and_does_not_block_recovery(
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
-        "run-1", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="owner-a", lease_seconds=120,
+        "run-1",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="owner-a",
+        lease_seconds=120,
     )
     operation = operations[0]
     with sqlite3.connect(repository.database_path) as connection:
@@ -333,27 +335,28 @@ def test_naive_submit_lease_is_invalid_and_does_not_block_recovery(
             ("9999-12-31T23:59:59.999999", operation.operation_id),
         )
 
-    assert repository.acquire_submit_recovery(
-        operation.operation_id, "recovery-b", lease_seconds=120
-    )
+    assert repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
 
 
 def test_submit_phase_update_requires_matching_owner(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
-        "run-1", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="owner-a", lease_seconds=120,
+        "run-1",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="owner-a",
+        lease_seconds=120,
     )
 
-    assert not repository.start_submit_operation(
-        operations[0].operation_id, owner_id="owner-b"
-    )
-    assert repository.start_submit_operation(
-        operations[0].operation_id, owner_id="owner-a"
-    )
+    assert not repository.start_submit_operation(operations[0].operation_id, owner_id="owner-b")
+    assert repository.start_submit_operation(operations[0].operation_id, owner_id="owner-a")
     assert not repository.finish_submit_operation(
-        operations[0].operation_id, task_ids=["a"], job_ids={"a": "123"},
+        operations[0].operation_id,
+        task_ids=["a"],
+        job_ids={"a": "123"},
         owner_id="owner-b",
     )
 
@@ -362,19 +365,20 @@ def test_submit_claim_release_requires_matching_owner(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
-        "run-1", scheduler_type="slurm", resources={}, env_init_scripts=[],
-        per_task=False, owner_id="owner-a", lease_seconds=120,
+        "run-1",
+        scheduler_type="slurm",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        owner_id="owner-a",
+        lease_seconds=120,
     )
 
-    assert not repository.release_claimed_submit_operation(
-        operations[0].operation_id, owner_id="owner-b"
-    )
+    assert not repository.release_claimed_submit_operation(operations[0].operation_id, owner_id="owner-b")
     assert repository.load_tasks("run-1")[0].status == TaskStatus.submitting
 
 
-def test_reopening_ready_repository_skips_write_initialization(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_reopening_ready_repository_skips_write_initialization(tmp_path: Path, monkeypatch) -> None:
     runs_dir = tmp_path / "runs"
     RunRepository(runs_dir)
     initialize = MagicMock(side_effect=AssertionError("write initialization repeated"))
@@ -392,25 +396,28 @@ def test_upgrades_v1_database_without_changing_task_state(tmp_path: Path) -> Non
     repository.create_run(_record(runs_dir), [_task("a", TaskStatus.running)])
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute("DROP TABLE operations")
-        connection.execute(
-            "UPDATE schema_metadata SET value = '1' WHERE key = 'schema_version'"
-        )
+        connection.execute("UPDATE schema_metadata SET value = '1' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
     assert upgraded.current_schema_version() == 5
     assert upgraded.load_tasks("run-1")[0].status == TaskStatus.running
     with sqlite3.connect(upgraded.database_path) as connection:
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(operations)")
-        }
-        indexes = {
-            row[1] for row in connection.execute("PRAGMA index_list(operations)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(operations)")}
         foreign_keys = connection.execute("PRAGMA foreign_key_list(operations)").fetchall()
     assert columns == {
-        "operation_id", "run_id", "kind", "phase", "payload_json", "last_error",
-        "created_at", "updated_at", "completed_at", "owner_id", "lease_expires_at",
+        "operation_id",
+        "run_id",
+        "kind",
+        "phase",
+        "payload_json",
+        "last_error",
+        "created_at",
+        "updated_at",
+        "completed_at",
+        "owner_id",
+        "lease_expires_at",
     }
     assert "operations_run_id_idx" in indexes
     assert foreign_keys == []
@@ -436,9 +443,7 @@ def test_upgrades_v2_registry_only_from_live_absolute_run_workspaces(
     repository.create_run(empty, [_task("c", TaskStatus.uploaded, batch_id="empty")])
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute("DROP TABLE workspace_roots")
-        connection.execute(
-            "UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'"
-        )
+        connection.execute("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
@@ -462,9 +467,7 @@ def test_v2_migration_never_trusts_delete_operation_payload(tmp_path: Path) -> N
     )
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute("DROP TABLE workspace_roots")
-        connection.execute(
-            "UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'"
-        )
+        connection.execute("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
@@ -478,9 +481,7 @@ def test_v2_migration_never_trusts_delete_operation_payload(tmp_path: Path) -> N
 def test_operation_round_trip_and_compare_and_swap(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
 
-    created = repository.create_operation(
-        "missing-run", "submit", "prepared", {"names": ["a", "β"], "count": 2}
-    )
+    created = repository.create_operation("missing-run", "submit", "prepared", {"names": ["a", "β"], "count": 2})
     assert repository.list_operations()[0].payload == {
         "names": ["a", "β"],
         "count": 2,
@@ -542,16 +543,12 @@ def test_complete_list_and_prune_operations(tmp_path: Path) -> None:
         phase="done",
         complete=True,
     )
-    assert [item.operation_id for item in repository.list_operations(incomplete_only=True)] == [
-        incomplete.operation_id
-    ]
+    assert [item.operation_id for item in repository.list_operations(incomplete_only=True)] == [incomplete.operation_id]
 
     deleted = repository.prune_completed_operations(datetime.now() + timedelta(seconds=1))
 
     assert deleted == 1
-    assert [item.operation_id for item in repository.list_operations()] == [
-        incomplete.operation_id
-    ]
+    assert [item.operation_id for item in repository.list_operations()] == [incomplete.operation_id]
 
 
 def test_prune_completed_operations_uses_strict_older_than_boundary(
@@ -560,12 +557,8 @@ def test_prune_completed_operations_uses_strict_older_than_boundary(
     repository = RunRepository(tmp_path / "runs")
     at_cutoff = repository.create_operation("run-1", "delete", "prepared", {})
     newer = repository.create_operation("run-2", "delete", "prepared", {})
-    assert repository.advance_operation(
-        at_cutoff.operation_id, "prepared", "done", complete=True
-    )
-    assert repository.advance_operation(
-        newer.operation_id, "prepared", "done", complete=True
-    )
+    assert repository.advance_operation(at_cutoff.operation_id, "prepared", "done", complete=True)
+    assert repository.advance_operation(newer.operation_id, "prepared", "done", complete=True)
     cutoff = datetime(2026, 6, 28, 12, 0, 0)
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute(
@@ -588,9 +581,7 @@ def test_prune_completed_operations_uses_strict_older_than_boundary(
 
 def test_completed_operation_cannot_be_advanced_again(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
-    operation = repository.create_operation(
-        "run-1", "submit", "prepared", {"job_id": 1}
-    )
+    operation = repository.create_operation("run-1", "submit", "prepared", {"job_id": 1})
     assert repository.advance_operation(
         operation.operation_id,
         expected_phase="prepared",
@@ -674,14 +665,10 @@ def test_merge_tasks_preserves_unrelated_updates_and_rejects_stale_status(tmp_pa
     repository.mutate_tasks(
         "run-1",
         lambda tasks: [
-            task.model_copy(update={"status": TaskStatus.running}) if task.task_id == "a" else task
-            for task in tasks
+            task.model_copy(update={"status": TaskStatus.running}) if task.task_id == "a" else task for task in tasks
         ],
     )
-    proposed = [
-        task.model_copy(update={"status": TaskStatus.failed})
-        for task in stale_tasks
-    ]
+    proposed = [task.model_copy(update={"status": TaskStatus.failed}) for task in stale_tasks]
 
     merged = repository.merge_tasks(
         "run-1",
@@ -702,10 +689,7 @@ def test_merge_tasks_rejects_same_status_concurrent_field_update(tmp_path: Path)
     expected = repository.load_tasks("run-1")[0]
     repository.mutate_tasks(
         "run-1",
-        lambda tasks: [
-            task.model_copy(update={"error_message": "new durable error"}, deep=True)
-            for task in tasks
-        ],
+        lambda tasks: [task.model_copy(update={"error_message": "new durable error"}, deep=True) for task in tasks],
     )
     stale_update = expected.model_copy(update={"remote_job_id": "stale-job"}, deep=True)
 
@@ -798,9 +782,7 @@ def test_repository_initialization_does_not_recover_legacy_orphan_submit(
 ) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
-    repository.create_run(
-        _record(runs_dir), [_task("orphan", TaskStatus.submitting)]
-    )
+    repository.create_run(_record(runs_dir), [_task("orphan", TaskStatus.submitting)])
 
     reopened = RunRepository(runs_dir)
 
@@ -812,9 +794,7 @@ def test_recover_legacy_orphan_submit_preserves_tasks_with_incomplete_operation(
     tmp_path: Path,
 ) -> None:
     repository = RunRepository(tmp_path / "runs")
-    repository.create_run(
-        _record(repository.runs_dir), [_task("tracked", TaskStatus.uploaded)]
-    )
+    repository.create_run(_record(repository.runs_dir), [_task("tracked", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
         "run-1",
         scheduler_type="nohup",
@@ -831,15 +811,10 @@ def test_recover_legacy_orphan_submit_preserves_tasks_with_incomplete_operation(
 def test_recover_legacy_orphan_submit_is_idempotent_and_concurrent(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
-    repository.create_run(
-        _record(runs_dir), [_task("orphan", TaskStatus.submitting)]
-    )
+    repository.create_run(_record(runs_dir), [_task("orphan", TaskStatus.submitting)])
 
     workers = [
-        multiprocessing.Process(
-            target=_recover_orphan_submits_in_process, args=(str(runs_dir),)
-        )
-        for _ in range(2)
+        multiprocessing.Process(target=_recover_orphan_submits_in_process, args=(str(runs_dir),)) for _ in range(2)
     ]
     for worker in workers:
         worker.start()
@@ -889,9 +864,7 @@ def test_submit_outcome_persists_confirmed_before_completion(tmp_path: Path) -> 
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
 
-    assert repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
+    assert repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
 
     persisted = repository.list_operations()[0]
     assert persisted.phase == "confirmed"
@@ -949,13 +922,9 @@ def test_submit_outcome_rejects_invalid_scheduler_payload_with_diagnostic(
     operation = operations[0]
     payload = dict(operation.payload)
     payload["scheduler_type"] = scheduler_type
-    assert repository.advance_operation(
-        operation.operation_id, "claimed", "remote_started", payload=payload
-    )
+    assert repository.advance_operation(operation.operation_id, "claimed", "remote_started", payload=payload)
 
-    assert not repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
+    assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
     persisted = repository.list_operations()[0]
     assert persisted.phase == "remote_started"
     assert persisted.completed_at is None
@@ -974,9 +943,7 @@ def test_submit_outcome_rejects_empty_uncertain_error_with_diagnostic(
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
 
-    assert not repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={}, error=""
-    )
+    assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={}, error="")
     persisted = repository.list_operations()[0]
     assert persisted.phase == "remote_started"
     assert persisted.completed_at is None
@@ -995,9 +962,7 @@ def test_submit_outcome_rejects_missing_journal_task_without_advancing(tmp_path:
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute("DELETE FROM tasks WHERE run_id = ? AND task_id = ?", ("run-1", "a"))
 
-    assert not repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
+    assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
 
     persisted = repository.list_operations()[0]
     assert persisted.phase == "remote_started"
@@ -1041,21 +1006,15 @@ def test_submit_outcome_rejects_duplicate_journal_task_ids(tmp_path: Path) -> No
     operation = operations[0]
     payload = dict(operation.payload)
     payload["task_ids"] = ["a", "a"]
-    assert repository.advance_operation(
-        operation.operation_id, "claimed", "remote_started", payload=payload
-    )
+    assert repository.advance_operation(operation.operation_id, "claimed", "remote_started", payload=payload)
 
-    assert not repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
+    assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
     assert repository.load_tasks("run-1")[0].status == TaskStatus.submitting
     assert repository.list_operations()[0].phase == "remote_started"
 
 
 @pytest.mark.parametrize("job_ids", [{"a": "123", "extra": "456"}, {"a": ""}])
-def test_confirmed_submit_outcome_requires_exact_nonempty_job_ids(
-    tmp_path: Path, job_ids: dict[str, str]
-) -> None:
+def test_confirmed_submit_outcome_requires_exact_nonempty_job_ids(tmp_path: Path, job_ids: dict[str, str]) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
@@ -1064,9 +1023,7 @@ def test_confirmed_submit_outcome_requires_exact_nonempty_job_ids(
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
 
-    assert not repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids=job_ids
-    )
+    assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids=job_ids)
     assert repository.load_tasks("run-1")[0].status == TaskStatus.submitting
     assert repository.list_operations()[0].phase == "remote_started"
 
@@ -1091,9 +1048,7 @@ def test_uncertain_submit_outcome_requires_empty_job_ids(tmp_path: Path) -> None
 
 
 @pytest.mark.parametrize("phase", ["claimed", "remote_started"])
-def test_recover_submit_rejects_missing_task_without_phase_change(
-    tmp_path: Path, phase: str
-) -> None:
+def test_recover_submit_rejects_missing_task_without_phase_change(tmp_path: Path, phase: str) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
@@ -1144,14 +1099,10 @@ def test_recover_uncertain_rejects_corrupt_payload_without_completion(tmp_path: 
     )
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
-    assert repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={}, error="response lost"
-    )
+    assert repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={}, error="response lost")
     payload = dict(repository.list_operations()[0].payload)
     payload["task_ids"] = ["a", "a"]
-    assert repository.advance_operation(
-        operation.operation_id, "uncertain", "uncertain", payload=payload
-    )
+    assert repository.advance_operation(operation.operation_id, "uncertain", "uncertain", payload=payload)
 
     assert not repository.recover_submit_operation(operation.operation_id)
     persisted = repository.list_operations()[0]
@@ -1160,9 +1111,7 @@ def test_recover_uncertain_rejects_corrupt_payload_without_completion(tmp_path: 
     assert persisted.last_error == "uncertain operation task set is invalid"
 
 
-def test_finish_submit_is_idempotent_when_recovery_completes_between_transactions(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_finish_submit_is_idempotent_when_recovery_completes_between_transactions(tmp_path: Path, monkeypatch) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
     _, operations = repository.claim_submit_tasks(
@@ -1182,9 +1131,7 @@ def test_finish_submit_is_idempotent_when_recovery_completes_between_transaction
 
     monkeypatch.setattr(repository, "complete_submit_operation", recover_then_complete)
 
-    assert repository.finish_submit_operation(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
+    assert repository.finish_submit_operation(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
     completed = repository.list_operations()[0]
     assert completed.phase == "completed"
     assert completed.completed_at is not None
@@ -1206,9 +1153,7 @@ def test_complete_submit_rejects_unrelated_or_corrupt_completed_operation(tmp_pa
             "outcome_phase": "confirmed",
         },
     )
-    assert repository.advance_operation(
-        operation.operation_id, "claimed", "completed", complete=True
-    )
+    assert repository.advance_operation(operation.operation_id, "claimed", "completed", complete=True)
 
     assert not repository.complete_submit_operation(operation.operation_id, "confirmed")
 
@@ -1278,9 +1223,7 @@ def test_complete_submit_rejects_confirmed_result_with_extra_fields(
 
 def test_complete_submit_rejects_confirmed_task_with_stale_error(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
-    task = _task("a", TaskStatus.submitted).model_copy(
-        update={"remote_job_id": "123", "error_message": "stale"}
-    )
+    task = _task("a", TaskStatus.submitted).model_copy(update={"remote_job_id": "123", "error_message": "stale"})
     repository.create_run(_record(repository.runs_dir), [task])
     operation = repository.create_operation(
         "run-1",
@@ -1305,12 +1248,8 @@ def test_complete_confirmed_is_idempotent_after_task_advances(tmp_path: Path) ->
     )
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
-    assert repository.finish_submit_operation(
-        operation.operation_id, task_ids=["a"], job_ids={"a": "123"}
-    )
-    task = repository.load_tasks("run-1")[0].model_copy(
-        update={"status": TaskStatus.running}
-    )
+    assert repository.finish_submit_operation(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
+    task = repository.load_tasks("run-1")[0].model_copy(update={"status": TaskStatus.running})
     replace_tasks_for_test(repository, "run-1", [task])
 
     assert repository.complete_submit_operation(operation.operation_id, "confirmed")
@@ -1330,9 +1269,7 @@ def test_complete_uncertain_is_idempotent_after_manual_resolution(tmp_path: Path
         job_ids={},
         error="response lost",
     )
-    accepted, _ = repository.resolve_uncertain_tasks(
-        "run-1", ["a"], action="abandon"
-    )
+    accepted, _ = repository.resolve_uncertain_tasks("run-1", ["a"], action="abandon")
     assert accepted
 
     assert repository.complete_submit_operation(operation.operation_id, "uncertain")
@@ -1366,9 +1303,7 @@ def test_recover_uncertain_rejects_inconsistent_outcome(
     )
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
-    assert repository.record_submit_outcome(
-        operation.operation_id, task_ids=["a"], job_ids={}, error="response lost"
-    )
+    assert repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={}, error="response lost")
     persisted = repository.list_operations()[0]
     payload = dict(persisted.payload)
     payload.update(payload_update)
@@ -1474,9 +1409,7 @@ def test_prepare_delete_rejects_incomplete_submit_operation(tmp_path: Path) -> N
         TaskStatus.running,
     ],
 )
-def test_prepare_delete_rejects_active_remote_tasks(
-    tmp_path: Path, status: TaskStatus
-) -> None:
+def test_prepare_delete_rejects_active_remote_tasks(tmp_path: Path, status: TaskStatus) -> None:
     repository = RunRepository(tmp_path / "runs")
     record = _record(repository.runs_dir, "run-delete")
     repository.create_run(
@@ -1501,8 +1434,10 @@ def test_delete_metadata_advances_operation_in_same_transaction(tmp_path: Path) 
     record = _record(repository.runs_dir, "run-delete")
     repository.create_run(record, [_task("a", batch_id=record.run_id)])
     operation = repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir, results_root=tmp_path / "results",
-        results_dir=tmp_path / "results" / record.run_id
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=tmp_path / "results" / record.run_id,
     )
 
     assert repository.delete_run_metadata(operation.operation_id)
@@ -1518,8 +1453,10 @@ def test_concurrent_delete_metadata_compare_and_swap_has_single_winner(tmp_path:
     record = _record(runs_dir, "run-delete")
     first.create_run(record, [_task("a", batch_id=record.run_id)])
     operation = first.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir, results_root=tmp_path / "results",
-        results_dir=tmp_path / "results" / record.run_id
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=tmp_path / "results" / record.run_id,
     )
 
     from concurrent.futures import ThreadPoolExecutor
@@ -1590,7 +1527,8 @@ def test_create_run_rejects_id_with_incomplete_delete_tombstone(tmp_path: Path) 
     record = _record(repository.runs_dir, "run-delete")
     repository.create_run(record, [_task("old", batch_id=record.run_id)])
     operation = repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
+        record.run_id,
+        run_dir=record.run_dir,
         results_root=tmp_path / "results",
         results_dir=tmp_path / "results" / record.run_id,
     )
@@ -1608,19 +1546,16 @@ def test_create_run_allows_id_after_delete_operation_completed(tmp_path: Path) -
     record = _record(repository.runs_dir, "run-delete")
     repository.create_run(record, [_task("old", batch_id=record.run_id)])
     operation = repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
+        record.run_id,
+        run_dir=record.run_dir,
         results_root=tmp_path / "results",
         results_dir=tmp_path / "results" / record.run_id,
     )
     assert repository.delete_run_metadata(operation.operation_id)
     assert repository.advance_operation(operation.operation_id, "metadata_deleted", "files_deleted")
-    assert repository.advance_operation(
-        operation.operation_id, "files_deleted", "completed", complete=True
-    )
+    assert repository.advance_operation(operation.operation_id, "files_deleted", "completed", complete=True)
 
-    assert repository.create_run(
-        record, [_task("new", batch_id=record.run_id)]
-    ).run_id == record.run_id
+    assert repository.create_run(record, [_task("new", batch_id=record.run_id)]).run_id == record.run_id
 
 
 def test_execute_delete_isolation_records_callback_error_and_can_retry(tmp_path: Path) -> None:
@@ -1631,8 +1566,10 @@ def test_execute_delete_isolation_records_callback_error_and_can_retry(tmp_path:
     results_dir.mkdir(parents=True)
     repository.create_run(record, [_task("old", batch_id=record.run_id)])
     operation = repository.prepare_delete_run(
-        record.run_id, run_dir=record.run_dir,
-        results_root=tmp_path / "results", results_dir=results_dir,
+        record.run_id,
+        run_dir=record.run_dir,
+        results_root=tmp_path / "results",
+        results_dir=results_dir,
     )
     assert repository.delete_run_metadata(operation.operation_id)
 
@@ -1685,13 +1622,17 @@ def test_delete_isolation_callback_holds_short_single_winner_transaction(tmp_pat
         assert entered.wait(5)
         unrelated_write = pool.submit(
             other_repository.create_operation,
-            "other-run", "submit", "claimed", {},
+            "other-run",
+            "submit",
+            "claimed",
+            {},
         )
         with pytest.raises(TimeoutError):
             unrelated_write.result(timeout=0.2)
         release.set()
         assert deleting.result(timeout=5)
         assert unrelated_write.result(timeout=5).run_id == "other-run"
+
 
 def test_imports_legacy_run_without_modifying_legacy_files(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
@@ -1701,11 +1642,7 @@ def test_imports_legacy_run_without_modifying_legacy_files(tmp_path: Path) -> No
 
     assert repository.load_run("legacy-1").status_summary == {"submitted": 1}
     assert repository.load_tasks("legacy-1")[0].batch_id == "legacy-1"
-    after = {
-        path.name: path.read_bytes()
-        for path in (runs_dir / "legacy-1").iterdir()
-        if path.is_file()
-    }
+    after = {path.name: path.read_bytes() for path in (runs_dir / "legacy-1").iterdir() if path.is_file()}
     assert after == before
 
 
@@ -1820,9 +1757,10 @@ def test_legacy_import_is_idempotent(tmp_path: Path) -> None:
     with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'"
-        ).fetchone()[0] == "1"
+        assert (
+            connection.execute("SELECT value FROM schema_metadata WHERE key = 'legacy_import_complete'").fetchone()[0]
+            == "1"
+        )
 
 
 def test_newer_schema_version_is_rejected_without_relabeling(tmp_path: Path) -> None:
@@ -1837,14 +1775,11 @@ def test_newer_schema_version_is_rejected_without_relabeling(tmp_path: Path) -> 
         RunRepository(runs_dir)
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute(
-            "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-        ).fetchone()[0] == "999"
+        assert (
+            connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0] == "999"
+        )
         assert {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
+            row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         } == {"schema_metadata"}
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     assert not database.with_name("jobdesk.db-wal").exists()
@@ -1863,21 +1798,21 @@ def test_future_schema_race_is_rejected_inside_initialize_transaction(
         def _validate_existing_schema(self) -> None:
             super()._validate_existing_schema()
             with sqlite3.connect(self.database_path) as connection:
-                connection.execute(
-                    "UPDATE schema_metadata SET value = '999' "
-                    "WHERE key = 'schema_version'"
-                )
+                connection.execute("UPDATE schema_metadata SET value = '999' WHERE key = 'schema_version'")
 
     with pytest.raises(RuntimeError, match="newer schema version"):
         RacingRepository(runs_dir)
 
     with sqlite3.connect(repository.database_path) as connection:
-        assert connection.execute(
-            "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-        ).fetchone()[0] == "999"
+        assert (
+            connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0] == "999"
+        )
         assert connection.execute("SELECT COUNT(*) FROM operations").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT phase FROM operations WHERE operation_id = ?",
-            (operation.operation_id,),
-        ).fetchone()[0] == "prepared"
+        assert (
+            connection.execute(
+                "SELECT phase FROM operations WHERE operation_id = ?",
+                (operation.operation_id,),
+            ).fetchone()[0]
+            == "prepared"
+        )

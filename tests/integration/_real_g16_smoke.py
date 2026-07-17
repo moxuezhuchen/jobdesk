@@ -10,6 +10,7 @@ We deliberately re-use the harness machinery from
 base64-stamp-deployer dance.  When the smoke harness evolves, this module
 inherits the change for free.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -26,9 +27,7 @@ def _load_harness():
     """
     repo = pathlib.Path(__file__).resolve().parents[2]
     harness_path = repo / "scripts" / "smoke_confflow_real_g16_wsl.py"
-    spec = importlib.util.spec_from_file_location(
-        "_phase9g_smoke_harness", harness_path
-    )
+    spec = importlib.util.spec_from_file_location("_phase9g_smoke_harness", harness_path)
     if spec is None or spec.loader is None:  # pragma: no cover
         raise RuntimeError(f"Cannot load harness from {harness_path}")
     module = importlib.util.module_from_spec(spec)
@@ -58,14 +57,10 @@ def run_smoke(target: pathlib.Path, *, verbose: bool = False) -> pathlib.Path:
     if verbose and inner.stderr:
         print(inner.stderr, end="", file=sys.stderr)
     if inner.returncode != 0:
-        raise RuntimeError(
-            f"smoke inner harness exited with {inner.returncode}"
-        )
+        raise RuntimeError(f"smoke inner harness exited with {inner.returncode}")
     remote_tmp = harness.parse_result_dir(inner.stdout)
     if not remote_tmp:
-        raise RuntimeError(
-            "smoke inner harness did not emit RESULT_DIR=...; cannot pull artifacts"
-        )
+        raise RuntimeError("smoke inner harness did not emit RESULT_DIR=...; cannot pull artifacts")
     if verbose:
         print(f"[fixture] pulling artifacts from {remote_tmp}", flush=True)
     # The standalone harness's ``pull_artifacts(remote, target)`` copies

@@ -46,20 +46,25 @@ def test_gui_settings_defaults(tmp_path):
 def test_existing_profiles_get_confflow_merged_without_overwriting_custom(tmp_path):
     """Old config with only Gaussian/ORCA should gain ConfFlow on load."""
     path = tmp_path / "gui_settings.yaml"
-    path.write_text(yaml.safe_dump({
-        "software_profiles": {
-            "Gaussian": {
-                "input_extensions": ".gjf",
-                "command_template": "my_g16 {name}",
-                "download_patterns": "*.log",
-            },
-            "ORCA": {
-                "input_extensions": ".inp",
-                "command_template": "orca {name} > {basename}.out",
-                "download_patterns": "*.out,*.gbw",
-            },
-        },
-    }), encoding="utf-8")
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "software_profiles": {
+                    "Gaussian": {
+                        "input_extensions": ".gjf",
+                        "command_template": "my_g16 {name}",
+                        "download_patterns": "*.log",
+                    },
+                    "ORCA": {
+                        "input_extensions": ".inp",
+                        "command_template": "orca {name} > {basename}.out",
+                        "download_patterns": "*.out,*.gbw",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     settings = GuiSettingsStore(path).load()
 
@@ -74,20 +79,25 @@ def test_existing_profiles_get_confflow_merged_without_overwriting_custom(tmp_pa
 def test_existing_profiles_with_confflow_not_overwritten(tmp_path):
     """If user already has ConfFlow with custom settings, they stay."""
     path = tmp_path / "gui_settings.yaml"
-    path.write_text(yaml.safe_dump({
-        "software_profiles": {
-            "Gaussian": {
-                "input_extensions": ".gjf,.com",
-                "command_template": "g16 {name}",
-                "download_patterns": "*.log,*.chk",
-            },
-            "ConfFlow": {
-                "input_extensions": ".xyz",
-                "command_template": "confflow {name} --custom",
-                "download_patterns": "*.txt",
-            },
-        },
-    }), encoding="utf-8")
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "software_profiles": {
+                    "Gaussian": {
+                        "input_extensions": ".gjf,.com",
+                        "command_template": "g16 {name}",
+                        "download_patterns": "*.log,*.chk",
+                    },
+                    "ConfFlow": {
+                        "input_extensions": ".xyz",
+                        "command_template": "confflow {name} --custom",
+                        "download_patterns": "*.txt",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     settings = GuiSettingsStore(path).load()
 
@@ -110,14 +120,18 @@ def test_save_replace_failure_keeps_existing_settings(tmp_path, monkeypatch):
     assert path.read_text(encoding="utf-8") == "existing: true\n"
 
 
-
 def test_old_config_with_auto_refresh_disabled_is_ignored(tmp_path):
     """Old YAML with auto_refresh_enabled: false must be silently tolerated."""
     path = tmp_path / "gui_settings.yaml"
-    path.write_text(yaml.safe_dump({
-        "auto_refresh_enabled": False,
-        "auto_download_enabled": False,
-    }), encoding="utf-8")
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "auto_refresh_enabled": False,
+                "auto_download_enabled": False,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     settings = GuiSettingsStore(path).load()
 
@@ -137,7 +151,6 @@ def test_save_does_not_write_auto_refresh_keys(tmp_path):
     assert "auto_download_enabled" not in saved
 
 
-
 def test_gui_settings_has_no_auto_refresh_or_auto_download_fields():
     """B4: auto_refresh_enabled and auto_download_enabled must not exist on GuiSettings."""
     assert not hasattr(GuiSettings(), "auto_refresh_enabled")
@@ -155,4 +168,3 @@ def test_update_merges_only_given_fields_without_losing_others(tmp_path):
     loaded = GuiSettingsStore(path).load()
     assert loaded.last_remote_dirs == {"wsl": "/scratch"}  # not lost by the second update
     assert loaded.window_size == [800, 600]
-

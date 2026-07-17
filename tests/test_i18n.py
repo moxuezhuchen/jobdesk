@@ -1,4 +1,5 @@
 """I18n coverage tests for the jobdesk GUI."""
+
 from __future__ import annotations
 
 import ast
@@ -74,6 +75,7 @@ def _tr_call_keys() -> set[str]:
     Mirrors the audit script in ``tmp_i18n_audit.py``; kept inline so the
     test doesn't require a separate script to be present.
     """
+
     def literal_concat(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
@@ -113,19 +115,21 @@ def test_zh_dict_covers_every_tr_call_key():
 # proper nouns (protocol directives, software brand names). The
 # parity test below skips these on purpose; if you add a new entry
 # here, leave a one-line comment explaining why it stays English-only.
-_PASSTHROUGH_WHITELIST: frozenset[str] = frozenset({
-    # The English word "English" in a language picker stays English.
-    "English",
-    # SSH config directives; the convention is to keep them verbatim.
-    "ProxyCommand:",
-    "ProxyJump:",
-    # Brand-name file-type tags.
-    "Gaussian (.gjf)",
-    "ORCA (.inp)",
-    # On-disk YAML filename: protocol-correctly ``workflow.yaml`` on
-    # both English and Chinese locales.
-    "workflow.yaml",
-})
+_PASSTHROUGH_WHITELIST: frozenset[str] = frozenset(
+    {
+        # The English word "English" in a language picker stays English.
+        "English",
+        # SSH config directives; the convention is to keep them verbatim.
+        "ProxyCommand:",
+        "ProxyJump:",
+        # Brand-name file-type tags.
+        "Gaussian (.gjf)",
+        "ORCA (.inp)",
+        # On-disk YAML filename: protocol-correctly ``workflow.yaml`` on
+        # both English and Chinese locales.
+        "workflow.yaml",
+    }
+)
 
 
 def test_i18n_all_zh_keys_have_translations():
@@ -142,17 +146,13 @@ def test_i18n_all_zh_keys_have_translations():
     # Items NOT in the ZH dict are caught by the prior test; this one
     # focuses on "key exists but the dict value is a passthrough".
     in_zh = [k for k in used if k in i18n.ZH]
-    passthrough_leaks = sorted(
-        k for k in in_zh if k not in _PASSTHROUGH_WHITELIST and i18n.ZH[k] == k
-    )
+    passthrough_leaks = sorted(k for k in in_zh if k not in _PASSTHROUGH_WHITELIST and i18n.ZH[k] == k)
     assert passthrough_leaks == [], (
         "tr() keys whose ZH value is still English-only "
         f"(add a real translation or whitelist with a comment): "
         f"{passthrough_leaks!r}"
     )
-    assert passthrough == sorted(passthrough), (
-        "whitelist drift: " f"{passthrough!r}"
-    )
+    assert passthrough == sorted(passthrough), f"whitelist drift: {passthrough!r}"
 
 
 # -- Phase 10.3 added keys ---------------------------------------------
@@ -164,7 +164,10 @@ def test_i18n_all_zh_keys_have_translations():
         ("Connect to a server first.", "\u8bf7\u5148\u8fde\u63a5\u670d\u52a1\u5668"),
         ("Delete run {run_id} record?", "\u5220\u9664\u8fd0\u884c {run_id} \u7684\u8bb0\u5f55\uff1f"),
         ("Delete {n} run records?", "\u5220\u9664 {n} \u6761\u8fd0\u884c\u8bb0\u5f55\uff1f"),
-        ("Download done: {n} files, failed: {f}", "\u4e0b\u8f7d\u5b8c\u6210: \u6210\u529f {n} \u4e2a\uff0c\u5931\u8d25 {f} \u4e2a"),
+        (
+            "Download done: {n} files, failed: {f}",
+            "\u4e0b\u8f7d\u5b8c\u6210: \u6210\u529f {n} \u4e2a\uff0c\u5931\u8d25 {f} \u4e2a",
+        ),
         ("No tasks awaiting download", "\u6ca1\u6709\u53ef\u4e0b\u8f7d\u7684\u4efb\u52a1"),
         ("Open Results", "\u6253\u5f00\u7ed3\u679c"),
         ("Operation recovery failed", "\u542f\u52a8\u6062\u590d\u5931\u8d25"),

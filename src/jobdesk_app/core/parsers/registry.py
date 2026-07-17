@@ -1,4 +1,5 @@
 """Parser registry for software-agnostic result parsing."""
+
 from __future__ import annotations
 
 from pathlib import Path

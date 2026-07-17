@@ -37,13 +37,20 @@ def build_scheduler_fields(form, dlg, sched: dict, language: str) -> dict:
     wall.setValue(int(sched.get("default_walltime_minutes", 1440)))
     partition = QLineEdit(str(sched.get("default_partition", "")))
     account = QLineEdit(str(sched.get("default_account", "")))
-    widgets: dict = {"type": type_combo, "cpus": cpus, "mem": mem, "wall": wall,
-                     "partition": partition, "account": account}
+    widgets: dict = {
+        "type": type_combo,
+        "cpus": cpus,
+        "mem": mem,
+        "wall": wall,
+        "partition": partition,
+        "account": account,
+    }
 
     def _toggle(*_):
         hpc = type_combo.currentText() != "nohup"
         for w in (partition, account, wall):
             w.setEnabled(hpc)
+
     type_combo.currentTextChanged.connect(_toggle)
     _toggle()
 
@@ -59,14 +66,16 @@ def build_scheduler_fields(form, dlg, sched: dict, language: str) -> dict:
 def scheduler_dict(widgets: dict, existing: dict | None = None) -> dict:
     """Read scheduler widgets into a config dict, preserving hidden keys (gpus, extra_directives)."""
     result = dict(existing or {})
-    result.update({
-        "type": widgets["type"].currentText(),
-        "default_cpus": widgets["cpus"].value(),
-        "default_memory_mb": widgets["mem"].value(),
-        "default_walltime_minutes": widgets["wall"].value(),
-        "default_partition": widgets["partition"].text().strip(),
-        "default_account": widgets["account"].text().strip(),
-    })
+    result.update(
+        {
+            "type": widgets["type"].currentText(),
+            "default_cpus": widgets["cpus"].value(),
+            "default_memory_mb": widgets["mem"].value(),
+            "default_walltime_minutes": widgets["wall"].value(),
+            "default_partition": widgets["partition"].text().strip(),
+            "default_account": widgets["account"].text().strip(),
+        }
+    )
     return result
 
 
@@ -101,12 +110,14 @@ def build_external_tools_fields(form, tools: dict, language: str) -> dict:
 
 def external_tools_dict(widgets: dict, existing: dict | None = None) -> dict:
     result = dict(existing or {})
-    result.update({
-        "terminal_provider": widgets["terminal_provider"].currentText(),
-        "ssh_alias": widgets["ssh_alias"].text().strip(),
-        "putty_session": widgets["putty_session"].text().strip(),
-        "terminal_path": widgets["terminal_path"].text().strip(),
-    })
+    result.update(
+        {
+            "terminal_provider": widgets["terminal_provider"].currentText(),
+            "ssh_alias": widgets["ssh_alias"].text().strip(),
+            "putty_session": widgets["putty_session"].text().strip(),
+            "terminal_path": widgets["terminal_path"].text().strip(),
+        }
+    )
     return result
 
 
@@ -133,9 +144,11 @@ def build_ssh_access_fields(form, access: dict, language: str) -> dict:
 
 def ssh_access_dict(widgets: dict, existing: dict | None = None) -> dict:
     result = dict(existing or {})
-    result.update({
-        "config_alias": widgets["config_alias"].text().strip(),
-        "proxy_command": widgets["proxy_command"].text().strip(),
-        "proxy_jump": widgets["proxy_jump"].text().strip(),
-    })
+    result.update(
+        {
+            "config_alias": widgets["config_alias"].text().strip(),
+            "proxy_command": widgets["proxy_command"].text().strip(),
+            "proxy_jump": widgets["proxy_jump"].text().strip(),
+        }
+    )
     return result

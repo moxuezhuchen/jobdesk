@@ -11,6 +11,7 @@ two ways:
    that overrides ``mimeData()`` so the full Qt event loop runs
    without us having to construct one via private API.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import QMimeData, QPointF
@@ -38,6 +39,7 @@ class _MimeDropEvent(QGraphicsSceneDragDropEvent):
         self.setScenePos(scene_pos)
         # Use Qt.DropAction since QMimeData.Action doesn't exist in PySide6.
         from PySide6.QtCore import Qt
+
         self.setDropAction(Qt.DropAction.CopyAction)
 
     def mimeData(self) -> QMimeData:  # type: ignore[override]
@@ -215,10 +217,9 @@ def test_refresh_visibility_does_not_hide_calc_when_fanout(qtbot):
     g.add_node(pre)
     g.add_node(out)
     from jobdesk_app.gui.nodegraph.model import Edge
-    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                    dst_node=pre.id, dst_port="in"))
-    g.add_edge(Edge(id="e2", src_node=pre.id, src_port="out",
-                    dst_node=out.id, dst_port="in"))
+
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=pre.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=pre.id, src_port="out", dst_node=out.id, dst_port="in"))
     panel.refresh_visibility(g)
     # PRE_OPT/OPT/SP etc. are not hidden by an existing pre-opt.
     assert NodeKind.PRE_OPT in panel.shown_kinds()

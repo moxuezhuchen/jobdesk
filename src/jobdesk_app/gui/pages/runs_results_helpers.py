@@ -1,4 +1,5 @@
 """Pure helper functions for the Runs/Results page (no Qt widget state)."""
+
 from __future__ import annotations
 
 

@@ -1,4 +1,5 @@
 """GUI behavior tests for the Runs Results page."""
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -61,9 +62,11 @@ class TestRunsPage:
 
         record = MagicMock(run_id="run_retry")
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_submit_record", side_effect=RuntimeError("boom")):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_submit_record", side_effect=RuntimeError("boom")),
+        ):
             svc.return_value.prepare_retry_failed.return_value = 1
 
             runs_page._retry_failed()
@@ -142,17 +145,18 @@ class TestRunsPage:
             ],
             field_names=["run_id", "task_id", "scf_energy", "scf_energy_rel_kcal"],
         )
-        with patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)), \
-             patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store, \
-             patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison):
+        with (
+            patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)),
+            patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store,
+            patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison),
+        ):
             store.return_value.list_profiles.return_value = {"gaussian_opt_freq": object()}
             runs_page._compare_selected()
             qtbot.waitUntil(lambda: runs_page.result_table.rowCount() == 2, timeout=3000)
 
         assert runs_page.result_table.columnCount() == 4
         assert "scf_energy_rel_kcal" in [
-            runs_page.result_table.horizontalHeaderItem(c).text()
-            for c in range(runs_page.result_table.columnCount())
+            runs_page.result_table.horizontalHeaderItem(c).text() for c in range(runs_page.result_table.columnCount())
         ]
 
     def test_compare_selected_requires_two_runs(self, runs_page):
@@ -168,6 +172,7 @@ class TestRunsPage:
         runs_page.table.blockSignals(False)
         runs_page._compare_selected()
         from jobdesk_app.gui.i18n import tr
+
         assert tr("Select at least two runs to compare", runs_page._language) in messages
 
     def test_refresh_run_list_empty(self, runs_page):
@@ -184,9 +189,16 @@ class TestRunsPage:
         from jobdesk_app.services.run_service import RunRecord
 
         rec = RunRecord(
-            run_id="r1", server_id="wsl", remote_dir="/r", command_template="g16 {name}",
-            max_parallel=1, mode="selected_files", created_at="t",
-            run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"),
+            run_id="r1",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 {name}",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="t",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
         )
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
             mock_svc.return_value.list_runs.return_value = [rec]
@@ -203,9 +215,19 @@ class TestRunsPage:
         from jobdesk_app.services.run_service import RunRecord
 
         def mk(rid):
-            return RunRecord(run_id=rid, server_id="wsl", remote_dir="/r", command_template="g16 {name}",
-                             max_parallel=1, mode="selected_files", created_at="t",
-                             run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"))
+            return RunRecord(
+                run_id=rid,
+                server_id="wsl",
+                remote_dir="/r",
+                command_template="g16 {name}",
+                max_parallel=1,
+                mode="selected_files",
+                created_at="t",
+                run_dir=Path("rd"),
+                manifest_path=Path("m"),
+                batch_path=Path("b"),
+            )
+
         runs = [mk("a"), mk("b"), mk("c")]
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
             mock_svc.return_value.list_runs.return_value = runs
@@ -227,9 +249,19 @@ class TestRunsPage:
         from jobdesk_app.services.run_service import RunRecord
 
         def mk(rid):
-            return RunRecord(run_id=rid, server_id="wsl", remote_dir="/r", command_template="g16 {name}",
-                             max_parallel=1, mode="selected_files", created_at="t",
-                             run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"))
+            return RunRecord(
+                run_id=rid,
+                server_id="wsl",
+                remote_dir="/r",
+                command_template="g16 {name}",
+                max_parallel=1,
+                mode="selected_files",
+                created_at="t",
+                run_dir=Path("rd"),
+                manifest_path=Path("m"),
+                batch_path=Path("b"),
+            )
+
         runs = [mk("new"), mk("old")]
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
             mock_svc.return_value.list_runs.return_value = runs
@@ -246,6 +278,7 @@ class TestRunsPage:
         record.command_template = "g16 {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
             from jobdesk_app.services.gui_settings import GuiSettings
+
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
         assert "*.log" in patterns or "*.chk" in patterns
@@ -256,6 +289,7 @@ class TestRunsPage:
         record.command_template = "orca {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
             from jobdesk_app.services.gui_settings import GuiSettings
+
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
         assert "*.out" in patterns or "*.gbw" in patterns
@@ -266,6 +300,7 @@ class TestRunsPage:
         record.command_template = "python run_orca.py {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
             from jobdesk_app.services.gui_settings import GuiSettings
+
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
         assert patterns == [".log", ".out"]
@@ -274,12 +309,17 @@ class TestRunsPage:
         runs_page.state.current_project_root = tmp_path
         summary_dir = tmp_path / "results" / "run001" / "water" / "water_confflow_work"
         summary_dir.mkdir(parents=True)
-        (summary_dir / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 6,
-            "final_conformers": 2,
-            "total_duration_seconds": 10,
-            "step_status_counts": {"completed": 2},
-        }), encoding="utf-8")
+        (summary_dir / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 6,
+                    "final_conformers": 2,
+                    "total_duration_seconds": 10,
+                    "step_status_counts": {"completed": 2},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -287,10 +327,18 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "run001" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="water", batch_id="run001", remote_job_dir="/tmp/.jobdesk_runs/run001/water",
-               server_id="wsl", status=TaskStatus.downloaded),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="water",
+                    batch_id="run001",
+                    remote_job_dir="/tmp/.jobdesk_runs/run001/water",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(run_id="run001", command_template="confflow {name}", manifest_path=str(manifest_path))
 
         runs_page._load_result_preview(record)
@@ -299,7 +347,11 @@ class TestRunsPage:
         assert runs_page.result_table.item(0, 0).text() == "water"
         assert "Done" in runs_page.result_table.item(0, 1).text()
         from jobdesk_app.gui.i18n import tr
-        assert tr("Execution output parsed; scientific review required", runs_page._language) in runs_page.result_label.text()
+
+        assert (
+            tr("Execution output parsed; scientific review required", runs_page._language)
+            in runs_page.result_label.text()
+        )
 
     def test_workspace_preview_uses_basename_from_remote_source(self, runs_page, tmp_path):
         runs_page.state.current_project_root = tmp_path
@@ -310,16 +362,19 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "preview" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(
-                task_id="water",
-                batch_id="preview",
-                remote_job_dir="/tmp/jobs/water",
-                remote_task_files=["/remote/source/water.gjf"],
-                server_id="wsl",
-                status=TaskStatus.downloaded,
-            ),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="water",
+                    batch_id="preview",
+                    remote_job_dir="/tmp/jobs/water",
+                    remote_task_files=["/remote/source/water.gjf"],
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(run_id="preview", manifest_path=str(manifest_path))
         parsed = MagicMock(final_energy_au=-76.1, gibbs_au=None, normal_termination=True)
 
@@ -337,17 +392,20 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "preview_stale" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(
-                task_id="water",
-                batch_id="preview_stale",
-                remote_job_dir="/tmp/jobs/water",
-                remote_task_files=["/remote/source/water.gjf"],
-                server_id="wsl",
-                status=TaskStatus.remote_completed,
-                error_message="download failed",
-            ),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="water",
+                    batch_id="preview_stale",
+                    remote_job_dir="/tmp/jobs/water",
+                    remote_task_files=["/remote/source/water.gjf"],
+                    server_id="wsl",
+                    status=TaskStatus.remote_completed,
+                    error_message="download failed",
+                ),
+            ],
+        )
         record = MagicMock(run_id="preview_stale", manifest_path=str(manifest_path))
 
         rows = runs_page._analyze_workspace_files(record, tmp_path)
@@ -359,8 +417,10 @@ class TestRunsPage:
         runs_page.state.current_project_root = tmp_path
         record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None)
 
-        with patch.object(runs_page, "_auto_analyze", return_value=[]), \
-             patch.object(runs_page, "_analyze_workspace_files", return_value=[["water", "water.log"]]):
+        with (
+            patch.object(runs_page, "_auto_analyze", return_value=[]),
+            patch.object(runs_page, "_analyze_workspace_files", return_value=[["water", "water.log"]]),
+        ):
             payload = runs_page._collect_result_preview(record)
 
         assert payload == ("analysis", [["water", "water.log"]], "Result Preview - Local Files", False)
@@ -374,22 +434,29 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "preview" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(
-                task_id="water",
-                batch_id="preview",
-                remote_job_dir="/tmp/jobs/water",
-                remote_task_files=["/remote/source/water.gjf"],
-                server_id="wsl",
-                status=TaskStatus.remote_completed,
-            ),
-        ])
-        record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None, manifest_path=str(manifest_path))
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="water",
+                    batch_id="preview",
+                    remote_job_dir="/tmp/jobs/water",
+                    remote_task_files=["/remote/source/water.gjf"],
+                    server_id="wsl",
+                    status=TaskStatus.remote_completed,
+                ),
+            ],
+        )
+        record = SimpleNamespace(
+            run_id="preview", command_template="orca", local_dir=None, manifest_path=str(manifest_path)
+        )
         parsed = MagicMock(final_energy_au=-76.1, gibbs_au=None, normal_termination=True)
 
-        with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed), \
-             patch("jobdesk_app.gui.pages.runs_results_page.RunService"), \
-             patch.object(runs_page, "refresh_run_list") as refresh_run_list:
+        with (
+            patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed),
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService"),
+            patch.object(runs_page, "refresh_run_list") as refresh_run_list,
+        ):
             payload = runs_page._collect_result_preview(record)
 
         refresh_run_list.assert_not_called()
@@ -411,6 +478,7 @@ class TestRunsPage:
             rows = runs_page._auto_analyze(result_dir.parent)
 
         from jobdesk_app.gui.i18n import tr
+
         parser.assert_not_called()
         assert rows[0][3] == tr("File too large for preview", runs_page._language)
 
@@ -431,9 +499,11 @@ class TestRunsPage:
         from jobdesk_app.services.gui_settings import GuiSettings
 
         settings = GuiSettings(auto_refresh_interval=15)
-        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
-             patch.object(runs_page, "refresh_run_list") as refresh, \
-             patch.object(runs_page, "_start_monitoring") as monitor:
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page, "_start_monitoring") as monitor,
+        ):
             store.return_value.load.return_value = settings
 
             runs_page.on_activated()
@@ -452,10 +522,14 @@ class TestRunsPage:
             captured.update(kwargs)
             return MagicMock()
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker) as start_worker, \
-             patch.object(runs_page, "refresh_run_list") as refresh, \
-             patch.object(runs_page, "_start_monitoring") as monitor:
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker
+            ) as start_worker,
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page, "_start_monitoring") as monitor,
+        ):
             store.return_value.load.return_value = GuiSettings()
             runs_page.start_startup_recovery()
             captured["on_finished"]()
@@ -481,10 +555,12 @@ class TestRunsPage:
             captured.update(kwargs)
             return MagicMock()
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker), \
-             patch.object(runs_page, "refresh_run_list") as refresh, \
-             patch.object(runs_page, "_start_monitoring") as monitor:
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker),
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page, "_start_monitoring") as monitor,
+        ):
             store.return_value.load.return_value = GuiSettings()
             runs_page.start_startup_recovery()
             assert not runs_page._refresh_timer.isActive()
@@ -498,9 +574,7 @@ class TestRunsPage:
         refresh.assert_not_called()
         monitor.assert_not_called()
 
-    def test_startup_recovery_worker_creation_failure_releases_gate(
-        self, runs_page
-    ):
+    def test_startup_recovery_worker_creation_failure_releases_gate(self, runs_page):
         messages = []
         failures = []
         finished = []
@@ -523,10 +597,12 @@ class TestRunsPage:
     def test_activation_never_replays_operations(self, runs_page):
         from jobdesk_app.services.gui_settings import GuiSettings
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker, \
-             patch.object(runs_page, "refresh_run_list") as refresh, \
-             patch.object(runs_page, "_start_monitoring") as monitor:
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page, "_start_monitoring") as monitor,
+        ):
             store.return_value.load.return_value = GuiSettings()
             runs_page.on_activated()
             runs_page._run_deferred_activation()
@@ -555,13 +631,19 @@ class TestRunsPage:
         )
         updated = MagicMock(status_summary={"remote_completed": 1})
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
-             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
-             patch.object(runs_page, "_execute_refresh_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[])) as refresh, \
-             patch.object(runs_page, "_get_download_patterns", return_value=["*.txt"]):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp,
+            patch.object(
+                runs_page,
+                "_execute_refresh_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[]),
+            ) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=["*.txt"]),
+        ):
             store.return_value.load.return_value = settings
             service.return_value.list_runs.return_value = [record]
             service.return_value.load_run.return_value = updated
@@ -596,12 +678,18 @@ class TestRunsPage:
         )
         updated_after_refresh = MagicMock(status_summary={"remote_completed": 1})
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service, \
-             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
-             patch.object(runs_page, "_execute_refresh_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[MagicMock()], failures=[])) as refresh, \
-             patch.object(runs_page, "_get_download_patterns", return_value=["*/run_summary.json"]):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp,
+            patch.object(
+                runs_page,
+                "_execute_refresh_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[MagicMock()], failures=[]),
+            ) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=["*/run_summary.json"]),
+        ):
             service.return_value.list_runs.return_value = [record]
             service.return_value.load_run.return_value = updated_after_refresh
             service.return_value.download_completed.return_value = (["260523-011/mol_1/run_summary.json"], [])
@@ -668,12 +756,17 @@ class TestRunsPage:
         for mol in ("mol1", "mol2", "mol3"):
             d = result_dir / mol / f"{mol}_confflow_work"
             d.mkdir(parents=True)
-            (d / "run_summary.json").write_text(json.dumps({
-                "initial_conformers": 4,
-                "final_conformers": 2,
-                "total_duration_seconds": 5.5,
-                "step_status_counts": {"completed": 1},
-            }), encoding="utf-8")
+            (d / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "initial_conformers": 4,
+                        "final_conformers": 2,
+                        "total_duration_seconds": 5.5,
+                        "step_status_counts": {"completed": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
         (result_dir / "mol4").mkdir(parents=True)
 
         from jobdesk_app.core.lifecycle import TaskStatus
@@ -682,11 +775,19 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "batch01" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id=mol, batch_id="batch01", remote_job_dir=f"/tmp/.jobdesk_runs/batch01/{mol}",
-               server_id="wsl", status=TaskStatus.downloaded)
-            for mol in ("mol1", "mol2", "mol3", "mol4")
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id=mol,
+                    batch_id="batch01",
+                    remote_job_dir=f"/tmp/.jobdesk_runs/batch01/{mol}",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                )
+                for mol in ("mol1", "mol2", "mol3", "mol4")
+            ],
+        )
         record = MagicMock(run_id="batch01", command_template="confflow {name}", manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
@@ -703,10 +804,17 @@ class TestRunsPage:
         result_dir = tmp_path / "results" / "batch02"
         d = result_dir / "mol1" / "mol1_confflow_work"
         d.mkdir(parents=True)
-        (d / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 3, "final_conformers": 1,
-            "total_duration_seconds": 8, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (d / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 3,
+                    "final_conformers": 1,
+                    "total_duration_seconds": 8,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -714,12 +822,25 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "batch02" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="batch02", remote_job_dir="/tmp/.jobdesk_runs/batch02/mol1",
-               server_id="wsl", status=TaskStatus.downloaded),
-            TR(task_id="mol2", batch_id="batch02", remote_job_dir="/tmp/.jobdesk_runs/batch02/mol2",
-               server_id="wsl", status=TaskStatus.failed),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="batch02",
+                    remote_job_dir="/tmp/.jobdesk_runs/batch02/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+                TR(
+                    task_id="mol2",
+                    batch_id="batch02",
+                    remote_job_dir="/tmp/.jobdesk_runs/batch02/mol2",
+                    server_id="wsl",
+                    status=TaskStatus.failed,
+                ),
+            ],
+        )
         record = MagicMock(run_id="batch02", command_template="confflow {name}", manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
@@ -739,12 +860,25 @@ class TestRunsPage:
 
         manifest_path = tmp_path / "runs" / "batch03" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="batch03", remote_job_dir="/tmp/.jobdesk_runs/batch03/mol1",
-               server_id="wsl", status=TaskStatus.failed),
-            TR(task_id="mol2", batch_id="batch03", remote_job_dir="/tmp/.jobdesk_runs/batch03/mol2",
-               server_id="wsl", status=TaskStatus.failed),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="batch03",
+                    remote_job_dir="/tmp/.jobdesk_runs/batch03/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.failed,
+                ),
+                TR(
+                    task_id="mol2",
+                    batch_id="batch03",
+                    remote_job_dir="/tmp/.jobdesk_runs/batch03/mol2",
+                    server_id="wsl",
+                    status=TaskStatus.failed,
+                ),
+            ],
+        )
         record = MagicMock(run_id="batch03", command_template="confflow {name}", manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
@@ -763,10 +897,17 @@ class TestRunsPage:
 
         d = default_folder / "results" / "run04" / "mol1" / "mol1_confflow_work"
         d.mkdir(parents=True)
-        (d / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 5, "final_conformers": 3,
-            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (d / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 5,
+                    "final_conformers": 3,
+                    "total_duration_seconds": 7,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -774,19 +915,26 @@ class TestRunsPage:
 
         manifest_path = workspace / "runs" / "run04" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="run04", remote_job_dir="/tmp/.jobdesk_runs/run04/mol1",
-               server_id="wsl", status=TaskStatus.downloaded),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="run04",
+                    remote_job_dir="/tmp/.jobdesk_runs/run04/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(run_id="run04", command_template="confflow {name}", manifest_path=str(manifest_path))
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace
 
             from jobdesk_app.services.gui_settings import GuiSettings
-            mock_store.return_value.load.return_value = replace(
-                GuiSettings(), default_local_folder=str(default_folder)
-            )
+
+            mock_store.return_value.load.return_value = replace(GuiSettings(), default_local_folder=str(default_folder))
             runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 1
@@ -801,10 +949,17 @@ class TestRunsPage:
 
         d = workspace / "mol1_confflow_work"
         d.mkdir(parents=True)
-        (d / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 5, "final_conformers": 3,
-            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (d / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 5,
+                    "final_conformers": 3,
+                    "total_duration_seconds": 7,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -812,10 +967,18 @@ class TestRunsPage:
 
         manifest_path = workspace / "runs" / "run_direct" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="run_direct", remote_job_dir="/tmp/.jobdesk_runs/run_direct/mol1",
-               server_id="wsl", status=TaskStatus.downloaded),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="run_direct",
+                    remote_job_dir="/tmp/.jobdesk_runs/run_direct/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(
             run_id="run_direct",
             command_template="confflow {name}",
@@ -837,10 +1000,17 @@ class TestRunsPage:
 
         d = workspace / "mol1_confflow_work"
         d.mkdir(parents=True)
-        (d / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 5, "final_conformers": 3,
-            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (d / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 5,
+                    "final_conformers": 3,
+                    "total_duration_seconds": 7,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -848,10 +1018,19 @@ class TestRunsPage:
 
         manifest_path = workspace / "runs" / "run_direct_stale" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="run_direct_stale", remote_job_dir="/tmp/.jobdesk_runs/run_direct_stale/mol1",
-               server_id="wsl", status=TaskStatus.remote_completed, error_message="download failed"),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="run_direct_stale",
+                    remote_job_dir="/tmp/.jobdesk_runs/run_direct_stale/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.remote_completed,
+                    error_message="download failed",
+                ),
+            ],
+        )
         record = MagicMock(
             run_id="run_direct_stale",
             command_template="confflow {name}",
@@ -873,17 +1052,31 @@ class TestRunsPage:
 
         stale = workspace / "mol1_confflow_work"
         stale.mkdir(parents=True)
-        (stale / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 99, "final_conformers": 88,
-            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (stale / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 99,
+                    "final_conformers": 88,
+                    "total_duration_seconds": 7,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         current = workspace / "results" / "run_legacy" / "mol1" / "mol1_confflow_work"
         current.mkdir(parents=True)
-        (current / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 5, "final_conformers": 3,
-            "total_duration_seconds": 7, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (current / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 5,
+                    "final_conformers": 3,
+                    "total_duration_seconds": 7,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -891,10 +1084,18 @@ class TestRunsPage:
 
         manifest_path = workspace / "runs" / "run_legacy" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="run_legacy", remote_job_dir="/tmp/.jobdesk_runs/run_legacy/mol1",
-               server_id="wsl", status=TaskStatus.downloaded),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="run_legacy",
+                    remote_job_dir="/tmp/.jobdesk_runs/run_legacy/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(
             run_id="run_legacy",
             command_template="confflow {name}",
@@ -919,10 +1120,17 @@ class TestRunsPage:
 
         d = default_folder / "results" / "run05" / "mol1" / "mol1_confflow_work"
         d.mkdir(parents=True)
-        (d / "run_summary.json").write_text(json.dumps({
-            "initial_conformers": 4, "final_conformers": 2,
-            "total_duration_seconds": 6, "step_status_counts": {"completed": 1},
-        }), encoding="utf-8")
+        (d / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "initial_conformers": 4,
+                    "final_conformers": 2,
+                    "total_duration_seconds": 6,
+                    "step_status_counts": {"completed": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         from jobdesk_app.core.lifecycle import TaskStatus
         from jobdesk_app.core.manifest import Manifest
@@ -930,16 +1138,25 @@ class TestRunsPage:
 
         manifest_path = workspace / "runs" / "run05" / "manifest.tsv"
         manifest_path.parent.mkdir(parents=True)
-        Manifest.write(manifest_path, [
-            TR(task_id="mol1", batch_id="run05", remote_job_dir="/tmp/.jobdesk_runs/run05/mol1",
-               server_id="wsl", status=TaskStatus.downloaded),
-        ])
+        Manifest.write(
+            manifest_path,
+            [
+                TR(
+                    task_id="mol1",
+                    batch_id="run05",
+                    remote_job_dir="/tmp/.jobdesk_runs/run05/mol1",
+                    server_id="wsl",
+                    status=TaskStatus.downloaded,
+                ),
+            ],
+        )
         record = MagicMock(run_id="run05", command_template="confflow {name}", manifest_path=str(manifest_path))
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace as dc_replace
 
             from jobdesk_app.services.gui_settings import GuiSettings
+
             mock_store.return_value.load.return_value = dc_replace(
                 GuiSettings(), default_local_folder=str(default_folder)
             )
@@ -956,29 +1173,46 @@ class TestRunsPage:
 
         manifest = tmp_path / "manifest.tsv"
         tasks = [
-            TaskRecord(task_id="mol_ok", batch_id="b", remote_job_dir="/r",
-                       status=TaskStatus.downloaded),
-            TaskRecord(task_id="mol_fail", batch_id="b", remote_job_dir="/r",
-                       status=TaskStatus.remote_completed,
-                       error_message="sftp timeout"),
-            TaskRecord(task_id="mol_exec_fail", batch_id="b", remote_job_dir="/r",
-                       status=TaskStatus.failed,
-                       error_message="ORCA crashed"),
+            TaskRecord(task_id="mol_ok", batch_id="b", remote_job_dir="/r", status=TaskStatus.downloaded),
+            TaskRecord(
+                task_id="mol_fail",
+                batch_id="b",
+                remote_job_dir="/r",
+                status=TaskStatus.remote_completed,
+                error_message="sftp timeout",
+            ),
+            TaskRecord(
+                task_id="mol_exec_fail",
+                batch_id="b",
+                remote_job_dir="/r",
+                status=TaskStatus.failed,
+                error_message="ORCA crashed",
+            ),
         ]
         Manifest.write(manifest, tasks)
 
         record = MagicMock(
-            run_id="cf_batch", manifest_path=manifest,
-            command_template="confflow {name}", status_summary={},
+            run_id="cf_batch",
+            manifest_path=manifest,
+            command_template="confflow {name}",
+            status_summary={},
         )
 
         mol_ok_dir = tmp_path / "results" / "cf_batch" / "mol_ok" / "mol_ok_confflow_work"
         mol_ok_dir.mkdir(parents=True)
         import json as _json
-        (mol_ok_dir / "run_summary.json").write_text(_json.dumps({
-            "initial_conformers": 10, "final_conformers": 3,
-            "total_duration_seconds": 120.5, "step_status_counts": {"opt": 3},
-        }), encoding="utf-8")
+
+        (mol_ok_dir / "run_summary.json").write_text(
+            _json.dumps(
+                {
+                    "initial_conformers": 10,
+                    "final_conformers": 3,
+                    "total_duration_seconds": 120.5,
+                    "step_status_counts": {"opt": 3},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         runs_page._show_confflow_batch_results(record, tmp_path / "results" / "cf_batch")
 
@@ -996,18 +1230,26 @@ class TestRunsPage:
     def test_retry_download_triggers_for_remote_completed_tasks(self, runs_page, qtbot):
         """Retry Download button re-downloads remote_completed tasks."""
         record = MagicMock(
-            run_id="run_dl_retry", server_id="wsl",
-            remote_dir="/r", manifest_path=Path("m.tsv"),
+            run_id="run_dl_retry",
+            server_id="wsl",
+            remote_dir="/r",
+            manifest_path=Path("m.tsv"),
             status_summary={"remote_completed": 2},
         )
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
-             patch.object(runs_page, "_execute_download_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[])) as download, \
-             patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp,
+            patch.object(
+                runs_page,
+                "_execute_download_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[]),
+            ) as download,
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]),
+        ):
             svc.return_value.download_completed.return_value = ([], [])
             servers.return_value.servers = {"wsl": MagicMock()}
             make_ssh.return_value = MagicMock()
@@ -1025,9 +1267,11 @@ class TestRunsPage:
         """Open Results action opens the local download directory directly."""
         record = MagicMock(run_id="run_open", local_dir="")
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path), \
-             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path),
+            patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os,
+        ):
             mock_os.startfile = MagicMock()
             runs_page._open_results_folder()
 
@@ -1037,13 +1281,16 @@ class TestRunsPage:
         """If results dir doesn't exist, show status message instead of crashing."""
         record = MagicMock(run_id="run_missing", local_dir="")
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path / "missing"):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path / "missing"),
+        ):
             runs_page._open_results_folder()
 
     def test_old_record_missing_new_fields_displays_normally(self, runs_page):
         """Old run records without newer fields should still display."""
         from jobdesk_app.gui.pages.runs_results_page import _format_status
+
         assert _format_status({"running": 1}) != ""
         assert _format_status({}) == ""
 
@@ -1051,17 +1298,13 @@ class TestRunsPage:
         from jobdesk_app.gui.i18n import tr
         from jobdesk_app.gui.pages.runs_results_page import _format_status
 
-        assert _format_status({"submitting": 1}, runs_page._language) == tr(
-            "Submitting", runs_page._language
-        )
+        assert _format_status({"submitting": 1}, runs_page._language) == tr("Submitting", runs_page._language)
 
     def test_uncertain_status_uses_user_facing_label(self, runs_page):
         from jobdesk_app.gui.i18n import tr
         from jobdesk_app.gui.pages.runs_results_page import _format_status
 
-        assert _format_status({"uncertain": 1}, runs_page._language) == tr(
-            "Uncertain", runs_page._language
-        )
+        assert _format_status({"uncertain": 1}, runs_page._language) == tr("Uncertain", runs_page._language)
 
     def test_uncertain_actions_hidden_without_uncertain_selection(self, runs_page):
         record = MagicMock(status_summary={"running": 1})
@@ -1134,14 +1377,17 @@ class TestRunsPage:
             encoding="utf-8",
         )
         record = MagicMock(
-            run_id="gauss_run", manifest_path=tmp_path / "no_manifest.tsv",
-            command_template="g16 {name}", status_summary={"downloaded": 1},
+            run_id="gauss_run",
+            manifest_path=tmp_path / "no_manifest.tsv",
+            command_template="g16 {name}",
+            status_summary={"downloaded": 1},
         )
 
         with patch.object(runs_page, "_workspace", return_value=tmp_path):
             runs_page._load_result_preview(record)
 
         from jobdesk_app.gui.i18n import tr
+
         assert runs_page.result_table.rowCount() >= 1
         assert runs_page.result_table.columnCount() == 8
         energy_cell = runs_page.result_table.item(0, 3)
@@ -1156,19 +1402,27 @@ class TestRunsPage:
         local_a = tmp_path / "project_a"
         local_a.mkdir()
         record = MagicMock(
-            run_id="run_ld", server_id="wsl",
-            remote_dir="/r", manifest_path=Path("m.tsv"),
+            run_id="run_ld",
+            server_id="wsl",
+            remote_dir="/r",
+            manifest_path=Path("m.tsv"),
             local_dir=str(local_a),
             status_summary={"remote_completed": 1},
         )
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
-             patch.object(runs_page, "_execute_download_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[])) as download, \
-             patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp,
+            patch.object(
+                runs_page,
+                "_execute_download_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[]),
+            ) as download,
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]),
+        ):
             svc.return_value.download_completed.return_value = ([], [])
             servers.return_value.servers = {"wsl": MagicMock()}
             make_ssh.return_value = MagicMock()
@@ -1186,20 +1440,28 @@ class TestRunsPage:
         local_a = tmp_path / "project_a"
         local_a.mkdir()
         record = MagicMock(
-            run_id="run_refresh", server_id="wsl",
-            remote_dir="/r", manifest_path=Path("m.tsv"),
+            run_id="run_refresh",
+            server_id="wsl",
+            remote_dir="/r",
+            manifest_path=Path("m.tsv"),
             local_dir=str(local_a),
         )
         updated = MagicMock(status_summary={"remote_completed": 1})
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh, \
-             patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp, \
-             patch.object(runs_page, "_execute_refresh_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[])) as refresh, \
-             patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"), \
-             patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client") as make_ssh,
+            patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client") as make_sftp,
+            patch.object(
+                runs_page,
+                "_execute_refresh_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[]),
+            ) as refresh,
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"),
+            patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]),
+        ):
             svc.return_value.load_run.return_value = updated
             svc.return_value.download_completed.return_value = ([], [])
             servers.return_value.servers = {"wsl": MagicMock()}
@@ -1217,8 +1479,10 @@ class TestRunsPage:
         worker = MagicMock()
         record = MagicMock(run_id="run_refresh", local_dir="")
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+        ):
             runs_page._refresh_status()
 
         assert runs_page._worker is existing_worker
@@ -1231,9 +1495,11 @@ class TestRunsPage:
         record = MagicMock(run_id="run_refresh", local_dir="")
         outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome), \
-             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome),
+            patch("jobdesk_app.gui.workers.BackgroundWorker") as worker,
+        ):
             runs_page._refresh_status()
             message = worker.call_args.args[0]()
 
@@ -1242,8 +1508,10 @@ class TestRunsPage:
     def test_submit_worker_delegates_session_ownership_to_coordinator(self, runs_page):
         outcome = SimpleNamespace(errors=[], submit_results=[MagicMock()])
 
-        with patch.object(runs_page, "_coordinator_for") as coordinator_factory, \
-             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker:
+        with (
+            patch.object(runs_page, "_coordinator_for") as coordinator_factory,
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
+        ):
             coordinator_factory.return_value.submit.return_value = outcome
             runs_page._submit_record("run-1")
             start_worker.call_args.kwargs["target"](MagicMock())
@@ -1256,10 +1524,12 @@ class TestRunsPage:
         record = MagicMock(run_id="run-1", local_dir="")
         outcome = SimpleNamespace(changed_count=1, errors=[])
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-             patch.object(runs_page, "_coordinator_for") as coordinator_factory, \
-             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch.object(runs_page, "_coordinator_for") as coordinator_factory,
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
+        ):
             coordinator_factory.return_value.cancel.return_value = outcome
             runs_page._stop_run()
             start_worker.call_args.kwargs["target"](MagicMock())
@@ -1278,12 +1548,14 @@ class TestRunsPage:
             runs_page._bg_workers.append(worker)
             return worker
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-             patch(
-                 "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
-                 side_effect=capture_worker,
-             ):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+                side_effect=capture_worker,
+            ),
+        ):
             runs_page._submit_record("run-1")
             tracked = list(runs_page._bg_workers)
             runs_page._stop_run()
@@ -1308,10 +1580,13 @@ class TestRunsPage:
         status.assert_not_called()
 
     def test_mutation_gate_releases_when_worker_start_fails(self, runs_page):
-        with patch(
-            "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
-            side_effect=RuntimeError("start failed"),
-        ), pytest.raises(RuntimeError, match="start failed"):
+        with (
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+                side_effect=RuntimeError("start failed"),
+            ),
+            pytest.raises(RuntimeError, match="start failed"),
+        ):
             runs_page._submit_record("run-1")
 
         assert runs_page._remote_mutation_running is False
@@ -1333,12 +1608,14 @@ class TestRunsPage:
         statuses: list[str] = []
         runs_page._status_cb = statuses.append
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-             patch(
-                 "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
-                 side_effect=RuntimeError("start failed"),
-             ):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+                side_effect=RuntimeError("start failed"),
+            ),
+        ):
             runs_page._stop_run()
 
         assert runs_page._remote_mutation_running is False
@@ -1351,8 +1628,10 @@ class TestRunsPage:
         coordinator = MagicMock()
         runs_page._remote_mutation_running = True
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_coordinator_for", return_value=coordinator):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_coordinator_for", return_value=coordinator),
+        ):
             if action == "retry":
                 runs_page._retry_failed()
             else:
@@ -1369,12 +1648,14 @@ class TestRunsPage:
             errors=[],
         )
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_coordinator_for", return_value=coordinator), \
-             patch(
-                 "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
-                 side_effect=RuntimeError("start failed"),
-             ):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_coordinator_for", return_value=coordinator),
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+                side_effect=RuntimeError("start failed"),
+            ),
+        ):
             runs_page._retry_failed()
 
         coordinator.retry_failed.assert_called_once_with("run-1")
@@ -1390,8 +1671,10 @@ class TestRunsPage:
             status_summary={"remote_completed": 1},
         )
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+        ):
             runs_page._retry_download()
 
         assert worker in runs_page._bg_workers
@@ -1405,9 +1688,11 @@ class TestRunsPage:
         )
         outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_execute_download_use_case", return_value=outcome) as download, \
-             patch("jobdesk_app.gui.workers.BackgroundWorker") as worker:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_execute_download_use_case", return_value=outcome) as download,
+            patch("jobdesk_app.gui.workers.BackgroundWorker") as worker,
+        ):
             runs_page._retry_download()
             worker.call_args.args[0]()
 
@@ -1419,9 +1704,11 @@ class TestRunsPage:
         local_a.mkdir()
         record = MagicMock(run_id="run_ld2", local_dir=str(local_a))
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path / "other"), \
-             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path / "other"),
+            patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os,
+        ):
             mock_os.startfile = MagicMock()
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
@@ -1437,8 +1724,10 @@ class TestRunsPage:
             manifest_path=tmp_path / "manifest.tsv",
         )
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"):
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"),
+        ):
             runs_page._show_paths()
 
         assert str(local_a) in runs_page.result_text.toPlainText()
@@ -1448,9 +1737,11 @@ class TestRunsPage:
         """Old records with empty local_dir should use current workspace."""
         record = MagicMock(run_id="run_old", local_dir="")
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch.object(runs_page, "_workspace", return_value=tmp_path), \
-             patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_workspace", return_value=tmp_path),
+            patch("jobdesk_app.gui.pages.runs_results_page.os") as mock_os,
+        ):
             mock_os.startfile = MagicMock()
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
@@ -1476,9 +1767,11 @@ class TestRunsPage:
         runs_page._status_cb = statuses.append
         record = MagicMock(run_id="run_active")
 
-        with patch.object(runs_page, "_selected_record", return_value=record), \
-             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch.object(runs_page, "_submit_record") as submit_record:
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch.object(runs_page, "_submit_record") as submit_record,
+        ):
             svc.return_value.prepare_rerun.side_effect = ValueError("cannot rerun active remote tasks: a")
 
             runs_page._rerun_all()
@@ -1495,7 +1788,8 @@ class TestRunsPage:
         project_a.mkdir()
 
         record = MagicMock(
-            run_id="run_cross", local_dir=str(project_a),
+            run_id="run_cross",
+            local_dir=str(project_a),
         )
 
         runs_page.table.blockSignals(True)
@@ -1504,14 +1798,18 @@ class TestRunsPage:
         runs_page.table.selectRow(0)
         runs_page.table.blockSignals(False)
 
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-             patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"):
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch.object(runs_page, "_workspace", return_value=tmp_path / "project_b"),
+        ):
             svc.return_value.load_run.return_value = record
             svc.return_value.delete_run.return_value = None
             svc.return_value.list_runs.return_value = []
             runs_page._delete_run()
-            qtbot.waitUntil(lambda: any(call.args and call.args[0] == project_a for call in svc.call_args_list), timeout=2000)
+            qtbot.waitUntil(
+                lambda: any(call.args and call.args[0] == project_a for call in svc.call_args_list), timeout=2000
+            )
 
         svc.assert_any_call(project_a)
 
@@ -1526,15 +1824,23 @@ class TestRunsPage:
             status_summary={"remote_completed": 1},
         )
 
-        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc, \
-             patch.object(runs_page, "_workspace", return_value=tmp_path), \
-             patch.object(runs_page, "_execute_download_use_case", return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[])) as download, \
-             patch.object(runs_page, "refresh_run_list"):
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as svc,
+            patch.object(runs_page, "_workspace", return_value=tmp_path),
+            patch.object(
+                runs_page,
+                "_execute_download_use_case",
+                return_value=SimpleNamespace(errors=[], transfer_records=[], failures=[]),
+            ) as download,
+            patch.object(runs_page, "refresh_run_list"),
+        ):
             svc.return_value.list_runs.return_value = [record]
-            with patch("jobdesk_app.gui.pages.runs_results_page.load_servers"), \
-                 patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client"), \
-                 patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client"), \
-                 patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]):
+            with (
+                patch("jobdesk_app.gui.pages.runs_results_page.load_servers"),
+                patch("jobdesk_app.gui.pages.runs_results_page.create_ssh_client"),
+                patch("jobdesk_app.gui.pages.runs_results_page.create_sftp_client"),
+                patch.object(runs_page, "_get_download_patterns", return_value=["*.log"]),
+            ):
                 runs_page._auto_refresh_active()
                 qtbot.waitUntil(lambda: not runs_page._auto_refresh_running, timeout=2000)
 

@@ -25,6 +25,7 @@ def _run_configure(config, monkeypatch, env_val=None):
     import importlib  # noqa: E402
 
     import conftest  # noqa: E402
+
     importlib.reload(conftest)
     conftest.pytest_configure(config)
     return config.option.basetemp
@@ -73,9 +74,7 @@ class TestConftestBasetemp:
     def test_subprocess_no_basetemp_smoke(self):
         """A real pytest subprocess allocates tmp_path outside the repo."""
         repo = Path(__file__).resolve().parent.parent
-        test_file = Path(__file__).with_name(
-            f"_test_basetemp_smoke_{uuid.uuid4().hex}.py"
-        )
+        test_file = Path(__file__).with_name(f"_test_basetemp_smoke_{uuid.uuid4().hex}.py")
         test_file.write_text(
             "import tempfile\n"
             "from pathlib import Path\n\n"
@@ -94,9 +93,11 @@ class TestConftestBasetemp:
         env["QT_QPA_PLATFORM"] = "offscreen"
         try:
             r = subprocess.run(
-                [sys.executable, "-m", "pytest", str(test_file),
-                 "-q", "-p", "no:cacheprovider"],
-                capture_output=True, text=True, env=env, cwd=repo,
+                [sys.executable, "-m", "pytest", str(test_file), "-q", "-p", "no:cacheprovider"],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=repo,
             )
             assert r.returncode == 0, f"stdout: {r.stdout}\nstderr: {r.stderr}"
         finally:

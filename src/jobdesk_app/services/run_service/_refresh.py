@@ -1,4 +1,5 @@
 """Refresh operations for run_service."""
+
 from __future__ import annotations
 
 from jobdesk_app.core.run import remote_run_dir
@@ -32,13 +33,7 @@ def refresh_run(service, run_id: str, ssh) -> StatusRefreshResult:
         and task.task_id in original_by_id
         and original_by_id[task.task_id].status != task.status
     }
-    result.snapshots = [
-        snapshot for snapshot in result.snapshots
-        if snapshot.task_id in accepted_task_ids
-    ]
-    result.failures = [
-        failure for failure in result.failures
-        if failure.task_id in accepted_task_ids
-    ]
+    result.snapshots = [snapshot for snapshot in result.snapshots if snapshot.task_id in accepted_task_ids]
+    result.failures = [failure for failure in result.failures if failure.task_id in accepted_task_ids]
     result.changed_count = len(accepted_transitions)
     return result

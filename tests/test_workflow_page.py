@@ -1,4 +1,5 @@
 """Regression tests for the two-pane YAML + simple-flow workflow page."""
+
 from __future__ import annotations
 
 import os
@@ -44,7 +45,9 @@ def _first_step_id(page: WorkflowPage) -> str:
     )
     if step is None:
         page._add_step()
-        step = next(node for node in page._draft.graph.nodes.values() if node.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT})
+        step = next(
+            node for node in page._draft.graph.nodes.values() if node.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}
+        )
     return step.id
 
 
@@ -53,27 +56,60 @@ def test_page_has_two_authoring_panes_and_generated_preview(page):
     assert page.settings_tabs.count() == 2
     assert page.flow_scroll.widget() is page._flow_body
     assert page._flow_layout.count() >= 3  # input, output, spacer
-    assert not [node for node in page._draft.graph.nodes.values() if node.kind in {
-        NodeKind.OPT, NodeKind.SINGLE_POINT, NodeKind.FREQUENCY,
-        NodeKind.CONF_GEN, NodeKind.PRE_OPT, NodeKind.TS, NodeKind.REFINE,
-    }]
+    assert not [
+        node
+        for node in page._draft.graph.nodes.values()
+        if node.kind
+        in {
+            NodeKind.OPT,
+            NodeKind.SINGLE_POINT,
+            NodeKind.FREQUENCY,
+            NodeKind.CONF_GEN,
+            NodeKind.PRE_OPT,
+            NodeKind.TS,
+            NodeKind.REFINE,
+        }
+    ]
     assert "Add at least one workflow step" in page.full_yaml_preview.toPlainText()
     assert page.save_workflow_button.text() == "Save workflow"
     assert page.btn_dispatch.objectName() == "WorkflowDispatchBtn"
 
 
 def test_add_step_appends_to_simple_flow_and_updates_yaml(page):
-    before = len([node for node in page._draft.graph.nodes.values() if node.kind in {NodeKind.OPT, NodeKind.SINGLE_POINT, NodeKind.FREQUENCY, NodeKind.CONF_GEN, NodeKind.PRE_OPT, NodeKind.TS, NodeKind.REFINE}])
+    before = len(
+        [
+            node
+            for node in page._draft.graph.nodes.values()
+            if node.kind
+            in {
+                NodeKind.OPT,
+                NodeKind.SINGLE_POINT,
+                NodeKind.FREQUENCY,
+                NodeKind.CONF_GEN,
+                NodeKind.PRE_OPT,
+                NodeKind.TS,
+                NodeKind.REFINE,
+            }
+        ]
+    )
     page.step_yaml_editor.setPlainText(
-        "name: sp\n"
-        "type: calc\n"
-        "params:\n"
-        "  iprog: orca\n"
-        "  itask: sp\n"
-        "  keyword: B3LYP def2-SVP\n"
+        "name: sp\ntype: calc\nparams:\n  iprog: orca\n  itask: sp\n  keyword: B3LYP def2-SVP\n"
     )
     page._add_step()
-    steps = [node for node in page._draft.graph.nodes.values() if node.kind in {NodeKind.OPT, NodeKind.SINGLE_POINT, NodeKind.FREQUENCY, NodeKind.CONF_GEN, NodeKind.PRE_OPT, NodeKind.TS, NodeKind.REFINE}]
+    steps = [
+        node
+        for node in page._draft.graph.nodes.values()
+        if node.kind
+        in {
+            NodeKind.OPT,
+            NodeKind.SINGLE_POINT,
+            NodeKind.FREQUENCY,
+            NodeKind.CONF_GEN,
+            NodeKind.PRE_OPT,
+            NodeKind.TS,
+            NodeKind.REFINE,
+        }
+    ]
     assert len(steps) == before + 1
     assert page._selected_node_id is not None
     assert "itask: sp" in page.full_yaml_preview.toPlainText()
@@ -90,10 +126,20 @@ def test_each_flow_card_deletes_its_own_step_and_empty_flow_is_allowed(page):
 
     remaining_id = _first_step_id(page)
     page._delete_step(remaining_id)
-    assert not [node for node in page._draft.graph.nodes.values() if node.kind in {
-        NodeKind.OPT, NodeKind.SINGLE_POINT, NodeKind.FREQUENCY,
-        NodeKind.CONF_GEN, NodeKind.PRE_OPT, NodeKind.TS, NodeKind.REFINE,
-    }]
+    assert not [
+        node
+        for node in page._draft.graph.nodes.values()
+        if node.kind
+        in {
+            NodeKind.OPT,
+            NodeKind.SINGLE_POINT,
+            NodeKind.FREQUENCY,
+            NodeKind.CONF_GEN,
+            NodeKind.PRE_OPT,
+            NodeKind.TS,
+            NodeKind.REFINE,
+        }
+    ]
     assert "Add at least one workflow step" in page.full_yaml_preview.toPlainText()
 
 
@@ -143,13 +189,7 @@ def test_new_confgen_step_uses_a_valid_confgen_fragment(page):
 def test_standalone_step_yaml_can_be_applied_before_switching(page):
     """The left step editor is usable without selecting a graph card."""
     page._new_step()
-    page.step_yaml_editor.setPlainText(
-        "name: reusable_ts\n"
-        "type: calc\n"
-        "params:\n"
-        "  iprog: orca\n"
-        "  itask: ts\n"
-    )
+    page.step_yaml_editor.setPlainText("name: reusable_ts\ntype: calc\nparams:\n  iprog: orca\n  itask: ts\n")
     assert page._step_text_dirty
     page._apply_step_yaml()
     assert not page._step_text_dirty
@@ -162,12 +202,7 @@ def test_steps_and_global_yaml_generate_a_reloadable_workflow(page):
         page.step_preset_combo.setCurrentIndex(page.step_preset_combo.findText(step_name))
         page._add_step()
 
-    page.global_yaml_editor.setPlainText(
-        "cores_per_task: 12\n"
-        "total_memory: 24GB\n"
-        "charge: -1\n"
-        "multiplicity: 2\n"
-    )
+    page.global_yaml_editor.setPlainText("cores_per_task: 12\ntotal_memory: 24GB\ncharge: -1\nmultiplicity: 2\n")
     page._apply_global_yaml()
 
     generated = page._build_workflow_yaml()
@@ -200,8 +235,15 @@ def test_workflow_chooser_lists_only_user_saved_workflows(page):
     page._store.save_user(
         "my_workflow",
         WorkflowSpec.from_form(
-            work_dir_name="", program="orca", method="B3LYP", basis="def2-SVP",
-            charge=0, multiplicity=1, nproc=4, memory_mb=4096, steps=("opt", "sp"),
+            work_dir_name="",
+            program="orca",
+            method="B3LYP",
+            basis="def2-SVP",
+            charge=0,
+            multiplicity=1,
+            nproc=4,
+            memory_mb=4096,
+            steps=("opt", "sp"),
         ),
     )
 
@@ -216,12 +258,7 @@ def test_step_yaml_applies_to_selected_node_and_regenerates_workflow(page):
     node_id = _first_step_id(page)
     page._on_node_selected(node_id)
     page.step_yaml_editor.setPlainText(
-        "name: optimisation\n"
-        "type: calc\n"
-        "params:\n"
-        "  iprog: orca\n"
-        "  itask: opt\n"
-        "  keyword: B3LYP def2-TZVP\n"
+        "name: optimisation\ntype: calc\nparams:\n  iprog: orca\n  itask: opt\n  keyword: B3LYP def2-TZVP\n"
     )
     page._apply_step_yaml()
     node = page._draft.graph.nodes[node_id]
@@ -234,12 +271,7 @@ def test_validate_commits_pending_step_yaml_without_an_apply_button(page):
     node_id = _first_step_id(page)
     page._on_node_selected(node_id)
     page.step_yaml_editor.setPlainText(
-        "name: renamed_opt\n"
-        "type: calc\n"
-        "params:\n"
-        "  iprog: orca\n"
-        "  itask: opt\n"
-        "  keyword: PBE0 def2-SVP\n"
+        "name: renamed_opt\ntype: calc\nparams:\n  iprog: orca\n  itask: opt\n  keyword: PBE0 def2-SVP\n"
     )
 
     assert page._step_text_dirty

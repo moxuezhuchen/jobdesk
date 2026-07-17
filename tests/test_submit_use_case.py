@@ -11,6 +11,7 @@ Phase 10.6 removed the legacy ``CalculationWidget`` module; the local
 ``_StubCalcFields`` dataclass below mirrors the attribute surface the
 use case reads (``charge`` / ``multiplicity`` / ``nproc`` / ``mem``).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -307,6 +308,7 @@ def test_confflow_yaml_lands_next_to_first_input_even_when_output_dir_is_cwd(tmp
     user's first XYZ file regardless of what ``output_dir`` says.
     """
     from jobdesk_app.core import workflow_spec
+
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
     src_dir = tmp_path / "molecules"
@@ -321,9 +323,7 @@ def test_confflow_yaml_lands_next_to_first_input_even_when_output_dir_is_cwd(tmp
     batch = SubmitUseCase().execute(payload)
     assert batch.ok, batch.errors
     assert batch.yaml_local_path is not None
-    assert batch.yaml_local_path.parent == src_dir, (
-        f"yaml landed in {batch.yaml_local_path.parent}, expected {src_dir}"
-    )
+    assert batch.yaml_local_path.parent == src_dir, f"yaml landed in {batch.yaml_local_path.parent}, expected {src_dir}"
 
 
 # --- PreparedBatch.ok property --------------------------------------------
@@ -336,10 +336,11 @@ def test_prepared_batch_ok_requires_no_errors_and_specs():
     batch = PreparedBatch(errors=[], specs=[])
     assert batch.ok is False  # no specs -> not ok
 
-
     batch = PreparedBatch(
-        errors=[], specs=[RunSpec(server_id="s", remote_dir="/", command_template="x",
-                                   max_parallel=1, mode=RunMode.selected_files)]
+        errors=[],
+        specs=[
+            RunSpec(server_id="s", remote_dir="/", command_template="x", max_parallel=1, mode=RunMode.selected_files)
+        ],
     )
     assert batch.ok is True
 

@@ -1,4 +1,5 @@
 """Failure recovery tests for run and manifest operations."""
+
 from unittest.mock import MagicMock
 
 import pytest

@@ -76,8 +76,12 @@ class FakeSFTPWrapper:
 # ---- helpers -----------------------------------------------------------
 
 
-def _make_task(task_id: str, status: TaskStatus = TaskStatus.uploaded,
-               remote_job_dir: str = "", rendered_command: str = "echo hello") -> TaskRecord:
+def _make_task(
+    task_id: str,
+    status: TaskStatus = TaskStatus.uploaded,
+    remote_job_dir: str = "",
+    rendered_command: str = "echo hello",
+) -> TaskRecord:
     return TaskRecord(
         task_id=task_id,
         batch_id="b1",
@@ -105,16 +109,16 @@ class TestTaskSelection:
             _make_task("t8", TaskStatus.analyzed),
             _make_task("t9", TaskStatus.failed),
         ]
-        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
-                                remote_batch_dir="/remote/b1", batch_id="b1")
+        submitter = JobSubmitter(
+            tasks=tasks, ssh=None, sftp=None, max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1"
+        )
         selected = submitter.select_tasks(SubmitMode.all)
         assert len(selected) == 2
         assert {t.task_id for t in selected} == {"t2", "t3"}
 
     def test_no_uploaded_returns_empty(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
-        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
-                                remote_batch_dir="/r", batch_id="b1")
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4, remote_batch_dir="/r", batch_id="b1")
         selected = submitter.select_tasks(SubmitMode.all)
         assert selected == []
 
@@ -124,8 +128,7 @@ class TestTaskSelection:
             _make_task("t2", TaskStatus.uploaded),
             _make_task("t3", TaskStatus.uploaded),
         ]
-        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
-                                remote_batch_dir="/r", batch_id="b1")
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4, remote_batch_dir="/r", batch_id="b1")
         selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t3"])
         assert len(selected) == 2
         assert {t.task_id for t in selected} == {"t1", "t3"}
@@ -135,8 +138,7 @@ class TestTaskSelection:
             _make_task("t1", TaskStatus.uploaded),
             _make_task("t2", TaskStatus.running),
         ]
-        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
-                                remote_batch_dir="/r", batch_id="b1")
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4, remote_batch_dir="/r", batch_id="b1")
         selected = submitter.select_tasks(SubmitMode.selected, ["t1", "t2"])
         assert len(selected) == 1
         assert selected[0].task_id == "t1"
@@ -254,8 +256,12 @@ class TestDryRun:
         fake_ssh = MagicMock()
         fake_sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=fake_ssh, sftp=fake_sftp,
-            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=fake_ssh,
+            sftp=fake_sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
         )
         plan = submitter.dry_run(SubmitMode.all)
         assert plan.dry_run is True
@@ -270,8 +276,7 @@ class TestDryRun:
 
     def test_dry_run_no_uploaded_tasks(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
-        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4,
-                                remote_batch_dir="/r", batch_id="b1")
+        submitter = JobSubmitter(tasks=tasks, ssh=None, sftp=None, max_parallel=4, remote_batch_dir="/r", batch_id="b1")
         plan = submitter.dry_run(SubmitMode.all)
         assert plan.task_count == 0
 
@@ -293,8 +298,12 @@ class TestSubmit:
     def test_submit_no_tasks_returns_error(self):
         tasks = [_make_task("t1", TaskStatus.local_ready)]
         submitter = JobSubmitter(
-            tasks=tasks, ssh=MagicMock(), sftp=FakeSFTPWrapper(),
-            max_parallel=4, remote_batch_dir="/r", batch_id="b1",
+            tasks=tasks,
+            ssh=MagicMock(),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=4,
+            remote_batch_dir="/r",
+            batch_id="b1",
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert len(result.errors) > 0
@@ -304,8 +313,12 @@ class TestSubmit:
         ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
         sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=ssh, sftp=sftp,
-            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert len(result.errors) == 0
@@ -487,8 +500,12 @@ class TestSubmit:
         ssh = self._make_mock_ssh(exit_code=0, stdout="4321")
         sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=ssh, sftp=sftp, max_parallel=4,
-            remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
             control_subdir="_batch/g16",
         )
 
@@ -507,8 +524,12 @@ class TestSubmit:
         ssh = self._make_mock_ssh(exit_code=1, stderr="chmod: permission denied")
         sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=ssh, sftp=sftp,
-            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert len(result.errors) > 0
@@ -520,14 +541,20 @@ class TestSubmit:
     def test_submit_nohup_failure_marks_manifest_uncertain(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
         ssh = MagicMock()
-        ssh.run = MagicMock(side_effect=[
-            SSHResult("chmod", 0, "", "", 0.01),  # chmod ok
-            SSHResult("nohup", 1, "", "nohup failed", 0.01),  # nohup fails
-        ])
+        ssh.run = MagicMock(
+            side_effect=[
+                SSHResult("chmod", 0, "", "", 0.01),  # chmod ok
+                SSHResult("nohup", 1, "", "nohup failed", 0.01),  # nohup fails
+            ]
+        )
         sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=ssh, sftp=sftp,
-            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert len(result.errors) > 0
@@ -538,8 +565,7 @@ class TestSubmit:
 
     def test_max_parallel_must_be_positive(self):
         with pytest.raises(ValueError, match="max_parallel"):
-            JobSubmitter(ssh=None, sftp=None, max_parallel=0,
-                        remote_batch_dir="/r", batch_id="b1", tasks=[])
+            JobSubmitter(ssh=None, sftp=None, max_parallel=0, remote_batch_dir="/r", batch_id="b1", tasks=[])
 
     def test_remote_paths_are_quoted(self):
         """验证 launch 脚本中的路径使用了 shlex.quote。"""
@@ -576,13 +602,15 @@ class TestSubmit:
 class TestSubmitResult:
     def test_result_has_control_paths(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]
-        ssh = _MockSSHForSubmit(
-            SSHResult("", 0, "4321", "", 0.01)
-        )
+        ssh = _MockSSHForSubmit(SSHResult("", 0, "4321", "", 0.01))
         sftp = FakeSFTPWrapper()
         submitter = JobSubmitter(
-            tasks=tasks, ssh=ssh, sftp=sftp,
-            max_parallel=4, remote_batch_dir="/remote/b1", batch_id="b1",
+            tasks=tasks,
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=4,
+            remote_batch_dir="/remote/b1",
+            batch_id="b1",
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert result.control_script_path == "/remote/b1/_batch/batch_control.sh"

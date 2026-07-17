@@ -21,6 +21,7 @@ All items use ``ItemIsMovable`` / ``ItemIsSelectable`` /
 movable. Ports are clickable but not movable. Edges are
 selection-clickable for the Delete key flow.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -194,15 +195,17 @@ class NodeItem(QGraphicsRectItem):
         painter.drawPath(title_path)
         # The bottom corners of the title band should be flat — cover them
         # with a rectangle so the rounded corners don't show through.
-        painter.drawRect(QRectF(rect.left(), rect.top() + NODE_TITLE_HEIGHT - radius,
-                                rect.width(), radius))
+        painter.drawRect(QRectF(rect.left(), rect.top() + NODE_TITLE_HEIGHT - radius, rect.width(), radius))
         # Title text.
         painter.setPen(QPen(QColor("#1f2933"), 1.0))
         font = painter.font()
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(title_rect.adjusted(8, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                         self._node.title)
+        painter.drawText(
+            title_rect.adjusted(8, 0, -8, 0),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self._node.title,
+        )
         # Selection highlight ring.
         if self.isSelected():
             ring_pen = QPen(QColor("#2563eb"), 2.0, Qt.PenStyle.DashLine)

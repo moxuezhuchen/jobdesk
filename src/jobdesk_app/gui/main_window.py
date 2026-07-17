@@ -62,8 +62,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.shell)
 
         # 4 pages
-        self.files_page = FileTransferPage(self.state, self._log, self._update_status,
-                                           self.show_error)
+        self.files_page = FileTransferPage(self.state, self._log, self._update_status, self.show_error)
         self._preset_store = MethodPresetStore()
         self.workflow_page = WorkflowPage(
             self.state,
@@ -81,14 +80,10 @@ class MainWindow(QMainWindow):
         )
         # Files page → Submit dialog (Phase 2.0 dual-entry refactor).
         if hasattr(self.files_page, "submit_requested_with_files"):
-            self.files_page.submit_requested_with_files.connect(
-                self._open_submit_dialog
-            )
+            self.files_page.submit_requested_with_files.connect(self._open_submit_dialog)
         # Workflow page → switch to Files with the preset highlighted.
         if hasattr(self.workflow_page, "preset_chosen_for_submit"):
-            self.workflow_page.preset_chosen_for_submit.connect(
-                self._on_workflow_chosen
-            )
+            self.workflow_page.preset_chosen_for_submit.connect(self._on_workflow_chosen)
         # Review-round 3: the Workflow-page ``[New workflow]`` button
         # now opens the modal ``WorkflowBuilderDialog``. ``MainWindow``
         # doesn't need to do anything special here -- the dialog
@@ -108,13 +103,9 @@ class MainWindow(QMainWindow):
         # pages so we funnel every request through ``_switch_page`` and
         # keep the sidebar / page-stack in lockstep.
         if hasattr(self.files_page, "open_settings_requested"):
-            self.files_page.open_settings_requested.connect(
-                lambda: self._switch_page(3)
-            )
+            self.files_page.open_settings_requested.connect(lambda: self._switch_page(3))
         if hasattr(self.runs_page, "go_to_submit_requested"):
-            self.runs_page.go_to_submit_requested.connect(
-                self._on_runs_go_to_submit
-            )
+            self.runs_page.go_to_submit_requested.connect(self._on_runs_go_to_submit)
         # Review-fix: the Runs-page "Show example templates" button needs
         # the same destination as ``go_to_submit_requested`` PLUS a
         # request to pop the editor's Examples drawer, otherwise the
@@ -122,15 +113,13 @@ class MainWindow(QMainWindow):
         # from a template -- the old behaviour was effectively a
         # duplicate "Go to Submit" button.
         if hasattr(self.runs_page, "go_to_submit_with_examples_requested"):
-            self.runs_page.go_to_submit_with_examples_requested.connect(
-                self._on_go_to_submit_with_examples
-            )
+            self.runs_page.go_to_submit_with_examples_requested.connect(self._on_go_to_submit_with_examples)
         self.runs_page.startup_recovery_failed.connect(self._on_startup_recovery_failed)
         self.runs_page.startup_recovery_finished.connect(self._finish_startup_recovery)
 
-        self.shell.add_page(self.files_page)   # 0
+        self.shell.add_page(self.files_page)  # 0
         self.shell.add_page(self.workflow_page)  # 1
-        self.shell.add_page(self.runs_page)    # 2
+        self.shell.add_page(self.runs_page)  # 2
         self.shell.add_page(self.settings_page)  # 3
 
         self.shell.page_changed.connect(self._on_nav)
@@ -167,8 +156,7 @@ class MainWindow(QMainWindow):
                 page.set_remote_dir(self.files_page.remote_path.text().strip() or "/")
         if index == 0:
             # Refresh the Files page so a returning user sees fresh state.
-            refresh = getattr(self.files_page, "refresh", None) or \
-                getattr(self.files_page, "_refresh_all", None)
+            refresh = getattr(self.files_page, "refresh", None) or getattr(self.files_page, "_refresh_all", None)
             if refresh is not None:
                 try:
                     refresh()
@@ -255,8 +243,10 @@ class MainWindow(QMainWindow):
 
     def _make_exception_hook(self):
         logger = self._file_logger
+
         def _hook(exc_type, exc, tb):
             logger.exception("Uncaught GUI exception: %s", exc)
+
         return _hook
 
     def _update_status(self, msg: str):
@@ -323,6 +313,7 @@ class MainWindow(QMainWindow):
                     outcomes.append(coordinator.create_run(spec, local_dir=str(workspace)))
             # Bundle into a single RunOperationOutcome-shaped payload.
             from ..services.run_coordinator import RunOperationOutcome
+
             combined = RunOperationOutcome()
             for outcome in outcomes:
                 combined.records.extend(outcome.records)
@@ -421,10 +412,7 @@ class MainWindow(QMainWindow):
         # without duplicating it here.
         if preset_name is None and not sources and seed_preset_from_files:
             try:
-                presets = [
-                    p for p in self._preset_store.list_presets()
-                    if getattr(p, "source", "") == "user"
-                ]
+                presets = [p for p in self._preset_store.list_presets() if getattr(p, "source", "") == "user"]
                 if presets:
                     dialog.set_selected_preset_name(presets[0].name)
             except Exception:
@@ -469,9 +457,7 @@ class MainWindow(QMainWindow):
         same place as ``Save as user preset``.
         """
         if name:
-            self._update_status(
-                tr("Workflow preset loaded: {name}", self.language, name=name)
-            )
+            self._update_status(tr("Workflow preset loaded: {name}", self.language, name=name))
 
     def shutdown(self):
         if getattr(self, "_shutdown_done", False):
@@ -488,6 +474,7 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
         from .workers import BackgroundWorker
+
         BackgroundWorker.wait_all()
 
     def closeEvent(self, event):

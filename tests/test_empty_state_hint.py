@@ -6,6 +6,7 @@ fixtures, same findChild-by-objectName pattern — so the two empty-
 state surfaces have a consistent test layout even though they live in
 different packages.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,13 +50,9 @@ def test_action_button_click_emits_signal(qtbot):
     qtbot.addWidget(hint)
     hint.action_requested.connect(captured.append)
 
-    go_btn = next(
-        btn for btn in hint.findChildren(QPushButton)
-        if btn.objectName() == "EmptyStateAction_go_to_submit"
-    )
+    go_btn = next(btn for btn in hint.findChildren(QPushButton) if btn.objectName() == "EmptyStateAction_go_to_submit")
     examples_btn = next(
-        btn for btn in hint.findChildren(QPushButton)
-        if btn.objectName() == "EmptyStateAction_show_examples"
+        btn for btn in hint.findChildren(QPushButton) if btn.objectName() == "EmptyStateAction_show_examples"
     )
 
     go_btn.click()
@@ -85,8 +82,7 @@ def test_apply_language_retranslates(qtbot):
     assert "Settings" not in hint._title_label.text()
     # The "Open Settings" button label is "打开设置" in zh.
     open_btn = next(
-        btn for btn in hint.findChildren(QPushButton)
-        if btn.objectName() == "EmptyStateAction_open_settings"
+        btn for btn in hint.findChildren(QPushButton) if btn.objectName() == "EmptyStateAction_open_settings"
     )
     assert "\u6253\u5f00" in open_btn.text()  # "打开"
 
@@ -103,8 +99,5 @@ def test_no_actions_means_no_button_row(qtbot):
     assert hint._title_label.text() == "Browse a remote directory"
     assert hint._body_label.text() == "Pick a folder, then drop files here."
     # No button row means no action buttons exist at all.
-    action_buttons = [
-        btn for btn in hint.findChildren(QPushButton)
-        if btn.objectName().startswith("EmptyStateAction_")
-    ]
+    action_buttons = [btn for btn in hint.findChildren(QPushButton) if btn.objectName().startswith("EmptyStateAction_")]
     assert action_buttons == []

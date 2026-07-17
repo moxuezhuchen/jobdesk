@@ -3,6 +3,7 @@
 This module contains methods for constructing the UI widgets used in
 WorkflowPage, including headers, tabs, panels, and footers.
 """
+
 from __future__ import annotations
 
 from typing import Callable
@@ -49,10 +50,7 @@ def build_header(
     layout.setSpacing(8)
 
     title = QLabel(tr("Workflow", language), panel)
-    title.setStyleSheet(
-        f"color: {Colors.TEXT}; "
-        f"font-size: {Metrics.PAGE_TITLE_FONT_PX}px; font-weight: 600;"
-    )
+    title.setStyleSheet(f"color: {Colors.TEXT}; font-size: {Metrics.PAGE_TITLE_FONT_PX}px; font-weight: 600;")
     layout.addWidget(title)
 
     row = QHBoxLayout()
@@ -73,9 +71,7 @@ def build_header(
     layout.addLayout(row)
 
     dirty_label = QLabel("", panel)
-    dirty_label.setStyleSheet(
-        f"color: {Colors.WARNING}; font-style: italic; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    dirty_label.setStyleSheet(f"color: {Colors.WARNING}; font-style: italic; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(dirty_label)
 
     return panel, preset_combo, btn_new, btn_validate, dirty_label
@@ -162,9 +158,7 @@ def build_step_tab(
     layout.addWidget(selected_step_label)
 
     inputs_label.setWordWrap(True)
-    inputs_label.setStyleSheet(
-        f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    inputs_label.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(inputs_label)
 
     preset_row = QHBoxLayout()
@@ -178,15 +172,12 @@ def build_step_tab(
     step_yaml_editor.setObjectName("WorkflowStepYamlEditor")
     step_yaml_editor.setPlaceholderText("name: opt\ntype: calc\nparams:\n  iprog: orca\n  itask: opt")
     step_yaml_editor.setStyleSheet(
-        f"font-family: Consolas, Menlo, monospace; "
-        f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        f"font-family: Consolas, Menlo, monospace; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
     )
     layout.addWidget(step_yaml_editor, 1)
 
     step_error_label.setWordWrap(True)
-    step_error_label.setStyleSheet(
-        f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    step_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(step_error_label)
 
     layout.addWidget(save_step_preset_btn)
@@ -265,22 +256,17 @@ def build_global_tab(
     layout.setSpacing(8)
 
     hint = help_text(tr("Workflow-wide resources and molecular settings.", language))
-    hint.setStyleSheet(
-        f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    hint.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(hint)
 
     global_yaml_editor.setObjectName("WorkflowGlobalYamlEditor")
     global_yaml_editor.setStyleSheet(
-        f"font-family: Consolas, Menlo, monospace; "
-        f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        f"font-family: Consolas, Menlo, monospace; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
     )
     layout.addWidget(global_yaml_editor, 1)
 
     global_error_label.setWordWrap(True)
-    global_error_label.setStyleSheet(
-        f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    global_error_label.setStyleSheet(f"color: {Colors.ERROR}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(global_error_label)
 
     button = apply_button_role(
@@ -360,8 +346,7 @@ def build_preview_box(
     full_yaml_preview.setReadOnly(True)
     full_yaml_preview.setMaximumBlockCount(2000)
     full_yaml_preview.setStyleSheet(
-        f"font-family: Consolas, Menlo, monospace; "
-        f"font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        f"font-family: Consolas, Menlo, monospace; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
     )
     layout.addWidget(full_yaml_preview)
 

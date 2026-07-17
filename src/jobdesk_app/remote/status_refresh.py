@@ -17,7 +17,7 @@ DEFAULT_STALE_TIMEOUT_SECONDS = 24 * 60 * 60
 
 
 def refresh_batch_status(
-    ssh,      # SSHClientWrapper
+    ssh,  # SSHClientWrapper
     manifest_path: Path,
     remote_batch_dir: str,
     batch_id: str,
@@ -29,13 +29,19 @@ def refresh_batch_status(
     """Serialize the manifest read-modify-write against other run workers."""
     with manifest_lock(manifest_path):
         return _refresh_batch_status(
-            ssh, manifest_path, remote_batch_dir, batch_id, write,
-            log_tail_lines, control_subdir, stale_timeout_seconds,
+            ssh,
+            manifest_path,
+            remote_batch_dir,
+            batch_id,
+            write,
+            log_tail_lines,
+            control_subdir,
+            stale_timeout_seconds,
         )
 
 
 def _refresh_batch_status(
-    ssh,      # SSHClientWrapper
+    ssh,  # SSHClientWrapper
     manifest_path: Path,
     remote_batch_dir: str,
     batch_id: str,
@@ -139,9 +145,7 @@ def _refresh_tasks(
             remote_snap = batch_snapshots.get(task.task_id)
             if remote_snap is None:
                 # 防御：批量读取应已为该 task 生成 snapshot；缺失则回退单读。
-                remote_snap = read_remote_task_status(
-                    ssh, task.task_id, task.remote_job_dir, log_tail_lines
-                )
+                remote_snap = read_remote_task_status(ssh, task.task_id, task.remote_job_dir, log_tail_lines)
         else:
             remote_snap = None
 
@@ -155,14 +159,16 @@ def _refresh_tasks(
         if new_status == TaskStatus.failed and old_status != TaskStatus.failed:
             reason = snap.failure_reason or "远程任务失败"
             log_tail = remote_snap.submit_log_tail if remote_snap else ""
-            result.failures.append(FailureRecord(
-                task_id=task.task_id,
-                batch_id=batch_id,
-                stage="runtime",
-                reason=reason,
-                source_file=f"{task.remote_job_dir}/.jobdesk_submit.log",
-                context=log_tail[-200:] if log_tail else None,
-            ))
+            result.failures.append(
+                FailureRecord(
+                    task_id=task.task_id,
+                    batch_id=batch_id,
+                    stage="runtime",
+                    reason=reason,
+                    source_file=f"{task.remote_job_dir}/.jobdesk_submit.log",
+                    context=log_tail[-200:] if log_tail else None,
+                )
+            )
 
         # 准备写回
         if apply_updates:
@@ -311,16 +317,19 @@ def _recover_status(
                 elapsed = (datetime.now() - ref_time).total_seconds()
                 if elapsed > stale_timeout_seconds:
                     new_status = TaskStatus.failed
-                    snap.failure_reason = (
-                        f"no remote status after {int(elapsed)}s (timeout={stale_timeout_seconds}s)"
-                    )
+                    snap.failure_reason = f"no remote status after {int(elapsed)}s (timeout={stale_timeout_seconds}s)"
                 else:
                     snap.warnings.append("运行中但远程无状态文件")
             else:
                 snap.warnings.append("运行中但远程无状态文件")
 
-    elif current in (TaskStatus.remote_completed, TaskStatus.downloaded,
-                     TaskStatus.analyzed, TaskStatus.failed, TaskStatus.cancelled):
+    elif current in (
+        TaskStatus.remote_completed,
+        TaskStatus.downloaded,
+        TaskStatus.analyzed,
+        TaskStatus.failed,
+        TaskStatus.cancelled,
+    ):
         pass  # 不自动回退
 
     snap.recovered_status = new_status.value
@@ -341,9 +350,7 @@ def _check_exit_code(remote_snap, snap: TaskStatusSnapshot) -> TaskStatus | None
     else:
         # marker=completed but .jobdesk_exit_code missing — cannot confirm success yet.
         # Keep current (non-terminal) status so next refresh can resolve it.
-        snap.warnings.append(
-            "marker=completed 但 .jobdesk_exit_code 缺失，无法确认退出码"
-        )
+        snap.warnings.append("marker=completed 但 .jobdesk_exit_code 缺失，无法确认退出码")
         snap.failure_reason = "marker=completed 但退出码缺失，等待下次刷新"
         return None
 
@@ -373,8 +380,7 @@ def _parse_batch_control(extra_out: dict[str, bytes | None]) -> BatchControlSnap
 
     if snap.exit_code is not None and snap.exit_code != 0:
         snap.warnings.append(
-            f"batch_control 退出码非零 ({snap.exit_code}) —— "
-            f"部分 task 可能失败，请查看各 task 的 .jobdesk_status"
+            f"batch_control 退出码非零 ({snap.exit_code}) —— 部分 task 可能失败，请查看各 task 的 .jobdesk_status"
         )
 
     return snap

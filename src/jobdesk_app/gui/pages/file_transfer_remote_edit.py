@@ -5,6 +5,7 @@ when the temp file changes. Independent of Qt widgets except via the
 service/remote-path callbacks and the page-level ``_remote_edit_timer``
 ``QTimer``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

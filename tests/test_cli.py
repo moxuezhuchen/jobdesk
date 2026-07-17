@@ -1,4 +1,5 @@
 """CLI integration tests for the new run + files command groups."""
+
 import os
 import tempfile
 from contextlib import contextmanager
@@ -29,13 +30,22 @@ def _isolated_appdata(tmp):
 
 def test_cli_run_create_and_list(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        rc = main([
-            "run", "create", workspace,
-            "--server", "test_srv",
-            "--remote-dir", "/tmp/test",
-            "--command", "echo {name}",
-            "--files", "/remote/a.gjf", "/remote/b.gjf",
-        ])
+        rc = main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "test_srv",
+                "--remote-dir",
+                "/tmp/test",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/a.gjf",
+                "/remote/b.gjf",
+            ]
+        )
         assert rc == 0
         out = capsys.readouterr().out
         assert "created run" in out
@@ -49,6 +59,7 @@ def test_cli_run_create_and_list(capsys):
 
 def test_cli_files_upload_passes_overwrite_and_dry_run(monkeypatch):
     import jobdesk_app.cli as cli
+
     captured = {}
 
     class FakeService:
@@ -61,6 +72,7 @@ def test_cli_files_upload_passes_overwrite_and_dry_run(monkeypatch):
     rc = main(["files", "upload", "srv", "local.txt", "/remote/x.txt", "--overwrite", "--dry-run"])
     assert rc == 0
     from jobdesk_app.core.file_transfer import OverwritePolicy
+
     assert captured == {"policy": OverwritePolicy.overwrite, "dry_run": True}
 
 
@@ -88,14 +100,25 @@ def test_cli_run_list_reports_legacy_migration_errors(capsys):
 
 def test_cli_run_retry_no_failed(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        main([
-            "run", "create", workspace,
-            "--server", "s", "--remote-dir", "/tmp/x",
-            "--command", "echo {name}", "--files", "/remote/f.txt",
-        ])
+        main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "s",
+                "--remote-dir",
+                "/tmp/x",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/f.txt",
+            ]
+        )
         capsys.readouterr()
 
         from jobdesk_app.services.run_service import RunService
+
         run_id = RunService(workspace).list_runs()[0].run_id
 
         rc = main(["run", "retry", workspace, run_id])
@@ -105,11 +128,21 @@ def test_cli_run_retry_no_failed(capsys):
 
 def test_cli_run_rerun_reports_active_remote_tasks(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        main([
-            "run", "create", workspace,
-            "--server", "s", "--remote-dir", "/tmp/x",
-            "--command", "echo {name}", "--files", "/remote/f.txt",
-        ])
+        main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "s",
+                "--remote-dir",
+                "/tmp/x",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/f.txt",
+            ]
+        )
         capsys.readouterr()
 
         from jobdesk_app.core.lifecycle import TaskStatus
@@ -130,14 +163,25 @@ def test_cli_run_rerun_reports_active_remote_tasks(capsys):
 
 def test_cli_run_delete(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        main([
-            "run", "create", workspace,
-            "--server", "s", "--remote-dir", "/tmp/x",
-            "--command", "echo {name}", "--files", "/remote/f.txt",
-        ])
+        main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "s",
+                "--remote-dir",
+                "/tmp/x",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/f.txt",
+            ]
+        )
         capsys.readouterr()
 
         from jobdesk_app.services.run_service import RunService
+
         run_id = RunService(workspace).list_runs()[0].run_id
 
         rc = main(["run", "delete", workspace, run_id])
@@ -147,19 +191,31 @@ def test_cli_run_delete(capsys):
 
 def test_cli_run_cancel_invokes_remote_cancellation(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        main([
-            "run", "create", workspace,
-            "--server", "s", "--remote-dir", "/tmp/x",
-            "--command", "echo {name}", "--files", "/remote/f.txt",
-        ])
+        main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "s",
+                "--remote-dir",
+                "/tmp/x",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/f.txt",
+            ]
+        )
         capsys.readouterr()
         from jobdesk_app.services.run_service import RunService
 
         run_id = RunService(workspace).list_runs()[0].run_id
         ssh = MagicMock()
-        with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
-             patch("jobdesk_app.cli.create_ssh_client", return_value=ssh), \
-             patch.object(RunService, "cancel_run", return_value=(1, [])) as cancel:
+        with (
+            patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
+            patch("jobdesk_app.cli.create_ssh_client", return_value=ssh),
+            patch.object(RunService, "cancel_run", return_value=(1, [])) as cancel,
+        ):
             rc = main(["run", "cancel", workspace, run_id])
 
         assert rc == 0
@@ -183,11 +239,7 @@ def test_cli_run_download_returns_failure_for_coordinator_error(capsys, tmp_path
 
 def test_cli_no_longer_registers_jobdesk_owned_workflow_commands():
     parser = _build_parser()
-    subcommands = next(
-        action.choices
-        for action in parser._actions
-        if getattr(action, "choices", None)
-    )
+    subcommands = next(action.choices for action in parser._actions if getattr(action, "choices", None))
 
     assert "workflow" not in subcommands
 
@@ -198,12 +250,24 @@ class TestDownloadPatterns:
     def _setup_downloadable_run(self, workspace):
         """Create a run with remote_completed task."""
         from jobdesk_app.core.lifecycle import TaskStatus
-        main([
-            "run", "create", workspace,
-            "--server", "srv", "--remote-dir", "/tmp/x",
-            "--command", "echo {name}", "--files", "/remote/a.gjf",
-        ])
+
+        main(
+            [
+                "run",
+                "create",
+                workspace,
+                "--server",
+                "srv",
+                "--remote-dir",
+                "/tmp/x",
+                "--command",
+                "echo {name}",
+                "--files",
+                "/remote/a.gjf",
+            ]
+        )
         from jobdesk_app.services.run_service import RunService
+
         svc = RunService(workspace)
         run_id = svc.list_runs()[0].run_id
         record = svc.load_run(run_id)
@@ -226,10 +290,12 @@ class TestDownloadPatterns:
                 captured["patterns"] = patterns
                 return [], []
 
-            with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
-                 patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh), \
-                 patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()), \
-                 patch("jobdesk_app.cli.RunService.download_completed", fake_download):
+            with (
+                patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
+                patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh),
+                patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()),
+                patch("jobdesk_app.cli.RunService.download_completed", fake_download),
+            ):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log,*.out"])
             assert rc == 0
             assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
@@ -247,14 +313,15 @@ class TestDownloadPatterns:
                 captured["patterns"] = patterns
                 return [], []
 
-            with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
-                 patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh), \
-                 patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()), \
-                 patch("jobdesk_app.cli.RunService.download_completed", fake_download):
+            with (
+                patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
+                patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh),
+                patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()),
+                patch("jobdesk_app.cli.RunService.download_completed", fake_download),
+            ):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log", "*.out"])
             assert rc == 0
             assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
-
 
 
 def test_cli_files_list_closes_ssh_with_sftp():
@@ -263,9 +330,11 @@ def test_cli_files_list_closes_ssh_with_sftp():
         ssh = MagicMock()
         sftp = MagicMock()
         sftp.list_dir_info.return_value = []
-        with patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()), \
-             patch("jobdesk_app.cli.create_ssh_client", return_value=ssh), \
-             patch("jobdesk_app.cli.create_sftp_client", return_value=sftp):
+        with (
+            patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
+            patch("jobdesk_app.cli.create_ssh_client", return_value=ssh),
+            patch("jobdesk_app.cli.create_sftp_client", return_value=sftp),
+        ):
             rc = main(["files", "list-remote", "srv", "/remote/dir"])
         assert rc == 0
         sftp.close.assert_called_once_with()
@@ -275,10 +344,12 @@ def test_cli_files_list_closes_ssh_with_sftp():
 def test_cli_run_submit_rejects_invalid_resource_override_before_submit(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         server = ServerConfig(host="h", username="u")
-        with patch("jobdesk_app.cli._get_server", return_value=server), \
-             patch("jobdesk_app.cli.create_ssh_client") as create_ssh_client, \
-             patch("jobdesk_app.cli.create_sftp_client") as create_sftp_client, \
-             patch("jobdesk_app.cli.RunService.submit_run") as submit_run:
+        with (
+            patch("jobdesk_app.cli._get_server", return_value=server),
+            patch("jobdesk_app.cli.create_ssh_client") as create_ssh_client,
+            patch("jobdesk_app.cli.create_sftp_client") as create_sftp_client,
+            patch("jobdesk_app.cli.RunService.submit_run") as submit_run,
+        ):
             rc = main(["run", "submit", workspace, "run1", "--cpus", "0"])
 
         assert rc == 2
@@ -298,14 +369,23 @@ def test_cli_confirm_submitted_reports_changed_count(capsys, tmp_path):
     coordinator = MagicMock()
     coordinator.confirm_submitted.return_value = SimpleNamespace(changed_count=2, errors=[])
     with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
-        rc = main([
-            "run", "confirm-submitted", str(tmp_path), "run-1",
-            "--tasks", "a", "b", "--job-id", "a=101", "--job-id", "b=102",
-        ])
+        rc = main(
+            [
+                "run",
+                "confirm-submitted",
+                str(tmp_path),
+                "run-1",
+                "--tasks",
+                "a",
+                "b",
+                "--job-id",
+                "a=101",
+                "--job-id",
+                "b=102",
+            ]
+        )
     assert rc == 0
-    coordinator.confirm_submitted.assert_called_once_with(
-        "run-1", ["a", "b"], {"a": "101", "b": "102"}
-    )
+    coordinator.confirm_submitted.assert_called_once_with("run-1", ["a", "b"], {"a": "101", "b": "102"})
     assert "confirmed 2 task(s)" in capsys.readouterr().out
 
 
@@ -340,12 +420,15 @@ def test_cli_recover_operations_reports_partial_failure(capsys, tmp_path):
         (["a"], "task=id"),
     ],
 )
-def test_cli_confirm_submitted_rejects_invalid_job_ids(
-    capsys, tmp_path, job_ids, message
-):
+def test_cli_confirm_submitted_rejects_invalid_job_ids(capsys, tmp_path, job_ids, message):
     coordinator = MagicMock()
     argv = [
-        "run", "confirm-submitted", str(tmp_path), "run-1", "--tasks", "a",
+        "run",
+        "confirm-submitted",
+        str(tmp_path),
+        "run-1",
+        "--tasks",
+        "a",
     ]
     for value in job_ids:
         argv.extend(["--job-id", value])

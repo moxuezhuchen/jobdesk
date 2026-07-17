@@ -15,6 +15,7 @@ through the existing ``test_settings_servers_page`` and
 ``test_file_transfer_page_helpers`` suites -- what we focus on here is
 the safety contract: never write a sample over a broken file.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -52,11 +53,7 @@ def test_load_existing_returns_mapping_for_well_formed_file(tmp_path: Path):
     """Happy path: a valid YAML mapping round-trips intact."""
     path = tmp_path / "servers.yaml"
     path.write_text(
-        "servers:\n"
-        "  wsl:\n"
-        "    host: 127.0.0.1\n"
-        "    username: root\n"
-        "    auth_method: key\n",
+        "servers:\n  wsl:\n    host: 127.0.0.1\n    username: root\n    auth_method: key\n",
         encoding="utf-8",
     )
 

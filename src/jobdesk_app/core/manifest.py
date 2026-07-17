@@ -232,8 +232,12 @@ def _row_to_task(
         remote_work_dir=values.get("remote_work_dir", ""),
         max_parallel=_parse_int(values.get("max_parallel", "")),
         task_files=_parse_json_list(values.get("task_files", ""), "task_files", manifest_path, row_number),
-        remote_task_files=_parse_json_list(values.get("remote_task_files", ""), "remote_task_files", manifest_path, row_number),
-        remote_result_files=_parse_json_list(values.get("remote_result_files", ""), "remote_result_files", manifest_path, row_number),
+        remote_task_files=_parse_json_list(
+            values.get("remote_task_files", ""), "remote_task_files", manifest_path, row_number
+        ),
+        remote_result_files=_parse_json_list(
+            values.get("remote_result_files", ""), "remote_result_files", manifest_path, row_number
+        ),
         task_dir=values.get("task_dir") or None,
         entry_file=values.get("entry_file") or None,
         parsed_fields=_parse_json_dict(values.get("parsed_fields", ""), "parsed_fields", manifest_path, row_number),

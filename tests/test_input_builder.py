@@ -1,4 +1,5 @@
 """Tests for Gaussian/ORCA input file builder."""
+
 import tempfile
 from pathlib import Path
 

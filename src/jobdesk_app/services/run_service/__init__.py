@@ -1,4 +1,5 @@
 """RunService — shared run coordination for both CLI and GUI."""
+
 from __future__ import annotations
 
 import re
@@ -38,6 +39,7 @@ class RunService:
             self.runs_dir = Path(runs_dir)
         else:
             from jobdesk_app.app_paths import get_app_data_dir
+
             self.runs_dir = get_app_data_dir() / "runs"
         self.workspace_dir = Path(workspace_dir).resolve() if workspace_dir else Path.cwd()
         self.repository = RunRepository(self.runs_dir)
@@ -45,20 +47,12 @@ class RunService:
     def _next_run_id(self) -> str:
         prefix = datetime.now().strftime("%y%m%d")
         self.runs_dir.mkdir(parents=True, exist_ok=True)
-        existing = {
-            d.name
-            for d in self.runs_dir.iterdir()
-            if d.is_dir() and d.name.startswith(prefix + "-")
-        }
+        existing = {d.name for d in self.runs_dir.iterdir() if d.is_dir() and d.name.startswith(prefix + "-")}
         existing.update(
-            record.run_id
-            for record in self.repository.list_runs()
-            if record.run_id.startswith(prefix + "-")
+            record.run_id for record in self.repository.list_runs() if record.run_id.startswith(prefix + "-")
         )
         existing.update(
-            run_id
-            for run_id in self.repository.incomplete_delete_run_ids()
-            if run_id.startswith(prefix + "-")
+            run_id for run_id in self.repository.incomplete_delete_run_ids() if run_id.startswith(prefix + "-")
         )
         max_num = 0
         for name in existing:
@@ -66,10 +60,7 @@ class RunService:
             if len(parts) == 2 and parts[1].isdigit():
                 max_num = max(max_num, int(parts[1]))
         candidate = max_num + 1
-        while (
-            f"{prefix}-{candidate:03d}" in existing
-            or (self.runs_dir / f"{prefix}-{candidate:03d}").exists()
-        ):
+        while f"{prefix}-{candidate:03d}" in existing or (self.runs_dir / f"{prefix}-{candidate:03d}").exists():
             candidate += 1
         return f"{prefix}-{candidate:03d}"
 
@@ -79,8 +70,7 @@ class RunService:
             requested_anchor = _lexical_absolute(Path(local_dir))
             if requested_anchor != workspace_anchor:
                 raise ValueError(
-                    "local_dir does not match service workspace: "
-                    f"{requested_anchor} != {workspace_anchor}"
+                    f"local_dir does not match service workspace: {requested_anchor} != {workspace_anchor}"
                 )
         ensure_safe_remote_path(spec.remote_dir)
         for src in (*spec.sources, *spec.supporting_sources):
@@ -133,8 +123,9 @@ class RunService:
     def retry_legacy_imports(self) -> list[MigrationError]:
         return self.repository.retry_legacy_imports()
 
-    def submit_run(self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None,
-                   scheduler=None, resources=None):
+    def submit_run(
+        self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None
+    ):
         return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources)
 
     def recover_submit_operations(self, run_id: str | None = None) -> int:
@@ -182,9 +173,7 @@ class RunService:
     def recover_delete_operations_globally(self) -> tuple[int, list[str]]:
         return _delete.recover_delete_operations_globally(self)
 
-    def _recover_delete_operation(
-        self, operation, *, raise_errors: bool = False
-    ) -> bool:
+    def _recover_delete_operation(self, operation, *, raise_errors: bool = False) -> bool:
         return _delete._recover_delete_operation(self, operation, raise_errors=raise_errors)
 
     def _wait_for_files_isolated_leader(

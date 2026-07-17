@@ -12,6 +12,7 @@ The wizard and ``program_adapters.ConfFlowAdapter`` use this module to convert
 between form input and the on-disk ``workflow.yaml`` that the remote
 ``confflow`` process consumes.
 """
+
 from __future__ import annotations
 
 import functools
@@ -23,6 +24,7 @@ from typing import Any
 
 try:
     from jobdesk_app.confflow.confflow.core.models import CalcConfigModel, GlobalConfigModel
+
     _CONFFLOW_AVAILABLE = True
 except ImportError:  # vendored confflow not present (developer forgot to subtree pull)
     CalcConfigModel = None  # type: ignore[misc,assignment]
@@ -90,9 +92,7 @@ def require_confflow() -> None:
         )
 
 
-def _validate_confflow_semantics(
-    payload: dict[str, Any], *, allow_legacy_confgen_placeholder: bool = False
-) -> None:
+def _validate_confflow_semantics(payload: dict[str, Any], *, allow_legacy_confgen_placeholder: bool = False) -> None:
     """Apply ConfFlow's step validation without probing remote executables.
 
     A workflow can legitimately contain an executable path that only exists
@@ -113,10 +113,7 @@ def _validate_confflow_semantics(
     # ``global``/``steps`` workflow YAML is user-authored and must retain the
     # ConfFlow requirement for a real torsion chain.
     if allow_legacy_confgen_placeholder:
-        errors = [
-            error for error in errors
-            if "confgen step requires 'chains'" not in error
-        ]
+        errors = [error for error in errors if "confgen step requires 'chains'" not in error]
     if errors:
         raise ValueError("Invalid workflow YAML: " + "; ".join(errors))
 
@@ -153,9 +150,7 @@ def _parse_mem_mb_local(value: Any) -> int:
     return int(n)
 
 
-def _split_keyword_into_form(
-    keyword: str | None, *, has_method: bool, has_basis: bool
-) -> tuple[str, str, str]:
+def _split_keyword_into_form(keyword: str | None, *, has_method: bool, has_basis: bool) -> tuple[str, str, str]:
     """Best-effort: split a ``keyword`` string into ``(method, basis, extra)``.
 
     Used by :meth:`WorkflowSpec.to_form` so the YAML editor can be
@@ -321,8 +316,7 @@ def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
         steps_list = _normalise_steps_list(data.get("steps") or [])
         if steps_list:
             first_calc = next(
-                (s for s in steps_list
-                 if isinstance(s, dict) and s.get("type") == "calc"),
+                (s for s in steps_list if isinstance(s, dict) and s.get("type") == "calc"),
                 None,
             )
             if first_calc is not None:
@@ -339,16 +333,11 @@ def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
                 continue
             global_dict.setdefault(k, v)
     _lift_legacy_resource_keys(global_dict)
-    raw_steps = (
-        (legacy_calc or {}).get("steps")
-        or data.get("steps")
-        or []
-    )
+    raw_steps = (legacy_calc or {}).get("steps") or data.get("steps") or []
     steps_list = _normalise_steps_list(raw_steps)
     if steps_list:
         first_calc = next(
-            (s for s in steps_list
-             if isinstance(s, dict) and s.get("type") == "calc"),
+            (s for s in steps_list if isinstance(s, dict) and s.get("type") == "calc"),
             None,
         )
         if first_calc is not None:
@@ -390,8 +379,16 @@ def _normalise_steps_list(raw_steps: Any) -> list[dict[str, Any]]:
         params = dict(step.get("params") or {})
         # If the legacy ``keyword`` / ``iprog`` ended up at the step's
         # top level instead of inside ``params``, hoist them.
-        for k in ("iprog", "itask", "keyword", "energy_window", "cores_per_task",
-                 "total_memory", "max_parallel_jobs", "blocks"):
+        for k in (
+            "iprog",
+            "itask",
+            "keyword",
+            "energy_window",
+            "cores_per_task",
+            "total_memory",
+            "max_parallel_jobs",
+            "blocks",
+        ):
             if k in step and k not in params:
                 params[k] = step[k]
         if step_type == "calc":
@@ -680,9 +677,7 @@ class WorkflowSpec:
         from jobdesk_app.confflow.confflow.core.models import GlobalConfigModel
 
         defaults = {
-            fname: field.default
-            for fname, field in GlobalConfigModel.model_fields.items()
-            if field.default is not None
+            fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None
         }
         ordered_keys = [
             "gaussian_path",
@@ -709,11 +704,18 @@ class WorkflowSpec:
         # Anything else (advanced options, ts_*, scan_*, etc.) goes
         # through only if the user explicitly set it.
         engine_internal = {
-            "energy_tolerance", "noH",
-            "ts_bond_atoms", "ts_rescue_scan", "scan_coarse_step",
-            "scan_fine_step", "scan_uphill_limit", "ts_bond_drift_threshold",
-            "ts_rmsd_threshold", "enable_dynamic_resources",
-            "resume_from_backups", "stop_check_interval_seconds",
+            "energy_tolerance",
+            "noH",
+            "ts_bond_atoms",
+            "ts_rescue_scan",
+            "scan_coarse_step",
+            "scan_fine_step",
+            "scan_uphill_limit",
+            "ts_bond_drift_threshold",
+            "ts_rmsd_threshold",
+            "enable_dynamic_resources",
+            "resume_from_backups",
+            "stop_check_interval_seconds",
             "force_consistency",
         }
         for key, value in global_dict.items():
@@ -748,11 +750,7 @@ class WorkflowSpec:
           (every step in the wizard except ``confgen`` is a calc).
         """
         global_dict = global_dict or {}
-        global_iprog = str(
-            global_dict.get("iprog_default")
-            or global_dict.get("iprog")
-            or "gaussian"
-        ).lower()
+        global_iprog = str(global_dict.get("iprog_default") or global_dict.get("iprog") or "gaussian").lower()
         # Wizard-internal step names — when ``from_form`` synthesised
         # the step from a wizard token, the step's *name* already
         # tells you the task (or that it's a wizard-only concept like
@@ -776,7 +774,9 @@ class WorkflowSpec:
                 return True
             # Hide resource overrides that match the global.
             for resource_key in (
-                "cores_per_task", "total_memory", "max_parallel_jobs",
+                "cores_per_task",
+                "total_memory",
+                "max_parallel_jobs",
                 "energy_window",
             ):
                 if name == resource_key and resource_key in global_dict:
@@ -851,11 +851,11 @@ class WorkflowSpec:
         keyword = str(calc_params.get("keyword") or "")
         iprog = str(calc_params.get("iprog") or "")
         itask = str(calc_params.get("itask") or "")
-        method, basis, extra_kw = _split_keyword_into_form(
-            keyword, has_method=True, has_basis=True
-        )
+        method, basis, extra_kw = _split_keyword_into_form(keyword, has_method=True, has_basis=True)
         program = {
-            "gaussian": "gaussian", "g16": "gaussian", "g09": "gaussian",
+            "gaussian": "gaussian",
+            "g16": "gaussian",
+            "g09": "gaussian",
             "orca": "orca",
         }.get(iprog.lower(), "gaussian" if not iprog else iprog)
         # Tokenise the step list back to the wizard's compact form:
@@ -881,9 +881,7 @@ class WorkflowSpec:
                 if name in wizard_tokens:
                     tokens.append(name)
                 else:
-                    t = _itask_token(str(
-                        step.get("params", {}).get("itask", "")
-                    ))
+                    t = _itask_token(str(step.get("params", {}).get("itask", "")))
                     if t:
                         tokens.append(t)
                 continue

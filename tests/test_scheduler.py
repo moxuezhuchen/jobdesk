@@ -1,4 +1,5 @@
 """Tests for scheduler adapters."""
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -51,7 +52,7 @@ class TestNohupAdapter:
         """TERM succeeds: process dies after grace period."""
         ssh = MagicMock()
         ssh.run.side_effect = [
-            MagicMock(stdout="", exit_code=0, stderr=""),    # kill -TERM
+            MagicMock(stdout="", exit_code=0, stderr=""),  # kill -TERM
             MagicMock(stdout="dead", exit_code=0, stderr=""),  # sleep+kill -0
         ]
         NohupAdapter().cancel(ssh, "123")
@@ -65,9 +66,9 @@ class TestNohupAdapter:
         """TERM fails, KILL succeeds. Both checks use group-priority."""
         ssh = MagicMock()
         ssh.run.side_effect = [
-            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -TERM
+            MagicMock(stdout="", exit_code=0, stderr=""),  # kill -TERM
             MagicMock(stdout="alive", exit_code=0, stderr=""),  # still alive
-            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -KILL
+            MagicMock(stdout="", exit_code=0, stderr=""),  # kill -KILL
             MagicMock(stdout="dead", exit_code=0, stderr=""),  # now dead
         ]
         NohupAdapter().cancel(ssh, "123")
@@ -87,6 +88,7 @@ class TestNohupAdapter:
             MagicMock(stdout="alive", exit_code=0, stderr=""),
         ]
         import pytest
+
         with pytest.raises(RuntimeError, match="SIGKILL"):
             NohupAdapter().cancel(ssh, "123")
 
@@ -208,7 +210,8 @@ class TestSchedulerConfig:
 
     def test_server_config_slurm_scheduler(self):
         cfg = ServerConfig(
-            host="h", username="u",
+            host="h",
+            username="u",
             scheduler=SchedulerConfig(
                 type="slurm",
                 default_partition="cpu",
@@ -230,6 +233,7 @@ class TestSchedulerConfig:
         from pathlib import Path
 
         from jobdesk_app.config.servers import load_servers
+
         content = """
 servers:
   hpc1:
@@ -256,7 +260,6 @@ servers:
             Path(path).unlink()
 
 
-
 class TestCancellationTruthfulness:
     """Cancellation must fail when the remote command reports failure."""
 
@@ -276,9 +279,9 @@ class TestCancellationTruthfulness:
         ssh = MagicMock()
         # TERM → still alive → KILL → still alive → RuntimeError
         ssh.run.side_effect = [
-            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -TERM
+            MagicMock(stdout="", exit_code=0, stderr=""),  # kill -TERM
             MagicMock(stdout="alive", exit_code=0, stderr=""),  # check after TERM
-            MagicMock(stdout="", exit_code=0, stderr=""),      # kill -KILL
+            MagicMock(stdout="", exit_code=0, stderr=""),  # kill -KILL
             MagicMock(stdout="alive", exit_code=0, stderr=""),  # check after KILL
         ]
         with pytest.raises(RuntimeError, match="SIGKILL"):
@@ -295,7 +298,6 @@ class TestCancellationTruthfulness:
             MagicMock(stdout="dead", exit_code=0, stderr=""),
         ]
         NohupAdapter().cancel(ssh, "123")  # should not raise
-
 
 
 class TestSchedulerResourceValidation:

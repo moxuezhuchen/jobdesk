@@ -28,7 +28,11 @@ def test_transfer_queue_retries_failed_items_only():
     failed.status = TransferStatus.failed
     done.status = TransferStatus.transferred
 
-    queue.retry_failed(lambda plan: TransferRecord(plan.direction, plan.local_path, plan.remote_path, status=TransferStatus.transferred))
+    queue.retry_failed(
+        lambda plan: TransferRecord(
+            plan.direction, plan.local_path, plan.remote_path, status=TransferStatus.transferred
+        )
+    )
 
     assert failed.status == TransferStatus.transferred
     assert done.status == TransferStatus.transferred
@@ -39,7 +43,11 @@ def test_transfer_queue_cancels_queued_item():
     item = queue.add(TransferPlan(TransferDirection.upload, "a", "/r/a"))
 
     queue.cancel(item.id)
-    queue.run(lambda plan: TransferRecord(plan.direction, plan.local_path, plan.remote_path, status=TransferStatus.transferred))
+    queue.run(
+        lambda plan: TransferRecord(
+            plan.direction, plan.local_path, plan.remote_path, status=TransferStatus.transferred
+        )
+    )
 
     assert item.status == TransferStatus.failed
     assert item.reason == "cancelled"

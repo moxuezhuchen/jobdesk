@@ -3,6 +3,7 @@
 Extracted from file_transfer_page to reduce module size and support
 independent testing.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

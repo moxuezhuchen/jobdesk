@@ -28,8 +28,9 @@ def _reset_wsl_boot_state():
     ssh_mod._wsl_boot_last_attempt = None
 
 
-def _make_server(host="test.example.com", port=22, username="testuser",
-                 auth_method=AuthMethod.key, key_path="/fake/key"):
+def _make_server(
+    host="test.example.com", port=22, username="testuser", auth_method=AuthMethod.key, key_path="/fake/key"
+):
     return ServerConfig(
         server_id="test",
         host=host,
@@ -125,9 +126,11 @@ class TestSSHClientWrapper:
         sock = MagicMock()
         bridge = MagicMock()
 
-        with patch("jobdesk_app.remote.ssh.subprocess.Popen", return_value=process), \
-             patch("jobdesk_app.remote.ssh.socket.socketpair", return_value=(sock, bridge)), \
-             patch("jobdesk_app.remote.ssh.threading.Thread"):
+        with (
+            patch("jobdesk_app.remote.ssh.subprocess.Popen", return_value=process),
+            patch("jobdesk_app.remote.ssh.socket.socketpair", return_value=(sock, bridge)),
+            patch("jobdesk_app.remote.ssh.threading.Thread"),
+        ):
             proxy = ssh_mod._PipeProxyCommand("wsl.exe -- nc compute.internal 22")
 
         assert proxy.closed is False
@@ -228,8 +231,7 @@ class TestSSHClientWrapper:
         time.sleep — the old 50 ms polling sleep added a latency floor to every
         SSH command and was the dominant cost of status-refresh loops."""
         server = _make_server()
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep:
+        with patch("paramiko.SSHClient") as mock_client_class, patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.exec_command.return_value = (
@@ -246,7 +248,6 @@ class TestSSHClientWrapper:
         assert result.stdout == "hello"
         assert result.stderr == "warn"
         mock_sleep.assert_not_called()
-
 
     def test_run_no_output_command_exits_within_select_cap(self):
         """No-output commands whose exit status becomes ready after one select
@@ -280,8 +281,10 @@ class TestSSHClientWrapper:
         stdout_obj = MagicMock()
         stdout_obj.channel = channel
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select):
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select),
+        ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.exec_command.return_value = (MagicMock(), stdout_obj, MagicMock())
@@ -295,7 +298,6 @@ class TestSSHClientWrapper:
         assert result.exit_code == 0
         assert result.stdout == ""
         assert elapsed < 0.1, f"no-output command took {elapsed:.3f}s, should be < 0.1s"
-
 
     def test_run_uses_select_to_wait_for_data(self):
         """When no data is ready yet, run() must wait via select.select on the
@@ -343,9 +345,11 @@ class TestSSHClientWrapper:
         stdout_obj = MagicMock()
         stdout_obj.channel = channel
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select) as mock_select, \
-             patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep:
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh.select.select", side_effect=_fake_select) as mock_select,
+            patch("jobdesk_app.remote.ssh.time.sleep") as mock_sleep,
+        ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.exec_command.return_value = (MagicMock(), stdout_obj, MagicMock())
@@ -376,12 +380,14 @@ class TestSSHClientWrapper:
         def _record_sleep(seconds):
             sleep_calls.append(seconds)
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch(
-                 "jobdesk_app.remote.ssh.select.select",
-                 side_effect=TypeError("fileno not supported"),
-             ), \
-             patch("jobdesk_app.remote.ssh.time.sleep", side_effect=_record_sleep):
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch(
+                "jobdesk_app.remote.ssh.select.select",
+                side_effect=TypeError("fileno not supported"),
+            ),
+            patch("jobdesk_app.remote.ssh.time.sleep", side_effect=_record_sleep),
+        ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.exec_command.return_value = (MagicMock(), stdout, MagicMock())
@@ -435,13 +441,15 @@ class TestSSHClientWrapper:
             ssh_access={"config_alias": "cluster-a"},
         )
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path), \
-             patch(
-                 "jobdesk_app.remote.ssh.os.path.expanduser",
-                 side_effect=lambda value: value.replace("~", "C:/Users/me"),
-             ), \
-             patch.object(MockSSHWrapper, "_resolve_key", return_value=MagicMock(spec=paramiko.PKey)) as resolve_key:
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path),
+            patch(
+                "jobdesk_app.remote.ssh.os.path.expanduser",
+                side_effect=lambda value: value.replace("~", "C:/Users/me"),
+            ),
+            patch.object(MockSSHWrapper, "_resolve_key", return_value=MagicMock(spec=paramiko.PKey)) as resolve_key,
+        ):
             mock_client_class.return_value = MagicMock()
             MockSSHWrapper(server).connect()
 
@@ -461,9 +469,11 @@ class TestSSHClientWrapper:
         )
         proxy = MagicMock()
 
-        with patch("jobdesk_app.remote.ssh.sys.platform", "linux"), \
-             patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand", return_value=proxy) as proxy_command:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "linux"),
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand", return_value=proxy) as proxy_command,
+        ):
             mock_client_class.return_value = MagicMock()
             MockSSHWrapper(server).connect()
 
@@ -481,10 +491,12 @@ class TestSSHClientWrapper:
         )
         proxy = MagicMock()
 
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command, \
-             patch("jobdesk_app.remote.ssh._PipeProxyCommand", return_value=proxy) as pipe_proxy:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command,
+            patch("jobdesk_app.remote.ssh._PipeProxyCommand", return_value=proxy) as pipe_proxy,
+        ):
             mock_client_class.return_value = MagicMock()
             MockSSHWrapper(server).connect()
 
@@ -496,11 +508,7 @@ class TestSSHClientWrapper:
     def test_connect_translates_ssh_config_proxy_jump(self, tmp_path):
         config_path = tmp_path / "config"
         config_path.write_text(
-            "Host cluster-a\n"
-            "  HostName compute.internal\n"
-            "  User chemist\n"
-            "  Port 2200\n"
-            "  ProxyJump login-node\n",
+            "Host cluster-a\n  HostName compute.internal\n  User chemist\n  Port 2200\n  ProxyJump login-node\n",
             encoding="utf-8",
         )
         server = ServerConfig(
@@ -517,9 +525,11 @@ class TestSSHClientWrapper:
         jump_client.get_transport.return_value = jump_transport
         jump_transport.open_channel.return_value = jump_channel
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path), \
-             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command:
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh._ssh_config_path", return_value=config_path),
+            patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command,
+        ):
             mock_client_class.side_effect = [target_client, jump_client]
             MockSSHWrapper(server).connect()
 
@@ -551,8 +561,10 @@ class TestSSHClientWrapper:
         jump_client.get_transport.return_value = jump_transport
         jump_transport.open_channel.return_value = jump_channel
 
-        with patch("paramiko.SSHClient") as mock_client_class, \
-             patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command:
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.remote.ssh.paramiko.ProxyCommand") as proxy_command,
+        ):
             mock_client_class.side_effect = [target_client, jump_client]
             MockSSHWrapper(server).connect()
 
@@ -621,16 +633,19 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
-             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
-             patch("paramiko.SSHClient") as mock_client_class:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch("paramiko.SSHClient") as mock_client_class,
+        ):
             mock_client_class.return_value = MagicMock()
 
             ssh = MockSSHWrapper(server, timeout=7)
             ssh.connect()
 
         import subprocess as _sp
+
         run_wsl.assert_called_once_with(
             ["wsl.exe", "-d", "Ubuntu", "--", "true"],
             check=True,
@@ -651,10 +666,12 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
-             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=True), \
-             patch("paramiko.SSHClient") as mock_client_class:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=True),
+            patch("paramiko.SSHClient") as mock_client_class,
+        ):
             mock_client_class.return_value = MagicMock()
 
             ssh = MockSSHWrapper(server, timeout=5)
@@ -674,9 +691,11 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl, \
-             patch("paramiko.SSHClient") as mock_client_class:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch("paramiko.SSHClient") as mock_client_class,
+        ):
             mock_client_class.return_value = MagicMock()
 
             ssh = MockSSHWrapper(server, timeout=5)
@@ -731,8 +750,10 @@ class TestSSHClientWrapper:
 
     def test_key_not_found(self):
         server = _make_server(key_path="/nonexistent/key")
-        with patch("pathlib.Path.exists", return_value=False), \
-             patch("paramiko.SSHClient.connect", side_effect=OSError("mock")):
+        with (
+            patch("pathlib.Path.exists", return_value=False),
+            patch("paramiko.SSHClient.connect", side_effect=OSError("mock")),
+        ):
             ssh = SSHClientWrapper(server)
             with pytest.raises(SSHConnectionError, match="私钥不存在"):
                 ssh.connect()
@@ -824,7 +845,6 @@ class TestSSHClientWrapper:
         r = repr(ssh)
         assert "test.example.com" not in r.lower()  # host not in default repr
 
-
     def test_wsl_bootstrap_failure_is_rate_limited_during_cooldown(self):
         """Failed wsl.exe launches must also enter cooldown — no repeated spawns."""
         server = ServerConfig(
@@ -836,13 +856,15 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
-             patch("jobdesk_app.remote.ssh.time.monotonic", side_effect=[100.0, 101.0]), \
-             patch(
-                 "jobdesk_app.remote.ssh.subprocess.run",
-                 side_effect=subprocess.CalledProcessError(1, ["wsl.exe"]),
-             ) as run_wsl:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch("jobdesk_app.remote.ssh.time.monotonic", side_effect=[100.0, 101.0]),
+            patch(
+                "jobdesk_app.remote.ssh.subprocess.run",
+                side_effect=subprocess.CalledProcessError(1, ["wsl.exe"]),
+            ) as run_wsl,
+        ):
             with pytest.raises(SSHConnectionError):
                 MockSSHWrapper(server)._start_wsl_if_configured()
             # Second call within cooldown should NOT spawn again
@@ -861,13 +883,14 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh._is_local_port_open", side_effect=[False, True]), \
-             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh._is_local_port_open", side_effect=[False, True]),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+        ):
             MockSSHWrapper(server)._start_wsl_if_configured()
 
         run_wsl.assert_not_called()
-
 
     def test_wsl_bootstrap_first_attempt_is_not_suppressed_by_low_monotonic_clock(self):
         """First WSL boot must not be suppressed even if monotonic() < cooldown."""
@@ -880,15 +903,15 @@ class TestSSHClientWrapper:
             key_path="/fake/key",
             wsl_distro="Ubuntu",
         )
-        with patch("jobdesk_app.remote.ssh.sys.platform", "win32"), \
-             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False), \
-             patch("jobdesk_app.remote.ssh.time.monotonic", return_value=5.0), \
-             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl:
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch("jobdesk_app.remote.ssh.time.monotonic", return_value=5.0),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+        ):
             MockSSHWrapper(server)._start_wsl_if_configured()
 
         run_wsl.assert_called_once()
-
-
 
     def test_open_session_when_connected(self):
         server = _make_server()

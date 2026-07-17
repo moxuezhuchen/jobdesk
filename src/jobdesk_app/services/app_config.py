@@ -60,10 +60,7 @@ class AppConfig:
         This method should not be called directly; use from_default() instead.
         """
         # Determine app data base directory
-        app_data_base = os.environ.get(
-            "JOBDESK_APPDATA",
-            os.environ.get("APPDATA", str(Path.home()))
-        )
+        app_data_base = os.environ.get("JOBDESK_APPDATA", os.environ.get("APPDATA", str(Path.home())))
         self.app_data_dir = Path(app_data_base) / "JobDesk"
 
         # Derived directories

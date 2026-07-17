@@ -4,6 +4,7 @@ The tests need a deterministic ``QApplication`` instance plus a few
 helpers for constructing small graphs. Keeping them in a conftest
 avoids each test file re-implementing the boilerplate.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,8 +46,7 @@ def make_linear_graph() -> NodeGraph:
     opt = default_node(NodeKind.OPT, position=(260.0, 60.0))
     g.add_node(xyz)
     g.add_node(opt)
-    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                    dst_node=opt.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=opt.id, dst_port="in"))
     return g
 
 

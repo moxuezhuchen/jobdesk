@@ -1,4 +1,5 @@
 """Empty-canvas onboarding card behavior for the node-graph editor."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt

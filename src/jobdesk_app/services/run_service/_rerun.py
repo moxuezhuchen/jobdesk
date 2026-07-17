@@ -1,4 +1,5 @@
 """Rerun operations for run_service."""
+
 from __future__ import annotations
 
 from jobdesk_app.core.lifecycle import TaskStatus
@@ -11,6 +12,7 @@ def prepare_rerun(service, run_id: str) -> int:
     This is a module-level function to enable method extraction from RunService.
     The ``service`` argument must be a RunService instance.
     """
+
     def mutation(tasks: list[TaskRecord]) -> list[TaskRecord]:
         active = [
             task.task_id

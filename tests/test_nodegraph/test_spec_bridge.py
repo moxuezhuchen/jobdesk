@@ -13,6 +13,7 @@ deliberately Qt-free. They cover:
   equivalent (but not byte-identical) graph;
 * the ``Advanced`` node merging into ``global_config.calc``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -76,8 +77,7 @@ def test_to_workflow_spec_canonical_linear():
     raw = getattr(payload.spec, "_raw", None) or {}
     steps_list = raw.get("steps", []) if isinstance(raw, dict) else []
     first_calc = next(
-        (s for s in steps_list
-         if isinstance(s, dict) and s.get("type") == "calc"),
+        (s for s in steps_list if isinstance(s, dict) and s.get("type") == "calc"),
         {},
     )
     keyword = (first_calc.get("params") or {}).get("keyword") or ""
@@ -129,9 +129,16 @@ def test_from_workflow_spec_round_trip_recovers_step_set():
     # because we didn't add one.
     assert len(rebuilt.nodes) == 6
     kinds = sorted(n.kind.value for n in rebuilt.nodes.values())
-    assert kinds == sorted([
-        "xyz_file", "confgen", "preopt", "opt", "sp", "output",
-    ])
+    assert kinds == sorted(
+        [
+            "xyz_file",
+            "confgen",
+            "preopt",
+            "opt",
+            "sp",
+            "output",
+        ]
+    )
     # The chain is fully wired: 5 edges.
     assert len(rebuilt.edges) == 5
 
@@ -150,7 +157,7 @@ def test_from_workflow_spec_accepts_raw_dict():
         },
         "steps": [
             {"name": "opt", "type": "calc", "params": {"itask": "opt"}},
-            {"name": "sp",  "type": "calc", "params": {"itask": "sp"}},
+            {"name": "sp", "type": "calc", "params": {"itask": "sp"}},
         ],
     }
     g = from_workflow_spec(raw)
@@ -311,26 +318,18 @@ def test_to_workflow_spec_diamond_pattern_preserves_partial_order():
     g.add_node(refine)
     g.add_node(out)
     # XYZ_FILE feeds both confgen seeds and refine's candidate port.
-    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                    dst_node=conf1.id, dst_port="in"))
-    g.add_edge(Edge(id="e2", src_node=xyz.id, src_port="out",
-                    dst_node=conf2.id, dst_port="in"))
-    g.add_edge(Edge(id="e3", src_node=xyz.id, src_port="out",
-                    dst_node=refine.id, dst_port="candidate"))
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=conf1.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=xyz.id, src_port="out", dst_node=conf2.id, dst_port="in"))
+    g.add_edge(Edge(id="e3", src_node=xyz.id, src_port="out", dst_node=refine.id, dst_port="candidate"))
     # Two parallel STRUCTURES sources fan into refine.ensemble.
-    g.add_edge(Edge(id="e4", src_node=conf1.id, src_port="out",
-                    dst_node=refine.id, dst_port="ensemble"))
-    g.add_edge(Edge(id="e5", src_node=conf2.id, src_port="out",
-                    dst_node=refine.id, dst_port="ensemble"))
+    g.add_edge(Edge(id="e4", src_node=conf1.id, src_port="out", dst_node=refine.id, dst_port="ensemble"))
+    g.add_edge(Edge(id="e5", src_node=conf2.id, src_port="out", dst_node=refine.id, dst_port="ensemble"))
     payload = to_workflow_spec(g)
     # Both confgen roots have empty inputs.
     conf_steps = [s for s in payload.steps if s["type"] == "confgen"]
     assert all(s["inputs"] == [] for s in conf_steps)
     # The refine step must name both confgens (sorted for stability).
-    refine_step = next(
-        s for s in payload.steps
-        if s.get("params", {}).get("itask") == "refine"
-    )
+    refine_step = next(s for s in payload.steps if s.get("params", {}).get("itask") == "refine")
     conf_names = sorted(s["name"] for s in conf_steps)
     assert refine_step["inputs"] == conf_names
 
@@ -375,12 +374,9 @@ def _make_fanout_graph() -> NodeGraph:
     g.add_node(sp)
     g.add_node(freq)
     g.add_node(out)
-    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                    dst_node=conf.id, dst_port="in"))
-    g.add_edge(Edge(id="e2", src_node=conf.id, src_port="out",
-                    dst_node=sp.id, dst_port="in"))
-    g.add_edge(Edge(id="e3", src_node=conf.id, src_port="out",
-                    dst_node=freq.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=conf.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=conf.id, src_port="out", dst_node=sp.id, dst_port="in"))
+    g.add_edge(Edge(id="e3", src_node=conf.id, src_port="out", dst_node=freq.id, dst_port="in"))
     return g
 
 
@@ -425,31 +421,17 @@ def test_from_workflow_spec_recovers_fanout_topology():
     rebuilt = from_workflow_spec(payload)
 
     # Build a name -> node-id map for the calc nodes only.
-    by_name: dict[str, str] = {
-        n.title: n.id
-        for n in rebuilt.nodes.values()
-        if n.kind in _STEP_EMITTING_KINDS_FOR_TEST
-    }
+    by_name: dict[str, str] = {n.title: n.id for n in rebuilt.nodes.values() if n.kind in _STEP_EMITTING_KINDS_FOR_TEST}
     assert set(by_name) == {"confgen", "sp", "freq"}
     # SP's only predecessor (a calc step) must be CONF_GEN.
-    sp_in = [e.src_node for e in rebuilt.edges.values()
-             if e.dst_node == by_name["sp"]]
+    sp_in = [e.src_node for e in rebuilt.edges.values() if e.dst_node == by_name["sp"]]
     assert sp_in == [by_name["confgen"]]
-    freq_in = [e.src_node for e in rebuilt.edges.values()
-               if e.dst_node == by_name["freq"]]
+    freq_in = [e.src_node for e in rebuilt.edges.values() if e.dst_node == by_name["freq"]]
     assert freq_in == [by_name["confgen"]]
     # Both sinks feed OUTPUT.
-    out_id = next(
-        n.id for n in rebuilt.nodes.values() if n.kind is NodeKind.OUTPUT
-    )
-    sp_to_out = any(
-        e.src_node == by_name["sp"] and e.dst_node == out_id
-        for e in rebuilt.edges.values()
-    )
-    freq_to_out = any(
-        e.src_node == by_name["freq"] and e.dst_node == out_id
-        for e in rebuilt.edges.values()
-    )
+    out_id = next(n.id for n in rebuilt.nodes.values() if n.kind is NodeKind.OUTPUT)
+    sp_to_out = any(e.src_node == by_name["sp"] and e.dst_node == out_id for e in rebuilt.edges.values())
+    freq_to_out = any(e.src_node == by_name["freq"] and e.dst_node == out_id for e in rebuilt.edges.values())
     assert sp_to_out and freq_to_out
 
 
@@ -464,15 +446,17 @@ def test_from_workflow_spec_handles_empty_steps():
 # Imported here so the round-trip tests above can use a private list of
 # the kinds that emit a step. (Kept private to avoid polluting the
 # module's ``__all__``.)
-_STEP_EMITTING_KINDS_FOR_TEST = frozenset({
-    NodeKind.CONF_GEN,
-    NodeKind.PRE_OPT,
-    NodeKind.OPT,
-    NodeKind.SINGLE_POINT,
-    NodeKind.FREQUENCY,
-    NodeKind.TS,
-    NodeKind.REFINE,
-})
+_STEP_EMITTING_KINDS_FOR_TEST = frozenset(
+    {
+        NodeKind.CONF_GEN,
+        NodeKind.PRE_OPT,
+        NodeKind.OPT,
+        NodeKind.SINGLE_POINT,
+        NodeKind.FREQUENCY,
+        NodeKind.TS,
+        NodeKind.REFINE,
+    }
+)
 
 
 # --- Phase 10.5: SubmitPayload dag kind drop-in test ----------------------

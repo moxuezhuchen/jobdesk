@@ -20,6 +20,7 @@ button in that group via ``setVisible(False)`` AND register the kinds
 in ``_hidden_by_topology`` so the search filter refuses to un-hide
 them. State persists through :class:`GuiSettingsStore`.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
@@ -126,13 +127,7 @@ _RAW_TOOLTIP: dict[NodeKind, str] = {
 def _kind_matches_query(kind: NodeKind, query: str, language: str) -> bool:
     if not query:
         return True
-    haystack = (
-        _display_title(language, kind).lower()
-        + " "
-        + _RAW_TITLE[kind].lower()
-        + " "
-        + kind.value.lower()
-    )
+    haystack = _display_title(language, kind).lower() + " " + _RAW_TITLE[kind].lower() + " " + kind.value.lower()
     return query.lower() in haystack
 
 
@@ -166,6 +161,7 @@ class _DraggableButton(QToolButton):
             return
         drag = QDrag(self)
         from jobdesk_app.gui.nodegraph.canvas import GraphScene
+
         drag.setMimeData(GraphScene.mime_data_for_node_kind(self._kind))
         # Drag pixmap — render a 1× snapshot of the button so the user
         # sees what they're moving.
@@ -349,8 +345,7 @@ class NodeLibraryPanel(QWidget):
         """Update OUTPUT visibility + calc-count greying."""
         has_output = any(node.kind is NodeKind.OUTPUT for node in graph.nodes.values())
         has_calc = any(
-            node.kind is not NodeKind.XYZ_FILE and node.kind is not NodeKind.OUTPUT
-            for node in graph.nodes.values()
+            node.kind is not NodeKind.XYZ_FILE and node.kind is not NodeKind.OUTPUT for node in graph.nodes.values()
         )
         # Re-show every button, then re-hide the ones the topology
         # forbids or that the user collapsed. The filter step at the
@@ -395,9 +390,7 @@ class NodeLibraryPanel(QWidget):
             # collapsed group; their checked/arrow state communicates
             # whether the rows below them are currently visible.
             header.setVisible(True)
-            header.setArrowType(
-                Qt.ArrowType.DownArrow if header.isChecked() else Qt.ArrowType.RightArrow
-            )
+            header.setArrowType(Qt.ArrowType.DownArrow if header.isChecked() else Qt.ArrowType.RightArrow)
         self._apply_filter(self._search_box.text())
 
     def visible_kinds(self) -> list[NodeKind]:
@@ -436,10 +429,7 @@ class NodeLibraryPanel(QWidget):
         the explicit visibility the panel set itself, which is what
         callers care about.
         """
-        return [
-            kind for kind, button in self._buttons.items()
-            if button.isVisible()
-        ]  # noqa: E501
+        return [kind for kind, button in self._buttons.items() if button.isVisible()]  # noqa: E501
 
     def collapsed_groups(self) -> tuple[str, ...]:
         """Return the ids of every group currently collapsed."""
@@ -475,9 +465,7 @@ class NodeLibraryPanel(QWidget):
                 continue
             h.blockSignals(True)
             h.setChecked(gid not in self._collapsed_groups)
-            h.setArrowType(
-                Qt.ArrowType.DownArrow if h.isChecked() else Qt.ArrowType.RightArrow
-            )
+            h.setArrowType(Qt.ArrowType.DownArrow if h.isChecked() else Qt.ArrowType.RightArrow)
             h.blockSignals(False)
         self._persist_collapsed_groups()
 
@@ -490,9 +478,7 @@ class NodeLibraryPanel(QWidget):
         caller may not have ready). It does respect the search box so
         expanded-without-search still hides non-matching kinds.
         """
-        members = tuple(
-            kind for gid, kinds in GROUPS if gid == group_id for kind in kinds
-        )
+        members = tuple(kind for gid, kinds in GROUPS if gid == group_id for kind in kinds)
         collapsed = group_id in self._collapsed_groups
         query = self._search_box.text()
         for kind in members:
@@ -517,9 +503,7 @@ class NodeLibraryPanel(QWidget):
         # Use the same atomic read-modify-write helper as the onboarding
         # card so we don't race against concurrent updates.
         try:
-            self._settings_store.update(
-                collapsed_library_groups=sorted(self._collapsed_groups)
-            )
+            self._settings_store.update(collapsed_library_groups=sorted(self._collapsed_groups))
         except (OSError, ValueError):
             # Best-effort: the in-memory state stays correct even if
             # the disk write fails.
@@ -555,13 +539,9 @@ class NodeLibraryPanel(QWidget):
             header = _GroupHeader(gid, self._language, self._body)
             header.blockSignals(True)
             header.setChecked(gid not in self._collapsed_groups)
-            header.setArrowType(
-                Qt.ArrowType.DownArrow if header.isChecked() else Qt.ArrowType.RightArrow
-            )
+            header.setArrowType(Qt.ArrowType.DownArrow if header.isChecked() else Qt.ArrowType.RightArrow)
             header.blockSignals(False)
-            header.toggled.connect(
-                lambda checked, g=gid: self._on_group_header_toggled(g, checked)
-            )
+            header.toggled.connect(lambda checked, g=gid: self._on_group_header_toggled(g, checked))
             self._body_layout.insertWidget(insert_at, header)
             self._group_headers[gid] = header
             insert_at += 1
@@ -614,17 +594,11 @@ class NodeLibraryPanel(QWidget):
         # Update arrow direction immediately for snappy visual feedback.
         header = self._group_headers.get(group_id)
         if header is not None:
-            header.setArrowType(
-                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-            )
+            header.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
         self._persist_collapsed_groups()
         # Flip visibility / hidden-set membership for every member of
         # this group. The existing search filter will reapply.
-        members = [
-            kind for gid, kinds in GROUPS if gid == group_id
-            for kind in kinds
-            if kind in self._buttons
-        ]
+        members = [kind for gid, kinds in GROUPS if gid == group_id for kind in kinds if kind in self._buttons]
         if new_collapsed:
             for kind in members:
                 btn = self._buttons.get(kind)
@@ -651,9 +625,7 @@ class NodeLibraryPanel(QWidget):
                 continue
             h.blockSignals(True)
             h.setChecked(gid not in self._collapsed_groups)
-            h.setArrowType(
-                Qt.ArrowType.DownArrow if h.isChecked() else Qt.ArrowType.RightArrow
-            )
+            h.setArrowType(Qt.ArrowType.DownArrow if h.isChecked() else Qt.ArrowType.RightArrow)
             h.blockSignals(False)
         # If the user collapsed the Sentinels group, make sure OUTPUT
         # is back on the hidden set even if the graph doesn't have an

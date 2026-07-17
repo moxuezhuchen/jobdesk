@@ -21,15 +21,21 @@ class FakeSFTP:
         self.files = {"/remote/a.txt": b"hello\n"}
         self.last_progress_callback = None
 
-    def upload_file(self, local_path, remote_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None):
+    def upload_file(
+        self, local_path, remote_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None
+    ):
         self.uploads.append((Path(local_path), remote_path, overwrite, skip_if_same_size, dry_run))
         self.last_progress_callback = progress_callback
         return TransferRecord(TransferDirection.upload, str(local_path), remote_path, status=TransferStatus.transferred)
 
-    def download_file(self, remote_path, local_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None):
+    def download_file(
+        self, remote_path, local_path, overwrite=False, skip_if_same_size=True, dry_run=False, progress_callback=None
+    ):
         self.downloads.append((remote_path, Path(local_path), overwrite, skip_if_same_size, dry_run))
         self.last_progress_callback = progress_callback
-        return TransferRecord(TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred)
+        return TransferRecord(
+            TransferDirection.download, str(local_path), remote_path, status=TransferStatus.transferred
+        )
 
     def list_dir_info(self, remote_dir):
         return [remote_dir]
@@ -321,6 +327,7 @@ def test_mkdir_rename_and_preview_text():
     assert sftp.renamed == [("/remote/a.txt", "/remote/b.txt")]
     assert text == "hello\n"
 
+
 def test_rename_remote_rejects_existing_destination():
     sftp = FakeSFTP()
     sftp.files["/remote/b.txt"] = b"existing\n"
@@ -379,7 +386,6 @@ def test_delete_remote_without_allowed_roots_still_rejects_arbitrary_paths(targe
 
 def test_delete_remote_accepts_explicit_extra_allowed_roots():
     assert "extra_allowed_roots" in inspect.signature(FileTransferService.delete_remote).parameters
-
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +465,7 @@ def test_persistent_list_not_blocked_by_write_lock(tmp_path):
     local.write_text("x" * 1000)
 
     # Start upload in background (holds write lock)
-    upload_thread = threading.Thread(
-        target=service.upload_path, args=(local, "/remote/big.txt")
-    )
+    upload_thread = threading.Thread(target=service.upload_path, args=(local, "/remote/big.txt"))
     upload_thread.start()
     write_entered.wait(timeout=5)
 
@@ -476,6 +480,7 @@ def test_persistent_list_not_blocked_by_write_lock(tmp_path):
 
 def test_persistent_read_error_does_not_affect_write():
     """Read SFTP failure only discards read SFTP; write SFTP stays intact."""
+
     class FailOnceReadSFTP(FakeSFTP):
         def __init__(self, fail=False):
             super().__init__()
@@ -519,6 +524,7 @@ def test_persistent_read_error_does_not_affect_write():
 
 def test_persistent_write_error_does_not_affect_read():
     """Write SFTP failure only discards write SFTP; read SFTP stays intact."""
+
     class FailWriteSFTP(FakeSFTP):
         def mkdir_p(self, remote_dir):
             raise RuntimeError("write channel error")

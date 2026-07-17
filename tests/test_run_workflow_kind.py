@@ -1,4 +1,5 @@
 """Tests for ``RunSpec.workflow_kind`` plumbing."""
+
 from __future__ import annotations
 
 from jobdesk_app.core.run import (

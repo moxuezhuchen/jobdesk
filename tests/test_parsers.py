@@ -1,4 +1,5 @@
 """Tests for Gaussian and ORCA output parsers."""
+
 import tempfile
 from pathlib import Path
 
@@ -340,6 +341,7 @@ def _write_orca(content: str) -> Path:
 
 # ---- AnalysisProfileStore tests --------------------------------------------
 
+
 class TestAnalysisProfileStore:
     def test_builtin_profiles_available(self):
         store = AnalysisProfileStore()
@@ -366,6 +368,7 @@ class TestAnalysisProfileStore:
     def test_gaussian_opt_freq_has_leading_imaginary_frequency(self):
         """The true imaginary freq count is from parse_gaussian_log().imaginary_freq_count."""
         from jobdesk_app.config.schema import ExtractStrategy, ExtractType
+
         profile = BUILTIN_PROFILES["gaussian_opt_freq"]
         rules_by_name = {r.name: r for r in profile.extract_rules}
         assert "leading_imaginary_frequency_cm1" in rules_by_name
@@ -376,8 +379,10 @@ class TestAnalysisProfileStore:
 
     def test_user_profile_save_and_load(self, tmp_path):
         from jobdesk_app.config.schema import ExtractResult, ExtractStrategy, ExtractType
+
         store = AnalysisProfileStore(tmp_path)
         from jobdesk_app.services.analysis_profiles import AnalysisProfile
+
         profile = AnalysisProfile(
             name="my_custom",
             description="Custom profile",
@@ -398,6 +403,7 @@ class TestAnalysisProfileStore:
 
     def test_user_profile_overrides_builtin(self, tmp_path):
         from jobdesk_app.services.analysis_profiles import AnalysisProfile
+
         store = AnalysisProfileStore(tmp_path)
         override = AnalysisProfile(name="gaussian_sp", description="override", extract_rules=[])
         store.save(override)
@@ -406,6 +412,7 @@ class TestAnalysisProfileStore:
 
     def test_delete_user_profile(self, tmp_path):
         from jobdesk_app.services.analysis_profiles import AnalysisProfile
+
         store = AnalysisProfileStore(tmp_path)
         store.save(AnalysisProfile(name="temp", description="", extract_rules=[]))
         store.delete("temp")

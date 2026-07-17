@@ -24,12 +24,17 @@ from jobdesk_app.remote.status import (
 def _make_ssh_with_handler(run_handler):
     """创建 mock SSH，所有 run 调用由 handler 函数处理。"""
     server = ServerConfig(
-        server_id="t", host="h", port=22, username="u",
-        auth_method=AuthMethod.key, key_path="/k",
+        server_id="t",
+        host="h",
+        port=22,
+        username="u",
+        auth_method=AuthMethod.key,
+        key_path="/k",
     )
-    with patch("paramiko.SSHClient") as mock_client_class, \
-         patch("jobdesk_app.remote.ssh.SSHClientWrapper._resolve_key",
-               return_value=MagicMock(spec=paramiko.PKey)):
+    with (
+        patch("paramiko.SSHClient") as mock_client_class,
+        patch("jobdesk_app.remote.ssh.SSHClientWrapper._resolve_key", return_value=MagicMock(spec=paramiko.PKey)),
+    ):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         ssh = SSHClientWrapper(server)
@@ -42,11 +47,21 @@ class TestRemoteTaskStatus:
     def test_all_files_exist(self):
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
-                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\ncompleted", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="__JD_FOUND__\ncompleted", stderr="", duration_seconds=0.01
+                )
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\n0", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="__JD_FOUND__\n0", stderr="", duration_seconds=0.01
+                )
             if ".jobdesk_submit.log" in command:
-                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\nlog line 1\nlog line 2", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command,
+                    exit_code=0,
+                    stdout="__JD_FOUND__\nlog line 1\nlog line 2",
+                    stderr="",
+                    duration_seconds=0.01,
+                )
             return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
@@ -75,7 +90,9 @@ class TestRemoteTaskStatus:
     def test_exit_code_not_integer(self):
         def handler(command, timeout=None, check=False):
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0, stdout="__JD_FOUND__\nnot_an_int", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="__JD_FOUND__\nnot_an_int", stderr="", duration_seconds=0.01
+                )
             return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
@@ -115,19 +132,26 @@ class TestRemoteTaskStatus:
         assert quoted.startswith("'")
         assert "$" in quoted  # single-quoted preserves literal $
 
-
     def test_status_file_containing_not_found_is_still_detected_as_existing(self):
         """File content '__NOT_FOUND__' must not be confused with file absence."""
+
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="__JD_FOUND__\n__NOT_FOUND__", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="__JD_FOUND__\n__NOT_FOUND__", stderr="", duration_seconds=0.01
+                )
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="__JD_FOUND__\n42", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="__JD_FOUND__\n42", stderr="", duration_seconds=0.01
+                )
             if ".jobdesk_submit.log" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="__JD_FOUND__\n__NOT_FOUND__ in log\nmore lines", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command,
+                    exit_code=0,
+                    stdout="__JD_FOUND__\n__NOT_FOUND__ in log\nmore lines",
+                    stderr="",
+                    duration_seconds=0.01,
+                )
             return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
@@ -141,9 +165,9 @@ class TestRemoteTaskStatus:
 
     def test_missing_file_uses_jd_missing_envelope(self):
         """When file does not exist, envelope is __JD_MISSING__."""
+
         def handler(command, timeout=None, check=False):
-            return SSHResult(command=command, exit_code=0,
-                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -154,19 +178,27 @@ class TestRemoteTaskStatus:
     def test_read_failure_does_not_produce_false_positive(self):
         """If cat/tail fails (non-zero exit) but __JD_FOUND__ was already printed,
         the code must detect the failure via exit_code and set exists=False + warning."""
+
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
                 # File exists but cat failed — exit_code non-zero, __JD_FOUND__ in stdout
-                return SSHResult(command=command, exit_code=1,
-                                 stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=1, stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01
+                )
             if ".jobdesk_exit_code" in command:
                 # File exists but cat failed
-                return SSHResult(command=command, exit_code=1,
-                                 stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=1, stdout="__JD_FOUND__\n", stderr="cat: error", duration_seconds=0.01
+                )
             if ".jobdesk_submit.log" in command:
                 # File exists but tail failed
-                return SSHResult(command=command, exit_code=1,
-                                 stdout="__JD_FOUND__\npartial content", stderr="tail: error", duration_seconds=0.01)
+                return SSHResult(
+                    command=command,
+                    exit_code=1,
+                    stdout="__JD_FOUND__\npartial content",
+                    stderr="tail: error",
+                    duration_seconds=0.01,
+                )
             return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
@@ -181,16 +213,24 @@ class TestRemoteTaskStatus:
 
     def test_invalid_envelope_produces_warning(self):
         """Completely garbled output (no valid envelope) → warning, exists=False."""
+
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="some unexpected output", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="some unexpected output", stderr="", duration_seconds=0.01
+                )
             if ".jobdesk_exit_code" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="__JD_FOUND__\n__JD_MISSING__", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command,
+                    exit_code=0,
+                    stdout="__JD_FOUND__\n__JD_MISSING__",
+                    stderr="",
+                    duration_seconds=0.01,
+                )
             if ".jobdesk_submit.log" in command:
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="garbage_no_envelope", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command, exit_code=0, stdout="garbage_no_envelope", stderr="", duration_seconds=0.01
+                )
             return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
@@ -201,19 +241,23 @@ class TestRemoteTaskStatus:
         assert snap.exit_code_exists is True
         assert snap.log_exists is False
 
-
     def test_cat_failure_in_old_and_or_pattern_does_not_leak_missing_as_content(self):
         """Regression: if the shell 'cat' fails after 'test -f' succeeds in the &&/||
         pattern, both __JD_FOUND__ and __JD_MISSING__ may appear in stdout. The parser
         must not treat __JD_MISSING__ as file content. With the if/then/else fix,
         this output pattern cannot occur from the shell command itself."""
+
         def handler(command, timeout=None, check=False):
             if ".jobdesk_status" in command:
                 # Simulates: test -f succeeds, echo __JD_FOUND__ runs, cat fails, || echo __JD_MISSING__ runs
-                return SSHResult(command=command, exit_code=0,
-                                 stdout="__JD_FOUND__\n__JD_MISSING__", stderr="", duration_seconds=0.01)
-            return SSHResult(command=command, exit_code=0,
-                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+                return SSHResult(
+                    command=command,
+                    exit_code=0,
+                    stdout="__JD_FOUND__\n__JD_MISSING__",
+                    stderr="",
+                    duration_seconds=0.01,
+                )
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         snap = read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -227,15 +271,13 @@ class TestRemoteTaskStatus:
         # Content is literally "__JD_MISSING__" which is a valid status marker value
         assert snap.status_marker == "__JD_MISSING__"
 
-
     def test_shell_commands_use_if_then_else_not_and_or(self):
         """The shell command must use if/then/else/fi, not &&/|| pattern."""
         commands_seen = []
 
         def handler(command, timeout=None, check=False):
             commands_seen.append(command)
-            return SSHResult(command=command, exit_code=0,
-                             stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
+            return SSHResult(command=command, exit_code=0, stdout="__JD_MISSING__", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
         read_remote_task_status(ssh, "task1", "/remote/job/task1")
@@ -308,9 +350,7 @@ class TestRemoteTaskStatusesBatch:
             return SSHResult(command=command, exit_code=0, stdout=body, stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
-        snaps = read_remote_task_statuses_batch(
-            ssh, [("a", "/r/a"), ("b", "/r/b"), ("c", "/r/c")]
-        )
+        snaps = read_remote_task_statuses_batch(ssh, [("a", "/r/a"), ("b", "/r/b"), ("c", "/r/c")])
         assert len(captured) == 1
         assert snaps["a"].status_marker == "running"
         assert snaps["a"].marker_exists is True
@@ -354,8 +394,7 @@ class TestRemoteTaskStatusesBatch:
         snaps = read_remote_task_statuses_batch(
             ssh,
             [("t1", "/r/t1")],
-            extra_files=[("BC:E", "/r/_batch/batch_control_exit_code", 0),
-                         ("BC:L", "/r/_batch/batch_control.log", 20)],
+            extra_files=[("BC:E", "/r/_batch/batch_control_exit_code", 0), ("BC:L", "/r/_batch/batch_control.log", 20)],
             extra_out=out,
         )
         assert len(captured) == 1, "tasks + extra files must share one SSH command"
@@ -373,9 +412,7 @@ class TestRemoteTaskStatusesBatch:
 
         ssh = _make_ssh_with_handler(handler)
         out: dict = {}
-        snaps = read_remote_task_statuses_batch(
-            ssh, [], extra_files=[("BC:E", "/r/x", 0)], extra_out=out
-        )
+        snaps = read_remote_task_statuses_batch(ssh, [], extra_files=[("BC:E", "/r/x", 0)], extra_out=out)
         assert len(captured) == 1
         assert out["BC:E"] == b"0"
         assert snaps == {}
@@ -392,7 +429,8 @@ class TestRemoteTaskStatusesBatch:
 
         ssh = _make_ssh_with_handler(handler)
         snaps = read_remote_task_statuses_batch(
-            ssh, [("only_local", "")],
+            ssh,
+            [("only_local", "")],
         )
         assert "only_local" in snaps
         assert snaps["only_local"].marker_exists is False
@@ -407,9 +445,7 @@ class TestRemoteTaskStatusesBatch:
             return SSHResult(command=command, exit_code=0, stdout="##JD-DONE\n", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
-        read_remote_task_statuses_batch(
-            ssh, [("t1", "/remote/job-$USER/with space")]
-        )
+        read_remote_task_statuses_batch(ssh, [("t1", "/remote/job-$USER/with space")])
         assert len(captured_cmd) == 1
         cmd = captured_cmd[0]
         # 路径必须出现且被 shlex.quote 包成单引号块
@@ -420,9 +456,7 @@ class TestRemoteTaskStatusesBatch:
 
     def test_missing_done_marker_adds_warning(self):
         body = (
-            _make_block("T0:S", "F", _b64("running"))
-            + _make_block("T0:E", "M")
-            + _make_block("T0:L", "M")
+            _make_block("T0:S", "F", _b64("running")) + _make_block("T0:E", "M") + _make_block("T0:L", "M")
             # no ##JD-DONE
         )
 
@@ -438,9 +472,7 @@ class TestRemoteTaskStatusesBatch:
             raise RuntimeError("connection lost")
 
         ssh = _make_ssh_with_handler(handler)
-        snaps = read_remote_task_statuses_batch(
-            ssh, [("a", "/r/a"), ("b", "/r/b")]
-        )
+        snaps = read_remote_task_statuses_batch(ssh, [("a", "/r/a"), ("b", "/r/b")])
         assert any("批量读取远程状态失败" in w for w in snaps["a"].warnings)
         assert any("批量读取远程状态失败" in w for w in snaps["b"].warnings)
 
@@ -448,10 +480,7 @@ class TestRemoteTaskStatusesBatch:
         body = (
             "##JD-BEGIN T0:S F\n"
             "***not-base64***\n"
-            "##JD-END T0:S\n"
-            + _make_block("T0:E", "M")
-            + _make_block("T0:L", "M")
-            + "##JD-DONE\n"
+            "##JD-END T0:S\n" + _make_block("T0:E", "M") + _make_block("T0:L", "M") + "##JD-DONE\n"
         )
 
         def handler(command, timeout=None, check=False):
@@ -511,9 +540,7 @@ class TestRemoteTaskStatusesBatch:
             return SSHResult(command=command, exit_code=0, stdout="##JD-DONE\n", stderr="", duration_seconds=0.01)
 
         ssh = _make_ssh_with_handler(handler)
-        read_remote_task_statuses_batch(
-            ssh, [("t1", "/r/t1")], log_tail_lines=37
-        )
+        read_remote_task_statuses_batch(ssh, [("t1", "/r/t1")], log_tail_lines=37)
         assert len(captured) == 1
         # log 块应包含 tail 行数
         assert "/.jobdesk_submit.log 37" in captured[0]
@@ -553,7 +580,6 @@ class TestRemoteTaskStatusesBatch:
         snaps = read_remote_task_statuses_batch(ssh, [("t1", "/r/t1")])
         assert snaps["t1"].status_marker == "done"
         assert snaps["t1"].exit_code == 0
-
 
     def test_read_error_does_not_set_exists_true(self):
         """When cat/tail fails (E marker), exists must be False and a warning emitted."""
@@ -613,10 +639,7 @@ def _find_posix_sh():
     and produce expected output. On Windows, bash.exe may exist but WSL
     may not be installed/functional.
     """
-    candidates = (
-        [r"C:\Windows\system32\bash.exe"] if sys.platform == "win32"
-        else ["/bin/sh", "/usr/bin/sh"]
-    )
+    candidates = [r"C:\Windows\system32\bash.exe"] if sys.platform == "win32" else ["/bin/sh", "/usr/bin/sh"]
     for candidate in candidates:
         if not os.path.isfile(candidate):
             continue
@@ -629,12 +652,14 @@ def _find_posix_sh():
                 wsl_path = "/mnt/c" + tmp[2:].replace(os.sep, "/")
                 r = subprocess.run(
                     [candidate, wsl_path],
-                    capture_output=True, timeout=5,
+                    capture_output=True,
+                    timeout=5,
                 )
             else:
                 r = subprocess.run(
                     [candidate, tmp],
-                    capture_output=True, timeout=5,
+                    capture_output=True,
+                    timeout=5,
                 )
             os.unlink(tmp)
             if r.returncode == 0 and b"JD_OK" in r.stdout:
@@ -667,12 +692,14 @@ class TestBatchScriptRealShell:
                 wsl_path = "/mnt/c" + tmp[2:].replace(os.sep, "/")
                 result = subprocess.run(
                     [_POSIX_SH, wsl_path],
-                    capture_output=True, timeout=10,
+                    capture_output=True,
+                    timeout=10,
                 )
             else:
                 result = subprocess.run(
                     [_POSIX_SH, tmp],
-                    capture_output=True, timeout=10,
+                    capture_output=True,
+                    timeout=10,
                 )
         finally:
             try:
@@ -683,8 +710,7 @@ class TestBatchScriptRealShell:
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace")
             raise AssertionError(
-                f"Shell exited with code {result.returncode}.\n"
-                f"stderr: {stderr[:500]}\nstdout: {stdout[:500]}"
+                f"Shell exited with code {result.returncode}.\nstderr: {stderr[:500]}\nstdout: {stdout[:500]}"
             )
         return stdout
 
@@ -761,9 +787,7 @@ class TestBatchScriptRealShell:
             )
             stdout = self._run_script(setup + run_as_nobody + teardown)
             if "##JD-SU-NOBODY-UNAVAILABLE" in stdout:
-                pytest.skip(
-                    "current user can read chmod 000 files and su nobody is unavailable"
-                )
+                pytest.skip("current user can read chmod 000 files and su nobody is unavailable")
             blocks = _parse_batch_output(stdout)
 
         assert "T0:S" in blocks, f"stdout={stdout!r}"

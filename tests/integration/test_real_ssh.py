@@ -19,8 +19,7 @@ from jobdesk_app.config.servers import load_servers
 from jobdesk_app.remote.ssh import SSHClientWrapper
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("JOBDESK_TEST_SSH_SERVER_ID")
-         and os.environ.get("JOBDESK_TEST_SERVERS_YAML")),
+    not (os.environ.get("JOBDESK_TEST_SSH_SERVER_ID") and os.environ.get("JOBDESK_TEST_SERVERS_YAML")),
     reason="需要 JOBDESK_TEST_SSH_SERVER_ID 和 JOBDESK_TEST_SERVERS_YAML 环境变量",
 )
 

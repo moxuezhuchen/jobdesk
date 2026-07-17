@@ -7,6 +7,7 @@
 
     This file will be removed in a future version.
 """
+
 from __future__ import annotations
 
 import warnings

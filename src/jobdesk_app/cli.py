@@ -1,4 +1,5 @@
 """JobDesk CLI — run + files commands powered by RunService."""
+
 from __future__ import annotations
 
 import argparse
@@ -71,8 +72,12 @@ def _build_parser() -> argparse.ArgumentParser:
     dl = run_sub.add_parser("download")
     dl.add_argument("workspace", type=Path)
     dl.add_argument("run_id")
-    dl.add_argument("--patterns", nargs="+", default=["*.log"],
-                    help="Output file patterns (comma-separated within each arg; commas in filenames not supported)")
+    dl.add_argument(
+        "--patterns",
+        nargs="+",
+        default=["*.log"],
+        help="Output file patterns (comma-separated within each arg; commas in filenames not supported)",
+    )
     dl.set_defaults(func=_cmd_run_download)
 
     for name, func in (
@@ -283,23 +288,17 @@ def _cmd_run_confirm_submitted(args) -> int:
     except JobIdOverridesError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    outcome = _run_coordinator(args, args.workspace).confirm_submitted(
-        args.run_id, args.tasks, remote_job_ids or None
-    )
+    outcome = _run_coordinator(args, args.workspace).confirm_submitted(args.run_id, args.tasks, remote_job_ids or None)
     return _print_recovery_outcome("confirmed", "task(s)", outcome)
 
 
 def _cmd_run_abandon_submit(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).abandon_submit(
-        args.run_id, args.tasks
-    )
+    outcome = _run_coordinator(args, args.workspace).abandon_submit(args.run_id, args.tasks)
     return _print_recovery_outcome("abandoned", "task(s)", outcome)
 
 
 def _cmd_run_recover_operations(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).recover_operations(
-        include_legacy_imports=True
-    )
+    outcome = _run_coordinator(args, args.workspace).recover_operations(include_legacy_imports=True)
     return _print_recovery_outcome("recovered", "operation(s)", outcome)
 
 
@@ -312,6 +311,7 @@ def _print_recovery_outcome(action: str, noun: str, outcome) -> int:
 
 def _cmd_compare(args) -> int:
     from .services.comparison import compare_runs, export_csv, export_markdown
+
     comparison = compare_runs(args.workspace, args.run_ids, args.field, args.profile)
     if not comparison.rows:
         print("No results found for the specified runs and profile.")

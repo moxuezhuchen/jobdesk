@@ -50,15 +50,15 @@ class JobSubmitter:
 
     def __init__(
         self,
-        ssh=None,     # SSHClientWrapper
-        sftp=None,    # SFTPClientWrapper
+        ssh=None,  # SSHClientWrapper
+        sftp=None,  # SFTPClientWrapper
         max_parallel: int = 1,
         remote_batch_dir: str = "",
         batch_id: str = "",
         control_subdir: str = "_batch",
         env_init_scripts: list[str] | None = None,
-        scheduler=None,   # SchedulerAdapter | None
-        resources=None,   # ResourceSpec | None
+        scheduler=None,  # SchedulerAdapter | None
+        resources=None,  # ResourceSpec | None
         *,
         tasks: list[TaskRecord] | None = None,
         task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
@@ -77,6 +77,7 @@ class JobSubmitter:
         self._control_subdir = control_subdir
         self._env_init_scripts: list[str] = list(env_init_scripts or [])
         from .scheduler import NohupAdapter, ResourceSpec
+
         self._scheduler = scheduler if scheduler is not None else NohupAdapter()
         self._resources = resources if resources is not None else ResourceSpec()
         self._task_update_callback = task_update_callback
@@ -119,14 +120,14 @@ class JobSubmitter:
         rendered = task.rendered_command
         init_lines = [
             "# JobDesk: load user shell environment",
-            "export PS1=\"${PS1:-jobdesk> }\"",
+            'export PS1="${PS1:-jobdesk> }"',
             "set +u",
             "[ -f /etc/profile ] && . /etc/profile 2>/dev/null || true",
-            "[ -f \"$HOME/.bash_profile\" ] && . \"$HOME/.bash_profile\" 2>/dev/null || true",
-            "[ -f \"$HOME/.profile\" ] && . \"$HOME/.profile\" 2>/dev/null || true",
-            "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\" 2>/dev/null || true",
+            '[ -f "$HOME/.bash_profile" ] && . "$HOME/.bash_profile" 2>/dev/null || true',
+            '[ -f "$HOME/.profile" ] && . "$HOME/.profile" 2>/dev/null || true',
+            '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" 2>/dev/null || true',
         ]
-        for script in (env_init_scripts or []):
+        for script in env_init_scripts or []:
             if script:
                 init_lines.append(f"[ -f {shlex.quote(script)} ] && . {shlex.quote(script)} 2>/dev/null || true")
         lines = [
@@ -139,7 +140,7 @@ class JobSubmitter:
             f"  {rendered}",
             ") > .jobdesk_submit.log 2>&1",
             "rc=$?",
-            "echo \"$rc\" > .jobdesk_exit_code",
+            'echo "$rc" > .jobdesk_exit_code',
             'if [ "$rc" -eq 0 ]; then',
             "  echo 'completed' > .jobdesk_status",
             "else",
@@ -196,10 +197,10 @@ class JobSubmitter:
             "#!/usr/bin/env bash",
             "set -e",
             "",
-            f'MAX_PARALLEL={max_parallel}',
-            f'CONTROL_DIR={control_dir_q}',
+            f"MAX_PARALLEL={max_parallel}",
+            f"CONTROL_DIR={control_dir_q}",
             "",
-            "cd \"$CONTROL_DIR\" || exit 1",
+            'cd "$CONTROL_DIR" || exit 1',
             "",
             "# BATCH_RUNNING marker",
             "echo 'BATCH_RUNNING'",
@@ -211,24 +212,24 @@ class JobSubmitter:
             "# Extract launch script paths from tasks.tsv (3rd column), skip header",
             "tail -n +2 tasks.tsv | cut -f3 > launch_list.txt",
             "",
-            "# Execute: use bash -c 'bash \"$1\"' _ \"{}\" for safe argument passing",
+            '# Execute: use bash -c \'bash "$1"\' _ "{}" for safe argument passing',
             "batch_rc=0",
             "if command -v xargs > /dev/null 2>&1; then",
             "# NOTE: `|| batch_rc=$?` intentionally captures xargs exit code under set -e",
-            "  xargs -r -P \"$MAX_PARALLEL\" -I{} bash -c 'bash \"$1\"' _ \"{}\" < launch_list.txt || batch_rc=$?",
+            '  xargs -r -P "$MAX_PARALLEL" -I{} bash -c \'bash "$1"\' _ "{}" < launch_list.txt || batch_rc=$?',
             "else",
             "  echo 'ERROR: xargs not found' >&2",
             "  exit 1",
             "fi",
             "",
             "# Record batch control exit code",
-            "echo \"$batch_rc\" > batch_control_exit_code",
+            'echo "$batch_rc" > batch_control_exit_code',
             "",
             "# BATCH_FINISHED: only means batch_control.sh finished running",
             "# Each task's success/failure is determined by .jobdesk_status and .jobdesk_exit_code",
             "echo 'BATCH_FINISHED'",
             "echo 'finished_at: '\"$(date -Iseconds)\"",
-            "exit \"$batch_rc\"",
+            'exit "$batch_rc"',
             "",
         ]
         return "\n".join(lines)
@@ -244,6 +245,7 @@ class JobSubmitter:
         For Slurm/PBS: returns a script with resource directives.
         """
         from .scheduler import NohupAdapter, PBSAdapter, SlurmAdapter
+
         if isinstance(self._scheduler, NohupAdapter):
             return ""
         task_id = _validate_task_id(task.task_id)
@@ -281,8 +283,7 @@ class JobSubmitter:
 
         cd_cmd = shlex.quote(control_dir)
         control_command = (
-            f"cd {cd_cmd} && nohup setsid bash './batch_control.sh'"
-            " > './batch_control.nohup.log' 2>&1 & echo $!"
+            f"cd {cd_cmd} && nohup setsid bash './batch_control.sh' > './batch_control.nohup.log' 2>&1 & echo $!"
         )
 
         return SubmitPlan(
@@ -332,6 +333,7 @@ class JobSubmitter:
             return result
 
         from .scheduler import NohupAdapter
+
         if isinstance(self._scheduler, NohupAdapter):
             return self._submit_nohup(tasks, result, control_dir)
         else:
@@ -353,6 +355,7 @@ class JobSubmitter:
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
             import tempfile
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp = Path(tmpdir)
                 for t in tasks:
@@ -380,8 +383,7 @@ class JobSubmitter:
                 return result
             cd_q = shlex.quote(control_dir)
             nohup_cmd = (
-                f"cd {cd_q} && nohup setsid bash './batch_control.sh'"
-                " > './batch_control.nohup.log' 2>&1 & echo $!"
+                f"cd {cd_q} && nohup setsid bash './batch_control.sh' > './batch_control.nohup.log' 2>&1 & echo $!"
             )
             result.nohup_command = nohup_cmd
             self._notify_remote_started([task.task_id for task in tasks])
@@ -393,9 +395,7 @@ class JobSubmitter:
                 self._mark_uncertain(tasks, result, message, "nohup")
                 return result
             if ssh_result.exit_code != 0:
-                self._mark_uncertain(
-                    tasks, result, f"nohup start failed: {ssh_result.stderr}", "nohup"
-                )
+                self._mark_uncertain(tasks, result, f"nohup start failed: {ssh_result.stderr}", "nohup")
                 result.errors.append(f"nohup start failed: {ssh_result.stderr}")
                 return result
             job_id = ssh_result.stdout.strip().splitlines()[-1] if ssh_result.stdout.strip() else ""
@@ -429,6 +429,7 @@ class JobSubmitter:
         all_tasks: list[TaskRecord] | None = None
         try:
             import tempfile
+
             now = datetime.now()
             all_tasks = self._all_tasks()
             for t in tasks:
@@ -505,9 +506,7 @@ class JobSubmitter:
     def _notify_task_updates(self, tasks: list[TaskRecord]) -> None:
         if self._task_update_callback is not None and tasks:
             try:
-                self._task_update_callback(
-                    [task.model_copy(deep=True) for task in tasks]
-                )
+                self._task_update_callback([task.model_copy(deep=True) for task in tasks])
             except Exception as exc:
                 raise SubmitCheckpointError(str(exc)) from exc
 

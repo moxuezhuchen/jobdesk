@@ -28,6 +28,7 @@ The scene emits Qt signals so the surrounding panels (properties,
 status bar) can react: ``selection_changed``, ``topology_changed``,
 ``validation_changed``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -145,8 +146,7 @@ class GraphScene(QGraphicsScene):
         self._clear_registry()
         self._graph = graph
         self._last_known_positions = {
-            node.id: (float(node.position[0]), float(node.position[1]))
-            for node in graph.nodes.values()
+            node.id: (float(node.position[0]), float(node.position[1])) for node in graph.nodes.values()
         }
         self._rebuild_registry()
         self.topology_changed.emit()
@@ -194,6 +194,7 @@ class GraphScene(QGraphicsScene):
 
     def clear_graph(self) -> None:
         from jobdesk_app.gui.nodegraph.serialization import ClearGraphCommand
+
         if not self._graph.nodes:
             return
         self._undo_stack.push(ClearGraphCommand(self._graph))
@@ -238,6 +239,7 @@ class GraphScene(QGraphicsScene):
         if kind is None:
             return None
         from jobdesk_app.gui.nodegraph.nodes import NODE_WIDTH
+
         centred = (scene_pos.x() - NODE_WIDTH / 2.0, scene_pos.y() - 12.0)
         return self.add_node(kind, centred)
 
@@ -492,8 +494,7 @@ class GraphScene(QGraphicsScene):
         dst_center = dst_item.port_center(edge.dst_port)
         if src_center is None or dst_center is None:
             return
-        item.attach(edge.src_node, edge.src_port, edge.dst_node, edge.dst_port,
-                    src_center, dst_center)
+        item.attach(edge.src_node, edge.src_port, edge.dst_node, edge.dst_port, src_center, dst_center)
 
     # ── undo/redo bridge ─────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 """GUI behavior tests for the File Transfer page."""
+
 from __future__ import annotations
 
 import threading
@@ -47,8 +48,10 @@ class TestFileTransferPage:
     def test_file_transfer_refresh_feedback_stays_pending_until_async_completion(self, file_page):
         from jobdesk_app.gui.i18n import tr
 
-        with patch.object(file_page, "_refresh_local") as refresh_local, \
-             patch.object(file_page, "_refresh_remote") as refresh_remote:
+        with (
+            patch.object(file_page, "_refresh_local") as refresh_local,
+            patch.object(file_page, "_refresh_remote") as refresh_remote,
+        ):
             file_page._refresh_all()
 
         refresh_local.assert_called_once_with()
@@ -101,8 +104,10 @@ class TestFileTransferPage:
         file_page.remote_path.setText("/home/xianj/qhf")
         launch = MagicMock()
 
-        with patch("jobdesk_app.gui.pages.file_transfer_page.build_terminal_launch", return_value=launch) as build, \
-             patch("jobdesk_app.gui.pages.file_transfer_page.launch_terminal") as launcher:
+        with (
+            patch("jobdesk_app.gui.pages.file_transfer_page.build_terminal_launch", return_value=launch) as build,
+            patch("jobdesk_app.gui.pages.file_transfer_page.launch_terminal") as launcher,
+        ):
             file_page._open_terminal_here()
 
         build.assert_called_once()
@@ -222,9 +227,7 @@ class TestFileTransferPage:
         event = MagicMock()
         event.mimeData.return_value = mime
         moves = []
-        file_page.local_table.move_local_files.connect(
-            lambda paths, target: moves.append((paths, target))
-        )
+        file_page.local_table.move_local_files.connect(lambda paths, target: moves.append((paths, target)))
 
         with patch.object(file_page.local_table, "_drop_directory_path", return_value=str(target_dir)):
             file_page.local_table.dropEvent(event)
@@ -242,9 +245,7 @@ class TestFileTransferPage:
         event = MagicMock()
         event.mimeData.return_value = mime
         moves = []
-        file_page.remote_table.move_remote_files.connect(
-            lambda paths, target: moves.append((paths, target))
-        )
+        file_page.remote_table.move_remote_files.connect(lambda paths, target: moves.append((paths, target)))
 
         with patch.object(file_page.remote_table, "_drop_directory_path", return_value="/remote/archive"):
             file_page.remote_table.dropEvent(event)
@@ -266,9 +267,7 @@ class TestFileTransferPage:
         with patch.object(file_page.local_table, "itemAt", return_value=file_page.local_table.item(0, 0)):
             assert file_page.local_table._drop_directory_path(event) is None
 
-    def test_external_local_url_drop_on_remote_table_uploads_to_current_remote_dir(
-        self, file_page, qtbot, tmp_path
-    ):
+    def test_external_local_url_drop_on_remote_table_uploads_to_current_remote_dir(self, file_page, qtbot, tmp_path):
         from PySide6.QtCore import QMimeData, QUrl
 
         from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
@@ -299,9 +298,7 @@ class TestFileTransferPage:
         assert Path(service.upload_path.call_args.args[0]) == source
         assert service.upload_path.call_args.args[1] == "/remote/current/source.log"
 
-    def test_remote_path_drop_on_local_table_downloads_to_current_local_dir(
-        self, file_page, qtbot, tmp_path
-    ):
+    def test_remote_path_drop_on_local_table_downloads_to_current_local_dir(self, file_page, qtbot, tmp_path):
         from PySide6.QtCore import QMimeData
 
         from jobdesk_app.core.file_transfer import OverwritePolicy
@@ -369,6 +366,7 @@ class TestFileTransferPage:
     def test_refresh_local_uses_cached_hide_dotfiles(self, file_page, tmp_path):
         """_refresh_local hides/shows dotfiles based on cached self._gui_settings."""
         from dataclasses import replace as dc_replace
+
         # Create a dotfile in tmp_path
         (tmp_path / ".hidden").write_text("x")
         (tmp_path / "visible.txt").write_text("y")
@@ -391,6 +389,7 @@ class TestFileTransferPage:
     def test_on_activated_reloads_settings(self, file_page):
         """on_activated must reload settings so external changes take effect."""
         from jobdesk_app.services.gui_settings import GuiSettings
+
         new_settings = GuiSettings(auto_connect=False, hide_dotfiles=True)
         with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as mock_store:
             mock_store.return_value.load.return_value = new_settings
@@ -431,7 +430,9 @@ class TestFileTransferPage:
         worker = _FakeWorker()
         file_page._service = MagicMock()
 
-        with patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", return_value=worker) as start_worker:
+        with patch(
+            "jobdesk_app.gui.pages.file_transfer_page.start_context_worker", return_value=worker
+        ) as start_worker:
             file_page._open_remote_file_in_editor("/remote/result.log")
 
         start_worker.assert_called_once()
@@ -451,9 +452,11 @@ class TestFileTransferPage:
         file_page._service = service
         file_page._connected_server_id = "wsl"
 
-        with patch("jobdesk_app.gui.pages.file_transfer_page.tempfile.gettempdir", return_value=str(tmp_path)), \
-             patch.object(file_page._remote_edit_manager, "open_in_text_editor", return_value=True), \
-             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+        with (
+            patch("jobdesk_app.gui.pages.file_transfer_page.tempfile.gettempdir", return_value=str(tmp_path)),
+            patch.object(file_page._remote_edit_manager, "open_in_text_editor", return_value=True),
+            patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker,
+        ):
             file_page._open_remote_file_in_editor("/remote/work1/a.gjf")
             first_call = start_worker.call_args
             first_result = first_call.kwargs["target"](MagicMock())
@@ -483,8 +486,10 @@ class TestFileTransferPage:
         file_page._register_remote_edit_session("/remote/work/result.gjf", temp_file)
         temp_file.write_text("after\n\n", encoding="utf-8")
 
-        with patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question") as question, \
-             patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+        with (
+            patch("jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question") as question,
+            patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker,
+        ):
             file_page._check_remote_edit_sessions()
             target = start_worker.call_args.kwargs["target"]
             result = target(MagicMock())
@@ -536,10 +541,14 @@ class TestFileTransferPage:
         file_page.state.current_project_root = tmp_path
         file_page._gui_settings = replace(file_page._gui_settings, text_editor_path="C:/Tools/editor.exe")
 
-        with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
-            return_value=("new.txt", True),
-        ), patch.object(file_page, "_refresh_local"), patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor:
+        with (
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+                return_value=("new.txt", True),
+            ),
+            patch.object(file_page, "_refresh_local"),
+            patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor,
+        ):
             file_page._file_operations.new_file_local()
 
         open_editor.assert_called_once_with(tmp_path / "new.txt")
@@ -573,7 +582,9 @@ class TestFileTransferPage:
 
         service = MagicMock()
         service.upload_path.return_value = TransferRecord(
-            TransferDirection.upload, str(local_file), "/remote/dir/test.gjf",
+            TransferDirection.upload,
+            str(local_file),
+            "/remote/dir/test.gjf",
             status=TransferStatus.transferred,
         )
         file_page._service = service
@@ -605,7 +616,9 @@ class TestFileTransferPage:
 
         service = MagicMock()
         service.download_path.return_value = TransferRecord(
-            TransferDirection.download, str(tmp_path / "result.log"), "/remote/result.log",
+            TransferDirection.download,
+            str(tmp_path / "result.log"),
+            "/remote/result.log",
             status=TransferStatus.transferred,
         )
         file_page._service = service
@@ -642,10 +655,13 @@ class TestFileTransferPage:
         file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/run/result.log"))
         file_page.remote_table.selectRow(0)
 
-        with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
-            return_value=QMessageBox.Yes,
-        ), patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+        with (
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+                return_value=QMessageBox.Yes,
+            ),
+            patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker,
+        ):
             file_page._delete_remote()
 
         service.delete_remote.assert_not_called()
@@ -668,10 +684,13 @@ class TestFileTransferPage:
         file_page.local_table.setItem(0, 4, QTableWidgetItem(str(local_file)))
         file_page.local_table.selectRow(0)
 
-        with patch(
-            "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
-            return_value=QMessageBox.Yes,
-        ), patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker:
+        with (
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.QMessageBox.question",
+                return_value=QMessageBox.Yes,
+            ),
+            patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker", create=True) as start_worker,
+        ):
             file_page._delete_local()
 
         assert local_file.exists()
@@ -690,7 +709,9 @@ class TestFileTransferPage:
 
         service = MagicMock()
         service.upload_path.return_value = TransferRecord(
-            TransferDirection.upload, str(local_file), "/remote/dir/mol.xyz",
+            TransferDirection.upload,
+            str(local_file),
+            "/remote/dir/mol.xyz",
             status=TransferStatus.transferred,
         )
         file_page._service = service
@@ -828,13 +849,9 @@ class TestFileTransferPage:
         file_page._service = service
 
         with patch.object(file_page, "_refresh_remote") as refresh_remote:
-            file_page._file_operations.move_remote_paths_into_directory(
-                ["/remote/source.log"], "/remote/archive"
-            )
+            file_page._file_operations.move_remote_paths_into_directory(["/remote/source.log"], "/remote/archive")
 
-        service.rename_remote.assert_called_once_with(
-            "/remote/source.log", "/remote/archive/source.log"
-        )
+        service.rename_remote.assert_called_once_with("/remote/source.log", "/remote/archive/source.log")
         refresh_remote.assert_called_once_with()
 
     def test_move_remote_directory_rejects_descendant_target(self, file_page):
@@ -843,9 +860,7 @@ class TestFileTransferPage:
         file_page._service = service
         file_page._error_cb = lambda title, message: errors.append((title, message))
 
-        file_page._file_operations.move_remote_paths_into_directory(
-            ["/remote/source"], "/remote/source/nested"
-        )
+        file_page._file_operations.move_remote_paths_into_directory(["/remote/source"], "/remote/source/nested")
 
         service.rename_remote.assert_not_called()
         assert errors
@@ -897,21 +912,21 @@ class TestFileTransferPage:
         )
 
         assert folder_dialog.minimumWidth() == rename_dialog.minimumWidth()
-        assert folder_dialog.findChild(QLineEdit).minimumWidth() == (
-            rename_dialog.findChild(QLineEdit).minimumWidth()
-        )
+        assert folder_dialog.findChild(QLineEdit).minimumWidth() == (rename_dialog.findChild(QLineEdit).minimumWidth())
 
     def test_mkdir_local_uses_wide_new_folder_prompt(self, file_page, tmp_path):
         from jobdesk_app.gui.i18n import tr
 
         file_page.state.current_project_root = tmp_path
 
-        with patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt, \
-             patch(
-                 "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
-                 side_effect=AssertionError("default QInputDialog.getText should not be used"),
-             ), \
-             patch.object(file_page, "_refresh_local") as refresh_local:
+        with (
+            patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt,
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+                side_effect=AssertionError("default QInputDialog.getText should not be used"),
+            ),
+            patch.object(file_page, "_refresh_local") as refresh_local,
+        ):
             file_page._file_operations.mkdir_local()
 
         prompt.assert_called_once_with(
@@ -925,12 +940,14 @@ class TestFileTransferPage:
         file_page._service = MagicMock()
         file_page.remote_path.setText("/remote/jobs")
 
-        with patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt, \
-             patch(
-                 "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
-                 side_effect=AssertionError("default QInputDialog.getText should not be used"),
-             ), \
-             patch.object(file_page, "_refresh_remote") as refresh_remote:
+        with (
+            patch.object(file_page, "_prompt_new_folder_name", return_value=("created", True)) as prompt,
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.QInputDialog.getText",
+                side_effect=AssertionError("default QInputDialog.getText should not be used"),
+            ),
+            patch.object(file_page, "_refresh_remote") as refresh_remote,
+        ):
             file_page._file_operations.mkdir_remote()
 
         prompt.assert_called_once_with("New Remote Folder", "Folder name:")
@@ -1260,8 +1277,10 @@ class TestFileTransferPage:
         file_page.local_table.selectRow(0)
         file_page.local_table.setCurrentCell(0, 0)
 
-        with patch.object(file_page, "_rename_local") as rename_local, \
-             patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor:
+        with (
+            patch.object(file_page, "_rename_local") as rename_local,
+            patch.object(file_page._remote_edit_manager, "open_in_text_editor") as open_editor,
+        ):
             rect = file_page.local_table.visualItemRect(file_page.local_table.item(0, 0))
             point = self._name_label_point(file_page.local_table, 0) if rect.isValid() else QPoint(4, 4)
             QTest.mouseClick(file_page.local_table.viewport(), Qt.LeftButton, Qt.NoModifier, point)

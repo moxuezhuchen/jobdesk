@@ -8,6 +8,7 @@ Mirrors :class:`RunProfileStore.save_command_history` for the storage
 shape — a single YAML key holding the ordered list, written atomically
 through :func:`atomic_write_text`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,10 +36,7 @@ class PresetFavouriteStore:
     """
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = (
-            Path(path) if path is not None
-            else get_app_data_dir() / "recent_presets.yaml"
-        )
+        self.path = Path(path) if path is not None else get_app_data_dir() / "recent_presets.yaml"
 
     def load(self) -> list[str]:
         """Return the saved MRU, most-recent-first. Never raises."""

@@ -1,4 +1,5 @@
 """Tests for MainWindow startup-recovery excepthook and gate behavior."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -48,15 +49,19 @@ class TestMainWindowExcepthook:
             lambda *a, **kw: MagicMock(servers={}),
         )
 
-        with patch("jobdesk_app.gui.main_window.configure_file_logging"), \
-             patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub), \
-             patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub), \
-             patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub), \
-             patch.object(RunsStub, "start_startup_recovery") as start_recovery:
+        with (
+            patch("jobdesk_app.gui.main_window.configure_file_logging"),
+            patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store,
+            patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub),
+            patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub),
+            patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub),
+            patch.object(RunsStub, "start_startup_recovery") as start_recovery,
+        ):
             from jobdesk_app.services.gui_settings import GuiSettings
+
             store.return_value.load.return_value = GuiSettings()
             from jobdesk_app.gui.main_window import MainWindow
+
             window = MainWindow()
             qtbot.addWidget(window)
             assert window.shell.pages.currentIndex() == 0
@@ -107,15 +112,19 @@ class TestMainWindowExcepthook:
             lambda *a, **kw: MagicMock(servers={}),
         )
 
-        with patch("jobdesk_app.gui.main_window.configure_file_logging"), \
-             patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store, \
-             patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub), \
-             patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub), \
-             patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub), \
-             patch.object(RunsStub, "start_startup_recovery") as start_recovery:
+        with (
+            patch("jobdesk_app.gui.main_window.configure_file_logging"),
+            patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store,
+            patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub),
+            patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub),
+            patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub),
+            patch.object(RunsStub, "start_startup_recovery") as start_recovery,
+        ):
             from jobdesk_app.services.gui_settings import GuiSettings
+
             store.return_value.load.return_value = GuiSettings()
             from jobdesk_app.gui.main_window import MainWindow
+
             window = MainWindow()
             qtbot.addWidget(window)
             with patch.object(window, "show_error") as show_error:
@@ -176,15 +185,19 @@ class TestMainWindowExcepthook:
             lambda *a, **kw: MagicMock(servers={}),
         )
 
-        with patch("jobdesk_app.gui.main_window.configure_file_logging"), \
-             patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub), \
-             patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub), \
-             patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub), \
-             patch.object(RunsStub, "start_startup_recovery"):
+        with (
+            patch("jobdesk_app.gui.main_window.configure_file_logging"),
+            patch("jobdesk_app.gui.main_window.FileTransferPage", FilesStub),
+            patch("jobdesk_app.gui.main_window.RunsResultsPage", RunsStub),
+            patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub),
+            patch.object(RunsStub, "start_startup_recovery"),
+        ):
             with patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store:
                 from jobdesk_app.services.gui_settings import GuiSettings
+
                 store.return_value.load.return_value = GuiSettings()
                 from jobdesk_app.gui.main_window import MainWindow
+
                 window = MainWindow()
                 qtbot.addWidget(window)
 
@@ -195,4 +208,5 @@ class TestMainWindowExcepthook:
         window.close()
 
         from PySide6.QtWidgets import QApplication
+
         QApplication.processEvents()

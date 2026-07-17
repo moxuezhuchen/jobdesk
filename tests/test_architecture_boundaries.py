@@ -93,8 +93,7 @@ def test_session_pool_has_no_qt_or_gui_dependency() -> None:
     forbidden = [
         imported
         for path, imported in _imports_under("services")
-        if path == session_pool
-        and (imported.startswith("PySide6") or imported.startswith("jobdesk_app.gui"))
+        if path == session_pool and (imported.startswith("PySide6") or imported.startswith("jobdesk_app.gui"))
     ]
     assert forbidden == []
 
@@ -112,17 +111,9 @@ def test_new_architecture_modules_require_typed_definitions() -> None:
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
     path = _SRC_ROOT / "services" / "run_service" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-    run_service = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "RunService"
-    )
+    run_service = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RunService")
 
-    method_names = {
-        node.name
-        for node in run_service.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    method_names = {node.name for node in run_service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     assert "update_run_from_manifest" not in method_names
 
@@ -130,17 +121,9 @@ def test_run_service_has_no_manifest_to_database_writeback() -> None:
 def test_run_repository_has_no_unjournaled_lifecycle_entry_points() -> None:
     path = _SRC_ROOT / "services" / "run_repository" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-    repository = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "RunRepository"
-    )
+    repository = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RunRepository")
 
-    method_names = {
-        node.name
-        for node in repository.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    method_names = {node.name for node in repository.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     assert "claim_uploaded_tasks" not in method_names
     assert "delete_run" not in method_names
@@ -157,9 +140,7 @@ def test_schema_documentation_describes_v2_to_v5_migration_chain() -> None:
 
     required_associations = {
         "v2 operation journal": r"\bv2\b.{0,120}\boperation journal\b",
-        "v3 trusted workspace binding": (
-            r"\bv3\b.{0,180}\btrusted[- ]workspace\b.{0,120}\bbindings?\b"
-        ),
+        "v3 trusted workspace binding": (r"\bv3\b.{0,180}\btrusted[- ]workspace\b.{0,120}\bbindings?\b"),
         "v4 submit ownership lease": r"\bv4\b.{0,160}\bsubmit ownership leases?\b",
         "v4 lease UTC semantics": r"(?:\bv4\b.{0,200}\butc\b|\bleases?\b.{0,100}\butc\b)",
     }
@@ -172,9 +153,7 @@ def test_schema_documentation_describes_v2_to_v5_migration_chain() -> None:
             rf"(?:{escaped_schema}.{{0,40}}\bcurrent\b|"
             rf"\bcurrent\b.{{0,40}}{escaped_schema})"
         )
-        assert re.search(current_schema_pattern, normalized), (
-            f"{name} does not name {current_schema} as current"
-        )
+        assert re.search(current_schema_pattern, normalized), f"{name} does not name {current_schema} as current"
         for feature, pattern in required_associations.items():
             assert re.search(pattern, normalized), f"{name} omits associated {feature} wording"
 

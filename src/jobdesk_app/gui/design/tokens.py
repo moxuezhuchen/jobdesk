@@ -106,6 +106,7 @@ class Radius:
 
 class Shadow:
     """Qt stylesheets don't support box-shadow. These are kept for reference only."""
+
     SM = ""
     MD = ""
     LG = ""

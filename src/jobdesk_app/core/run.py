@@ -101,22 +101,26 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
     used_task_ids: set[str] = set()
     sources = _sources_for_mode(spec)
     for index, source in enumerate(sources, start=1):
-        raw_task_id = "current_directory" if spec.mode == RunMode.current_directory else (
-            source.stem or source.name or f"task_{index}"
+        raw_task_id = (
+            "current_directory"
+            if spec.mode == RunMode.current_directory
+            else (source.stem or source.name or f"task_{index}")
         )
         task_id = _unique_task_id(_safe_task_id(raw_task_id, index), used_task_ids)
         used_task_ids.add(task_id)
         work_dir = source.path if source.is_dir else source.parent
         command = _render_command(spec.command_template, source)
-        tasks.append(RunTaskPlan(
-            task_id=task_id,
-            source_path=source.path,
-            source_name=source.name,
-            remote_job_dir=posixpath.join(run_remote_dir, task_id),
-            command=f"cd {shlex.quote(work_dir)} && {command}",
-            supporting_paths=[item.path for item in spec.supporting_sources],
-            remote_result_files=[_render_text_template(item, source) for item in spec.result_templates],
-        ))
+        tasks.append(
+            RunTaskPlan(
+                task_id=task_id,
+                source_path=source.path,
+                source_name=source.name,
+                remote_job_dir=posixpath.join(run_remote_dir, task_id),
+                command=f"cd {shlex.quote(work_dir)} && {command}",
+                supporting_paths=[item.path for item in spec.supporting_sources],
+                remote_result_files=[_render_text_template(item, source) for item in spec.result_templates],
+            )
+        )
     return RunPlan(run_id=rid, created_at=datetime.now(), spec=spec, tasks=tasks)
 
 
@@ -130,6 +134,7 @@ def _sources_for_mode(spec: RunSpec) -> list[RunSource]:
 
 def _render_command(template: str, source: RunSource) -> str:
     import shlex
+
     values = {
         "path": shlex.quote(source.path),
         "name": shlex.quote(source.name),
@@ -174,4 +179,4 @@ def _unique_task_id(candidate: str, used_task_ids: set[str]) -> str:
 def chunk_sources(sources: list[RunSource], batch_size: int | None) -> list[list[RunSource]]:
     if not batch_size or batch_size <= 0 or batch_size >= len(sources):
         return [list(sources)]
-    return [sources[i:i + batch_size] for i in range(0, len(sources), batch_size)]
+    return [sources[i : i + batch_size] for i in range(0, len(sources), batch_size)]

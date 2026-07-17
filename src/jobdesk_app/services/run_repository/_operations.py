@@ -82,19 +82,13 @@ def advance_operation(
     return cursor.rowcount == 1
 
 
-def list_operations(
-    connection: sqlite3.Connection, *, incomplete_only: bool = False
-) -> list[OperationRecord]:
+def list_operations(connection: sqlite3.Connection, *, incomplete_only: bool = False) -> list[OperationRecord]:
     where = "WHERE completed_at IS NULL" if incomplete_only else ""
-    rows = connection.execute(
-        f"SELECT * FROM operations {where} ORDER BY created_at, operation_id"
-    ).fetchall()
+    rows = connection.execute(f"SELECT * FROM operations {where} ORDER BY created_at, operation_id").fetchall()
     return [_row_to_operation(row) for row in rows]
 
 
-def prune_completed_operations(
-    connection: sqlite3.Connection, older_than: datetime
-) -> int:
+def prune_completed_operations(connection: sqlite3.Connection, older_than: datetime) -> int:
     cursor = connection.execute(
         "DELETE FROM operations WHERE completed_at IS NOT NULL AND completed_at < ?",
         (older_than.isoformat(),),
@@ -125,9 +119,7 @@ def recover_legacy_orphan_submit_tasks(
         payload = json.loads(row["payload_json"])
         task_ids = payload.get("task_ids") if isinstance(payload, dict) else None
         if isinstance(task_ids, list):
-            protected.update(
-                (str(row["run_id"]), str(task_id)) for task_id in task_ids
-            )
+            protected.update((str(row["run_id"]), str(task_id)) for task_id in task_ids)
 
     run_rows = connection.execute(
         "SELECT DISTINCT run_id FROM tasks WHERE status = ? ORDER BY run_id",
@@ -139,10 +131,7 @@ def recover_legacy_orphan_submit_tasks(
         changed = False
         updated: list[TaskRecord] = []
         for task in tasks:
-            if (
-                task.status != TaskStatus.submitting
-                or (run_id, task.task_id) in protected
-            ):
+            if task.status != TaskStatus.submitting or (run_id, task.task_id) in protected:
                 updated.append(task)
                 continue
             changed = True
@@ -194,13 +183,7 @@ def _row_to_operation(row: sqlite3.Row) -> OperationRecord:
         last_error=None if row["last_error"] is None else str(row["last_error"]),
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
-        completed_at=(
-            None if row["completed_at"] is None else str(row["completed_at"])
-        ),
+        completed_at=(None if row["completed_at"] is None else str(row["completed_at"])),
         owner_id=None if row["owner_id"] is None else str(row["owner_id"]),
-        lease_expires_at=(
-            None
-            if row["lease_expires_at"] is None
-            else str(row["lease_expires_at"])
-        ),
+        lease_expires_at=(None if row["lease_expires_at"] is None else str(row["lease_expires_at"])),
     )

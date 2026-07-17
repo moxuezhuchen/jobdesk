@@ -111,6 +111,7 @@ class TestBatchMeta:
             assert loaded.project_name == "测试项目"
             assert loaded.remote_batch_dir == "/remote/测试"
 
+
 class TestBatchJsonAtomicWrite:
     def test_write_replace_failure_keeps_existing_batch_json(self, monkeypatch):
         batch = create_batch(

@@ -10,6 +10,7 @@ Parser calls are monkeypatched (matching the established pattern in
 ``test_gui_behavior.py``) so we don't spawn the (slow, license-bound)
 real Gaussian binary during unit tests.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -263,9 +264,7 @@ def test_render_detail_for_task_renders_gaussian(runs_page, tmp_path):
     task = _make_task(task_dir=str(tmp_path))
     parsed = _make_gaussian_result()
 
-    with patch(
-        "jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed
-    ):
+    with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed):
         runs_page._render_detail_for_task("methane", task, tmp_path)
 
     assert "Gaussian" in runs_page.detail_pane.title_label.text()
@@ -300,9 +299,7 @@ def test_render_detail_for_task_uses_cache(runs_page, tmp_path):
         calls.append(str(p))
         return parsed
 
-    with patch(
-        "jobdesk_app.core.parsers.gaussian.parse_gaussian_log", side_effect=fake_parse
-    ):
+    with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", side_effect=fake_parse):
         runs_page._render_detail_for_task("water", task, tmp_path)
         runs_page._render_detail_for_task("water", task, tmp_path)
 
@@ -316,10 +313,7 @@ def test_render_detail_for_task_handles_missing_output(runs_page, tmp_path):
     # The exact label depends on the user's GUI language; assert against the
     # canonical tr() output rather than a hard-coded English substring so this
     # test is deterministic across `language: en` / `language: zh`.
-    assert (
-        runs_page.detail_pane.status_label.text()
-        == tr("Output file not found", runs_page._language)
-    )
+    assert runs_page.detail_pane.status_label.text() == tr("Output file not found", runs_page._language)
     assert "#b91c1c" in runs_page.detail_pane.status_label.styleSheet()
 
 
@@ -336,10 +330,7 @@ def test_render_detail_for_task_handles_parser_exception(runs_page, tmp_path):
     ):
         runs_page._render_detail_for_task("broken", task, tmp_path)
 
-    assert (
-        runs_page.detail_pane.status_label.text()
-        == tr("Parse error", runs_page._language)
-    )
+    assert runs_page.detail_pane.status_label.text() == tr("Parse error", runs_page._language)
     assert runs_page.detail_pane.error_value.isVisibleTo(runs_page.detail_pane) is True
     assert "boom" in runs_page.detail_pane.error_value.text()
 
@@ -351,9 +342,7 @@ def test_detail_cache_cleared_on_checkpoint(runs_page, tmp_path):
     task = _make_task(task_dir=str(tmp_path))
     parsed = _make_gaussian_result()
 
-    with patch(
-        "jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed
-    ):
+    with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed):
         runs_page._render_detail_for_task("water", task, tmp_path)
         assert len(runs_page._detail_cache) == 1
         runs_page._detail_cache.clear()
@@ -377,9 +366,7 @@ def test_double_click_on_analysis_row_renders_detail(runs_page, tmp_path):
     )
     runs_page.result_table.setItem(0, 0, item)
 
-    with patch(
-        "jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed
-    ):
+    with patch("jobdesk_app.core.parsers.gaussian.parse_gaussian_log", return_value=parsed):
         runs_page._on_result_row_double_clicked(item)
 
     assert "Gaussian" in runs_page.detail_pane.title_label.text()

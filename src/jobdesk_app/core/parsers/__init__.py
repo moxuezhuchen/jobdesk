@@ -5,8 +5,14 @@ from .orca import OrcaResult, diagnose_orca, diagnose_orca_result, parse_orca_ou
 from .registry import ParserRegistry
 
 __all__ = [
-    "GaussianResult", "parse_gaussian_log", "diagnose_gaussian", "diagnose_gaussian_result",
-    "OrcaResult", "parse_orca_out", "diagnose_orca", "diagnose_orca_result",
+    "GaussianResult",
+    "parse_gaussian_log",
+    "diagnose_gaussian",
+    "diagnose_gaussian_result",
+    "OrcaResult",
+    "parse_orca_out",
+    "diagnose_orca",
+    "diagnose_orca_result",
     "ParserRegistry",
 ]
 

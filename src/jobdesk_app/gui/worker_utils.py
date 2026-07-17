@@ -44,6 +44,7 @@ def start_tracked_worker(
         def _call(*args):
             if not is_owner_shutting_down(owner):
                 callback(*args)
+
         return _call
 
     if on_result is not None:

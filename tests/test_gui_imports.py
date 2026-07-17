@@ -10,14 +10,14 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 def test_import_app():
     from jobdesk_app.gui.app import main
+
     assert callable(main)
 
 
 def test_import_main_window():
     from jobdesk_app.gui.main_window import MainWindow
+
     assert MainWindow is not None
-
-
 
 
 def test_import_pages():
@@ -30,9 +30,9 @@ def test_import_pages():
     assert SettingsServersPage is not None
 
 
-
 def test_app_state_create():
     from jobdesk_app.gui.state import AppState
+
     s = AppState()
     assert s.current_project_root is None
     assert s.current_batch_id is None
@@ -41,6 +41,7 @@ def test_app_state_create():
 
 def test_worker_create():
     from jobdesk_app.gui.workers import BackgroundWorker
+
     w = BackgroundWorker(lambda: 42)
     assert w is not None
 

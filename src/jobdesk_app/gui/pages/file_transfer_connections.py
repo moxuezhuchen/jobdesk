@@ -4,6 +4,7 @@ Owns server list, active SSH/SFTP connection state, and FileTransferService
 lifecycle. Independent of Qt widgets except via callback hooks. The page
 creates this object in ``__init__`` and forwards every user action to it.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Protocol

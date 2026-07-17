@@ -86,9 +86,7 @@ class SessionPool:
         self._entries: dict[str, _Entry] = {}
         self._closing = False
 
-    def lease(
-        self, server_id: str, server_config: Any, *, need_sftp: bool = True
-    ) -> SessionLease:
+    def lease(self, server_id: str, server_config: Any, *, need_sftp: bool = True) -> SessionLease:
         return SessionLease(
             self,
             server_id,
@@ -157,9 +155,7 @@ class SessionPool:
 
         old_clients: tuple[SFTPClient | None, SSHClient | None] = (None, None)
         try:
-            if entry.ssh is not None and (
-                entry.config != server_config or not self._is_alive(entry.ssh)
-            ):
+            if entry.ssh is not None and (entry.config != server_config or not self._is_alive(entry.ssh)):
                 old_clients = self._detach_clients(entry)
             elif need_sftp and entry.sftp is not None and not self._is_alive(entry.sftp):
                 old_clients = self._detach_clients(entry)
@@ -168,17 +164,13 @@ class SessionPool:
                 config_snapshot = deepcopy(server_config)
                 for _attempt in range(_MAX_CREATE_ATTEMPTS):
                     ssh, sftp = self._create_clients(server_config, need_sftp=need_sftp)
-                    if self._is_alive(ssh) and (
-                        not need_sftp or (sftp is not None and self._is_alive(sftp))
-                    ):
+                    if self._is_alive(ssh) and (not need_sftp or (sftp is not None and self._is_alive(sftp))):
                         entry.ssh, entry.sftp = ssh, sftp
                         entry.config = config_snapshot
                         break
                     self._close_clients(sftp, ssh)
                 else:
-                    raise RuntimeError(
-                        f"failed to create a live session after {_MAX_CREATE_ATTEMPTS} attempts"
-                    )
+                    raise RuntimeError(f"failed to create a live session after {_MAX_CREATE_ATTEMPTS} attempts")
             elif need_sftp and entry.sftp is None:
                 try:
                     sftp = self._sftp_factory(entry.ssh)
@@ -204,9 +196,7 @@ class SessionPool:
         entry.mutex.release()
         self._close_clients(*clients)
 
-    def _create_clients(
-        self, server_config: Any, *, need_sftp: bool
-    ) -> tuple[SSHClient, SFTPClient | None]:
+    def _create_clients(self, server_config: Any, *, need_sftp: bool) -> tuple[SSHClient, SFTPClient | None]:
         ssh = self._ssh_factory(server_config)
         try:
             ssh.connect()
@@ -234,9 +224,7 @@ class SessionPool:
         return clients
 
     @staticmethod
-    def _close_clients(
-        sftp: SFTPClient | None, ssh: SSHClient | None
-    ) -> None:
+    def _close_clients(sftp: SFTPClient | None, ssh: SSHClient | None) -> None:
         for client in (sftp, ssh):
             if client is not None:
                 try:

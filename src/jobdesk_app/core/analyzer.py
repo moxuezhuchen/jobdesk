@@ -94,14 +94,16 @@ def _extract_field(
     source_files = sorted(result_dir.glob(pattern))
 
     if not source_files:
-        failures.append(FailureRecord(
-            task_id=task_id,
-            batch_id=batch_id,
-            stage="analysis",
-            reason=f"未找到匹配 {rule.source_glob} 的源文件",
-            source_file=None,
-            context=f"搜索目录: {result_dir}",
-        ))
+        failures.append(
+            FailureRecord(
+                task_id=task_id,
+                batch_id=batch_id,
+                stage="analysis",
+                reason=f"未找到匹配 {rule.source_glob} 的源文件",
+                source_file=None,
+                context=f"搜索目录: {result_dir}",
+            )
+        )
         return results, failures
 
     try:
@@ -109,13 +111,15 @@ def _extract_field(
         # catastrophically. Profiles are trusted local config, not untrusted input.
         compiled_re = re.compile(rule.regex)
     except re.error as e:
-        failures.append(FailureRecord(
-            task_id=task_id,
-            batch_id=batch_id,
-            stage="analysis",
-            reason=f"正则表达式无效: {e}",
-            source_file=None,
-        ))
+        failures.append(
+            FailureRecord(
+                task_id=task_id,
+                batch_id=batch_id,
+                stage="analysis",
+                reason=f"正则表达式无效: {e}",
+                source_file=None,
+            )
+        )
         return results, failures
 
     has_any_value_group = "value" in compiled_re.groupindex
@@ -130,27 +134,31 @@ def _extract_field(
                 if read_cache is not None:
                     read_cache[sf] = content
         except Exception as e:
-            failures.append(FailureRecord(
-                task_id=task_id,
-                batch_id=batch_id,
-                stage="analysis",
-                reason=f"无法读取文件: {e}",
-                source_file=_rel_path(sf, result_dir),
-            ))
+            failures.append(
+                FailureRecord(
+                    task_id=task_id,
+                    batch_id=batch_id,
+                    stage="analysis",
+                    reason=f"无法读取文件: {e}",
+                    source_file=_rel_path(sf, result_dir),
+                )
+            )
             continue
 
         for m in compiled_re.finditer(content):
             all_matches.append((sf, m))
 
     if not all_matches:
-        failures.append(FailureRecord(
-            task_id=task_id,
-            batch_id=batch_id,
-            stage="analysis",
-            reason=f"正则无匹配: {rule.regex}",
-            source_file=_rel_path(source_files[0], result_dir) if source_files else None,
-            context=f"匹配文件数: {len(source_files)}",
-        ))
+        failures.append(
+            FailureRecord(
+                task_id=task_id,
+                batch_id=batch_id,
+                stage="analysis",
+                reason=f"正则无匹配: {rule.regex}",
+                source_file=_rel_path(source_files[0], result_dir) if source_files else None,
+                context=f"匹配文件数: {len(source_files)}",
+            )
+        )
         return results, failures
 
     # 根据 strategy 筛选
@@ -173,28 +181,32 @@ def _extract_field(
             typed_value, value_type = _convert_value(raw_value, rule.type)
         except ValueError as e:
             result_id = f"{rule.name}_{idx}" if len(selected) > 1 else rule.name
-            failures.append(FailureRecord(
-                task_id=task_id,
-                batch_id=batch_id,
-                stage="analysis",
-                reason=f"类型转换失败: {e}",
-                source_file=_rel_path(sf, result_dir),
-                context=f"raw_value={raw_value!r}, expected_type={rule.type.value}",
-            ))
+            failures.append(
+                FailureRecord(
+                    task_id=task_id,
+                    batch_id=batch_id,
+                    stage="analysis",
+                    reason=f"类型转换失败: {e}",
+                    source_file=_rel_path(sf, result_dir),
+                    context=f"raw_value={raw_value!r}, expected_type={rule.type.value}",
+                )
+            )
             continue
 
         result_id = f"{rule.name}_{idx}" if len(selected) > 1 else rule.name
-        results.append(ResultRecord(
-            task_id=task_id,
-            batch_id=batch_id,
-            group_key=group_key,
-            result_id=result_id,
-            source_file=_rel_path(sf, result_dir),
-            field_name=rule.name,
-            value=typed_value,
-            value_type=value_type,
-            unit=rule.unit,
-        ))
+        results.append(
+            ResultRecord(
+                task_id=task_id,
+                batch_id=batch_id,
+                group_key=group_key,
+                result_id=result_id,
+                source_file=_rel_path(sf, result_dir),
+                field_name=rule.name,
+                value=typed_value,
+                value_type=value_type,
+                unit=rule.unit,
+            )
+        )
 
     return results, failures
 

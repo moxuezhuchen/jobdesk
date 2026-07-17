@@ -71,18 +71,27 @@ def test_collect_remote_delete_roots_from_manifest(tmp_path):
     from jobdesk_app.core.manifest import Manifest, TaskRecord
 
     manifest_path = tmp_path / "manifest.tsv"
-    Manifest.write(manifest_path, [
-        TaskRecord(
-            task_id="t1", batch_id="b1", remote_job_dir="/remote/work/b1/t1",
-            server_id="s", remote_work_dir="/remote/work",
-            status=TaskStatus.submitted,
-        ),
-        TaskRecord(
-            task_id="t2", batch_id="b1", remote_job_dir="/remote/other/b1/t2",
-            server_id="s", remote_work_dir="/remote/other",
-            status=TaskStatus.submitted,
-        ),
-    ])
+    Manifest.write(
+        manifest_path,
+        [
+            TaskRecord(
+                task_id="t1",
+                batch_id="b1",
+                remote_job_dir="/remote/work/b1/t1",
+                server_id="s",
+                remote_work_dir="/remote/work",
+                status=TaskStatus.submitted,
+            ),
+            TaskRecord(
+                task_id="t2",
+                batch_id="b1",
+                remote_job_dir="/remote/other/b1/t2",
+                server_id="s",
+                remote_work_dir="/remote/other",
+                status=TaskStatus.submitted,
+            ),
+        ],
+    )
 
     assert collect_remote_delete_roots(manifest_path) == [
         "/remote/other/.jobdesk_runs/b1",
@@ -95,16 +104,19 @@ def test_collect_remote_delete_roots_keeps_root_remote_dir_absolute(tmp_path):
     from jobdesk_app.core.manifest import Manifest, TaskRecord
 
     manifest_path = tmp_path / "manifest.tsv"
-    Manifest.write(manifest_path, [
-        TaskRecord(
-            task_id="t1",
-            batch_id="b1",
-            remote_job_dir="/.jobdesk_runs/b1/t1",
-            server_id="s",
-            remote_work_dir="/",
-            status=TaskStatus.submitted,
-        ),
-    ])
+    Manifest.write(
+        manifest_path,
+        [
+            TaskRecord(
+                task_id="t1",
+                batch_id="b1",
+                remote_job_dir="/.jobdesk_runs/b1/t1",
+                server_id="s",
+                remote_work_dir="/",
+                status=TaskStatus.submitted,
+            ),
+        ],
+    )
 
     assert collect_remote_delete_roots(manifest_path) == ["/.jobdesk_runs/b1"]
 
@@ -158,9 +170,7 @@ def test_choose_confflow_xyz_multiple_from_one_pane():
 
 def test_choose_confflow_xyz_both_panes_is_error():
     """XYZ in both panes is an ambiguous error."""
-    origin, paths, error = choose_confflow_xyz(
-        ["C:/job/water.xyz"], ["/tmp/mol.xyz"]
-    )
+    origin, paths, error = choose_confflow_xyz(["C:/job/water.xyz"], ["/tmp/mol.xyz"])
     assert origin == ""
     assert paths == []
     assert "both" in error.lower() or "ambig" in error.lower()
@@ -279,10 +289,10 @@ def test_table_resize_mode_is_interactive():
     assert table_resize_mode_name() == "Interactive"
 
 
-
 def test_choose_confflow_yaml_remote_yaml_with_remote_xyz():
     """Remote YAML with remote XYZ is valid."""
     from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
+
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/confflow.yaml", "/tmp/mol.xyz"],
         xyz_origin="remote",
@@ -293,6 +303,7 @@ def test_choose_confflow_yaml_remote_yaml_with_remote_xyz():
 
 def test_choose_confflow_yaml_no_remote_yaml_returns_empty():
     from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
+
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/mol.xyz"],
         xyz_origin="remote",
@@ -303,6 +314,7 @@ def test_choose_confflow_yaml_no_remote_yaml_returns_empty():
 
 def test_choose_confflow_yaml_multiple_remote_yamls_is_error():
     from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
+
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/a.yaml", "/tmp/b.yml"],
         xyz_origin="remote",
@@ -313,6 +325,7 @@ def test_choose_confflow_yaml_multiple_remote_yamls_is_error():
 
 def test_choose_confflow_yaml_remote_yaml_with_local_xyz_rejected():
     from jobdesk_app.gui.pages.file_transfer_helpers import choose_confflow_yaml
+
     yaml_path, error = choose_confflow_yaml(
         remote_files=["/tmp/confflow.yaml"],
         xyz_origin="local",

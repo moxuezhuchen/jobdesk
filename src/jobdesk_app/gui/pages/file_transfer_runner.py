@@ -194,9 +194,7 @@ class TransferRunner:
             speed = format_transfer_speed(done / elapsed)
             if total > 0:
                 self._progress_bar.setValue(int(done * 100 / total))
-                self._progress_bar.setFormat(
-                    f"{label}: {done // 1024}K / {total // 1024}K @ {speed}"
-                )
+                self._progress_bar.setFormat(f"{label}: {done // 1024}K / {total // 1024}K @ {speed}")
             else:
                 self._progress_bar.setMaximum(0)
                 self._progress_bar.setFormat(f"{label}: {done // 1024}K @ {speed}")
@@ -232,9 +230,7 @@ class TransferRunner:
     def keep_worker(self, worker) -> None:
         self._worker_registry.append(worker)
         worker.finished.connect(
-            lambda: self._worker_registry.remove(worker)
-            if worker in self._worker_registry
-            else None
+            lambda: self._worker_registry.remove(worker) if worker in self._worker_registry else None
         )
         if hasattr(worker, "deleteLater"):
             worker.finished.connect(worker.deleteLater)

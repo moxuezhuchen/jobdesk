@@ -92,7 +92,9 @@ class FileOperations:
             try:
                 if source_resolved == destination.resolve():
                     failures.append(f"Source is already in this directory: {source.name}")
-                elif source.is_dir() and (target_resolved == source_resolved or source_resolved in target_resolved.parents):
+                elif source.is_dir() and (
+                    target_resolved == source_resolved or source_resolved in target_resolved.parents
+                ):
                     failures.append(f"Cannot move directory into itself: {source.name}")
                 elif destination.exists():
                     failures.append(f"Destination already exists: {destination.name}")
@@ -246,13 +248,16 @@ class FileOperations:
             message += f"\n... {len(paths) - 10} more"
         if not self._ask_confirm("Delete Local Path", f"Delete local path(s)?\n{message}"):
             return
+
         def _run(_ctx: WorkerContext) -> int:
             for path in paths:
                 shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
             return len(paths)
+
         def _on_result(count: Any) -> None:
             self._on_status(f"Deleted {count} local item(s)")
             self._on_refresh_local()
+
         self._start_worker(_run, _on_result, lambda error: self._on_error("Delete Local Error", error))  # type: ignore[call-arg]
 
     def delete_remote(self, remote_paths: list[str], current_dir: str) -> None:
@@ -271,13 +276,16 @@ class FileOperations:
         message = "\n".join(valid[:10]) + (f"\n... {len(valid) - 10} more" if len(valid) > 10 else "")
         if not self._ask_confirm("Delete Remote Path", f"Delete remote path(s)?\n{message}"):
             return
+
         def _run(_ctx: WorkerContext) -> int:
             for path in valid:
                 service.delete_remote(path, recursive=True, extra_allowed_roots=[current_dir])
             return len(valid)
+
         def _on_result(count: Any) -> None:
             self._on_status(f"Deleted {count} remote item(s)")
             self._on_refresh_remote()
+
         self._start_worker(_run, _on_result, lambda error: self._on_error("Delete Error", error))  # type: ignore[call-arg]
 
     @staticmethod

@@ -14,6 +14,7 @@ Run the smoke first:
 then run pytest.  Test functions share a single fixture that locates the
 artifacts once.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,10 +43,7 @@ SMOKE = _locate_smoke_root()
 
 def _require_artifact(name: str) -> Path:
     if SMOKE is None:
-        pytest.skip(
-            "Real-g16 smoke artifacts not present; run "
-            "`python scripts/smoke_confflow_real_g16_wsl.py` first"
-        )
+        pytest.skip("Real-g16 smoke artifacts not present; run `python scripts/smoke_confflow_real_g16_wsl.py` first")
     path = SMOKE / name
     if not path.exists():
         pytest.skip(f"Smoke artifact missing: {path}")
@@ -63,9 +61,7 @@ def test_g16_log_is_parseable_by_parse_gaussian_log():
     assert result.error_message is None
     assert result.final_energy_au is not None
     # b3lyp/6-31g(d) methane opt: published benchmark ≈ -40.5183 a.u.
-    assert abs(result.final_energy_au - (-40.51838331)) < 1e-5, (
-        f"final_energy_au off: {result.final_energy_au}"
-    )
+    assert abs(result.final_energy_au - (-40.51838331)) < 1e-5, f"final_energy_au off: {result.final_energy_au}"
     assert result.atom_symbols == ["C", "H", "H", "H", "H"]
     assert result.final_xyz is not None
     assert len(result.final_xyz.splitlines()) == 5

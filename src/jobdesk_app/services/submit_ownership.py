@@ -41,9 +41,7 @@ class _SubmitOwnershipGuard:
     def renew(self) -> bool:
         """Renew all owned leases. Returns False if any renewal failed (lease lost)."""
         for op_id in self.operation_ids:
-            ok = self.repository.renew_submit_lease(
-                op_id, self.owner_id, lease_seconds=self.lease_seconds
-            )
+            ok = self.repository.renew_submit_lease(op_id, self.owner_id, lease_seconds=self.lease_seconds)
             if not ok:
                 self._lost = True
                 return False
@@ -51,9 +49,7 @@ class _SubmitOwnershipGuard:
 
     def renew_one(self, operation_id: str) -> bool:
         """Renew a single operation's lease. Returns False if renewal failed."""
-        ok = self.repository.renew_submit_lease(
-            operation_id, self.owner_id, lease_seconds=self.lease_seconds
-        )
+        ok = self.repository.renew_submit_lease(operation_id, self.owner_id, lease_seconds=self.lease_seconds)
         if not ok:
             self._lost = True
         return ok
@@ -71,9 +67,7 @@ class _SubmitOwnershipGuard:
                 if not self.renew():
                     return
 
-        self._thread = threading.Thread(
-            target=heartbeat, name=f"submit-lease-{self.owner_id}", daemon=True
-        )
+        self._thread = threading.Thread(target=heartbeat, name=f"submit-lease-{self.owner_id}", daemon=True)
         self._thread.start()
         return self
 
@@ -110,48 +104,29 @@ class _CheckpointSink:
 
         for operation_id, changed in groups.items():
             if not self.guard.renew():
-                raise RuntimeError(
-                    f"submit operation ownership lost: {operation_id}"
-                )
+                raise RuntimeError(f"submit operation ownership lost: {operation_id}")
             error = next(
-                (
-                    task.error_message
-                    for task in changed
-                    if task.status == TaskStatus.uncertain
-                ),
+                (task.error_message for task in changed if task.status == TaskStatus.uncertain),
                 None,
             )
             if not self.repository.finish_submit_operation(
                 operation_id,
                 task_ids=[task.task_id for task in changed],
-                job_ids={
-                    task.task_id: task.remote_job_id
-                    for task in changed
-                    if task.remote_job_id is not None
-                },
+                job_ids={task.task_id: task.remote_job_id for task in changed if task.remote_job_id is not None},
                 error=error,
                 owner_id=self.guard.owner_id,
             ):
-                raise RuntimeError(
-                    f"submit operation could not finish: {operation_id}"
-                )
+                raise RuntimeError(f"submit operation could not finish: {operation_id}")
 
     def mark_remote_started(self, task_ids: list[str]) -> None:
         operations = {
-            self.operation_by_task[task_id].operation_id: self.operation_by_task[task_id]
-            for task_id in task_ids
+            self.operation_by_task[task_id].operation_id: self.operation_by_task[task_id] for task_id in task_ids
         }
         for operation_id, operation in operations.items():
             if operation_id in self.started_operation_ids:
                 continue
             if not self.guard.renew_one(operation.operation_id):
-                raise RuntimeError(
-                    f"submit operation ownership lost: {operation.operation_id}"
-                )
-            if not self.repository.start_submit_operation(
-                operation.operation_id, owner_id=self.guard.owner_id
-            ):
-                raise RuntimeError(
-                    f"submit operation could not start: {operation.operation_id}"
-                )
+                raise RuntimeError(f"submit operation ownership lost: {operation.operation_id}")
+            if not self.repository.start_submit_operation(operation.operation_id, owner_id=self.guard.owner_id):
+                raise RuntimeError(f"submit operation could not start: {operation.operation_id}")
             self.started_operation_ids.add(operation_id)

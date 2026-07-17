@@ -72,10 +72,10 @@ def test_sidebar_active_state_emits_accessibility_state_change(qt_app):
     sidebar_interface = QAccessible.queryAccessibleInterface(sidebar)
     assert sidebar_interface.role() == QAccessible.Role.PageTabList
     assert sidebar_interface.childCount() == 2
-    assert [
-        sidebar_interface.child(index).role()
-        for index in range(sidebar_interface.childCount())
-    ] == [QAccessible.Role.PageTab, QAccessible.Role.PageTab]
+    assert [sidebar_interface.child(index).role() for index in range(sidebar_interface.childCount())] == [
+        QAccessible.Role.PageTab,
+        QAccessible.Role.PageTab,
+    ]
     assert interface.parent().role() == QAccessible.Role.PageTabList
 
     item.active = True
@@ -92,9 +92,7 @@ def test_sidebar_accessibility_only_emits_real_selection_changes(qt_app):
 
     from jobdesk_app.gui.design.components import Sidebar
 
-    sidebar = Sidebar(
-        [("settings", "Settings"), ("files", "Files"), ("runs", "Runs")]
-    )
+    sidebar = Sidebar([("settings", "Settings"), ("files", "Files"), ("runs", "Runs")])
     with patch("PySide6.QtGui.QAccessible.updateAccessibility") as update:
         sidebar.set_current(0)
         assert update.call_count == 1
@@ -105,10 +103,11 @@ def test_sidebar_accessibility_only_emits_real_selection_changes(qt_app):
         sidebar.set_current(1)
         assert update.call_count == 3
 
-    assert [
-        QAccessible.queryAccessibleInterface(item).state().selected
-        for item in sidebar._items
-    ] == [False, True, False]
+    assert [QAccessible.queryAccessibleInterface(item).state().selected for item in sidebar._items] == [
+        False,
+        True,
+        False,
+    ]
 
 
 def test_sidebar_accessibility_selection_interface_is_single_select(qt_app):
@@ -163,8 +162,7 @@ def test_button_role_styles_are_winscp_neutral_not_type_colored():
 
     css = build_app_stylesheet()
     role_section = css[
-        css.index('QPushButton[buttonRole="primary_action"]'):
-        css.index('QPushButton[feedbackState="pending"]')
+        css.index('QPushButton[buttonRole="primary_action"]') : css.index('QPushButton[feedbackState="pending"]')
     ]
 
     for role in [

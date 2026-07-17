@@ -25,11 +25,13 @@ from jobdesk_app.remote.submitter import JobSubmitter
 from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(
-    not all((
-        os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
-        os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
-        os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
-    )),
+    not all(
+        (
+            os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
+            os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
+            os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
+        )
+    ),
     reason="需要 JOBDESK_TEST_SSH_SERVER_ID / JOBDESK_TEST_SERVERS_YAML / JOBDESK_TEST_REMOTE_TMP_DIR",
 )
 

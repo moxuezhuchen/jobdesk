@@ -166,8 +166,14 @@ def test_dialog_loads_initial_spec_keeps_quick_start_button_hidden(qapp):
     canonical way to load a template into a populated canvas.
     """
     spec = WorkflowSpec.from_form(
-        work_dir_name="x", program="gaussian", method="B3LYP", basis="6-31G(d)",
-        charge=0, multiplicity=1, nproc=4, memory_mb=4096,
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=4,
+        memory_mb=4096,
     )
     dlg = WorkflowBuilderDialog(
         language="en",
@@ -298,8 +304,7 @@ def test_quick_start_repositions_view_to_show_new_nodes(qapp, monkeypatch, tmp_p
             f"new nodes fell outside the viewport."
         )
         assert min(node_ys) <= max(visible_y_range) and max(node_ys) >= min(visible_y_range), (
-            f"After Quick-start the view's y-range {visible_y_range} must "
-            f"overlap the node y-positions {node_ys}."
+            f"After Quick-start the view's y-range {visible_y_range} must overlap the node y-positions {node_ys}."
         )
 
         # And ``fit_to_items`` was called, so the transform zoomed
@@ -338,6 +343,7 @@ def test_set_graph_repositions_view_when_populating_empty_canvas(qapp):
         )
         # Load a built-in template via the public Examples API.
         from jobdesk_app.gui.nodegraph.examples_drawer import get_example
+
         graph = get_example("linear_opt_freq").load_graph()
         editor.set_graph(graph)
         qapp.processEvents()
@@ -347,8 +353,7 @@ def test_set_graph_repositions_view_when_populating_empty_canvas(qapp):
             view.verticalScrollBar().value(),
         )
         assert scroll_after != scroll_before, (
-            "set_graph on an empty canvas must re-fit the view so "
-            "the user can see the freshly loaded nodes."
+            "set_graph on an empty canvas must re-fit the view so the user can see the freshly loaded nodes."
         )
     finally:
         editor.close()
@@ -423,6 +428,7 @@ def test_search_box_tab_shortcut_disabled_when_card_hidden(qapp):
         assert editor.onboarding_card().isVisible()
         # Populate the canvas via the toolbar Examples API.
         from jobdesk_app.gui.nodegraph.examples_drawer import get_example
+
         editor.set_graph(get_example("linear_opt_freq").load_graph())
         qapp.processEvents()
         # Card hides when there are nodes.
@@ -440,8 +446,7 @@ def test_search_box_tab_shortcut_disabled_when_card_hidden(qapp):
         search.keyPressEvent(tab_event)
         qapp.processEvents()
         assert qapp.focusWidget() is not editor.onboarding_card()._quick_start_btn, (
-            "Tab shortcut must be cleared once the card is hidden, "
-            "otherwise focus can land on an invisible widget."
+            "Tab shortcut must be cleared once the card is hidden, otherwise focus can land on an invisible widget."
         )
     finally:
         editor.close()

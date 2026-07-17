@@ -1,4 +1,5 @@
 """Tests for the ConfFlow checkpoint probe in run_monitor."""
+
 from __future__ import annotations
 
 from jobdesk_app.services.run_monitor import DoneEvent, _Watcher
@@ -70,10 +71,12 @@ def _make_watcher_with_progress():
     import threading
 
     watcher._stop_event = threading.Event()
+
     # Fake ``wait`` so the loop returns after the first iteration.
     def fake_wait(_seconds):
         watcher._stop_event.set()
         return True
+
     watcher._stop_event.wait = fake_wait  # type: ignore[method-assign]
     return watcher, ssh, progress_events
 
@@ -89,6 +92,7 @@ def test_probe_skipped_when_no_cached_ssh():
 def test_probe_emits_progress_event_on_checkpoint_change():
     """Probe sees `__JD_CHECKPOINT_CHANGED__` -> fires DoneEvent with _ckpt_ prefix."""
     progress_events: list[DoneEvent] = []
+
     def on_progress(event: DoneEvent) -> None:
         progress_events.append(event)
 

@@ -6,6 +6,7 @@ offscreen mode. Instead we drive the scene's public API directly —
 this still exercises the model mutation, undo/redo and cascade
 behaviour we care about, without depending on the window manager.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt
@@ -80,6 +81,7 @@ def test_port_compatibility_incompatible_types_do_not_connect(graph_scene):
     """
     from jobdesk_app.gui.nodegraph.canvas import _ports_compatible
     from jobdesk_app.gui.nodegraph.model import PortType
+
     # Identical types are fine.
     assert _ports_compatible(PortType.STRUCTURE, PortType.STRUCTURE) is True
     # Allowed downcast direction.

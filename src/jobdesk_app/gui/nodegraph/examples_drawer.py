@@ -32,6 +32,7 @@ in :mod:`jobdesk_app.gui.nodegraph.serialization`. The fixtures are
 verified by :mod:`tests.test_nodegraph.test_examples_drawer` so
 loading then re-serialising yields the same node/edge/port graph.
 """
+
 from __future__ import annotations
 
 import json
@@ -193,9 +194,7 @@ class ExamplesDrawer(QPushButton):
             label = tr(tpl.title_en, self._language)
             action = menu.addAction(label)
             action.setStatusTip(tr(tpl.description_en, self._language))
-            action.triggered.connect(
-                lambda _checked=False, tid=tpl.id: self.selected.emit(tid)
-            )
+            action.triggered.connect(lambda _checked=False, tid=tpl.id: self.selected.emit(tid))
         self._menu = menu
         return menu
 

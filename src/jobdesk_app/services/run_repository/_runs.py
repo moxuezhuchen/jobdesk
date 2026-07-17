@@ -31,10 +31,13 @@ def _run_values(record: RunRecord) -> tuple:
 
 
 def _run_exists(connection: sqlite3.Connection, run_id: str) -> bool:
-    return connection.execute(
-        "SELECT 1 FROM runs WHERE run_id = ?",
-        (run_id,),
-    ).fetchone() is not None
+    return (
+        connection.execute(
+            "SELECT 1 FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        is not None
+    )
 
 
 def _insert_run(connection: sqlite3.Connection, record: RunRecord) -> None:
@@ -50,9 +53,7 @@ def _insert_run(connection: sqlite3.Connection, record: RunRecord) -> None:
     )
 
 
-def _row_to_record(
-    connection: sqlite3.Connection, row: sqlite3.Row, runs_dir: Path
-) -> RunRecord:
+def _row_to_record(connection: sqlite3.Connection, row: sqlite3.Row, runs_dir: Path) -> RunRecord:
     run_id = str(row["run_id"])
     run_dir = runs_dir / run_id
     summary_rows = connection.execute(
@@ -109,9 +110,7 @@ def create_run(
 
             deadline = _time.monotonic() + _DELETE_CLEANUP_LEADER_GRACE_SECONDS
         if _time.monotonic() >= deadline:
-            raise ValueError(
-                f"run_id {record.run_id!r} cannot be reused while delete is incomplete"
-            )
+            raise ValueError(f"run_id {record.run_id!r} cannot be reused while delete is incomplete")
         _time.sleep(0.01)
     _insert_run(connection, record)
     _replace_tasks(connection, record.run_id, tasks)
@@ -121,10 +120,7 @@ def create_run(
 def _replace_tasks(connection, run_id: str, tasks: list) -> None:
     mismatched = [task.task_id for task in tasks if task.batch_id != run_id]
     if mismatched:
-        raise ValueError(
-            f"task batch_id does not match run_id {run_id!r}: "
-            + ", ".join(mismatched)
-        )
+        raise ValueError(f"task batch_id does not match run_id {run_id!r}: " + ", ".join(mismatched))
     connection.execute("DELETE FROM tasks WHERE run_id = ?", (run_id,))
     connection.executemany(
         """
@@ -155,9 +151,7 @@ def load_run(connection: sqlite3.Connection, runs_dir: Path, run_id: str) -> Run
 
 
 def list_runs(connection: sqlite3.Connection, runs_dir: Path) -> list[RunRecord]:
-    rows = connection.execute(
-        "SELECT * FROM runs ORDER BY created_at DESC, run_id DESC"
-    ).fetchall()
+    rows = connection.execute("SELECT * FROM runs ORDER BY created_at DESC, run_id DESC").fetchall()
     return [_row_to_record(connection, row, runs_dir) for row in rows]
 
 
@@ -169,6 +163,7 @@ def load_tasks(connection: sqlite3.Connection, run_id: str) -> list:
 
 def _load_tasks(connection, run_id: str) -> list:
     from jobdesk_app.core.manifest import TaskRecord
+
     rows = connection.execute(
         "SELECT payload_json FROM tasks WHERE run_id = ? ORDER BY position",
         (run_id,),

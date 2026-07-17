@@ -25,6 +25,7 @@ def build_app_stylesheet() -> str:
     scrollbar_thickness = ThemeMetrics.SCROLLBAR_THICKNESS
     scrollbar_radius = scrollbar_thickness // 2
     from pathlib import Path
+
     arrow_path = str(Path(__file__).parent / "resources" / "chevron-down.svg").replace("\\", "/")
     return f"""
 * {{

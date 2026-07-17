@@ -1,4 +1,5 @@
 """Download operations for run_service."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,11 +65,7 @@ def _download_completed_locked(
                         download_errors.append(f"{relative_output}: {rec.reason}")
                 except Exception as exc:
                     download_errors.append(f"{relative_output}: {exc}")
-            successful = sum(
-                1
-                for r in recs
-                if r.status in (TransferStatus.transferred, TransferStatus.skipped)
-            )
+            successful = sum(1 for r in recs if r.status in (TransferStatus.transferred, TransferStatus.skipped))
             task_ok = successful == len(requested_outputs) and bool(requested_outputs)
             if download_errors:
                 failures.append((task.task_id, "; ".join(download_errors)))
@@ -98,9 +95,7 @@ def _download_completed_locked(
     rejected_successes = set(successful_task_records) - merged.accepted_task_ids
     if rejected_successes:
         rejected_record_ids = {
-            id(record)
-            for task_id in rejected_successes
-            for record in successful_task_records[task_id]
+            id(record) for task_id in rejected_successes for record in successful_task_records[task_id]
         }
         records = [record for record in records if id(record) not in rejected_record_ids]
         failures.extend(

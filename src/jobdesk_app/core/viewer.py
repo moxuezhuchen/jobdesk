@@ -3,12 +3,14 @@
 SMILES→3D requires rdkit (optional dependency).
 Viewer integration opens local files in configured external programs.
 """
+
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
 
 # ---- SMILES → 3D -----------------------------------------------------------
+
 
 def smiles_to_xyz(
     smiles: str,
@@ -37,10 +39,7 @@ def smiles_to_xyz(
         from rdkit import Chem
         from rdkit.Chem import AllChem
     except ImportError:
-        raise ImportError(
-            "rdkit is required for SMILES→3D conversion. "
-            "Install it with: pip install rdkit"
-        )
+        raise ImportError("rdkit is required for SMILES→3D conversion. Install it with: pip install rdkit")
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -97,6 +96,7 @@ def is_rdkit_available() -> bool:
     """Return True if rdkit is importable."""
     try:
         import rdkit  # noqa: F401
+
         return True
     except ImportError:
         return False

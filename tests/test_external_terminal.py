@@ -73,9 +73,8 @@ def test_windows_terminal_wraps_ssh_as_single_powershell_command(tmp_path):
 
     command_index = launch.args.index("-Command")
     assert "-NoExit" not in launch.args
-    assert launch.args[command_index + 1:] == [
-        "ssh -t -p 10022 xianj@127.0.0.1 "
-        "'cd /home/xianj/qhf/.jobdesk_runs/260529-005 && exec ${SHELL:-/bin/sh} -l'"
+    assert launch.args[command_index + 1 :] == [
+        "ssh -t -p 10022 xianj@127.0.0.1 'cd /home/xianj/qhf/.jobdesk_runs/260529-005 && exec ${SHELL:-/bin/sh} -l'"
     ]
 
 
@@ -89,10 +88,9 @@ def test_windows_terminal_visible_command_uses_powershell_quoting(tmp_path):
     launch = build_terminal_launch(server, "/tmp/job desk/run's", temp_dir=tmp_path)
 
     command = launch.args[launch.args.index("-Command") + 1]
-    assert "\"'\"'\"" not in launch.user_visible_command
+    assert '"\'"\'"' not in launch.user_visible_command
     assert command == (
-        "ssh -t chemist@cluster.example.edu "
-        "'cd ''/tmp/job desk/run''\"''\"''s'' && exec ${SHELL:-/bin/sh} -l'"
+        "ssh -t chemist@cluster.example.edu 'cd ''/tmp/job desk/run''\"''\"''s'' && exec ${SHELL:-/bin/sh} -l'"
     )
     assert launch.user_visible_command == (
         "wt -w 0 new-tab powershell -Command "
@@ -135,10 +133,7 @@ def test_putty_uses_command_file_for_remote_cd(tmp_path):
     assert "-m" in launch.args
     command_file = Path(launch.args[launch.args.index("-m") + 1])
     assert command_file.exists()
-    assert command_file.read_text(encoding="utf-8") == (
-        "cd '/tmp/job desk/run-a'\n"
-        "exec ${SHELL:-/bin/sh} -l\n"
-    )
+    assert command_file.read_text(encoding="utf-8") == ("cd '/tmp/job desk/run-a'\nexec ${SHELL:-/bin/sh} -l\n")
 
 
 def test_putty_uses_configured_terminal_path(tmp_path):

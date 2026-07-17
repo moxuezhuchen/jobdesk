@@ -1,4 +1,5 @@
 """Tests for viewer module (SMILES→3D and third-party viewer integration)."""
+
 from unittest.mock import patch
 
 import pytest
@@ -71,6 +72,7 @@ class TestSmilesConversion:
     @pytest.mark.skipif(not is_rdkit_available(), reason="rdkit not installed")
     def test_benzene_to_xyz(self):
         from jobdesk_app.core.viewer import smiles_to_xyz
+
         xyz = smiles_to_xyz("c1ccccc1")
         lines = xyz.strip().splitlines()
         n_atoms = int(lines[0])
@@ -81,6 +83,7 @@ class TestSmilesConversion:
     @pytest.mark.skipif(not is_rdkit_available(), reason="rdkit not installed")
     def test_xyz_has_correct_format(self):
         from jobdesk_app.core.viewer import smiles_to_xyz
+
         xyz = smiles_to_xyz("C")  # methane
         lines = xyz.strip().splitlines()
         assert int(lines[0]) == 5  # 1C + 4H
@@ -95,6 +98,7 @@ class TestSmilesConversion:
     @pytest.mark.skipif(not is_rdkit_available(), reason="rdkit not installed")
     def test_writes_to_file(self, tmp_path):
         from jobdesk_app.core.viewer import smiles_to_xyz
+
         out = tmp_path / "mol.xyz"
         smiles_to_xyz("C", out)
         assert out.exists()
@@ -103,11 +107,13 @@ class TestSmilesConversion:
     @pytest.mark.skipif(not is_rdkit_available(), reason="rdkit not installed")
     def test_invalid_smiles_raises(self):
         from jobdesk_app.core.viewer import smiles_to_xyz
+
         with pytest.raises(ValueError, match="Invalid SMILES"):
             smiles_to_xyz("not_a_smiles_!!!")
 
     def test_smiles_to_xyz_raises_without_rdkit(self):
         from jobdesk_app.core.viewer import smiles_to_xyz
+
         if is_rdkit_available():
             pytest.skip("rdkit is installed")
         with pytest.raises(ImportError, match="rdkit"):

@@ -8,6 +8,7 @@ be parsed (or whose top-level is not a mapping) is **never** overwritten
 silently by the sample-import flow. We raise :class:`ConfigUnreadable`
 instead so the caller can show a clear error to the user.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,9 +33,7 @@ class ConfigUnreadable(Exception):
     """
 
     def __init__(self, path: Path, cause: BaseException) -> None:
-        super().__init__(
-            f"servers.yaml at {path} could not be parsed: {cause}"
-        )
+        super().__init__(f"servers.yaml at {path} could not be parsed: {cause}")
         self.path = path
         self.cause = cause
 
@@ -65,10 +64,7 @@ def load_existing_servers_data(path: Path) -> dict:
     if not isinstance(loaded, dict):
         raise ConfigUnreadable(
             path,
-            ValueError(
-                f"servers.yaml top-level is {type(loaded).__name__}, "
-                "expected a mapping"
-            ),
+            ValueError(f"servers.yaml top-level is {type(loaded).__name__}, expected a mapping"),
         )
     return loaded
 

@@ -1,4 +1,5 @@
 """P2c: analyzer caches source-file reads across rules within a task."""
+
 from pathlib import Path
 from types import SimpleNamespace
 

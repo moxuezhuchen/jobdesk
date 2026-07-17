@@ -119,14 +119,9 @@ class RunRepository:
             ).fetchone()
             if not metadata_exists:
                 return
-            row = connection.execute(
-                "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-            ).fetchone()
+            row = connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()
             if row is not None and int(row[0]) > _SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"database uses newer schema version {row[0]} "
-                    f"(supported={_SCHEMA_VERSION})"
-                )
+                raise RuntimeError(f"database uses newer schema version {row[0]} (supported={_SCHEMA_VERSION})")
         finally:
             connection.close()
 
@@ -142,24 +137,21 @@ class RunRepository:
             return False
         connection = sqlite3.connect(self.database_path, timeout=5.0)
         try:
-            tables = {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
+            tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             required = {
-                "schema_metadata", "runs", "tasks", "migration_errors",
-                "operations", "workspace_roots", "delete_operation_workspaces",
+                "schema_metadata",
+                "runs",
+                "tasks",
+                "migration_errors",
+                "operations",
+                "workspace_roots",
+                "delete_operation_workspaces",
                 "submit_activity_log",
             }
             if not required.issubset(tables):
                 return False
             metadata = dict(connection.execute("SELECT key, value FROM schema_metadata"))
-            if (
-                metadata.get("schema_version") != str(_SCHEMA_VERSION)
-                or metadata.get("legacy_import_complete") != "1"
-            ):
+            if metadata.get("schema_version") != str(_SCHEMA_VERSION) or metadata.get("legacy_import_complete") != "1":
                 return False
             journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
             return journal_mode is not None and str(journal_mode[0]).lower() == "wal"
@@ -182,8 +174,7 @@ class RunRepository:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("BEGIN IMMEDIATE")
             metadata_exists = connection.execute(
-                "SELECT 1 FROM sqlite_master "
-                "WHERE type = 'table' AND name = 'schema_metadata'"
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_metadata'"
             ).fetchone()
             if metadata_exists:
                 version_row = connection.execute(
@@ -191,17 +182,14 @@ class RunRepository:
                 ).fetchone()
                 if version_row is not None and int(version_row["value"]) > _SCHEMA_VERSION:
                     raise RuntimeError(
-                        f"database uses newer schema version {version_row['value']} "
-                        f"(supported={_SCHEMA_VERSION})"
+                        f"database uses newer schema version {version_row['value']} (supported={_SCHEMA_VERSION})"
                     )
             _create_tables(connection)
             version_row = connection.execute(
                 "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
             ).fetchone()
             if version_row is None:
-                connection.execute(
-                    "INSERT INTO schema_metadata(key, value) VALUES('schema_version', '1')"
-                )
+                connection.execute("INSERT INTO schema_metadata(key, value) VALUES('schema_version', '1')")
                 current_version = 1
             else:
                 current_version = int(version_row["value"])
@@ -220,9 +208,7 @@ class RunRepository:
 
     def schema_version(self) -> int:
         with self._connection() as connection:
-            row = connection.execute(
-                "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
-            ).fetchone()
+            row = connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()
             if row is None:
                 raise RuntimeError("database has no schema version")
             return int(row["value"])
@@ -238,9 +224,7 @@ class RunRepository:
         with self._connection() as connection:
             return delete_operation_workspace(connection, operation_id)
 
-    def create_operation(
-        self, run_id: str, kind: str, phase: str, payload: dict[str, object]
-    ) -> OperationRecord:
+    def create_operation(self, run_id: str, kind: str, phase: str, payload: dict[str, object]) -> OperationRecord:
         with self._connection() as connection:
             return create_operation(connection, run_id, kind, phase, payload)
 
@@ -254,9 +238,7 @@ class RunRepository:
         complete: bool = False,
     ) -> bool:
         with self._connection() as connection:
-            return advance_operation(
-                connection, operation_id, expected_phase, phase, payload, last_error, complete
-            )
+            return advance_operation(connection, operation_id, expected_phase, phase, payload, last_error, complete)
 
     def list_operations(self, *, incomplete_only: bool = False) -> list[OperationRecord]:
         with self._connection() as connection:
@@ -289,8 +271,12 @@ class RunRepository:
     ) -> OperationRecord:
         with self._connection() as connection:
             return prepare_delete_run(
-                connection, self.runs_dir, run_id,
-                run_dir=run_dir, results_root=results_root, results_dir=results_dir,
+                connection,
+                self.runs_dir,
+                run_id,
+                run_dir=run_dir,
+                results_root=results_root,
+                results_dir=results_dir,
             )
 
     def delete_run_metadata(self, operation_id: str) -> bool:
@@ -306,7 +292,10 @@ class RunRepository:
         with self._connection() as connection:
             try:
                 return execute_delete_isolation(
-                    connection, self.runs_dir, operation_id, callback,
+                    connection,
+                    self.runs_dir,
+                    operation_id,
+                    callback,
                 )
             except BaseException as exc:
                 exc_holder[0] = exc
@@ -334,9 +323,12 @@ class RunRepository:
     ) -> bool:
         with self._connection() as connection:
             return _record_submit_outcome(
-                connection, operation_id,
-                task_ids=task_ids, job_ids=job_ids,
-                error=error, owner_id=owner_id,
+                connection,
+                operation_id,
+                task_ids=task_ids,
+                job_ids=job_ids,
+                error=error,
+                owner_id=owner_id,
             )
 
     def load_run(self, run_id: str) -> RunRecord:
@@ -364,7 +356,8 @@ class RunRepository:
     ) -> tuple[list[TaskRecord], list[OperationRecord]]:
         with self._connection() as connection:
             return claim_submit_tasks(
-                connection, run_id,
+                connection,
+                run_id,
                 scheduler_type=scheduler_type,
                 resources=resources,
                 env_init_scripts=env_init_scripts,
@@ -373,21 +366,15 @@ class RunRepository:
                 lease_seconds=lease_seconds,
             )
 
-    def renew_submit_lease(
-        self, operation_id: str, owner_id: str, *, lease_seconds: float = 60.0
-    ) -> bool:
+    def renew_submit_lease(self, operation_id: str, owner_id: str, *, lease_seconds: float = 60.0) -> bool:
         with self._connection() as connection:
             return renew_submit_lease(connection, operation_id, owner_id, lease_seconds=lease_seconds)
 
-    def acquire_submit_recovery(
-        self, operation_id: str, owner_id: str, *, lease_seconds: float = 60.0
-    ) -> bool:
+    def acquire_submit_recovery(self, operation_id: str, owner_id: str, *, lease_seconds: float = 60.0) -> bool:
         with self._connection() as connection:
             return acquire_submit_recovery(connection, operation_id, owner_id, lease_seconds=lease_seconds)
 
-    def start_submit_operation(
-        self, operation_id: str, *, owner_id: str | None = None
-    ) -> bool:
+    def start_submit_operation(self, operation_id: str, *, owner_id: str | None = None) -> bool:
         with self._connection() as connection:
             return start_submit_operation(connection, operation_id, owner_id=owner_id)
 
@@ -402,27 +389,28 @@ class RunRepository:
     ) -> bool:
         with self._connection() as connection:
             return finish_submit_operation(
-                connection, operation_id,
-                task_ids=task_ids, job_ids=job_ids, error=error, owner_id=owner_id,
+                connection,
+                operation_id,
+                task_ids=task_ids,
+                job_ids=job_ids,
+                error=error,
+                owner_id=owner_id,
             )
 
-    def complete_submit_operation(
-        self, operation_id: str, expected_phase: str, *, owner_id: str | None = None
-    ) -> bool:
+    def complete_submit_operation(self, operation_id: str, expected_phase: str, *, owner_id: str | None = None) -> bool:
         with self._connection() as connection:
             return complete_submit_operation(
-                connection, operation_id, expected_phase, owner_id=owner_id,
+                connection,
+                operation_id,
+                expected_phase,
+                owner_id=owner_id,
             )
 
-    def release_claimed_submit_operation(
-        self, operation_id: str, *, owner_id: str | None = None
-    ) -> bool:
+    def release_claimed_submit_operation(self, operation_id: str, *, owner_id: str | None = None) -> bool:
         with self._connection() as connection:
             return release_claimed_submit_operation(connection, operation_id, owner_id=owner_id)
 
-    def recover_submit_operation(
-        self, operation_id: str, *, owner_id: str | None = None
-    ) -> bool:
+    def recover_submit_operation(self, operation_id: str, *, owner_id: str | None = None) -> bool:
         with self._connection() as connection:
             return recover_submit_operation(connection, operation_id, owner_id=owner_id)
 
@@ -436,7 +424,11 @@ class RunRepository:
     ) -> tuple[list[str], list[TaskRecord]]:
         with self._connection() as connection:
             accepted, resolved = resolve_uncertain_tasks(
-                connection, run_id, task_ids, action=action, remote_job_ids=remote_job_ids,
+                connection,
+                run_id,
+                task_ids,
+                action=action,
+                remote_job_ids=remote_job_ids,
             )
         return accepted, resolved
 

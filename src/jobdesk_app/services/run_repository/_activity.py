@@ -48,12 +48,14 @@ def list_recent_activity(
     ).fetchall()
     result = []
     for row in rows:
-        result.append({
-            "id": row["id"],
-            "ts": row["ts"],
-            "level": row["level"],
-            "message": row["message"],
-            "payload": json.loads(row["payload_json"]),
-            "run_id": row["run_id"],
-        })
+        result.append(
+            {
+                "id": row["id"],
+                "ts": row["ts"],
+                "level": row["level"],
+                "message": row["message"],
+                "payload": json.loads(row["payload_json"]),
+                "run_id": row["run_id"],
+            }
+        )
     return result

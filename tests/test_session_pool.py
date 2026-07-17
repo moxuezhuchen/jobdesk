@@ -284,6 +284,7 @@ def test_mutating_reused_config_object_replaces_idle_session() -> None:
 
 # --- Tests for acquire() context manager ---
 
+
 def test_acquire_basic_usage() -> None:
     pool, factory = make_pool()
     with pool.acquire("a", Config("a")) as lease:

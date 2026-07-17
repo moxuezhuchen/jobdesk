@@ -3,6 +3,7 @@
 The banner is a small dismissible surface for non-modal warnings/errors. It
 sits above the activity log so the user notices without scrolling.
 """
+
 from __future__ import annotations
 
 import pytest

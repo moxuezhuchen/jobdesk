@@ -3,6 +3,7 @@
 This module is auto-discovered by pytest as a conftest in the
 ``test_gui_behavior/`` subdirectory.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
