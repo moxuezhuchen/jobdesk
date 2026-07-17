@@ -31,7 +31,20 @@ class ConfFlowStepProgress:
 
 
 def load_summary(path: Path) -> ConfFlowSummary:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not path.exists():
+        return ConfFlowSummary(
+            initial_conformers=0,
+            final_conformers=0,
+            total_duration_seconds=0.0,
+        )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ConfFlowSummary(
+            initial_conformers=0,
+            final_conformers=0,
+            total_duration_seconds=0.0,
+        )
     return ConfFlowSummary(
         initial_conformers=int(raw.get("initial_conformers", 0) or 0),
         final_conformers=int(raw.get("final_conformers", 0) or 0),
