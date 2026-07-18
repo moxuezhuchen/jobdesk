@@ -47,19 +47,22 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to create virtual environment" -ForegroundColor Red
     exit 1
 }
-$activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
-if (-not (Test-Path $activateScript)) {
-    $activateScript = Join-Path $VenvPath "Scripts\activate.bat"
-    & $activateScript
-} else {
-    & $activateScript
+
+# Use explicit python.exe path to avoid relying on activate script
+$Python = Join-Path $VenvPath "Scripts\python.exe"
+if (-not (Test-Path $Python)) {
+    $Python = Join-Path $VenvPath "bin\python"  # Unix-style fallback
+}
+if (-not (Test-Path $Python)) {
+    Write-Host "ERROR: python.exe not found in venv" -ForegroundColor Red
+    exit 1
 }
 Write-Host "  OK: Virtual environment created" -ForegroundColor Green
 Write-Host ""
 
 # Step 3: Install confflow wheel
 Write-Host "[3/5] Installing confflow wheel..."
-& py -m pip install $WheelPath
+& $Python -m pip install $WheelPath
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to install confflow wheel" -ForegroundColor Red
     exit 1
@@ -69,7 +72,7 @@ Write-Host ""
 
 # Step 4: Verify confflow version
 Write-Host "[4/5] Verifying confflow version..."
-$version = python -c "import confflow; print(confflow.__version__)"
+$version = & $Python -c "import confflow; print(confflow.__version__)"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to import confflow" -ForegroundColor Red
     exit 1
@@ -83,7 +86,7 @@ Write-Host ""
 
 # Step 5: Install jobdesk with chem extra
 Write-Host "[5/5] Installing jobdesk with chem extra..."
-& py -m pip install -e "${JobdeskPath}[chem]"
+& $Python -m pip install -e "${JobdeskPath}[chem]"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to install jobdesk" -ForegroundColor Red
     exit 1
@@ -99,7 +102,7 @@ Write-Host "================================================"
 
 Push-Location $JobdeskPath
 try {
-    & py -m pytest tests\test_confflow_results.py tests\test_run_monitor_checkpoint.py tests\test_workflow_spec.py tests\test_gui_settings.py -v
+    & $Python -m pytest tests\test_confflow_results.py tests\test_run_monitor_checkpoint.py tests\test_workflow_spec.py tests\test_gui_settings.py -v
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "================================================"
