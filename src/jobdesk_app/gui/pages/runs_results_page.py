@@ -2169,10 +2169,43 @@ def _confflow_step_stats_file(result_dir: Path, mol_name: str) -> Path:
     return candidates[0]
 
 
-def _step_progress_text(result_dir: Path, mol_name: str) -> str:
-    """Render a short step-progress string for the Runs page table."""
-    from ...services.confflow_results import format_step_progress, load_step_progress
+def _confflow_workflow_state_file(result_dir: Path, mol_name: str) -> Path | None:
+    """Locate ``.workflow_state.json`` (v1.3.0 atomic checkpoint).
 
+    Returns the path if found, otherwise None. Callers should fall back to
+    ``workflow_stats.json`` when this returns None.
+    """
+    candidates = [
+        result_dir / f"{mol_name}_confflow_work" / ".workflow_state.json",
+        result_dir / mol_name / f"{mol_name}_confflow_work" / ".workflow_state.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _step_progress_text(result_dir: Path, mol_name: str) -> str:
+    """Render a short step-progress string for the Runs page table.
+
+    Prefers the v1.3.0 atomic ``.workflow_state.json`` when available,
+    falling back to ``workflow_stats.json`` for older runs.
+    """
+    from ...services.confflow_results import (
+        format_step_progress,
+        load_step_progress,
+        load_workflow_state_progress,
+    )
+
+    # Prefer the v1.3.0 atomic state file
+    state_file = _confflow_workflow_state_file(result_dir, mol_name)
+    if state_file is not None:
+        progress = load_workflow_state_progress(state_file)
+        formatted = format_step_progress(progress)
+        if formatted:
+            return formatted
+
+    # Fall back to workflow_stats.json for older runs or when state file is empty
     stats_file = _confflow_step_stats_file(result_dir, mol_name)
     progress = load_step_progress(stats_file)
     return format_step_progress(progress)

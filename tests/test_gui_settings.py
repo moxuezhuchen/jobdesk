@@ -168,3 +168,17 @@ def test_update_merges_only_given_fields_without_losing_others(tmp_path):
     loaded = GuiSettingsStore(path).load()
     assert loaded.last_remote_dirs == {"wsl": "/scratch"}  # not lost by the second update
     assert loaded.window_size == [800, 600]
+
+
+def test_confflow_download_patterns_include_workflow_state_json():
+    """B4: ConfFlow download_patterns must include .workflow_state.json for v1.3.0.
+
+    Without this, default GUI settings would not download state files for
+    workflows created via ConfFlowAdapter, making the Runs page unable to
+    refresh progress when only the state file is updated.
+    """
+    settings = GuiSettings()
+    patterns = settings.software_profiles["ConfFlow"]["download_patterns"]
+
+    assert "workflow_stats.json" in patterns
+    assert ".workflow_state.json" in patterns

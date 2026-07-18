@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from jobdesk_app.confflow.confflow.core.models import CalcConfigModel, GlobalConfigModel
+    from confflow.core.models import CalcConfigModel, GlobalConfigModel
 
     _CONFFLOW_AVAILABLE = True
-except ImportError:  # vendored confflow not present (developer forgot to subtree pull)
+except ImportError:  # confflow package not installed (chem extra was skipped)
     CalcConfigModel = None  # type: ignore[misc,assignment]
     GlobalConfigModel = None  # type: ignore[misc,assignment]
     _CONFFLOW_AVAILABLE = False
@@ -100,7 +100,7 @@ def _validate_confflow_semantics(payload: dict[str, Any], *, allow_legacy_confge
     programs and conformer settings locally, but must not reject such a
     remote path merely because it is absent on this Windows machine.
     """
-    from jobdesk_app.confflow.confflow.config.schema import validate_yaml_config
+    from ..core._confflow_validation import validate_yaml_config
 
     validation_payload = deepcopy(payload)
     global_config = validation_payload.get("global")
@@ -412,7 +412,7 @@ def _validate_via_global_model(raw: dict[str, Any]) -> None:
     :class:`GlobalConfigModel` only covers the ``global`` half of the
     schema — it knows nothing about ``steps``.
     """
-    from jobdesk_app.confflow.confflow.core.models import GlobalConfigModel
+    from confflow.core.models import GlobalConfigModel
 
     GlobalConfigModel.model_validate(raw.get("global") or {})
 
@@ -674,7 +674,7 @@ class WorkflowSpec:
         defaults and the user didn't pick them. ``freeze`` is shown
         when non-empty (a non-trivial constraint).
         """
-        from jobdesk_app.confflow.confflow.core.models import GlobalConfigModel
+        from confflow.core.models import GlobalConfigModel
 
         defaults = {
             fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None

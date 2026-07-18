@@ -385,11 +385,13 @@ def test_to_user_yaml_keeps_orca_iprog_override():
     assert "iprog: orca" in text
 
 
-def test_user_yaml_round_trip_through_confflow_loader():
+def test_user_yaml_round_trip_via_jobdesk_validation():
     """``to_user_yaml`` → ``from_yaml`` (after merging hidden fields
-    back) → ``to_yaml`` must still pass the confflow loader.
+    back) must still pass JobDesk's validation and produce valid YAML.
 
     This is the contract the workflow page ``Apply`` button relies on.
+    We use JobDesk's own validation module instead of the vendored confflow
+    loader to avoid a hard dependency on the vendored subtree.
     """
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
@@ -427,24 +429,14 @@ def test_user_yaml_round_trip_through_confflow_loader():
         default_flow_style=False,
     )
     rebuilt = WorkflowSpec.from_yaml(merged_text)
-    # And the rebuilt spec still loads via the confflow loader.
-    import os
-    import tempfile
 
-    from jobdesk_app.confflow.confflow.config.loader import (
-        load_workflow_config_file,
-    )
+    # Validate using JobDesk's own validator (not vendored confflow loader).
+    from jobdesk_app.core._confflow_validation import validate_yaml_config
 
-    with tempfile.NamedTemporaryFile(
-        "w",
-        suffix=".yaml",
-        delete=False,
-        encoding="utf-8",
-    ) as f:
-        f.write(rebuilt.to_yaml())
-        path = f.name
-    try:
-        cfg = load_workflow_config_file(path)
-        assert len(cfg["steps"]) >= 1
-    finally:
-        os.unlink(path)
+    rebuilt_yaml = rebuilt.to_yaml()
+    rebuilt_data = yamllib.safe_load(rebuilt_yaml)
+    errors = validate_yaml_config(rebuilt_data)
+    assert errors == [], f"Round-tripped YAML failed validation: {errors}"
+    assert isinstance(rebuilt_data, dict)
+    assert "steps" in rebuilt_data
+    assert len(rebuilt_data["steps"]) >= 1

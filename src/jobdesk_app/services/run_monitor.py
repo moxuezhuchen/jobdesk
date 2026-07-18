@@ -288,7 +288,8 @@ class _Watcher:
             f"marker={shlex.quote(self._events_path.rsplit('/', 1)[0])}/.jobdesk_checkpoint_marker\n"
             '[ -f "$marker" ] || touch "$marker"\n'
             f"updated=$(find {shlex.quote(self._events_path.rsplit('/', 1)[0])} "
-            '-name workflow_stats.json -newer "$marker" -print -quit 2>/dev/null)\n'
+            r'\( -name workflow_stats.json -o -name .workflow_state.json \) '
+            '-newer "$marker" -print -quit 2>/dev/null)\n'
             'touch "$marker"\n'
             "if [ -n \"$updated\" ]; then printf '__JD_CHECKPOINT_CHANGED__\\n'; fi\n"
         )

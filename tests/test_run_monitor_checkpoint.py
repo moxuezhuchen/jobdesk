@@ -138,18 +138,37 @@ def test_probe_does_nothing_on_clean_run():
 def test_probe_swallows_exceptions():
     """Probe failure is silent — never raises to the loop."""
     progress_events: list[DoneEvent] = []
-
-    class BrokenSSH:
-        def run(self, *args, **kwargs):
-            raise OSError("connection lost mid-probe")
-
-        def close(self):
-            pass
-
+    ssh = FakeSSH([])
     watcher = _Watcher(
         run_id="r4",
         server_id="wsl",
         remote_batch_dir="/tmp/run4",
+        server_config={"server_id": "wsl"},
+        callback=lambda *args: None,
+        ssh_factory=lambda _cfg: ssh,
+        progress_callback=progress_events.append,
+    )
+    watcher._cached_ssh = ssh
+    # Must not raise.
+    watcher._probe_checkpoint()
+    assert progress_events == []
+
+
+class BrokenSSH:
+    def run(self, *args, **kwargs):
+        raise OSError("connection lost mid-probe")
+
+    def close(self):
+        pass
+
+
+def test_probe_swallows_exceptions_from_broken_ssh():
+    """Probe failure is silent — never raises to the loop."""
+    progress_events: list[DoneEvent] = []
+    watcher = _Watcher(
+        run_id="r5",
+        server_id="wsl",
+        remote_batch_dir="/tmp/run5",
         server_config={"server_id": "wsl"},
         callback=lambda *args: None,
         ssh_factory=lambda _cfg: BrokenSSH(),
@@ -159,3 +178,67 @@ def test_probe_swallows_exceptions():
     # Must not raise.
     watcher._probe_checkpoint()
     assert progress_events == []
+
+
+def test_probe_script_finds_both_state_files():
+    """Verify the probe script uses -o (OR) to match both workflow_stats.json and .workflow_state.json."""
+    progress_events: list[DoneEvent] = []
+
+    class ScriptCapturingSSH:
+        last_script = ""
+
+        def run(self, script, timeout=None):
+            ScriptCapturingSSH.last_script = script
+            return FakeResult(0, "")
+
+        def close(self):
+            pass
+
+    watcher = _Watcher(
+        run_id="r6",
+        server_id="wsl",
+        remote_batch_dir="/tmp/run6",
+        server_config={"server_id": "wsl"},
+        callback=lambda *args: None,
+        ssh_factory=lambda _cfg: ScriptCapturingSSH(),
+        progress_callback=progress_events.append,
+    )
+    watcher._cached_ssh = ScriptCapturingSSH()
+    watcher._probe_checkpoint()
+
+    # The script must contain a find that matches both file patterns
+    assert "workflow_stats.json" in ScriptCapturingSSH.last_script
+    assert ".workflow_state.json" in ScriptCapturingSSH.last_script
+    # The -o (OR) operator should be used to combine the patterns
+    assert "-o" in ScriptCapturingSSH.last_script
+
+
+def test_probe_detects_workflow_state_json_change():
+    """Probe emits progress event when .workflow_state.json is newer than marker.
+
+    This validates that v1.3.0 state-file-only workflows trigger GUI refresh.
+    """
+    progress_events: list[DoneEvent] = []
+
+    def on_progress(event: DoneEvent) -> None:
+        progress_events.append(event)
+
+    ssh = FakeSSH([FakeResult(0, "__JD_CHECKPOINT_CHANGED__\n")])
+    watcher = _Watcher(
+        run_id="r7",
+        server_id="wsl",
+        remote_batch_dir="/tmp/run7",
+        server_config={"server_id": "wsl"},
+        callback=lambda *args: None,
+        ssh_factory=lambda _cfg: ssh,
+        progress_callback=on_progress,
+    )
+    watcher._cached_ssh = ssh
+    watcher._probe_checkpoint()
+
+    assert len(progress_events) == 1
+    evt = progress_events[0]
+    assert evt.task_id.startswith("_ckpt_")
+    assert evt.exit_code is None
+    assert evt.run_id == "r7"
+    assert evt.server_id == "wsl"
