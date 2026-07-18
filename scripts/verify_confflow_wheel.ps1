@@ -1,8 +1,7 @@
 # ConfFlow 1.3.0 Wheel Deployment Verification Script (PowerShell)
 #
 # Usage:
-#   1. Open PowerShell as Administrator
-#   2. Run: .\scripts\verify_confflow_wheel.ps1
+#   Run: .\scripts\verify_confflow_wheel.ps1
 #
 # Prerequisites:
 #   - C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl exists
@@ -38,6 +37,22 @@ Write-Host ""
 
 # Step 2: Create clean venv
 Write-Host "[2/5] Creating clean virtual environment..."
+
+# Safety: refuse to delete unsafe paths
+$safeToDelete = $true
+if ([string]::IsNullOrWhiteSpace($VenvPath)) {
+    Write-Host "ERROR: VenvPath cannot be empty" -ForegroundColor Red
+    exit 1
+}
+if ($VenvPath -match '^[A-Za-z]:\\?$') {
+    Write-Host "ERROR: Refusing to delete root of a drive: $VenvPath" -ForegroundColor Red
+    exit 1
+}
+if ((Resolve-Path $VenvPath -ErrorAction SilentlyContinue).Path -eq (Resolve-Path $JobdeskPath -ErrorAction SilentlyContinue).Path) {
+    Write-Host "ERROR: Refusing to delete JobdeskPath itself: $JobdeskPath" -ForegroundColor Red
+    exit 1
+}
+
 if (Test-Path $VenvPath) {
     Write-Host "  Removing existing venv..."
     Remove-Item -Recurse -Force $VenvPath
@@ -48,13 +63,10 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Use explicit python.exe path to avoid relying on activate script
+# Use explicit python.exe path — no activation scripts
 $Python = Join-Path $VenvPath "Scripts\python.exe"
 if (-not (Test-Path $Python)) {
-    $Python = Join-Path $VenvPath "bin\python"  # Unix-style fallback
-}
-if (-not (Test-Path $Python)) {
-    Write-Host "ERROR: python.exe not found in venv" -ForegroundColor Red
+    Write-Host "ERROR: python.exe not found in venv: $Python" -ForegroundColor Red
     exit 1
 }
 Write-Host "  OK: Virtual environment created" -ForegroundColor Green

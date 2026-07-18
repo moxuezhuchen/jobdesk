@@ -8,7 +8,7 @@ REM
 REM This script uses an isolated build directory (C:\dft\tool\confflow-build)
 REM and never touches any existing C:\dft\tool\ConfFlow worktree.
 
-setlocal EnableDelayedExpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
 echo ================================================
 echo ConfFlow 1.3.0 Wheel Builder (Isolated)
@@ -39,6 +39,12 @@ if not exist "%BUILD_SRC%" (
 REM Step 2: Verify working tree is clean
 pushd "%BUILD_SRC%"
 git fetch --tags
+if errorlevel 1 (
+    echo ERROR: Failed to fetch tags
+    popd
+    endlocal
+    exit /b 1
+)
 git status --porcelain > "%TEMP%\build_status.tmp"
 findstr /N "." "%TEMP%\build_status.tmp" > nul
 if not errorlevel 1 (
@@ -99,13 +105,13 @@ if not exist "%WHEEL_OUT%" (
 
 pushd "%BUILD_SRC%"
 py -m build --wheel --outdir "%WHEEL_OUT%"
-if errorlevel 1 (
-    echo ERROR: Failed to build wheel
-    popd
-    endlocal
-    exit /b 1
-)
+set "BUILD_EXIT=%ERRORLEVEL%"
 popd
+if not "%BUILD_EXIT%"=="0" (
+    echo ERROR: Failed to build wheel
+    endlocal
+    exit /b %BUILD_EXIT%
+)
 
 REM Step 5: Verify wheel
 echo.
