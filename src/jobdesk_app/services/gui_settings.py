@@ -19,7 +19,7 @@ _BUILTIN_PROFILES: dict[str, dict[str, str]] = {
     "ConfFlow": {
         "input_extensions": ".xyz",
         "command_template": "confflow {name}",
-        "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json",
+        "download_patterns": "*.txt,*min.xyz,*/run_summary.json,*/workflow_stats.json,*/.workflow_state.json",
     },
 }
 

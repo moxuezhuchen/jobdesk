@@ -50,6 +50,7 @@ class ConfFlowAdapter:
                 "{basename}min.xyz",
                 "{basename}_confflow_work/run_summary.json",
                 "{basename}_confflow_work/workflow_stats.json",
+                "{basename}_confflow_work/.workflow_state.json",
             ],
             workflow_kind=WorkflowKind.confflow,
         )
@@ -92,6 +93,7 @@ class ConfFlowAdapter:
                 "{basename}min.xyz",
                 "{basename}_confflow_work/run_summary.json",
                 "{basename}_confflow_work/workflow_stats.json",
+                "{basename}_confflow_work/.workflow_state.json",
             ],
             workflow_kind=WorkflowKind.dag,
         )
