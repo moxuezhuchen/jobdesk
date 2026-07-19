@@ -61,7 +61,8 @@ del "%TEMP%\build_status.tmp" 2>nul
 
 REM Step 3: Verify HEAD is exactly v1.3.0
 for /f %%i in ('git rev-parse HEAD') do set "CURRENT_COMMIT=%%i"
-for /f %%i in ('git rev-parse %TARGET_TAG%') do set "TAG_COMMIT=%%i"
+REM Use rev-list to dereference annotated tags to their commit SHA
+for /f %%i in ('git rev-list -n 1 %TARGET_TAG%') do set "TAG_COMMIT=%%i"
 
 if not "!CURRENT_COMMIT!"=="!TAG_COMMIT!" (
     echo   Checking out %TARGET_TAG%...
