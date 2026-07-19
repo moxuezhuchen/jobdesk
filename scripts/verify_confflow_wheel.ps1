@@ -106,6 +106,19 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "  OK: jobdesk installed" -ForegroundColor Green
 Write-Host ""
 
+# Step 5b: Install test runner (pytest lives in the [dev] extra, not [chem]).
+# Install only pytest + pytest-qt explicitly: the full [dev] extra pins
+# numpy<2.4 on py3.13, which would downgrade the numpy that confflow pulled
+# in and perturb the verified clean-install dependency set.
+Write-Host "  Installing test runner (pytest, pytest-qt)..."
+& $Python -m pip install "pytest>=8.0" "pytest-qt>=4.4"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Failed to install test runner" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  OK: test runner installed" -ForegroundColor Green
+Write-Host ""
+
 # Step 6: Run verification tests
 Write-Host ""
 Write-Host "================================================"
