@@ -1,26 +1,25 @@
-"""Phase 3A — JobDesk → ConFlow Python API integration tests.
+"""Phase 3A — JobDesk → ConfFlow Python API integration tests.
 
 Covers the library surface that JobDesk calls to drive ConfFlow:
 - ``confflow.run_workflow`` as a Python library (no CLI subprocess)
-- ``confflow.ChemTaskManager`` initialized from a dict config
 - ``confflow_results.load_summary`` / ``load_step_progress`` on real artifact shapes
 - ``ConfFlowAdapter.build_spec`` / ``build_dag_spec`` round-trips
 - DAG workflow execution with explicit ``inputs`` edges
 
-These tests run on Windows (no WSL required) and mock the Gaussian
-executor so they are fast and hermetic.
+These tests run on Windows (no WSL required) and inject a fake ConfFlow
+calculation executor so they are fast and hermetic.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+import yaml
+from confflow.calc.executor import CalcHandle, CalcStatus
 
 
 # ---------------------------------------------------------------------------
@@ -49,24 +48,81 @@ def methane_xyz(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _mock_calc_run(self, input_xyz_file: str) -> None:
-    os.makedirs(self.work_dir, exist_ok=True)
-    out = os.path.join(self.work_dir, "output.xyz")
-    with open(out, "w") as fh:
-        fh.write(METANE_XYZ)
+class FakeCalcExecutor:
+    """In-memory v1.3.0 executor that never launches a calculation process."""
 
-    db = os.path.join(self.work_dir, "results.db")
-    conn = sqlite3.connect(db)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS task_results "
-        "(cid TEXT, status TEXT, energy_au REAL, final_xyz TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO task_results VALUES ('A000001', 'success', -40.51838331, ?)",
-        (METANE_XYZ,),
-    )
-    conn.commit()
-    conn.close()
+    def __init__(self) -> None:
+        self.submitted: list[str] = []
+        self.polls: list[str] = []
+        self._handles: dict[str, CalcHandle] = {}
+
+    def submit(
+        self,
+        work_dir: str,
+        job_name: str,
+        policy: Any,
+        coords: Any,
+        config: dict[str, Any],
+        cmd: list[str],
+        env: dict[str, str] | None,
+    ) -> CalcHandle:
+        del coords, config, cmd, env
+        step_dir = Path(work_dir)
+        step_dir.mkdir(parents=True, exist_ok=True)
+        (step_dir / f"{job_name}.{policy.log_ext}").write_text(
+            " Normal termination of Gaussian 16\n",
+            encoding="utf-8",
+        )
+        (step_dir / f"{job_name}.err").write_text("", encoding="utf-8")
+        handle = CalcHandle(
+            job_name=job_name,
+            work_dir=work_dir,
+            submitted_at=0.0,
+            executor_data={"fake": True},
+        )
+        self.submitted.append(job_name)
+        self._handles[job_name] = handle
+        return handle
+
+    def is_terminal(self, handle: CalcHandle) -> bool:
+        self.polls.append(handle.job_name)
+        return True
+
+    def succeeded(self, handle: CalcHandle) -> bool:
+        return handle.job_name in self._handles
+
+    def error(self, handle: CalcHandle) -> str | None:
+        del handle
+        return None
+
+    def cancel(self, handle: CalcHandle) -> None:
+        del handle
+
+    def fetch_output(
+        self,
+        handle: CalcHandle,
+        log: str,
+        config: dict[str, Any],
+        is_sp_task: bool = False,
+    ) -> dict[str, Any]:
+        del handle, log, config, is_sp_task
+        return {
+            "e_low": -40.51838331,
+            "g_low": None,
+            "g_corr": None,
+            "final_coords": [
+                "C 0.000000 0.000000 0.000000",
+                "H 0.629118 0.629118 0.629118",
+                "H -0.629118 -0.629118 0.629118",
+                "H -0.629118 0.629118 -0.629118",
+                "H 0.629118 -0.629118 -0.629118",
+            ],
+            "num_imag_freqs": 0,
+            "lowest_freq": None,
+        }
+
+    def poll(self, handle: CalcHandle) -> CalcStatus:
+        return CalcStatus(is_terminal=True, succeeded=self.succeeded(handle), exit_code=0)
 
 
 def test_run_workflow_library_call_opt_calc(methane_xyz: Path, tmp_path: Path) -> None:
@@ -93,16 +149,15 @@ def test_run_workflow_library_call_opt_calc(methane_xyz: Path, tmp_path: Path) -
 
     work_dir = tmp_path / "work"
 
-    with (
-        patch("confflow.calc.ChemTaskManager.run", new=_mock_calc_run),
-        patch("confflow.blocks.viz.generate_text_report", return_value=""),
-    ):
+    executor = FakeCalcExecutor()
+    with patch("confflow.blocks.viz.generate_text_report", return_value=""):
         stats = run_workflow(
             input_xyz=[str(methane_xyz)],
             config_file=str(config_file),
             work_dir=str(work_dir),
             resume=False,
             verbose=False,
+            calc_executor=executor,
         )
 
     assert isinstance(stats, dict)
@@ -143,62 +198,29 @@ def test_run_workflow_resume_skips_completed_step(methane_xyz: Path, tmp_path: P
 
     work_dir = tmp_path / "work"
 
-    with (
-        patch("confflow.calc.ChemTaskManager.run", new=_mock_calc_run),
-        patch("confflow.blocks.viz.generate_text_report", return_value=""),
-    ):
+    executor = FakeCalcExecutor()
+    with patch("confflow.blocks.viz.generate_text_report", return_value=""):
         first = run_workflow(
-            [str(methane_xyz)], str(config_file), str(work_dir), resume=False, verbose=False
+            [str(methane_xyz)],
+            str(config_file),
+            str(work_dir),
+            resume=False,
+            verbose=False,
+            calc_executor=executor,
         )
         assert first["steps"][0]["status"] == "completed"
 
-    with (
-        patch("confflow.calc.ChemTaskManager.run", new=_mock_calc_run),
-        patch("confflow.blocks.viz.generate_text_report", return_value=""),
-    ):
+    with patch("confflow.blocks.viz.generate_text_report", return_value=""):
         second = run_workflow(
-            [str(methane_xyz)], str(config_file), str(work_dir), resume=True, verbose=False
+            [str(methane_xyz)],
+            str(config_file),
+            str(work_dir),
+            resume=True,
+            verbose=False,
+            calc_executor=executor,
         )
-        # Completed step is skipped; second run may return empty steps
-        # depending on checkpoint state.
         assert second.get("steps") is None or second["steps"] == []
-
-
-# ---------------------------------------------------------------------------
-# ChemTaskManager from dict config
-# ---------------------------------------------------------------------------
-
-
-def test_chem_task_manager_from_dict_config(tmp_path: Path) -> None:
-    """ChemTaskManager can be initialized from a plain dict (no INI file)."""
-    from confflow.calc import ChemTaskManager
-
-    cfg: dict[str, Any] = {
-        "iprog": "g16",
-        "itask": "sp",
-        "keyword": "b3lyp/6-31g(d)",
-        "cores_per_task": 1,
-        "total_memory": "1GB",
-        "charge": 0,
-        "multiplicity": 1,
-    }
-
-    manager = ChemTaskManager(settings=cfg)
-    assert manager.config["iprog"] == "g16"
-    assert manager.config["itask"] == "sp"
-    assert manager.config["keyword"] == "b3lyp/6-31g(d)"
-    assert manager.config["cores_per_task"] == 1
-
-
-def test_chem_task_manager_work_dir_from_resume_dir(tmp_path: Path) -> None:
-    """ChemTaskManager honours resume_dir for work_dir on re-run."""
-    from confflow.calc import ChemTaskManager
-
-    resume = tmp_path / "resume_wd"
-    resume.mkdir()
-
-    manager = ChemTaskManager(resume_dir=str(resume))
-    assert manager.work_dir == str(resume)
+        assert executor.submitted == ["A000001"]
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +300,7 @@ def test_load_step_progress_empty_when_missing(tmp_path: Path) -> None:
 
 def test_format_summary_lines(tmp_path: Path) -> None:
     """format_summary renders a human-readable one-line summary."""
-    from jobdesk_app.services.confflow_results import ConfFlowSummary, format_summary, load_summary
+    from jobdesk_app.services.confflow_results import format_summary, load_summary
 
     summary_path = tmp_path / "run_summary.json"
     summary_path.write_text(json.dumps(RUN_SUMMARY_FIXTURE), encoding="utf-8")
@@ -293,7 +315,6 @@ def test_format_step_progress_done_only(tmp_path: Path) -> None:
     from jobdesk_app.services.confflow_results import (
         ConfFlowStepProgress,
         format_step_progress,
-        load_step_progress,
     )
 
     progress = ConfFlowStepProgress(completed=("s1", "s2"), current="", last_updated="")
@@ -372,8 +393,6 @@ def test_conf_flow_adapter_build_dag_spec() -> None:
 
 def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
     """DAG fan-out: two calc steps each depend on confgen, run in parallel."""
-    import yaml
-
     from confflow.workflow.engine import run_workflow
 
     config_file = tmp_path / "confflow.yaml"
@@ -431,23 +450,9 @@ def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
             encoding="utf-8",
         )
 
-    def fake_calc_run(self, input_xyz_file):
-        os.makedirs(self.work_dir, exist_ok=True)
-        out = os.path.join(self.work_dir, "output.xyz")
-        Path(out).write_text(METANE_XYZ, encoding="utf-8")
-        db = os.path.join(self.work_dir, "results.db")
-        conn = sqlite3.connect(db)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS task_results "
-            "(cid TEXT, status TEXT, energy_au REAL)"
-        )
-        conn.execute("INSERT INTO task_results VALUES ('A000001', 'success', -40.5)")
-        conn.commit()
-        conn.close()
-
+    executor = FakeCalcExecutor()
     with (
         patch("confflow.blocks.confgen.run_generation", side_effect=fake_confgen),
-        patch("confflow.calc.ChemTaskManager.run", new=fake_calc_run),
         patch("confflow.blocks.viz.generate_text_report", return_value=""),
     ):
         stats = run_workflow(
@@ -456,6 +461,7 @@ def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
             str(work_dir),
             resume=False,
             verbose=False,
+            calc_executor=executor,
         )
 
     assert (work_dir / "confgen" / "search.xyz").exists()
@@ -467,8 +473,6 @@ def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
 
 def test_run_workflow_dag_linear_backward_compatibility(methane_xyz: Path, tmp_path: Path) -> None:
     """Legacy linear workflow (no inputs) still works exactly as before."""
-    import yaml
-
     from confflow.workflow.engine import run_workflow
 
     config_file = tmp_path / "confflow.yaml"
@@ -508,30 +512,15 @@ def test_run_workflow_dag_linear_backward_compatibility(methane_xyz: Path, tmp_p
 
     work_dir = tmp_path / "work"
 
-    def fake_calc_run(self, input_xyz_file):
-        os.makedirs(self.work_dir, exist_ok=True)
-        out = os.path.join(self.work_dir, "output.xyz")
-        Path(out).write_text(METANE_XYZ, encoding="utf-8")
-        db = os.path.join(self.work_dir, "results.db")
-        conn = sqlite3.connect(db)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS task_results "
-            "(cid TEXT, status TEXT, energy_au REAL)"
-        )
-        conn.execute("INSERT INTO task_results VALUES ('A000001', 'success', -40.5)")
-        conn.commit()
-        conn.close()
-
-    with (
-        patch("confflow.calc.ChemTaskManager.run", new=fake_calc_run),
-        patch("confflow.blocks.viz.generate_text_report", return_value=""),
-    ):
+    executor = FakeCalcExecutor()
+    with patch("confflow.blocks.viz.generate_text_report", return_value=""):
         stats = run_workflow(
             [str(methane_xyz)],
             str(config_file),
             str(work_dir),
             resume=False,
             verbose=False,
+            calc_executor=executor,
         )
 
     assert (work_dir / "step1" / "output.xyz").exists()
@@ -540,42 +529,8 @@ def test_run_workflow_dag_linear_backward_compatibility(methane_xyz: Path, tmp_p
     assert step_names == {"step1", "step2"}
 
 
-# ---------------------------------------------------------------------------
-# ConfFlow config schema validation
-# ---------------------------------------------------------------------------
-
-def test_config_schema_validates_calc_config() -> None:
-    """ConfigSchema.validate_calc_config accepts a well-formed calc config."""
-    from confflow.config.schema import ConfigSchema
-
-    cfg = {
-        "iprog": "g16",
-        "itask": "opt",
-        "keyword": "b3lyp/6-31g(d)",
-        "cores_per_task": 4,
-        "total_memory": "8GB",
-        "max_parallel_jobs": 2,
-    }
-    ConfigSchema.validate_calc_config(cfg)
-
-
-def test_config_schema_rejects_missing_keyword() -> None:
-    """ConfigSchema.validate_calc_config raises on missing keyword."""
-    from confflow.config.schema import ConfigSchema
-
-    cfg = {"iprog": "g16", "itask": "opt"}
-    with pytest.raises(ValueError, match="missing required parameter"):
-        ConfigSchema.validate_calc_config(cfg)
-
-
-def test_config_schema_rejects_invalid_itask() -> None:
-    """ConfigSchema.validate_calc_config raises on invalid itask."""
-    from confflow.config.schema import ConfigSchema
-
-    cfg = {"iprog": "g16", "itask": "invalid_task", "keyword": "hf"}
-    with pytest.raises(ValueError, match="invalid itask"):
-        ConfigSchema.validate_calc_config(cfg)
-
+# Config validation is covered by tests/test_workflow_spec.py and
+# jobdesk_app.core._confflow_validation.
 
 # ---------------------------------------------------------------------------
 # ConfFlow CLI build_parser and stop_all_confflow_processes
@@ -604,3 +559,78 @@ def test_cli_main_rejects_missing_input_xyz() -> None:
 
     with pytest.raises(SystemExit):
         main([])
+
+
+# ---------------------------------------------------------------------------
+# Monitor / state-file refresh integration
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_state_json_is_parseable_by_confflow_results(tmp_path: Path):
+    """End-to-end: .workflow_state.json written by v1.3.0 is parseable.
+
+    This validates the integration between:
+    - ConfFlow v1.3.0 writing state files
+    - confflow_results.load_workflow_state_progress parsing them
+    - The Runs page being able to render step progress
+
+    The fixture mimics the shape written by the v1.3.0 state tracker.
+    """
+    from jobdesk_app.services.confflow_results import (
+        ConfFlowStepProgress,
+        format_step_progress,
+        load_workflow_state_progress,
+    )
+
+    state_path = tmp_path / ".workflow_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "run_id": "v13-state-test",
+                "work_dir": "/tmp/cf_work",
+                "input_files": ["mol.xyz"],
+                "original_inputs": ["mol.xyz"],
+                "config_file": "workflow.yaml",
+                "steps": {
+                    "step_01_confgen": {
+                        "name": "confgen",
+                        "type": "confgen",
+                        "status": "completed",
+                        "submitted_at": 1000.0,
+                        "completed_at": 1010.0,
+                        "output_xyz": "search.xyz",
+                        "error": None,
+                        "executor_handle_data": None,
+                        "fail_count": 0,
+                    },
+                    "step_02_opt": {
+                        "name": "opt",
+                        "type": "calc",
+                        "status": "submitted",
+                        "submitted_at": 1011.0,
+                        "completed_at": None,
+                        "output_xyz": None,
+                        "error": None,
+                        "executor_handle_data": {"job_id": 42},
+                        "fail_count": 0,
+                    },
+                },
+                "wavefront_index": 2,
+                "started_at": 1000.0,
+                "last_updated_at": 1021.5,
+                "final_status": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_workflow_state_progress(state_path)
+    assert isinstance(progress, ConfFlowStepProgress)
+    assert progress.completed == ("confgen",)
+    assert progress.current == "opt"
+    assert progress.final_status == ""
+
+    # Verify the progress can be rendered (as the Runs page would)
+    rendered = format_step_progress(progress)
+    assert "confgen" in rendered
+    assert "opt" in rendered
