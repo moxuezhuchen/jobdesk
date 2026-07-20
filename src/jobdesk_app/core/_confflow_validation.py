@@ -4,9 +4,8 @@
 ConfFlow YAML configuration validation.
 
 This module provides standalone validation functions for workflow YAML documents
-that are compatible with the ConfFlow schema. These functions were extracted
-from the vendored ConfFlow package and are now maintained locally to avoid
-dependency on vendored code.
+that are compatible with the ConfFlow schema. These functions are maintained
+locally so editor validation remains independent of the external package.
 """
 
 from __future__ import annotations

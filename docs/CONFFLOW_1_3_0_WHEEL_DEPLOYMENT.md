@@ -202,6 +202,8 @@ git checkout v1.3.0
 
 ---
 
-## 下一步
+## 当前依赖方式
 
-vendored subtree 删除闸门通过后，将 vendored 目录替换为 PyPI 安装（删除 `src/jobdesk_app/confflow/` 并移除 `pyproject.toml` 中 vendored 相关配置）。届时 `chem` extra 会直接从 PyPI（如果发布）或从本地 wheel 安装真正的 confflow。
+JobDesk 不再包含 vendored ConfFlow 源码。`chem` extra 保留
+`confflow>=1.3.0`，因此在离线或尚未发布到 PyPI 的环境中，必须先安装本地构建的
+ConfFlow wheel，再安装 JobDesk 的 `chem` extra。

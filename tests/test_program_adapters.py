@@ -19,6 +19,7 @@ def test_confflow_adapter_builds_one_run_task_with_config_and_summary_outputs():
         "{basename}min.xyz",
         "{basename}_confflow_work/run_summary.json",
         "{basename}_confflow_work/workflow_stats.json",
+        "{basename}_confflow_work/.workflow_state.json",
     ]
 
 
@@ -44,7 +45,8 @@ def test_confflow_adapter_batch_multiple_xyz_shared_yaml():
     for task in plan.tasks:
         assert "confflow.yaml" in task.command
         assert task.supporting_paths == ["/tmp/jobdesk/confflow.yaml"]
-        assert len(task.remote_result_files) == 4
+        assert len(task.remote_result_files) == 5
+        assert task.remote_result_files[-1].endswith("_confflow_work/.workflow_state.json")
 
     # Verify per-molecule outputs
     assert "mol1_confflow_work/run_summary.json" in plan.tasks[0].remote_result_files[2]

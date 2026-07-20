@@ -390,8 +390,8 @@ def test_user_yaml_round_trip_via_jobdesk_validation():
     back) must still pass JobDesk's validation and produce valid YAML.
 
     This is the contract the workflow page ``Apply`` button relies on.
-    We use JobDesk's own validation module instead of the vendored confflow
-    loader to avoid a hard dependency on the vendored subtree.
+    We use JobDesk's own validation module instead of an external ConfFlow
+    loader to keep this workflow-editor contract self-contained.
     """
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
@@ -430,7 +430,7 @@ def test_user_yaml_round_trip_via_jobdesk_validation():
     )
     rebuilt = WorkflowSpec.from_yaml(merged_text)
 
-    # Validate using JobDesk's own validator (not vendored confflow loader).
+    # Validate using JobDesk's own workflow-editor validator.
     from jobdesk_app.core._confflow_validation import validate_yaml_config
 
     rebuilt_yaml = rebuilt.to_yaml()

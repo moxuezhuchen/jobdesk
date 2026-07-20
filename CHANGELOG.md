@@ -15,7 +15,7 @@ The current schema is **schema v5**. Schema v4 databases auto-upgrade on first o
 
 ### Changed
 - **CI**: split the monolithic `test` job into four parallel jobs (`lint`, `type-check`, `build`, `test`) so that a ruff / mypy / build failure is identified without waiting for the full pytest matrix. Added `pytest-cov` with XML/term-missing reporters; coverage is uploaded as an artifact on Python 3.11 only.
-- **CI**: `pyproject.toml` comment on the vendored ConfFlow engine now records the full pinned commit hash (`758c53926d97fe0dc0b66610cb2854cb218f3c6d`) to prevent silent re-pointing if the upstream tag is moved.
+- **Dependencies**: removed the vendored ConfFlow project; the `chem` extra now relies on the external `confflow>=1.3.0` package.
 
 ### Fixed (Phase 2.0 dual-entry follow-ups)
 - `gui/main_window.py::_on_workflow_chosen` now opens the `SubmitDialog` with the picked preset pre-selected instead of only navigating to the Files page. The previous behaviour left the Workflow-page "Use this preset for submit" button as a dead link once the user had already browsed and picked a preset.

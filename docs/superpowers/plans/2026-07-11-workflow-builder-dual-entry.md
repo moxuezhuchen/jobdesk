@@ -302,7 +302,7 @@ Verify with: `python -c "from jobdesk_app.services.method_presets import MethodP
 
 - [ ] **Step 3: Ship Gaussian presets**
 
-Each file is a confflow YAML document of shape `{global: {calc: {...}, ...}, steps: [{name, type, params: {...}}]}` and must round-trip through `WorkflowSpec.from_yaml()` / `to_yaml()`. Use `WorkflowSpec.from_form(...)` in a REPL to generate the canonical text, or copy from `src/jobdesk_app/confflow/confflow.yaml` and trim.
+Each file is a confflow YAML document of shape `{global: {calc: {...}, ...}, steps: [{name, type, params: {...}}]}` and must round-trip through `WorkflowSpec.from_yaml()` / `to_yaml()`. Use `WorkflowSpec.from_form(...)` in a REPL to generate the canonical text.
 
 `src/jobdesk_app/resources/method_presets/gaussian/b3lyp_631gd_opt_freq.yaml`:
 

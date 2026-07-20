@@ -25,8 +25,6 @@ pytest tests/test_gui_behavior/
 | `tests/test_*.py` | 核心业务逻辑、配置、模型、解析器 |
 | `tests/test_gui_behavior/` | GUI 组件行为测试 |
 | `tests/test_nodegraph/` | 节点图模型和交互测试 |
-| `src/jobdesk_app/confflow/tests/` | ConfFlow 内部测试 |
-
 主要测试文件：
 - `test_run_service.py` - RunService 业务逻辑
 - `test_run_repository.py` - 数据持久化

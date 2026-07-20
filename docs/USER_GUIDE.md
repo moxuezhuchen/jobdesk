@@ -153,8 +153,7 @@ Phase 10 (multi-port edges, fan-in / fan-out, `inputs: [...]`
 list, `WorkflowKind.dag` separation). The end-to-end behaviour is
 covered by `tests/test_nodegraph/` (bridge + properties + library
 drag) and `tests/test_submit_use_case.py` (the `dag` path), and
-re-exercised by `scripts/smoke_confflow_dag_round_trip.py` against
-the real vendored confflow engine.
+covered by the external ConfFlow integration suite.
 
 ## 重要文件
 
