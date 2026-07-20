@@ -21,7 +21,6 @@ import pytest
 import yaml
 from confflow.calc.executor import CalcHandle, CalcStatus
 
-
 # ---------------------------------------------------------------------------
 # Artifact fixtures
 # ---------------------------------------------------------------------------
