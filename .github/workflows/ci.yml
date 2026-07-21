@@ -54,7 +54,7 @@ jobs:
           python -m build --wheel .ci/confflow --outdir .ci/confflow-dist
           $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-1.4.0-*.whl" | Select-Object -First 1
           if ($null -eq $wheel) { throw "ConfFlow v1.4.0 wheel was not built." }
-          python -m pip install $wheel.FullName
+          python -m pip install --no-deps $wheel.FullName
           python -c "import confflow; assert confflow.__version__ == '1.4.0'; print(confflow.__version__)"
 
       - name: MyPy type check
