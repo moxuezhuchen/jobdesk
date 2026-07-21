@@ -30,7 +30,7 @@ package = [
 dev = [
     "build>=1.2",
     "mypy>=1.10",
-    # Vendored confflow's top-level __init__ transitively imports
+    # ConfFlow's top-level __init__ transitively imports
     # numpy, so the CI runner needs a numpy wheel. Two constraints
     # conflict on a single version pin:
     #   1. numpy 1.x supports Python 3.9-3.12 only; on 3.13 it has
