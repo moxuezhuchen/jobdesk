@@ -35,6 +35,15 @@ H   0.629118  -0.629118  -0.629118
 """
 
 
+def _coords_snapshot(coords: Any) -> Any:
+    """Convert executor coordinates into a comparable immutable snapshot."""
+    if hasattr(coords, "tolist"):
+        coords = coords.tolist()
+    if isinstance(coords, (list, tuple)):
+        return tuple(_coords_snapshot(item) for item in coords)
+    return coords
+
+
 @pytest.fixture
 def methane_xyz(tmp_path: Path) -> Path:
     p = tmp_path / "methane.xyz"
@@ -48,10 +57,11 @@ def methane_xyz(tmp_path: Path) -> Path:
 
 
 class FakeCalcExecutor:
-    """In-memory v1.3.0 executor that never launches a calculation process."""
+    """In-memory v1.4.0 executor that never launches a calculation process."""
 
     def __init__(self) -> None:
         self.submitted: list[str] = []
+        self.calc_submissions: list[dict[str, Any]] = []
         self.polls: list[str] = []
         self._handles: dict[str, CalcHandle] = {}
 
@@ -65,7 +75,7 @@ class FakeCalcExecutor:
         cmd: list[str],
         env: dict[str, str] | None,
     ) -> CalcHandle:
-        del coords, config, cmd, env
+        del config, cmd, env
         step_dir = Path(work_dir)
         step_dir.mkdir(parents=True, exist_ok=True)
         (step_dir / f"{job_name}.{policy.log_ext}").write_text(
@@ -80,6 +90,13 @@ class FakeCalcExecutor:
             executor_data={"fake": True},
         )
         self.submitted.append(job_name)
+        self.calc_submissions.append(
+            {
+                "job_name": job_name,
+                "work_dir": step_dir,
+                "coords": _coords_snapshot(coords),
+            }
+        )
         self._handles[job_name] = handle
         return handle
 
@@ -441,7 +458,7 @@ def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
     def fake_confgen(*args, **kwargs):
         Path("search.xyz").write_text(
             "5\nconfgen\n"
-            "C   0.000000   0.000000   0.000000\n"
+            "C   0.123456   0.000000   0.000000\n"
             "H   0.629118   0.629118   0.629118\n"
             "H  -0.629118  -0.629118   0.629118\n"
             "H  -0.629118   0.629118  -0.629118\n"
@@ -466,6 +483,10 @@ def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
     assert (work_dir / "confgen" / "search.xyz").exists()
     assert (work_dir / "opt_a" / "output.xyz").exists()
     assert (work_dir / "opt_b" / "output.xyz").exists()
+    submissions_by_step = {record["work_dir"].parent.name: record for record in executor.calc_submissions}
+    assert set(submissions_by_step) == {"opt_a", "opt_b"}
+    assert submissions_by_step["opt_a"]["coords"] == submissions_by_step["opt_b"]["coords"]
+    assert "0.123456" in repr(submissions_by_step["opt_a"]["coords"])
     step_names = {s["name"] for s in stats["steps"]}
     assert step_names == {"confgen", "opt_a", "opt_b"}
 
@@ -566,14 +587,14 @@ def test_cli_main_rejects_missing_input_xyz() -> None:
 
 
 def test_workflow_state_json_is_parseable_by_confflow_results(tmp_path: Path):
-    """End-to-end: .workflow_state.json written by v1.3.0 is parseable.
+    """End-to-end: .workflow_state.json written by v1.4.0 is parseable.
 
     This validates the integration between:
-    - ConfFlow v1.3.0 writing state files
+    - ConfFlow v1.4.0 writing state files
     - confflow_results.load_workflow_state_progress parsing them
     - The Runs page being able to render step progress
 
-    The fixture mimics the shape written by the v1.3.0 state tracker.
+    The fixture mimics the shape written by the v1.4.0 state tracker.
     """
     from jobdesk_app.services.confflow_results import (
         ConfFlowStepProgress,

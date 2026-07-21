@@ -1,5 +1,5 @@
 @echo off
-REM Build ConfFlow 1.3.0 wheel from upstream source (isolated build)
+REM Build ConfFlow 1.4.0 wheel from upstream source (isolated build)
 REM
 REM Usage:
 REM   1. Open PowerShell or Command Prompt
@@ -11,13 +11,13 @@ REM and never touches any existing C:\dft\tool\ConfFlow worktree.
 setlocal EnableExtensions EnableDelayedExpansion
 
 echo ================================================
-echo ConfFlow 1.3.0 Wheel Builder (Isolated)
+echo ConfFlow 1.4.0 Wheel Builder (Isolated)
 echo ================================================
 echo.
 
 set BUILD_SRC=C:\dft\tool\confflow-build
 set WHEEL_OUT=C:\dft\tool\confflow-dist
-set TARGET_TAG=v1.3.0
+set TARGET_TAG=v1.4.0
 
 REM Step 1: Clone or update isolated build tree
 echo [1/3] Setting up build environment...
@@ -59,7 +59,7 @@ if not errorlevel 1 (
 )
 del "%TEMP%\build_status.tmp" 2>nul
 
-REM Step 3: Verify HEAD is exactly v1.3.0
+REM Step 3: Verify HEAD is exactly v1.4.0
 for /f %%i in ('git rev-parse HEAD') do set "CURRENT_COMMIT=%%i"
 REM Use rev-list to dereference annotated tags to their commit SHA
 for /f %%i in ('git rev-list -n 1 %TARGET_TAG%') do set "TAG_COMMIT=%%i"
@@ -117,8 +117,8 @@ if not "%BUILD_EXIT%"=="0" (
 REM Step 5: Verify wheel
 echo.
 echo [Verify] Checking wheel file...
-if not exist "%WHEEL_OUT%\confflow-1.3.0-py3-none-any.whl" (
-    echo ERROR: Expected wheel not found: %WHEEL_OUT%\confflow-1.3.0-py3-none-any.whl
+if not exist "%WHEEL_OUT%\confflow-1.4.0-py3-none-any.whl" (
+    echo ERROR: Expected wheel not found: %WHEEL_OUT%\confflow-1.4.0-py3-none-any.whl
     dir "%WHEEL_OUT%"
     endlocal
     exit /b 1
@@ -130,12 +130,12 @@ echo BUILD SUCCESSFUL
 echo ================================================
 echo.
 echo Isolated build directory: %BUILD_SRC%
-echo Wheel output: %WHEEL_OUT%\confflow-1.3.0-py3-none-any.whl
+echo Wheel output: %WHEEL_OUT%\confflow-1.4.0-py3-none-any.whl
 echo.
 echo Next steps:
 echo   1. Run verification: scripts\verify_confflow_wheel.bat
 echo   2. Or install manually:
-echo      py -m pip install %WHEEL_OUT%\confflow-1.3.0-py3-none-any.whl
+echo      py -m pip install %WHEEL_OUT%\confflow-1.4.0-py3-none-any.whl
 echo      py -m pip install -e "C:\dft\tool\jobdesk-dev[chem]"
 echo.
 echo NOTE: Your existing C:\dft\tool\ConfFlow worktree was NOT modified.

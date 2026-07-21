@@ -1,15 +1,15 @@
-# ConfFlow 1.3.0 Wheel Deployment Verification Script (PowerShell)
+# ConfFlow 1.4.0 Wheel Deployment Verification Script (PowerShell)
 #
 # Usage:
 #   Run: .\scripts\verify_confflow_wheel.ps1
 #
 # Prerequisites:
-#   - C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl exists
+#   - C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl exists
 #   - C:\dft\tool\jobdesk-dev exists
 #   - Python 3.11+ with py launcher
 
 param(
-    [string]$WheelPath = "C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl",
+    [string]$WheelPath = "C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl",
     [string]$JobdeskPath = "C:\dft\tool\jobdesk-dev",
     [string]$VenvPath = "C:\dft\tool\verify-venv"
 )
@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "================================================"
-Write-Host "ConfFlow 1.3.0 Wheel Deployment Verification"
+Write-Host "ConfFlow 1.4.0 Wheel Deployment Verification"
 Write-Host "================================================"
 Write-Host ""
 
@@ -89,11 +89,11 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to import confflow" -ForegroundColor Red
     exit 1
 }
-if ($version -ne "1.3.0") {
-    Write-Host "ERROR: confflow version is $version, expected 1.3.0" -ForegroundColor Red
+if ($version -ne "1.4.0") {
+    Write-Host "ERROR: confflow version is $version, expected 1.4.0" -ForegroundColor Red
     exit 1
 }
-Write-Host "  OK: confflow version is 1.3.0" -ForegroundColor Green
+Write-Host "  OK: confflow version is 1.4.0" -ForegroundColor Green
 Write-Host ""
 
 # Step 5: Install jobdesk with chem extra
@@ -145,7 +145,7 @@ Write-Host "ALL CHECKS PASSED" -ForegroundColor Green
 Write-Host "================================================"
 Write-Host ""
 Write-Host "Deployment verification successful:"
-Write-Host "  - confflow 1.3.0 wheel installed"
+Write-Host "  - confflow 1.4.0 wheel installed"
 Write-Host "  - jobdesk[chem] installed"
 Write-Host "  - Phase 3 tests passed"
 Write-Host ""

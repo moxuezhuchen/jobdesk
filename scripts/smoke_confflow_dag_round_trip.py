@@ -240,11 +240,11 @@ def _build_payload(steps: list[dict], output_dir: Path) -> SubmitPayload:
 
 
 def check_confflow_available() -> None:
-    """The vendored confflow package must be on sys.path."""
+    """The external confflow package must be on sys.path."""
     if not wf_spec_module._CONFFLOW_AVAILABLE:
         raise RuntimeError(
             "confflow package is not importable in this Python; this smoke "
-            "needs the vendored package from src/jobdesk_app/confflow. "
+            "needs the external confflow package. "
             "Install with `pip install -e .[chem]`."
         )
 
@@ -405,11 +405,8 @@ def check_yaml_round_trips_through_from_workflow_spec(yaml_path: Path) -> None:
 
 
 def check_confflow_engine_walks_the_dag(yaml_path: Path) -> None:
-    """The vendored ``confflow.workflow.dag`` module walks the YAML."""
-    from jobdesk_app.confflow.confflow.workflow.dag import (
-        build_step_graph,
-        topo_order,
-    )
+    """The external ``confflow.workflow.dag`` module walks the YAML."""
+    from confflow.workflow.dag import build_step_graph, topo_order
 
     parsed = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     predecessors, by_name, declared_inputs = build_step_graph(parsed["steps"])

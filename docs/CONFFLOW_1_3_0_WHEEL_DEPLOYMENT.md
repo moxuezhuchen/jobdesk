@@ -1,5 +1,9 @@
 # ConfFlow 1.3.0 Wheel 构建与部署指南
 
+> **Superseded:** JobDesk now requires ConfFlow 1.4.0. Use
+> `CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md`; this file is retained only for the
+> historical 1.3.0 deployment record.
+
 ## 概述
 
 JobDesk 的 `chem` extra 依赖 ConfFlow >= 1.3.0。由于计算化学 ConfFlow v1.3.0 未发布 PyPI（PyPI 上的同名包是另一个 YAML 配置库），需从上游源码构建 wheel 并交付。

@@ -1,25 +1,25 @@
 @echo off
-REM ConfFlow 1.3.0 Wheel Deployment Verification (Batch Script)
+REM ConfFlow 1.4.0 Wheel Deployment Verification (Batch Script)
 REM
 REM Usage:
 REM   1. Open Command Prompt as Administrator
 REM   2. Run: scripts\verify_confflow_wheel.bat
 REM
 REM Prerequisites:
-REM   - C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl exists
+REM   - C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl exists
 REM   - C:\dft\tool\jobdesk-dev exists
 REM   - Python 3.11+ with py launcher
 
 echo ================================================
-echo ConfFlow 1.3.0 Wheel Deployment Verification
+echo ConfFlow 1.4.0 Wheel Deployment Verification
 echo ================================================
 echo.
 
 REM Check prerequisites
 echo [1/5] Checking prerequisites...
-if not exist "C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl" (
+if not exist "C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl" (
     echo ERROR: confflow wheel not found
-    echo Expected: C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl
+    echo Expected: C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl
     echo.
     echo Build the wheel first:
     echo   cd C:\dft\tool\ConfFlow
@@ -51,7 +51,7 @@ echo.
 
 REM Install confflow wheel
 echo [3/5] Installing confflow wheel...
-py -m pip install C:\dft\tool\confflow-dist\confflow-1.3.0-py3-none-any.whl
+py -m pip install C:\dft\tool\confflow-dist\confflow-1.4.0-py3-none-any.whl
 if errorlevel 1 (
     echo ERROR: Failed to install confflow wheel
     exit /b 1
@@ -61,12 +61,12 @@ echo.
 
 REM Verify confflow version
 echo [4/5] Verifying confflow version...
-py -c "import confflow; assert confflow.__version__ == '1.3.0', f'Expected 1.3.0, got {confflow.__version__}'"
+py -c "import confflow; assert confflow.__version__ == '1.4.0', f'Expected 1.4.0, got {confflow.__version__}'"
 if errorlevel 1 (
     echo ERROR: confflow version mismatch
     exit /b 1
 )
-echo   OK: confflow version is 1.3.0
+echo   OK: confflow version is 1.4.0
 echo.
 
 REM Install jobdesk with chem extra
