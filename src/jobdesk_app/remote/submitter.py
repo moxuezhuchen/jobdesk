@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from ..core.confflow_preflight import parse_confflow_capabilities, validate_confflow_capabilities
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
@@ -30,6 +31,35 @@ def _validate_task_id(task_id: str) -> str:
     if not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError(f"task_id contains unsafe characters: {task_id!r}")
     return task_id
+
+
+def _ensure_single_command_flag(command: str, flag: str) -> str:
+    matches = re.findall(rf"(?<!\S){re.escape(flag)}(?!\S)", command)
+    if len(matches) > 1:
+        raise ValueError(f"command contains duplicate {flag}: {command}")
+    return command if matches else f"{command} {flag}"
+
+
+def _is_confflow_task(task: TaskRecord) -> bool:
+    if task.workflow_kind in {"confflow", "dag"}:
+        return True
+    return re.search(r"(?:^|[;&|()\s])confflow(?:\s|$)", task.rendered_command) is not None
+
+
+def _task_launch_command(task: TaskRecord) -> str:
+    if not task.resume_requested:
+        return task.rendered_command
+    command = task.resume_command or task.rendered_command
+    return _ensure_single_command_flag(command, "--resume")
+
+
+def _task_dry_run_command(task: TaskRecord) -> str:
+    if task.resume_requested:
+        command = task.resume_dry_run_command or task.resume_command or task.rendered_command
+        command = _ensure_single_command_flag(command, "--resume")
+    else:
+        command = task.dry_run_command or task.rendered_command
+    return _ensure_single_command_flag(command, "--dry-run")
 
 
 class JobSubmitter:
@@ -117,7 +147,7 @@ class JobSubmitter:
         ~/.bashrc), then sources additional env_init_scripts.
         """
         task_id = _validate_task_id(task.task_id)
-        rendered = task.rendered_command
+        rendered = _task_launch_command(task)
         init_lines = [
             "# JobDesk: load user shell environment",
             'export PS1="${PS1:-jobdesk> }"',
@@ -332,6 +362,9 @@ class JobSubmitter:
             result.errors.append("no tasks available to submit (all tasks must be in uploaded status)")
             return result
 
+        if not self._preflight_capabilities(tasks, result):
+            return result
+
         from .scheduler import NohupAdapter
 
         if isinstance(self._scheduler, NohupAdapter):
@@ -380,6 +413,8 @@ class JobSubmitter:
             chmod_result = self._ssh.run("chmod +x " + " ".join(script_paths), timeout=30)
             if chmod_result.exit_code != 0:
                 result.errors.append(f"chmod failed: {chmod_result.stderr}")
+                return result
+            if not self._preflight_tasks(tasks, result):
                 return result
             cd_q = shlex.quote(control_dir)
             nohup_cmd = (
@@ -447,6 +482,8 @@ class JobSubmitter:
                     sp.write_text(sched_script, encoding="utf-8", newline="\n")
                     self._sftp.upload_file(sp, sched_remote, overwrite=True)
                 self._ssh.run(f"chmod +x {shlex.quote(runner_remote)} {shlex.quote(sched_remote)}", timeout=15)
+                if not self._preflight_tasks([t], result):
+                    continue
                 try:
                     self._notify_remote_started([t.task_id])
                     job_id = self._scheduler.submit(self._ssh, sched_remote, self._resources)
@@ -483,6 +520,63 @@ class JobSubmitter:
             result.submitted_task_count = len(updated_ids)
             self._persist_tasks(all_tasks, result)
         return result
+
+    def _preflight_capabilities(self, tasks: list[TaskRecord], result: SubmitResult) -> bool:
+        workflow_tasks = [task for task in tasks if _is_confflow_task(task)]
+        if not workflow_tasks:
+            return True
+        command = self._preflight_shell("confflow --capabilities --json")
+        try:
+            response = self._ssh.run(command, timeout=30)
+        except Exception as exc:
+            result.errors.append(f"ConfFlow capability preflight failed: {exc}")
+            return False
+        if response.exit_code != 0:
+            detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
+            result.errors.append(f"ConfFlow capability preflight failed: {detail}")
+            return False
+        try:
+            capabilities = parse_confflow_capabilities(response.stdout)
+            validate_confflow_capabilities(
+                capabilities,
+                require_dag=any(task.workflow_kind == "dag" for task in workflow_tasks),
+            )
+        except ValueError as exc:
+            result.errors.append(f"ConfFlow capability preflight failed: {exc}")
+            return False
+        return True
+
+    def _preflight_tasks(self, tasks: list[TaskRecord], result: SubmitResult) -> bool:
+        for task in tasks:
+            if not _is_confflow_task(task):
+                continue
+            try:
+                command = self._preflight_shell(_task_dry_run_command(task))
+                response = self._ssh.run(command, timeout=120)
+            except Exception as exc:
+                result.errors.append(f"task {task.task_id}: ConfFlow dry-run failed: {exc}")
+                return False
+            if response.exit_code != 0:
+                detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
+                result.errors.append(f"task {task.task_id}: ConfFlow dry-run failed: {detail}")
+                return False
+        return True
+
+    def _preflight_shell(self, command: str) -> str:
+        lines = [
+            "set +u",
+            "[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true",
+            '[ -f "$HOME/.bash_profile" ] && . "$HOME/.bash_profile" >/dev/null 2>&1 || true',
+            '[ -f "$HOME/.profile" ] && . "$HOME/.profile" >/dev/null 2>&1 || true',
+            '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" >/dev/null 2>&1 || true',
+        ]
+        lines.extend(
+            f"[ -f {shlex.quote(script)} ] && . {shlex.quote(script)} >/dev/null 2>&1 || true"
+            for script in self._env_init_scripts
+            if script
+        )
+        lines.append(command)
+        return "\n".join(lines)
 
     def _mark_submitted(self, tasks, result, scheduler_type: str = "nohup", remote_job_id: str | None = None):
         now = datetime.now()

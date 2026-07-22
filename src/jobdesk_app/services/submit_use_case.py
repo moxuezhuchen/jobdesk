@@ -32,6 +32,8 @@ so tests can substitute a fake without monkeypatching.
 
 from __future__ import annotations
 
+import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -64,9 +66,12 @@ class PreparedBatch:
     """
 
     local_paths: list[Path] = field(default_factory=list)
+    upload_targets: list[str] = field(default_factory=list)
     remote_targets: list[str] = field(default_factory=list)
     specs: list[RunSpec] = field(default_factory=list)
     yaml_local_path: Path | None = None
+    yaml_remote_path: str | None = None
+    submission_remote_dir: str | None = None
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -87,8 +92,10 @@ class SubmitUseCase:
     def __init__(
         self,
         coordinator_factory: Callable[..., object] | None = None,
+        submission_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._coordinator_factory = coordinator_factory
+        self._submission_id_factory = submission_id_factory or (lambda: uuid.uuid4().hex)
 
     def execute(self, payload: SubmitPayload) -> PreparedBatch:
         """Validate ``payload`` and build the run specs.
@@ -115,17 +122,39 @@ class SubmitUseCase:
             errors.append("No server selected")
             return PreparedBatch(errors=errors)
 
+        workflow_submission = payload.kind in {"confflow", "dag"}
+        submission_id: str | None = None
+        submission_remote_dir: str | None = None
+        upload_base = payload.remote_dir
+        if workflow_submission:
+            try:
+                submission_id = _safe_submission_id(self._submission_id_factory())
+            except ValueError as exc:
+                return PreparedBatch(errors=[str(exc)])
+            submission_remote_dir = remote_child_path(
+                payload.remote_dir,
+                f".jobdesk_submissions/{submission_id}",
+            )
+            upload_base = submission_remote_dir
+
         local_paths: list[Path] = []
+        upload_targets: list[str] = []
         remote_targets: list[str] = []
+        used_upload_names: set[str] = set()
         for source in payload.inputs:
             if source.side == "remote":
                 # Remote sources are already on the server; nothing to
                 # upload.  The worker still records the path so the
                 # result table can surface them later.
-                remote_targets.append(str(source.path))
+                remote_targets.append(source.path.as_posix())
             else:
                 local_paths.append(source.path)
-                remote_targets.append(remote_child_path(payload.remote_dir, source.path.name))
+                upload_name = source.path.name
+                if workflow_submission:
+                    upload_name = _unique_remote_input_name(upload_name, used_upload_names)
+                remote_target = remote_child_path(upload_base, upload_name)
+                upload_targets.append(remote_target)
+                remote_targets.append(remote_target)
 
         if not remote_targets:
             errors.append("No remote targets resolved from inputs")
@@ -133,12 +162,27 @@ class SubmitUseCase:
 
         try:
             if payload.kind == "confflow":
-                specs, yaml_path = self._build_confflow_specs(payload, remote_targets)
+                assert submission_remote_dir is not None
+                assert submission_id is not None
+                specs, yaml_path, yaml_remote_path = self._build_confflow_specs(
+                    payload,
+                    remote_targets,
+                    submission_remote_dir,
+                    submission_id,
+                )
             elif payload.kind == "dag":
-                specs, yaml_path = self._build_dag_specs(payload, remote_targets)
+                assert submission_remote_dir is not None
+                assert submission_id is not None
+                specs, yaml_path, yaml_remote_path = self._build_dag_specs(
+                    payload,
+                    remote_targets,
+                    submission_remote_dir,
+                    submission_id,
+                )
             else:
                 specs = self._build_single_specs(payload, remote_targets)
                 yaml_path = None
+                yaml_remote_path = None
         except ConfFlowUnavailableError as exc:
             errors.append(f"ConfFlow unavailable: {exc}")
             return PreparedBatch(errors=errors)
@@ -148,9 +192,12 @@ class SubmitUseCase:
 
         return PreparedBatch(
             local_paths=local_paths,
+            upload_targets=upload_targets,
             remote_targets=remote_targets,
             specs=specs,
             yaml_local_path=yaml_path,
+            yaml_remote_path=yaml_remote_path,
+            submission_remote_dir=submission_remote_dir,
         )
 
     # ── internal helpers ────────────────────────────────────────────────
@@ -190,7 +237,9 @@ class SubmitUseCase:
         self,
         payload: SubmitPayload,
         remote_targets: list[str],
-    ) -> tuple[list[RunSpec], Path]:
+        submission_remote_dir: str,
+        submission_id: str,
+    ) -> tuple[list[RunSpec], Path, str]:
         """Render ``workflow.yaml`` next to the first XYZ and build the spec.
 
         The YAML path mirrors the legacy behaviour: the wizard wrote it
@@ -199,8 +248,7 @@ class SubmitUseCase:
         """
         assert payload.workflow is not None  # checked in execute()
         workflow = payload.workflow
-        first_xyz = _resolve_yaml_dir(payload)
-        yaml_local = first_xyz / "workflow.yaml"
+        yaml_local = _submission_yaml_path(payload, submission_id)
 
         if workflow.yaml_text is not None:
             # The workflow page already assembled and validated the final
@@ -211,16 +259,16 @@ class SubmitUseCase:
             tmp = yaml_local.with_suffix(yaml_local.suffix + ".tmp")
             tmp.write_text(workflow.yaml_text, encoding="utf-8")
             tmp.replace(yaml_local)
-            yaml_target = remote_child_path(payload.remote_dir, yaml_local.name)
+            yaml_target = remote_child_path(submission_remote_dir, "workflow.yaml")
             run_spec = ConfFlowAdapter.build_spec(
                 server_id=payload.server_id,
-                remote_dir=payload.remote_dir,
+                remote_dir=submission_remote_dir,
                 xyz_paths=remote_targets,
                 config_path=yaml_target,
                 max_parallel=payload.max_parallel,
                 resume=False,
             )
-            return [run_spec], yaml_local
+            return [run_spec], yaml_local, yaml_target
 
         calc = payload.calc
         method, basis = _split_method_basis(getattr(calc, "method_basis", ""))
@@ -237,23 +285,25 @@ class SubmitUseCase:
             extra_options=workflow.advanced_options or None,
         )
         write_workflow_yaml(spec, yaml_local)
-        yaml_target = remote_child_path(payload.remote_dir, yaml_local.name)
+        yaml_target = remote_child_path(submission_remote_dir, "workflow.yaml")
         run_spec = ConfFlowAdapter.build_spec(
             server_id=payload.server_id,
-            remote_dir=payload.remote_dir,
+            remote_dir=submission_remote_dir,
             xyz_paths=remote_targets,
             config_path=yaml_target,
             max_parallel=payload.max_parallel,
             resume=False,
         )
-        return [run_spec], yaml_local
+        return [run_spec], yaml_local, yaml_target
 
     def _build_dag_specs(
         self,
         payload: SubmitPayload,
         remote_targets: list[str],
-    ) -> tuple[list[RunSpec], Path]:
-        """Phase 10.5: render the editor's DAG workflow to YAML and submit.
+        submission_remote_dir: str,
+        submission_id: str,
+    ) -> tuple[list[RunSpec], Path, str]:
+        """Render the editor's DAG workflow to YAML and submit.
 
         The :class:`DagWorkflowFields` carries the already-serialised step
         list produced by :func:`jobdesk_app.gui.nodegraph.spec_bridge.to_workflow_spec`
@@ -264,13 +314,12 @@ class SubmitUseCase:
         bridge-produced ``steps`` list verbatim onto it before serialising.
 
         The remote command is the same ``confflow {name} -c yaml ...`` the
-        legacy ``confflow`` adapter uses; the engine reads ``StepConfig.inputs``
-        via ``graphlib.TopologicalSorter`` since Phase 3.
+        legacy ``confflow`` adapter uses; the ConfFlow DAG engine parses the
+        YAML ``StepConfig.inputs`` declarations.
         """
         assert payload.dag is not None  # checked in execute()
         dag = payload.dag
-        first_xyz = _resolve_yaml_dir(payload)
-        yaml_local = first_xyz / "workflow.yaml"
+        yaml_local = _submission_yaml_path(payload, submission_id)
 
         calc = payload.calc
         method, basis = _split_method_basis(getattr(calc, "method_basis", ""))
@@ -291,16 +340,16 @@ class SubmitUseCase:
         tmp = yaml_local.with_suffix(yaml_local.suffix + ".tmp")
         tmp.write_text(yaml_text, encoding="utf-8")
         tmp.replace(yaml_local)
-        yaml_target = remote_child_path(payload.remote_dir, yaml_local.name)
+        yaml_target = remote_child_path(submission_remote_dir, "workflow.yaml")
         run_spec = ConfFlowAdapter.build_dag_spec(
             server_id=payload.server_id,
-            remote_dir=payload.remote_dir,
+            remote_dir=submission_remote_dir,
             xyz_paths=remote_targets,
             config_path=yaml_target,
             max_parallel=payload.max_parallel,
             resume=False,
         )
-        return [run_spec], yaml_local
+        return [run_spec], yaml_local, yaml_target
 
 
 def remote_child_path(remote_dir: str, name: str) -> str:
@@ -313,6 +362,32 @@ def remote_child_path(remote_dir: str, name: str) -> str:
     # Compact the path the same way the GUI helper does (handles "//").
     parts = [p for p in joined.split("/") if p != ""]
     return "/" + "/".join(parts) if parts else "/"
+
+
+def _safe_submission_id(value: str) -> str:
+    """Return a path-safe, non-empty identifier supplied by the boundary."""
+    candidate = str(value).strip()
+    if not candidate or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", candidate):
+        raise ValueError("Submission identifier must contain only letters, digits, '.', '_' or '-'")
+    return candidate
+
+
+def _unique_remote_input_name(name: str, used: set[str]) -> str:
+    """Return a stable filename that is unique within one submission root."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    stem = stem or "input"
+    candidate = f"{stem}{suffix}"
+    index = 2
+    while candidate in used:
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
+    used.add(candidate)
+    return candidate
+
+
+def _submission_yaml_path(payload: SubmitPayload, submission_id: str) -> Path:
+    """Allocate a local YAML filename that concurrent submissions cannot share."""
+    return _resolve_yaml_dir(payload) / f"workflow.{submission_id}.yaml"
 
 
 def _command_template_for(program: str) -> str:

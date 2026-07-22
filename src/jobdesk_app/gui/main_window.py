@@ -123,7 +123,11 @@ class MainWindow(QMainWindow):
         self.shell.add_page(self.settings_page)  # 3
 
         self.shell.page_changed.connect(self._on_nav)
-        self._apply_language()
+        # Applying translations must not synchronously open the runs
+        # database while the window is still being constructed.  The Runs
+        # page is disabled until startup recovery completes and refreshes
+        # lazily when it is activated, so only update its labels here.
+        self._apply_language(refresh_runs=False)
         self.shell.set_current(0)
         self.files_page.setEnabled(False)
         self.runs_page.setEnabled(False)
@@ -140,7 +144,11 @@ class MainWindow(QMainWindow):
         self.show_error(tr("Operation recovery failed", self.language), error)
 
     def _on_nav(self, index: int):
-        self._apply_language()
+        # Navigation can be emitted while the shell is still being
+        # initialised (``set_current(0)`` below).  Keep this path limited to
+        # translation work; RunsResultsPage.on_activated schedules its
+        # database refresh asynchronously once the target page is visible.
+        self._apply_language(refresh_runs=False)
         page = self.shell.pages.widget(index)
         if hasattr(page, "on_activated"):
             page.on_activated()
@@ -163,9 +171,17 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
         # Apply language whenever the user changes pages (cheap; cached).
+        # Keep the Runs page in label-only mode here as well; its activation
+        # callback owns the deferred run-list refresh.
         for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
             if hasattr(page, "apply_language"):
-                page.apply_language(self.language)
+                if page is self.runs_page:
+                    try:
+                        page.apply_language(self.language, refresh=False)
+                    except TypeError:
+                        page.apply_language(self.language)
+                else:
+                    page.apply_language(self.language)
 
     def _switch_page(self, index: int) -> None:
         """Centralised page switcher for cross-page signals.
@@ -226,13 +242,23 @@ class MainWindow(QMainWindow):
         """
         self._open_submit_dialog([])
 
-    def _apply_language(self):
+    def _apply_language(self, *, refresh_runs: bool = True):
         self.language = self._settings_store.load().language
         for i, (_icon, key) in enumerate(_NAV_ITEMS):
             self.shell.set_nav_label(i, tr(key, self.language))
         for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
             if hasattr(page, "apply_language"):
-                page.apply_language(self.language)
+                if page is self.runs_page:
+                    # RunsResultsPage.apply_language accepts ``refresh`` so
+                    # startup can translate widgets without doing database
+                    # I/O.  Keep the fallback for lightweight test doubles
+                    # that implement the historical one-argument method.
+                    try:
+                        page.apply_language(self.language, refresh=refresh_runs)
+                    except TypeError:
+                        page.apply_language(self.language)
+                else:
+                    page.apply_language(self.language)
 
     def _on_language_changed(self, language: str):
         self.language = language
@@ -292,11 +318,17 @@ class MainWindow(QMainWindow):
             batch = use_case.execute(payload)
             if not batch.ok:
                 return batch
-            for local_path, remote_target in zip(batch.local_paths, batch.remote_targets):
+            for local_path, remote_target in zip(
+                batch.local_paths,
+                batch.upload_targets,
+                strict=True,
+            ):
                 records = service.upload_path(local_path, remote_target)
                 _raise(records, remote_target)
             if batch.yaml_local_path is not None and batch.yaml_local_path.exists():
-                yaml_target = batch.remote_targets[0].rsplit("/", 1)[0] + "/workflow.yaml"
+                yaml_target = batch.yaml_remote_path
+                if yaml_target is None:
+                    raise RuntimeError("Prepared workflow batch has no remote YAML target")
                 records = service.upload_path(batch.yaml_local_path, yaml_target)
                 _raise(records, yaml_target)
             coordinator = RunCoordinator(
@@ -396,6 +428,7 @@ class MainWindow(QMainWindow):
             server_id=server_id,
             remote_dir=remote_dir,
             max_parallel=1,
+            workspace=Path(self.state.current_project_root or Path.cwd()),
             preset_store=self._preset_store,
             preset_name=preset_name,
             parent=self,

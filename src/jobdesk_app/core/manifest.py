@@ -43,10 +43,21 @@ _MANIFEST_COLUMNS: list[str] = [
     "task_files",
     "remote_task_files",
     "remote_result_files",
+    "workflow_kind",
+    "remote_config_path",
+    "remote_workflow_dir",
+    "remote_state_path",
+    "remote_stats_path",
+    "remote_log_path",
+    "remote_result_paths",
     "task_dir",
     "entry_file",
     "parsed_fields",
     "rendered_command",
+    "dry_run_command",
+    "resume_command",
+    "resume_dry_run_command",
+    "resume_requested",
     "status",
     "scheduler_type",
     "remote_job_id",
@@ -68,6 +79,13 @@ class TaskRecord(BaseModel):
     task_files: list[str] = Field(default_factory=list)
     remote_task_files: list[str] = Field(default_factory=list)
     remote_result_files: list[str] = Field(default_factory=list)
+    workflow_kind: str = ""
+    remote_config_path: str = ""
+    remote_workflow_dir: str = ""
+    remote_state_path: str = ""
+    remote_stats_path: str = ""
+    remote_log_path: str = ""
+    remote_result_paths: list[str] = Field(default_factory=list)
     task_dir: str | None = None
     entry_file: str | None = None
     parsed_fields: dict[str, str] = Field(default_factory=dict)
@@ -77,6 +95,10 @@ class TaskRecord(BaseModel):
     remote_work_dir: str = ""
     max_parallel: int | None = None
     rendered_command: str = ""
+    dry_run_command: str = ""
+    resume_command: str = ""
+    resume_dry_run_command: str = ""
+    resume_requested: bool = False
     status: TaskStatus = TaskStatus.local_ready
     scheduler_type: str = "nohup"
     remote_job_id: str | None = None
@@ -145,10 +167,21 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         json.dumps(task.task_files, ensure_ascii=False) if task.task_files else "",
         json.dumps(task.remote_task_files, ensure_ascii=False) if task.remote_task_files else "",
         json.dumps(task.remote_result_files, ensure_ascii=False) if task.remote_result_files else "",
+        task.workflow_kind,
+        task.remote_config_path,
+        task.remote_workflow_dir,
+        task.remote_state_path,
+        task.remote_stats_path,
+        task.remote_log_path,
+        json.dumps(task.remote_result_paths, ensure_ascii=False) if task.remote_result_paths else "",
         task.task_dir or "",
         task.entry_file or "",
         json.dumps(task.parsed_fields, ensure_ascii=False) if task.parsed_fields else "",
         task.rendered_command,
+        task.dry_run_command,
+        task.resume_command,
+        task.resume_dry_run_command,
+        "true" if task.resume_requested else "false",
         task.status.value,
         task.scheduler_type,
         task.remote_job_id or "",
@@ -238,10 +271,23 @@ def _row_to_task(
         remote_result_files=_parse_json_list(
             values.get("remote_result_files", ""), "remote_result_files", manifest_path, row_number
         ),
+        workflow_kind=values.get("workflow_kind", ""),
+        remote_config_path=values.get("remote_config_path", ""),
+        remote_workflow_dir=values.get("remote_workflow_dir", ""),
+        remote_state_path=values.get("remote_state_path", ""),
+        remote_stats_path=values.get("remote_stats_path", ""),
+        remote_log_path=values.get("remote_log_path", ""),
+        remote_result_paths=_parse_json_list(
+            values.get("remote_result_paths", ""), "remote_result_paths", manifest_path, row_number
+        ),
         task_dir=values.get("task_dir") or None,
         entry_file=values.get("entry_file") or None,
         parsed_fields=_parse_json_dict(values.get("parsed_fields", ""), "parsed_fields", manifest_path, row_number),
         rendered_command=values.get("rendered_command", ""),
+        dry_run_command=values.get("dry_run_command", ""),
+        resume_command=values.get("resume_command", ""),
+        resume_dry_run_command=values.get("resume_dry_run_command", ""),
+        resume_requested=values.get("resume_requested", "").lower() == "true",
         status=TaskStatus(values["status"]) if values.get("status") else TaskStatus.local_ready,
         scheduler_type=values.get("scheduler_type", "nohup") or "nohup",
         remote_job_id=values.get("remote_job_id") or None,

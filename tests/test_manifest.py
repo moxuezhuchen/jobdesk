@@ -257,6 +257,56 @@ class TestManifestRead:
 
         assert loaded.remote_result_files == original.remote_result_files
 
+    def test_read_preserves_declared_workflow_paths(self, tmp_path):
+        original = TaskRecord(
+            task_id="water",
+            batch_id="run-paths",
+            remote_job_dir="/remote/.jobdesk_runs/run-paths/water",
+            workflow_kind="confflow",
+            remote_config_path="/remote/submission/workflow.yaml",
+            remote_workflow_dir="/remote/submission/water_confflow_work",
+            remote_state_path="/remote/submission/water_confflow_work/.workflow_state.json",
+            remote_stats_path="/remote/submission/water_confflow_work/workflow_stats.json",
+            remote_log_path="/remote/.jobdesk_runs/run-paths/water/.jobdesk_submit.log",
+            remote_result_paths=["/remote/submission/water.txt"],
+            dry_run_command="confflow water.xyz --dry-run",
+            resume_command="confflow water.xyz --resume",
+            resume_dry_run_command="confflow water.xyz --resume --dry-run",
+            resume_requested=True,
+        )
+
+        path = tmp_path / "manifest.tsv"
+        Manifest.write(path, [original])
+
+        assert Manifest.read(path)[0] == original
+
+    def test_legacy_manifest_defaults_declared_workflow_paths(self, tmp_path):
+        legacy_columns = [
+            "task_id",
+            "batch_id",
+            "remote_job_dir",
+            "status",
+        ]
+        path = tmp_path / "legacy.tsv"
+        path.write_text(
+            "\t".join(legacy_columns) + "\n" + "legacy\trun-old\t/remote/legacy\trunning\n",
+            encoding="utf-8",
+        )
+
+        loaded = Manifest.read(path)[0]
+
+        assert loaded.workflow_kind == ""
+        assert loaded.remote_config_path == ""
+        assert loaded.remote_workflow_dir == ""
+        assert loaded.remote_state_path == ""
+        assert loaded.remote_stats_path == ""
+        assert loaded.remote_log_path == ""
+        assert loaded.remote_result_paths == []
+        assert loaded.dry_run_command == ""
+        assert loaded.resume_command == ""
+        assert loaded.resume_dry_run_command == ""
+        assert loaded.resume_requested is False
+
     def test_read_preserves_remote_execution_identity(self):
         original = TaskRecord(
             task_id="water",

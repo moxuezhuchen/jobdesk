@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.test_gui_behavior.conftest import _FakeWorker
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
@@ -66,6 +67,62 @@ class TestAutoRefreshCoordinatorDelegation:
             qtbot.waitUntil(lambda: not runs_page._auto_refresh_running, timeout=2000)
 
         assert refresh.call_count == 2
+
+    @pytest.mark.parametrize("failure_point", ["construct", "start"])
+    def test_auto_refresh_worker_start_failure_rolls_back_claims(self, runs_page, failure_point):
+        record = SimpleNamespace(run_id="auto-start", server_id="wsl", status_summary={"running": 1})
+        worker = _FakeWorker()
+        if failure_point == "start":
+            worker.start.side_effect = RuntimeError("start")
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker)
+        else:
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=RuntimeError("construct"))
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            factory,
+        ):
+            service.return_value.list_runs.return_value = [record]
+            runs_page._auto_refresh_active()
+
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "auto-start", "wsl")
+        assert runs_page._auto_refresh_running is False
+        assert watch_id not in runs_page._in_progress
+        assert worker not in runs_page._bg_workers
+
+    def test_shutdown_blocks_late_auto_refresh_callbacks_and_cleans_claims(self, runs_page):
+        record = SimpleNamespace(run_id="auto-late", server_id="wsl", status_summary={"running": 1})
+        worker = _FakeWorker()
+        runs_page._status_cb = MagicMock()
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+            patch.object(runs_page, "refresh_run_list") as refresh,
+        ):
+            service.return_value.list_runs.return_value = [record]
+            runs_page._auto_refresh_active()
+            watch_id = runs_page._monitor_identity(runs_page._workspace(), "auto-late", "wsl")
+            runs_page.shutdown()
+            worker.result.emit((["auto-late"], ["late"], {}))
+            worker.error.emit(RuntimeError("late"))
+            worker.finished.emit()
+
+        runs_page._status_cb.assert_not_called()
+        refresh.assert_not_called()
+        assert runs_page._auto_refresh_running is False
+        assert watch_id not in runs_page._in_progress
+        assert worker not in runs_page._bg_workers
+
+    def test_shutdown_prevents_periodic_monitor_retry(self, runs_page):
+        runs_page.shutdown()
+
+        with (
+            patch.object(runs_page, "_start_monitoring") as start_monitoring,
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+        ):
+            runs_page._auto_refresh_active()
+
+        start_monitoring.assert_not_called()
+        service.assert_not_called()
 
 
 class TestTaskDoneDebounce:

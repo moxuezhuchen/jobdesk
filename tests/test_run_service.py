@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,7 @@ import pytest
 import jobdesk_app.services.run_service as run_service_module
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.models import FailureRecord
-from jobdesk_app.core.run import RunMode, RunSource, RunSpec
+from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferStatus
@@ -68,6 +69,38 @@ def test_create_run_is_immediately_queryable_from_sqlite(tmp_path, runs_dir):
 
     with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
         assert connection.execute("SELECT run_id FROM runs WHERE run_id = 'sqlite-run'").fetchone() == ("sqlite-run",)
+
+
+def test_create_run_persists_exact_confflow_paths_in_sqlite(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/submission",
+            command_template="confflow {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/source/water.xyz")],
+            supporting_sources=[RunSource("/remote/submission/workflow.yaml")],
+            result_templates=["water_confflow_work/workflow_stats.json"],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="sqlite-workflow-paths",
+    )
+
+    task = service.repository.load_tasks("sqlite-workflow-paths")[0]
+
+    assert task.workflow_kind == "confflow"
+    assert task.remote_config_path == "/remote/submission/workflow.yaml"
+    assert task.remote_workflow_dir == "/remote/submission/water_confflow_work"
+    assert task.remote_state_path.endswith("/water_confflow_work/.workflow_state.json")
+    assert task.remote_stats_path.endswith("/water_confflow_work/workflow_stats.json")
+    assert task.remote_log_path.endswith("/.jobdesk_runs/sqlite-workflow-paths/water/.jobdesk_submit.log")
+    assert task.remote_result_paths == ["/remote/submission/water_confflow_work/workflow_stats.json"]
+    assert task.dry_run_command.endswith(" --dry-run")
+    assert task.resume_command.endswith(" --resume")
+    assert task.resume_dry_run_command.endswith(" --resume --dry-run")
+    assert task.resume_requested is False
 
 
 def test_run_service_exposes_legacy_migration_errors(tmp_path, runs_dir):
@@ -252,8 +285,7 @@ def test_download_completed_run_outputs(tmp_path, runs_dir):
 
     assert not failures
     assert len(records) == 1
-    assert (tmp_path / "a.log").read_text(encoding="utf-8") == "ok"
-    assert not (tmp_path / "results").exists()
+    assert (tmp_path / "results" / "run001" / "a.log").read_text(encoding="utf-8") == "ok"
     assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.downloaded
 
 
@@ -338,8 +370,99 @@ def test_download_completed_uses_declared_nested_results(tmp_path, runs_dir):
         "/remote/jobs/water.txt",
         "/remote/jobs/water_confflow_work/run_summary.json",
     ]
-    assert (tmp_path / "water_confflow_work" / "run_summary.json").exists()
-    assert not (tmp_path / "results").exists()
+    assert (tmp_path / "results" / "run004" / "water_confflow_work" / "run_summary.json").exists()
+
+
+def test_same_basename_downloads_are_isolated_by_run_id(tmp_path, runs_dir):
+    """New final-result downloads never share the workspace-root basename."""
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    spec = RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/jobs",
+        command_template="confflow {name}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/jobs/same.xyz")],
+        result_templates=["{basename}_confflow_work/workflow_stats.json"],
+    )
+    first = service.create_run(spec, run_id="submission-a")
+    second = service.create_run(spec, run_id="submission-b")
+    for record in (first, second):
+        tasks = service.repository.load_tasks(record.run_id)
+        tasks[0].status = TaskStatus.remote_completed
+        replace_tasks_for_test(service.repository, record.run_id, tasks)
+
+    class FakeSFTP:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+        def download_file(self, remote_path, local_path, **kwargs):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_text(self.content, encoding="utf-8")
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+
+            return TransferRecord(
+                TransferDirection.download,
+                str(local_path),
+                remote_path,
+                status=TransferStatus.transferred,
+            )
+
+    first_records, first_failures = service.download_completed(first.run_id, FakeSFTP("first"), ["*.json"])
+    second_records, second_failures = service.download_completed(second.run_id, FakeSFTP("second"), ["*.json"])
+
+    first_path = tmp_path / "results" / first.run_id / "same_confflow_work" / "workflow_stats.json"
+    second_path = tmp_path / "results" / second.run_id / "same_confflow_work" / "workflow_stats.json"
+    assert first_failures == second_failures == []
+    assert len(first_records) == len(second_records) == 1
+    assert first_path != second_path
+    assert first_path.read_text(encoding="utf-8") == "first"
+    assert second_path.read_text(encoding="utf-8") == "second"
+
+
+def test_download_rejects_service_workspace_that_differs_from_persisted_run_workspace(tmp_path, runs_dir):
+    """A globally visible run cannot silently write results into another project."""
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+    service_a = RunService(workspace_a, runs_dir=runs_dir)
+    record = service_a.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="workspace-bound",
+    )
+    tasks = service_a.repository.load_tasks(record.run_id)
+    tasks[0].status = TaskStatus.remote_completed
+    replace_tasks_for_test(service_a.repository, record.run_id, tasks)
+
+    class FakeSFTP:
+        def download_file(self, remote_path, local_path, **kwargs):
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_text("result", encoding="utf-8")
+            from jobdesk_app.core.transfer import TransferDirection, TransferRecord
+
+            return TransferRecord(
+                TransferDirection.download,
+                str(local_path),
+                remote_path,
+                status=TransferStatus.transferred,
+            )
+
+    wrong_service = RunService(workspace_b, runs_dir=runs_dir)
+    with pytest.raises(ValueError, match="does not match download workspace"):
+        wrong_service.download_completed(record.run_id, FakeSFTP(), [".log"])
+    assert not (workspace_a / "results").exists()
+    assert not (workspace_b / "results").exists()
+
+    records, failures = service_a.download_completed(record.run_id, FakeSFTP(), [".log"])
+    assert failures == []
+    assert len(records) == 1
+    assert (workspace_a / "results" / record.run_id / "a.log").read_text(encoding="utf-8") == "result"
 
 
 def test_download_completed_rejects_declared_result_path_traversal(tmp_path, runs_dir):
@@ -415,6 +538,53 @@ def test_prepare_retry_failed_marks_failed_tasks_uploaded(tmp_path, runs_dir):
 
     assert changed == 1
     assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.uploaded
+
+
+def test_workflow_retry_persists_resume_intent_and_original_namespace_across_restart(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/submission/run-one",
+            command_template="confflow {name} -c workflow.yaml -w {basename}_confflow_work",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/source/water.xyz")],
+            supporting_sources=[RunSource("/remote/submission/run-one/workflow.yaml")],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="workflow-retry",
+    )
+    before = service.repository.load_tasks(record.run_id)[0]
+    original_paths = (
+        before.remote_config_path,
+        before.remote_workflow_dir,
+        before.remote_state_path,
+        before.remote_stats_path,
+        tuple(before.remote_result_paths),
+    )
+    before.status = TaskStatus.failed
+    replace_tasks_for_test(service.repository, record.run_id, [before])
+
+    assert service.prepare_retry_failed(record.run_id) == 1
+    restarted = RunService(tmp_path, runs_dir=runs_dir)
+    retried = restarted.repository.load_tasks(record.run_id)[0]
+
+    assert retried.status == TaskStatus.uploaded
+    assert retried.resume_requested is True
+    assert (
+        retried.remote_config_path,
+        retried.remote_workflow_dir,
+        retried.remote_state_path,
+        retried.remote_stats_path,
+        tuple(retried.remote_result_paths),
+    ) == original_paths
+    assert retried.resume_command.count("--resume") == 1
+    assert retried.resume_dry_run_command.count("--resume") == 1
+
+    from jobdesk_app.remote.submitter import JobSubmitter
+
+    assert JobSubmitter.generate_task_runner(retried).count("--resume") == 1
 
 
 def test_manual_recovery_returns_only_cas_accepted_task_ids(tmp_path, runs_dir):
@@ -734,6 +904,81 @@ def test_submit_run_releases_claim_when_scheduler_preflight_raises(tmp_path, run
     assert result.errors
     assert service.repository.load_tasks("run_scheduler_preflight")[0].status == TaskStatus.uploaded
     assert service.repository.list_operations()[0].phase == "completed"
+
+
+def test_confflow_capability_failure_releases_claim_before_remote_start(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/submission",
+            command_template="confflow {name} -c workflow.yaml -w {basename}_confflow_work",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/source/water.xyz")],
+            supporting_sources=[RunSource("/remote/submission/workflow.yaml")],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="run-capability-failure",
+    )
+    ssh = MagicMock()
+    ssh.run.return_value = SSHResult("capabilities", 0, "not-json", "", 0.01)
+    sftp = MagicMock()
+    remote_start = MagicMock(wraps=service.repository.start_submit_operation)
+    monkeypatch.setattr(service.repository, "start_submit_operation", remote_start)
+
+    result = service.submit_run(record.run_id, ssh, sftp)
+
+    assert any("capability preflight failed" in error for error in result.errors)
+    sftp.upload_file.assert_not_called()
+    remote_start.assert_not_called()
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.uploaded
+    operation = service.repository.list_operations()[0]
+    assert operation.phase == "completed"
+    assert operation.completed_at is not None
+    assert not any("nohup setsid" in call.args[0] for call in ssh.run.call_args_list)
+
+
+def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/submission",
+            command_template="confflow {name} -c workflow.yaml -w {basename}_confflow_work",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/source/water.xyz")],
+            supporting_sources=[RunSource("/remote/submission/workflow.yaml")],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="run-dry-run-failure",
+    )
+    capability_json = json.dumps(
+        {
+            "schema_version": 1,
+            "version": "1.4.0",
+            "capabilities": {"workflow_state": True, "resume": True, "dag": True},
+        }
+    )
+    ssh = MagicMock()
+    ssh.run.side_effect = [
+        SSHResult("capabilities", 0, capability_json, "", 0.01),
+        SSHResult("chmod", 0, "", "", 0.01),
+        SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
+    ]
+    sftp = MagicMock()
+    remote_start = MagicMock(wraps=service.repository.start_submit_operation)
+    monkeypatch.setattr(service.repository, "start_submit_operation", remote_start)
+
+    result = service.submit_run(record.run_id, ssh, sftp)
+
+    assert any("dry-run failed: invalid workflow" in error for error in result.errors)
+    assert sftp.upload_file.call_count == 4
+    remote_start.assert_not_called()
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.uploaded
+    assert service.repository.list_operations()[0].phase == "completed"
+    assert not any("nohup setsid" in call.args[0] for call in ssh.run.call_args_list)
 
 
 def test_submit_exception_recovers_owned_remote_started_operation(tmp_path, runs_dir, monkeypatch):

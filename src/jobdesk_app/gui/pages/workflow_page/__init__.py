@@ -115,7 +115,7 @@ class WorkflowPage(QWidget):
         # Build workspace with flow body
         self._flow_body, self._flow_layout = _preview.build_flow_body_and_layout(self)
         (
-            self._workspace,
+            self._graph_panel,
             self.add_step_button,
             self.flow_scroll,
             self.save_workflow_button,
@@ -126,6 +126,22 @@ class WorkflowPage(QWidget):
             self._flow_layout,
             self._add_step,
             self._save_workflow,
+        )
+
+        # Build step tab with widgets
+        self._build_step_tab_widgets()
+        self._build_global_tab_widgets()
+        left_panel = self._build_left_panel()
+
+        # Keep the YAML editor and flow diagram in the same horizontal
+        # splitter.  The refactor introduced ``build_workspace`` but was
+        # accidentally wiring only ``build_graph_panel`` into ``outer``,
+        # leaving the left panel detached from the visible layout.
+        self._workspace = _form_builder.build_workspace(
+            self,
+            self._language,
+            lambda: left_panel,
+            lambda: self._graph_panel,
         )
         outer.addWidget(self._workspace, 1)
 
@@ -144,11 +160,6 @@ class WorkflowPage(QWidget):
             self._on_use_for_submit,
         )
         outer.addWidget(self._footer)
-
-        # Build step tab with widgets
-        self._build_step_tab_widgets()
-        self._build_global_tab_widgets()
-        self._build_left_panel()
 
         self._refresh_workflow_presets()
         self._refresh_step_presets()

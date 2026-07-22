@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from PySide6.QtCore import QObject, Signal
 
 from ..services.run_monitor import DoneEvent
@@ -18,11 +20,19 @@ class RunMonitor(QObject):
         super().__init__(parent)
         self._service = ServiceRunMonitor(create_ssh_client, self._emit_task_done)
 
-    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config: object) -> None:
-        self._service.watch(run_id, server_id, remote_batch_dir, server_config)
+    def watch(
+        self,
+        run_id: str,
+        server_id: str,
+        remote_batch_dir: str,
+        server_config: object,
+        progress_paths: Iterable[str] = (),
+        watch_id: str | None = None,
+    ) -> None:
+        self._service.watch(run_id, server_id, remote_batch_dir, server_config, progress_paths, watch_id)
 
-    def unwatch(self, run_id: str, server_id: str) -> None:
-        self._service.unwatch(run_id, server_id)
+    def unwatch(self, run_id: str, server_id: str, watch_id: str | None = None) -> None:
+        self._service.unwatch(run_id, server_id, watch_id)
 
     def stop_all(self) -> None:
         self._service.stop_all()

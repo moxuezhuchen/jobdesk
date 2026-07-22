@@ -6,6 +6,10 @@ from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import TaskRecord
 
 
+def _is_workflow_task(task: TaskRecord) -> bool:
+    return task.workflow_kind in {"confflow", "dag"} or "confflow" in task.rendered_command
+
+
 def prepare_rerun(service, run_id: str) -> int:
     """Reset all tasks to uploaded state for re-submission.
 
@@ -28,6 +32,8 @@ def prepare_rerun(service, run_id: str) -> int:
         if active:
             raise ValueError(f"cannot rerun active remote tasks: {', '.join(active)}")
         for task in tasks:
+            if _is_workflow_task(task):
+                task.resume_requested = True
             task.status = TaskStatus.uploaded
             task.submitted_at = None
             task.started_at = None
@@ -56,6 +62,8 @@ def prepare_retry_failed(service, run_id: str) -> int:
             if task.status == TaskStatus.failed:
                 task.status = TaskStatus.uploaded
                 task.error_message = None
+                if _is_workflow_task(task):
+                    task.resume_requested = True
                 changed += 1
         return tasks
 

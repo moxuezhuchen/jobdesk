@@ -40,7 +40,27 @@ def _download_completed_locked(
     records = []
     failures = []
     successful_task_records: dict[str, list] = {}
-    download_base = Path(record.local_dir).resolve() if record.local_dir else workspace_dir
+    # Final outputs are owned by a run, just like deletion and result-preview
+    # contracts.  Never write new downloads into the shared workspace root:
+    # two submissions may legitimately contain the same molecule basename.
+    caller_workspace = workspace_dir.resolve()
+    if record.local_dir:
+        recorded_workspace = Path(record.local_dir)
+        if not recorded_workspace.is_absolute():
+            raise ValueError(f"run {run_id!r} has a non-absolute local_dir workspace anchor")
+        recorded_workspace = recorded_workspace.resolve()
+        if recorded_workspace != caller_workspace:
+            raise ValueError(
+                f"run local_dir does not match download workspace: {recorded_workspace} != {caller_workspace}"
+            )
+        download_workspace = recorded_workspace
+    else:
+        # Legacy records did not persist a workspace binding.
+        download_workspace = caller_workspace
+    results_root = download_workspace / "results"
+    download_base = (results_root / run_id).resolve()
+    if not download_base.is_relative_to(results_root):
+        raise ValueError(f"run_id escapes results dir: {run_id}")
     for task in tasks:
         if task.status != TaskStatus.remote_completed:
             continue

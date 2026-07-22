@@ -19,14 +19,20 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.core.run import RunMode, RunSpec, WorkflowKind
+from jobdesk_app.core.run import RunMode, RunSpec, WorkflowKind, build_run_plan
 from jobdesk_app.core.submit_payload import (
     DagWorkflowFields,
     InputSource,
     SubmitPayload,
     WorkflowFields,
 )
-from jobdesk_app.services.submit_use_case import PreparedBatch, SubmitUseCase, remote_child_path
+from jobdesk_app.services.submit_use_case import (
+    PreparedBatch,
+    SubmitUseCase,
+    _submission_yaml_path,
+    _unique_remote_input_name,
+    remote_child_path,
+)
 
 
 @dataclass
@@ -273,8 +279,7 @@ def test_max_parallel_propagates_to_spec():
 
 
 def test_confflow_kind_builds_single_spec_and_writes_yaml(tmp_path):
-    """For kind=confflow, exactly one RunSpec is emitted and a workflow.yaml
-    is written next to the first input's parent directory."""
+    """A ConfFlow submission writes one submission-unique local YAML."""
     from jobdesk_app.core import workflow_spec
 
     if not workflow_spec._CONFFLOW_AVAILABLE:
@@ -296,8 +301,122 @@ def test_confflow_kind_builds_single_spec_and_writes_yaml(tmp_path):
     assert len(spec.sources) == 2
     assert batch.yaml_local_path is not None
     assert batch.yaml_local_path.exists()
-    assert batch.yaml_local_path.name == "workflow.yaml"
+    assert batch.yaml_local_path.name.startswith("workflow.")
+    assert batch.yaml_local_path.name.endswith(".yaml")
     assert batch.yaml_local_path.parent == src_dir
+
+
+def test_same_basename_confflow_submissions_have_disjoint_mutable_paths(tmp_path):
+    from jobdesk_app.core import workflow_spec
+
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    xyz = tmp_path / "molecules" / "same.xyz"
+    xyz.parent.mkdir()
+    xyz.write_text("1\nsame\nH 0 0 0\n", encoding="utf-8")
+    payload = _payload_confflow(inputs=[InputSource(path=xyz)], remote_dir="/work/shared")
+
+    first = SubmitUseCase(submission_id_factory=lambda: "submission-a").execute(payload)
+    second = SubmitUseCase(submission_id_factory=lambda: "submission-b").execute(payload)
+
+    assert first.ok and second.ok
+    assert first.submission_remote_dir == "/work/shared/.jobdesk_submissions/submission-a"
+    assert second.submission_remote_dir == "/work/shared/.jobdesk_submissions/submission-b"
+    assert first.upload_targets == ["/work/shared/.jobdesk_submissions/submission-a/same.xyz"]
+    assert second.upload_targets == ["/work/shared/.jobdesk_submissions/submission-b/same.xyz"]
+    assert first.yaml_remote_path == ("/work/shared/.jobdesk_submissions/submission-a/workflow.yaml")
+    assert second.yaml_remote_path == ("/work/shared/.jobdesk_submissions/submission-b/workflow.yaml")
+    assert first.yaml_local_path == xyz.parent / "workflow.submission-a.yaml"
+    assert second.yaml_local_path == xyz.parent / "workflow.submission-b.yaml"
+    assert first.yaml_local_path != second.yaml_local_path
+    assert first.yaml_local_path.exists() and second.yaml_local_path.exists()
+
+    first_plan = build_run_plan(first.specs[0], run_id="run-a")
+    second_plan = build_run_plan(second.specs[0], run_id="run-b")
+    first_task = first_plan.tasks[0]
+    second_task = second_plan.tasks[0]
+    assert first_task.command != second_task.command
+
+    first_mutable = {
+        first.yaml_remote_path,
+        first_task.remote_job_dir,
+        *(f"{first.specs[0].remote_dir}/{path}" for path in first_task.remote_result_files),
+    }
+    second_mutable = {
+        second.yaml_remote_path,
+        second_task.remote_job_dir,
+        *(f"{second.specs[0].remote_dir}/{path}" for path in second_task.remote_result_files),
+    }
+    assert first_mutable.isdisjoint(second_mutable)
+    assert any(path.endswith("/same_confflow_work/workflow_stats.json") for path in first_mutable)
+    assert any(path.endswith("/same_confflow_work/.workflow_state.json") for path in first_mutable)
+
+
+def test_remote_confflow_source_is_read_only_but_outputs_use_unique_namespace(tmp_path):
+    from jobdesk_app.core import workflow_spec
+
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    payload = _payload_confflow(
+        inputs=[InputSource(path=Path("/shared/source/mol.xyz"), side="remote", kind="xyz")],
+        remote_dir="/work",
+    )
+    payload.output_dir = tmp_path
+
+    batch = SubmitUseCase(submission_id_factory=lambda: "remote-source").execute(payload)
+
+    assert batch.ok
+    assert batch.local_paths == []
+    assert batch.upload_targets == []
+    assert batch.remote_targets == ["/shared/source/mol.xyz"]
+    assert batch.specs[0].remote_dir == "/work/.jobdesk_submissions/remote-source"
+    assert "source={path}" in batch.specs[0].command_template
+    assert 'confflow "$staged"' in batch.specs[0].command_template
+    assert "workspace=/work/.jobdesk_submissions/remote-source" in batch.specs[0].command_template
+
+
+def test_one_batch_same_basename_uploads_and_outputs_are_disjoint(tmp_path):
+    from jobdesk_app.core import workflow_spec
+
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    first = tmp_path / "a" / "same.xyz"
+    second = tmp_path / "b" / "same.xyz"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("1\nfirst\nH 0 0 0\n", encoding="utf-8")
+    second.write_text("1\nsecond\nH 1 0 0\n", encoding="utf-8")
+    payload = _payload_confflow(
+        inputs=[InputSource(path=first), InputSource(path=second)],
+        remote_dir="/work",
+    )
+
+    batch = SubmitUseCase(submission_id_factory=lambda: "same-batch").execute(payload)
+
+    assert batch.ok
+    assert batch.upload_targets == [
+        "/work/.jobdesk_submissions/same-batch/same.xyz",
+        "/work/.jobdesk_submissions/same-batch/same_2.xyz",
+    ]
+    plan = build_run_plan(batch.specs[0], run_id="same-batch-run")
+    assert [task.task_id for task in plan.tasks] == ["same", "same_2"]
+    first_results = set(plan.tasks[0].remote_result_files)
+    second_results = set(plan.tasks[1].remote_result_files)
+    assert first_results.isdisjoint(second_results)
+    assert "same_confflow_work/workflow_stats.json" in first_results
+    assert "same_2_confflow_work/workflow_stats.json" in second_results
+    assert "same_confflow_work/.workflow_state.json" in first_results
+    assert "same_2_confflow_work/.workflow_state.json" in second_results
+
+
+def test_submission_yaml_and_duplicate_upload_helpers_are_always_unique(tmp_path):
+    payload = _payload_confflow(inputs=[InputSource(path=tmp_path / "same.xyz")])
+    assert _submission_yaml_path(payload, "one") == tmp_path / "workflow.one.yaml"
+    assert _submission_yaml_path(payload, "two") == tmp_path / "workflow.two.yaml"
+
+    used: set[str] = set()
+    assert _unique_remote_input_name("same.xyz", used) == "same.xyz"
+    assert _unique_remote_input_name("same.xyz", used) == "same_2.xyz"
 
 
 def test_confflow_yaml_lands_next_to_first_input_even_when_output_dir_is_cwd(tmp_path):
@@ -407,7 +526,8 @@ def test_dag_kind_builds_single_spec_and_writes_yaml(tmp_path):
     assert "confflow" in spec.command_template
     assert any("workflow.yaml" in s.path for s in spec.supporting_sources)
     assert batch.yaml_local_path is not None
-    assert batch.yaml_local_path.name == "workflow.yaml"
+    assert batch.yaml_local_path.name.startswith("workflow.")
+    assert batch.yaml_local_path.name.endswith(".yaml")
     assert batch.yaml_local_path.exists()
 
     # The YAML body must contain every editor-emitted step dict, including
@@ -444,7 +564,8 @@ def test_dag_kind_writes_yaml_at_output_dir(tmp_path):
     assert batch.ok
     assert batch.yaml_local_path is not None
     assert batch.yaml_local_path.parent == src_dir
-    assert batch.yaml_local_path.name == "workflow.yaml"
+    assert batch.yaml_local_path.name.startswith("workflow.")
+    assert batch.yaml_local_path.name.endswith(".yaml")
 
 
 def test_dag_kind_remote_targets_pair_with_inputs(tmp_path):
@@ -504,4 +625,8 @@ def test_dag_kind_supports_fan_in_inputs(tmp_path):
     assert len(batch.specs) == 1
     spec = batch.specs[0]
     # Sources are the remote paths the SFTP helper will use for the run.
-    assert {s.path for s in spec.sources} == {"/work/a.xyz", "/work/b.xyz"}
+    assert spec.remote_dir.startswith("/work/.jobdesk_submissions/")
+    assert {s.path for s in spec.sources} == {
+        f"{spec.remote_dir}/a.xyz",
+        f"{spec.remote_dir}/b.xyz",
+    }

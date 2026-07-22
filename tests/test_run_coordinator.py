@@ -155,6 +155,31 @@ def test_missing_run_is_returned_as_outcome_error(tmp_path) -> None:
     assert outcome.errors == ["KeyError: 'run not found: missing'"]
 
 
+def test_sync_progress_uses_sftp_and_surfaces_task_failures(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    record = service.create_run(_spec(), run_id="run-progress")
+    ssh = MagicMock()
+    sftp = MagicMock()
+    transfer = MagicMock()
+    sync = MagicMock(return_value=([transfer], [("a", "permission denied")]))
+    monkeypatch.setattr(service, "sync_progress", sync)
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=_server,
+        ssh_factory=lambda _config: ssh,
+        sftp_factory=lambda _ssh: sftp,
+    )
+
+    outcome = coordinator.sync_progress(record.run_id)
+
+    sync.assert_called_once_with(record.run_id, sftp)
+    assert outcome.transfer_records == [transfer]
+    assert outcome.failures == [("a", "permission denied")]
+    assert outcome.errors == ["a: permission denied"]
+    sftp.close.assert_called_once_with()
+    ssh.close.assert_called_once_with()
+
+
 def test_non_owning_coordinator_does_not_close_shared_clients(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     record = service.create_run(_spec(), run_id="run-1")

@@ -46,6 +46,8 @@ from ..worker_utils import WorkerContext, start_context_worker
 from .runs_detail_pane import ResultDetailPane, _resolve_output_path
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
+CHECKPOINT_RETRY_BASE_MS = 1000
+CHECKPOINT_RETRY_MAX_MS = 30000
 
 _logger = logging.getLogger(__name__)
 
@@ -340,8 +342,17 @@ class RunsResultsPage(QWidget):
         self._remote_mutation_running = False
 
         # Debounce state for _on_task_done events
-        self._pending_task_events: dict[str, dict] = {}  # run_id -> {server_id, has_done}
+        # Key monitor work by its workspace-bound watcher id, not a bare
+        # run_id: different workspaces may contain identically named runs.
+        self._pending_task_events: dict[str, dict] = {}
+        # Checkpoint updates share the same per-watcher gate as full refreshes,
+        # but must remain distinct so a terminal DONE can retire them first.
+        self._pending_checkpoint_events: dict[str, tuple[object, Path]] = {}
+        self._checkpoint_retry_events: dict[str, tuple[object, Path]] = {}
+        self._checkpoint_retry_timers: dict[str, QTimer] = {}
+        self._checkpoint_retry_attempts: dict[str, int] = {}
         self._task_done_timers: dict[str, QTimer] = {}
+        self._monitor_contexts: dict[str, tuple[Path, str, str]] = {}
 
         # Auto-refresh timer for active runs
         self._refresh_timer = QTimer(self)
@@ -362,8 +373,7 @@ class RunsResultsPage(QWidget):
         # Memoized detail-pane results keyed by (task_id, mtime, size) of the source
         # log/out. Invalidated by the _ckpt_ checkpoint handler and on parser failure.
         self._detail_cache: dict[tuple, object] = {}
-        # run_ids currently being refreshed/downloaded, shared by the auto-refresh
-        # timer and the monitor-driven flush to avoid duplicate concurrent work.
+        # Workspace-bound watcher ids currently being refreshed/downloaded.
         self._in_progress: set[str] = set()
         # Tracks the last current_batch_id we auto-selected, so a freshly-set one
         # (a new submission) still jumps while later refreshes keep manual selection.
@@ -371,12 +381,47 @@ class RunsResultsPage(QWidget):
 
         self._session_pool = SessionPool(create_ssh_client, create_sftp_client)
 
+    @staticmethod
+    def _monitor_identity(workspace: Path, run_id: str, server_id: str) -> str:
+        """Return a stable identity for a watcher and all of its UI state."""
+        return "\x1f".join((str(workspace.resolve()), str(server_id), str(run_id)))
+
+    def _monitor_context_for_event(self, event) -> tuple[Path, str, str] | None:
+        watch_id = getattr(event, "watch_id", None)
+        if isinstance(watch_id, str) and watch_id:
+            context = self._monitor_contexts.get(watch_id)
+            if context is None:
+                _logger.warning("Ignoring event from unknown monitor watcher %s", watch_id)
+            return context
+        # Compatibility for custom monitors that have not yet adopted
+        # watch_id. Built-in monitors always provide it, so this never binds a
+        # real watcher through the currently selected workspace.
+        matches = [
+            context
+            for context in self._monitor_contexts.values()
+            if context[1:] == (event.run_id, event.server_id)
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            _logger.warning("Ignoring ambiguous legacy monitor event for %s", event.run_id)
+            return None
+        return self._workspace(), event.run_id, event.server_id
+
     def _start_monitoring(self):
         """Watch all running runs."""
+        if self._shutting_down:
+            return
         try:
-            runs = RunService(self._workspace()).list_runs()
+            workspace = self._workspace()
+            service = RunService(workspace)
+            runs = service.list_runs()
             cfg = load_servers()
-            for record in runs:
+        except Exception:
+            _logger.exception("Failed to enumerate runs for monitoring")
+            return
+        for record in runs:
+            try:
                 if (
                     record.status_summary.get("submitting", 0) > 0
                     or record.status_summary.get("running", 0) > 0
@@ -385,73 +430,101 @@ class RunsResultsPage(QWidget):
                     srv = cfg.servers.get(record.server_id)
                     if srv:
                         batch_dir = remote_run_dir(record.remote_dir, record.run_id)
-                        self._monitor.watch(record.run_id, record.server_id, batch_dir, srv)
-        except Exception:
-            _logger.exception("Failed to start monitoring")
+                        tasks = service.repository.load_tasks(record.run_id)
+                        progress_paths = [
+                            path for task in tasks for path in (task.remote_state_path, task.remote_stats_path) if path
+                        ]
+                        watch_id = self._monitor_identity(workspace, record.run_id, record.server_id)
+                        self._monitor_contexts[watch_id] = (workspace, record.run_id, record.server_id)
+                        try:
+                            self._monitor.watch(
+                                record.run_id,
+                                record.server_id,
+                                batch_dir,
+                                srv,
+                                progress_paths,
+                                watch_id,
+                            )
+                        except Exception:
+                            self._monitor_contexts.pop(watch_id, None)
+                            raise
+            except Exception:
+                _logger.exception("Failed to start monitoring run %s", getattr(record, "run_id", "<unknown>"))
 
     def _on_task_done(self, event):
         """Called when a remote task changes state — debounce before refresh.
 
         Synthetic checkpoint events (``task_id`` starts with ``_ckpt_``)
-        trigger an immediate refresh-only path: no download, no status
-        mutation. They exist so the Runs page reflects ConfFlow step
-        progress even when no DONE/RUNNING line has been emitted yet.
+        trigger a progress-only background transfer before local widgets are
+        refreshed. They never change task status or invoke full result download.
         """
         if self._shutting_down:
             return
-        run_id = event.run_id
+        context = self._monitor_context_for_event(event)
+        if context is None:
+            return
+        workspace, run_id, server_id = context
+        event_watch_id = getattr(event, "watch_id", None)
+        # Keep direct callers of the historical private hook working. The
+        # built-in monitor always sends a registered string watch id.
+        watch_id = (
+            event_watch_id
+            if isinstance(event_watch_id, str) and event_watch_id in self._monitor_contexts
+            else run_id
+        )
         is_checkpoint = isinstance(event.task_id, str) and event.task_id.startswith("_ckpt_")
         if is_checkpoint:
-            # Immediate lightweight refresh: re-read run_summary /
-            # workflow_stats from disk and update the preview. No
-            # background worker needed since confflow_results parsing is
-            # cheap and we already cache by signature in
-            # ``_analyze_cache``.
-            self.refresh_run_list()
-            # Force the selected run's preview to reload so the new
-            # Progress column reflects the latest workflow_stats.json.
-            record = self._selected_record()
-            if record is not None:
-                # Drop analyze cache so the next preview re-reads
-                # workflow_stats.json / run_summary.json from disk.
-                self._analyze_cache.clear()
-                self._detail_cache.clear()
-                self._preview_timer.start()
+            # A newer remote snapshot supersedes any scheduled retry of an
+            # older one. If the watcher gate is busy, _sync coalesces this
+            # newest event into the normal pending slot.
+            self._clear_checkpoint_retry(watch_id)
+            self._pending_checkpoint_events.pop(watch_id, None)
+            self._sync_checkpoint_progress(event, workspace, watch_id)
             return
         # Real DONE/RUNNING path — debounce before refresh + download.
-        if run_id in self._pending_task_events:
-            state = self._pending_task_events[run_id]
-            state["has_done"] = state["has_done"] or (event.exit_code is not None)
+        has_done = event.exit_code is not None
+        if has_done:
+            # A DONE-triggered full refresh has priority over any older
+            # checkpoint retry or queued lightweight sync for this watcher.
+            self._clear_checkpoint_retry(watch_id)
+            self._pending_checkpoint_events.pop(watch_id, None)
+        if watch_id in self._pending_task_events:
+            state = self._pending_task_events[watch_id]
+            state["has_done"] = state["has_done"] or has_done
         else:
-            self._pending_task_events[run_id] = {
-                "server_id": event.server_id,
-                "has_done": event.exit_code is not None,
+            self._pending_task_events[watch_id] = {
+                "workspace": workspace,
+                "run_id": run_id,
+                "server_id": server_id,
+                "has_done": has_done,
             }
         # Start or restart debounce timer (1000ms)
-        if run_id in self._task_done_timers:
-            self._task_done_timers[run_id].start(1000)
+        if watch_id in self._task_done_timers:
+            self._task_done_timers[watch_id].start(1000)
         else:
-            timer = QTimer(self)
-            timer.setSingleShot(True)
-            timer.timeout.connect(lambda rid=run_id: self._flush_task_done(rid))
-            self._task_done_timers[run_id] = timer
-            timer.start(1000)
+            self._arm_task_done_timer(watch_id)
 
-    def _flush_task_done(self, run_id: str):
+    def _flush_task_done(self, watch_id: str):
         """Execute debounced refresh for a run after the quiet window."""
-        state = self._pending_task_events.pop(run_id, None)
-        self._task_done_timers.pop(run_id, None)
+        state = self._pending_task_events.get(watch_id)
         if state is None:
+            self._discard_task_done_timer(watch_id)
             return
-        if run_id in self._in_progress:
-            return  # auto-refresh or a prior flush is already handling this run
-        self._in_progress.add(run_id)
-        has_done = state["has_done"]
+        # A monitor signal can arrive while the prior refresh/download worker
+        # still owns this watcher.  Keep the coalesced state intact; its
+        # finished handler will retry once the owner releases the gate.
+        if watch_id in self._in_progress:
+            return
+        self._pending_task_events.pop(watch_id, None)
+        self._discard_task_done_timer(watch_id)
+        workspace = state.get("workspace", self._workspace())
+        run_id = state.get("run_id", watch_id)
         server_id = state["server_id"]
-        fallback_ws = self._workspace()
-
+        self._monitor_contexts.setdefault(watch_id, (workspace, run_id, server_id))
+        self._in_progress.add(watch_id)
+        has_done = state["has_done"]
         def _run():
-            record = RunService(fallback_ws).load_run(run_id)
+            record = RunService(workspace).load_run(run_id)
             patterns = self._get_download_patterns(record)
             outcome = self._execute_refresh_use_case(record, patterns, download=has_done)
             if outcome.errors:
@@ -470,31 +543,272 @@ class RunsResultsPage(QWidget):
         evt = _FakeEvent()
         evt.run_id = run_id
         evt.server_id = server_id
+        evt.watch_id = watch_id
 
         from ..workers import BackgroundWorker
 
-        w = BackgroundWorker(_run)
-        w.result.connect(lambda message: self._status_cb(message) if message else None)
-        w.error.connect(lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error)))
+        try:
+            w = BackgroundWorker(_run)
+        except Exception as error:
+            self._rollback_monitor_refresh_start(watch_id, state, error)
+            return
+
+        w.result.connect(
+            lambda message: self._status_cb(message)
+            if message and not self._shutting_down
+            else None
+        )
+        w.error.connect(
+            lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+            if not self._shutting_down
+            else None
+        )
         w.finished.connect(lambda: self._on_monitor_refresh_done(evt))
-        w.finished.connect(lambda: self._in_progress.discard(run_id))
+        w.finished.connect(lambda: self._finish_monitor_refresh(watch_id))
         w.finished.connect(lambda: self._bg_workers.remove(w) if w in self._bg_workers else None)
         w.finished.connect(w.deleteLater)
         self._bg_workers.append(w)
-        w.start()
+        try:
+            w.start()
+        except Exception as error:
+            if w in self._bg_workers:
+                self._bg_workers.remove(w)
+            try:
+                w.stop_safely(3000)
+            except Exception:
+                _logger.debug("Failed to stop monitor refresh worker after start failure", exc_info=True)
+            w.deleteLater()
+            self._rollback_monitor_refresh_start(watch_id, state, error)
+
+    def _arm_task_done_timer(self, watch_id: str, delay_ms: int = 1000) -> None:
+        timer = self._task_done_timers.get(watch_id)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda key=watch_id: self._flush_task_done(key))
+            self._task_done_timers[watch_id] = timer
+        timer.start(delay_ms)
+
+    def _rollback_monitor_refresh_start(self, watch_id: str, state: dict, error: Exception) -> None:
+        """Restore coalesced work when a refresh worker cannot be started."""
+        self._in_progress.discard(watch_id)
+        if self._shutting_down or watch_id not in self._monitor_contexts:
+            return
+        pending = self._pending_task_events.get(watch_id)
+        if pending is None:
+            self._pending_task_events[watch_id] = state
+        else:
+            pending["has_done"] = pending["has_done"] or state["has_done"]
+        self._arm_task_done_timer(watch_id)
+        self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+
+    def _discard_task_done_timer(self, watch_id: str) -> None:
+        """Stop and forget the debounce timer owned by one monitor watcher."""
+        timer = self._task_done_timers.pop(watch_id, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+
+    def _finish_monitor_refresh(self, watch_id: str) -> None:
+        """Release one monitor worker and flush exactly one coalesced follow-up batch."""
+        self._release_monitor_refresh_gate(watch_id)
+
+    def _release_monitor_refresh_gate(self, watch_id: str) -> None:
+        """Release a watcher gate and replay pending monitor state when it is still live."""
+        self._in_progress.discard(watch_id)
+        if self._shutting_down or watch_id not in self._monitor_contexts:
+            return
+        if watch_id in self._pending_task_events:
+            self._flush_task_done(watch_id)
+            return
+        checkpoint = self._pending_checkpoint_events.pop(watch_id, None)
+        if checkpoint is not None:
+            event, workspace = checkpoint
+            if watch_id in self._checkpoint_retry_attempts:
+                self._sync_checkpoint_progress(event, workspace, watch_id, _is_retry=True)
+            else:
+                self._sync_checkpoint_progress(event, workspace, watch_id)
+
+    def _clear_checkpoint_retry(self, watch_id: str, *, reset_attempts: bool = True) -> None:
+        """Cancel one watcher's retry without disturbing other workspaces."""
+        timer = self._checkpoint_retry_timers.pop(watch_id, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._checkpoint_retry_events.pop(watch_id, None)
+        if reset_attempts:
+            self._checkpoint_retry_attempts.pop(watch_id, None)
+
+    def _schedule_checkpoint_retry(self, event, workspace: Path, watch_id: str) -> None:
+        """Retain the consumed checkpoint event and retry with bounded backoff."""
+        if self._shutting_down or watch_id not in self._monitor_contexts:
+            return
+        # A newer queued checkpoint supersedes the event whose worker just
+        # failed. A terminal DONE refresh also wins, but an ordinary RUNNING
+        # refresh does not carry checkpoint files and must preserve the retry.
+        pending_task = self._pending_task_events.get(watch_id)
+        if watch_id in self._pending_checkpoint_events or (
+            pending_task is not None and pending_task["has_done"]
+        ):
+            self._clear_checkpoint_retry(watch_id)
+            return
+        self._checkpoint_retry_events[watch_id] = (event, workspace)
+        attempt = self._checkpoint_retry_attempts.get(watch_id, 0) + 1
+        self._checkpoint_retry_attempts[watch_id] = attempt
+        exponent = min(attempt - 1, 30)
+        delay = min(CHECKPOINT_RETRY_BASE_MS * (2**exponent), CHECKPOINT_RETRY_MAX_MS)
+        timer = self._checkpoint_retry_timers.get(watch_id)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda key=watch_id: self._run_checkpoint_retry(key))
+            self._checkpoint_retry_timers[watch_id] = timer
+        else:
+            timer.stop()
+        timer.start(delay)
+
+    def _run_checkpoint_retry(self, watch_id: str) -> None:
+        """Run one scheduled retry, or merge it into the busy watcher gate."""
+        timer = self._checkpoint_retry_timers.pop(watch_id, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        retry = self._checkpoint_retry_events.pop(watch_id, None)
+        if (
+            retry is None
+            or self._shutting_down
+            or watch_id not in self._monitor_contexts
+        ):
+            self._checkpoint_retry_attempts.pop(watch_id, None)
+            return
+        event, workspace = retry
+        if watch_id in self._pending_task_events:
+            # The ordinary RUNNING refresh cannot synchronize progress files,
+            # so queue this retry behind it instead of consuming the retry.
+            self._pending_checkpoint_events[watch_id] = (event, workspace)
+            if watch_id not in self._in_progress:
+                self._flush_task_done(watch_id)
+            return
+        if watch_id in self._in_progress:
+            self._pending_checkpoint_events[watch_id] = (event, workspace)
+            return
+        self._sync_checkpoint_progress(event, workspace, watch_id, _is_retry=True)
+
+    def _sync_checkpoint_progress(
+        self,
+        event,
+        workspace: Path,
+        watch_id: str,
+        *,
+        _is_retry: bool = False,
+    ) -> None:
+        """Transfer declared progress files off-thread before rereading them."""
+        if not _is_retry:
+            self._clear_checkpoint_retry(watch_id)
+        run_id = event.run_id
+        if watch_id in self._in_progress:
+            # Keep only the newest checkpoint signal: each sync reads the
+            # current remote files, so multiple signals require one follow-up.
+            self._pending_checkpoint_events[watch_id] = (event, workspace)
+            return
+        self._in_progress.add(watch_id)
+
+        def _run():
+            record = RunService(workspace).load_run(run_id)
+            outcome = self._execute_progress_use_case(record)
+            if outcome.errors:
+                raise RuntimeError("; ".join(outcome.errors))
+            return outcome
+
+        from ..workers import BackgroundWorker
+
+        try:
+            worker = BackgroundWorker(_run)
+        except Exception as error:
+            if not self._shutting_down:
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+                self._schedule_checkpoint_retry(event, workspace, watch_id)
+            self._release_monitor_refresh_gate(watch_id)
+            return
+
+        failed = False
+
+        def _error(error):
+            nonlocal failed
+            if failed:
+                return
+            failed = True
+            if not self._shutting_down:
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+                self._schedule_checkpoint_retry(event, workspace, watch_id)
+
+        worker.error.connect(_error)
+
+        def _finished():
+            if not failed:
+                self._clear_checkpoint_retry(watch_id)
+            self._release_monitor_refresh_gate(watch_id)
+            if worker in self._bg_workers:
+                self._bg_workers.remove(worker)
+            if not failed and not self._shutting_down and self._workspace() == workspace:
+                self.refresh_run_list()
+            record = self._selected_record() if not failed and not self._shutting_down else None
+            if record is not None:
+                self._analyze_cache.clear()
+                self._detail_cache.clear()
+                self._preview_timer.start()
+
+        worker.finished.connect(_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._bg_workers.append(worker)
+        try:
+            worker.start()
+        except Exception as error:
+            if worker in self._bg_workers:
+                self._bg_workers.remove(worker)
+            try:
+                worker.stop_safely(3000)
+            except Exception:
+                _logger.debug("Failed to stop checkpoint worker after start failure", exc_info=True)
+            worker.deleteLater()
+            if not self._shutting_down:
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+                self._schedule_checkpoint_retry(event, workspace, watch_id)
+            self._release_monitor_refresh_gate(watch_id)
 
     def _on_monitor_refresh_done(self, event):
-        self.refresh_run_list()
+        if self._shutting_down:
+            return
+        context = self._monitor_context_for_event(event)
+        if context is None:
+            return
+        workspace, run_id, server_id = context
+        if self._workspace() == workspace:
+            self.refresh_run_list()
         try:
-            updated = RunService(self._workspace()).load_run(event.run_id)
+            updated = RunService(workspace).load_run(run_id)
             if (
                 updated.status_summary.get("submitting", 0) == 0
                 and updated.status_summary.get("running", 0) == 0
                 and updated.status_summary.get("submitted", 0) == 0
             ):
-                self._monitor.unwatch(event.run_id, event.server_id)
+                watch_id = getattr(event, "watch_id", None)
+                try:
+                    self._monitor.unwatch(run_id, server_id, watch_id)
+                finally:
+                    self._retire_monitor_watch(watch_id)
         except Exception:
-            _logger.exception("Failed to update monitor refresh state for %s", event.run_id)
+            _logger.exception("Failed to update monitor refresh state for %s", run_id)
+
+    def _retire_monitor_watch(self, watch_id: object) -> None:
+        """Forget a terminal watcher before any queued late event can reuse it."""
+        if not isinstance(watch_id, str):
+            return
+        self._monitor_contexts.pop(watch_id, None)
+        self._pending_task_events.pop(watch_id, None)
+        self._pending_checkpoint_events.pop(watch_id, None)
+        self._clear_checkpoint_retry(watch_id)
+        self._discard_task_done_timer(watch_id)
 
     def on_activated(self):
         settings = GuiSettingsStore().load()
@@ -566,7 +880,15 @@ class RunsResultsPage(QWidget):
         self._recovery_complete = True
         self.startup_recovery_finished.emit()
 
-    def apply_language(self, language: str):
+    def apply_language(self, language: str, *, refresh: bool = True):
+        """Translate the page and optionally refresh its run list.
+
+        Refreshing the run list opens the local runs database.  Callers that
+        are still constructing the main window can pass ``refresh=False``
+        to keep startup independent of an unavailable or malformed database;
+        normal page activation and explicit language changes retain the
+        historical refresh behaviour.
+        """
         self._language = language
         self._retry_feedback.set_idle_text(tr("Retry Failed", language))
         self._stop_feedback.set_idle_text(tr("Stop Task", language))
@@ -578,7 +900,8 @@ class RunsResultsPage(QWidget):
         self.activity_log_label.setText(tr("Activity log", language))
         self.clear_log_btn.setText(tr("Clear Log", language))
         self._set_headers()
-        self.refresh_run_list()
+        if refresh:
+            self.refresh_run_list()
         # Phase 11.1 — F5 fix. Forward language to the result detail
         # pane so its placeholder text re-translates on the fly.
         if hasattr(self, "detail_pane") and self.detail_pane is not None:
@@ -806,6 +1129,10 @@ class RunsResultsPage(QWidget):
         coordinator = self._coordinator_for(self._result_workspace(record))
         return coordinator.download(record.run_id, patterns)
 
+    def _execute_progress_use_case(self, record):
+        coordinator = self._coordinator_for(self._result_workspace(record))
+        return coordinator.sync_progress(record.run_id)
+
     def _result_workspace(self, record: RunRecord) -> Path:
         """Resolve the workspace for a run record's results."""
         local_dir = getattr(record, "local_dir", "")
@@ -828,19 +1155,39 @@ class RunsResultsPage(QWidget):
         return []
 
     def _download_directory(self, record: RunRecord) -> Path:
-        return self._result_workspace(record)
+        """Return the run-owned directory used by ``RunService`` downloads."""
+        return self._legacy_results_directory(record)
 
     def _legacy_results_directory(self, record: RunRecord, base: Path | None = None) -> Path:
         root = base if base is not None else self._result_workspace(record)
         return root / "results" / record.run_id
 
+    @staticmethod
+    def _has_result_workspace_binding(record: RunRecord) -> bool:
+        """Whether a record owns a specific local workspace for its results."""
+        local_dir = getattr(record, "local_dir", "")
+        # RunRecord persists this field as text.  Restrict the check to that
+        # concrete value instead of accepting arbitrary ``os.PathLike``
+        # objects (including test doubles that expose ``__fspath__``).
+        return isinstance(local_dir, str) and bool(local_dir)
+
     def _result_search_directories(self, record: RunRecord, bases: list[Path]) -> list[Path]:
-        directories: list[Path] = []
+        """Return result locations without mixing bound runs with other workspaces.
+
+        New records persist ``local_dir`` and all downloads for those records
+        belong in that workspace's ``results/<run-id>`` directory.  Legacy
+        records have no such binding, so retain their former root-directory
+        fallback only after trying every run-owned directory first.
+        """
+        if self._has_result_workspace_binding(record):
+            return [self._download_directory(record)]
+
+        run_owned: list[Path] = []
         for base in bases:
-            for candidate in (self._legacy_results_directory(record, base), base):
-                if candidate not in directories:
-                    directories.append(candidate)
-        return directories
+            candidate = self._legacy_results_directory(record, base)
+            if candidate not in run_owned:
+                run_owned.append(candidate)
+        return run_owned + [base for base in bases if base not in run_owned]
 
     def _selected_record(self) -> RunRecord | None:
         row = self.table.currentRow()
@@ -912,18 +1259,20 @@ class RunsResultsPage(QWidget):
             return ("uncertain", self._load_tasks(record))
         workspace = self._result_workspace(record)
         candidates = [workspace]
-        default_folder = GuiSettingsStore().load().default_local_folder
-        if default_folder and Path(default_folder) != workspace:
-            candidates.append(Path(default_folder))
-        gui_ws = self._workspace()
-        if gui_ws != workspace and gui_ws not in candidates:
-            candidates.append(gui_ws)
+        if not self._has_result_workspace_binding(record):
+            default_folder = GuiSettingsStore().load().default_local_folder
+            if default_folder and Path(default_folder) != workspace:
+                candidates.append(Path(default_folder))
+            gui_ws = self._workspace()
+            if gui_ws != workspace and gui_ws not in candidates:
+                candidates.append(gui_ws)
+        result_dirs = self._result_search_directories(record, candidates)
 
         is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
         if is_confflow:
             best_dir = None
             fallback_dir = None
-            for result_dir in self._result_search_directories(record, candidates):
+            for result_dir in result_dirs:
                 if result_dir.exists():
                     if _confflow_result_dir_has_summary(
                         record,
@@ -936,8 +1285,7 @@ class RunsResultsPage(QWidget):
                         fallback_dir = result_dir
             return ("confflow", record, best_dir or fallback_dir or self._download_directory(record))
 
-        for base in candidates:
-            result_dir = self._legacy_results_directory(record, base)
+        for result_dir in result_dirs:
             if result_dir.exists():
                 summaries = sorted(result_dir.rglob("run_summary.json"))
                 if summaries:
@@ -946,19 +1294,18 @@ class RunsResultsPage(QWidget):
                 if rows:
                     return ("analysis", rows, tr("Result Preview - Auto Analysis", self._language))
 
-        for base in candidates:
+        for result_dir in result_dirs:
             needs_refresh = False
 
             def _mark_needs_refresh() -> None:
                 nonlocal needs_refresh
                 needs_refresh = True
 
-            rows = self._analyze_workspace_files(record, base, on_changed=_mark_needs_refresh)
+            rows = self._analyze_workspace_files(record, result_dir, on_changed=_mark_needs_refresh)
             if rows:
                 return ("analysis", rows, tr("Result Preview - Local Files", self._language), needs_refresh)
 
-        for base in candidates:
-            result_dir = self._legacy_results_directory(record, base)
+        for result_dir in result_dirs:
             for name in ("final_results.tsv", "analysis_preview.tsv"):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
@@ -1022,19 +1369,21 @@ class RunsResultsPage(QWidget):
 
         workspace = self._result_workspace(record)
         candidates = [workspace]
-        default_folder = GuiSettingsStore().load().default_local_folder
-        if default_folder and Path(default_folder) != workspace:
-            candidates.append(Path(default_folder))
-        gui_ws = self._workspace()
-        if gui_ws != workspace and gui_ws not in candidates:
-            candidates.append(gui_ws)
+        if not self._has_result_workspace_binding(record):
+            default_folder = GuiSettingsStore().load().default_local_folder
+            if default_folder and Path(default_folder) != workspace:
+                candidates.append(Path(default_folder))
+            gui_ws = self._workspace()
+            if gui_ws != workspace and gui_ws not in candidates:
+                candidates.append(gui_ws)
+        result_dirs = self._result_search_directories(record, candidates)
 
         # Detect ConfFlow batch by command_template
         is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
         if is_confflow:
             best_dir = None
             fallback_dir = None
-            for result_dir in self._result_search_directories(record, candidates):
+            for result_dir in result_dirs:
                 if result_dir.exists():
                     if _confflow_result_dir_has_summary(
                         record,
@@ -1050,8 +1399,7 @@ class RunsResultsPage(QWidget):
             return
 
         # Prefer auto-analysis on downloaded files
-        for base in candidates:
-            result_dir = self._legacy_results_directory(record, base)
+        for result_dir in result_dirs:
             if result_dir.exists():
                 summaries = sorted(result_dir.rglob("run_summary.json"))
                 if summaries:
@@ -1064,17 +1412,16 @@ class RunsResultsPage(QWidget):
                     self._set_parsed_results_label(tr("Result Preview — Auto Analysis", self._language))
                     return
 
-        # Fallback: analyze output files in workspace root
-        for base in candidates:
-            rows = self._analyze_workspace_files(record, base)
+        # Legacy records may still have results directly in their workspace root.
+        for result_dir in result_dirs:
+            rows = self._analyze_workspace_files(record, result_dir)
             if rows:
                 self._show_analysis_rows(rows)
                 self._set_parsed_results_label(tr("Result Preview — Local Files", self._language))
                 return
 
         # Last resort: read existing TSV
-        for base in candidates:
-            result_dir = self._legacy_results_directory(record, base)
+        for result_dir in result_dirs:
             for name in ("final_results.tsv", "analysis_preview.tsv"):
                 tsv = result_dir / name
                 if tsv.exists() and tsv.stat().st_size > 30:
@@ -1250,6 +1597,7 @@ class RunsResultsPage(QWidget):
         rows: list[list[str]] = []
 
         tasks = self._load_tasks(record)
+        progress_dir = _run_progress_dir(record)
 
         if tasks:
             for task in tasks:
@@ -1263,7 +1611,7 @@ class RunsResultsPage(QWidget):
                             if s.step_status_counts
                             else ""
                         )
-                        progress = _step_progress_text(result_dir, mol_name)
+                        progress = _step_progress_text(result_dir, mol_name, progress_dir)
                         rows.append(
                             [
                                 mol_name,
@@ -1285,7 +1633,7 @@ class RunsResultsPage(QWidget):
                     rows.append([mol_name, f"⚠ Download Failed{reason}", "", "", "", ""])
                 elif task.status in (TaskStatus.submitting, TaskStatus.submitted, TaskStatus.running):
                     label = "Running" if task.status == TaskStatus.running else "Pending"
-                    progress = _step_progress_text(result_dir, mol_name)
+                    progress = _step_progress_text(result_dir, mol_name, progress_dir)
                     rows.append([mol_name, f"⏳ {label}", "", "", "", progress])
                 else:
                     rows.append([mol_name, "✗ Missing", "", "", "", ""])
@@ -1517,6 +1865,12 @@ class RunsResultsPage(QWidget):
 
     def _auto_refresh_active(self):
         """Periodically refresh status for submitted/running runs and recover remote_completed."""
+        if self._shutting_down:
+            return
+        # The same 15-second cycle also retries watcher construction that
+        # failed during activation. RunMonitor.watch is idempotent for live
+        # watcher ids, so healthy runs do not gain duplicate threads.
+        self._start_monitoring()
         if getattr(self, "_auto_refresh_running", False):
             return
         workspace = self._workspace()
@@ -1534,16 +1888,30 @@ class RunsResultsPage(QWidget):
             for r in runs
             if r not in active
             and r.status_summary.get("remote_completed", 0) > 0
-            and not getattr(self, "_download_backoff", {}).get(r.run_id, 0) > 2
+            and not getattr(self, "_download_backoff", {}).get(
+                self._monitor_identity(workspace, r.run_id, r.server_id), 0
+            )
+            > 2
         ]
         # Skip runs the monitor-driven flush is already handling.
-        active = [r for r in active if r.run_id not in self._in_progress]
-        needs_download = [r for r in needs_download if r.run_id not in self._in_progress]
+        active = [
+            r
+            for r in active
+            if self._monitor_identity(workspace, r.run_id, r.server_id) not in self._in_progress
+        ]
+        needs_download = [
+            r
+            for r in needs_download
+            if self._monitor_identity(workspace, r.run_id, r.server_id) not in self._in_progress
+        ]
         if not active and not needs_download:
             return
 
         self._auto_refresh_running = True
-        claimed = [r.run_id for r in active] + [r.run_id for r in needs_download]
+        claimed = [
+            self._monitor_identity(workspace, r.run_id, r.server_id)
+            for r in [*active, *needs_download]
+        ]
         self._in_progress.update(claimed)
         backoff = getattr(self, "_download_backoff", {})
 
@@ -1570,17 +1938,39 @@ class RunsResultsPage(QWidget):
                 )
                 if outcome.errors:
                     errors.extend(f"{record.run_id}: {error}" for error in outcome.errors)
-                    dl_failures[record.run_id] = backoff.get(record.run_id, 0) + 1
+                    key = self._monitor_identity(workspace, record.run_id, record.server_id)
+                    dl_failures[key] = backoff.get(key, 0) + 1
                 else:
                     downloaded.append(record.run_id)
-                    dl_failures[record.run_id] = 0
+                    dl_failures[self._monitor_identity(workspace, record.run_id, record.server_id)] = 0
             return downloaded, errors, dl_failures
 
         from ..workers import BackgroundWorker
 
-        worker = BackgroundWorker(_run)
+        def _rollback_start(error: Exception, worker=None) -> None:
+            self._auto_refresh_running = False
+            for watch_id in claimed:
+                self._release_monitor_refresh_gate(watch_id)
+            if worker is not None:
+                if worker in self._bg_workers:
+                    self._bg_workers.remove(worker)
+                try:
+                    worker.stop_safely(3000)
+                except Exception:
+                    _logger.debug("Failed to stop auto-refresh worker after start failure", exc_info=True)
+                worker.deleteLater()
+            if not self._shutting_down:
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+
+        try:
+            worker = BackgroundWorker(_run)
+        except Exception as error:
+            _rollback_start(error)
+            return
 
         def _report(result):
+            if self._shutting_down:
+                return
             downloaded, errors, dl_failures = result
             if not hasattr(self, "_download_backoff"):
                 self._download_backoff = {}
@@ -1597,18 +1987,28 @@ class RunsResultsPage(QWidget):
                 self._status_cb(tr("Automatic refresh failed: {errors}", self._language, errors="; ".join(errors)))
 
         worker.result.connect(_report)
+        worker.error.connect(
+            lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+            if not self._shutting_down
+            else None
+        )
 
         def _on_done():
             self._auto_refresh_running = False
-            self._in_progress.difference_update(claimed)
+            for watch_id in claimed:
+                self._release_monitor_refresh_gate(watch_id)
             if worker in self._bg_workers:
                 self._bg_workers.remove(worker)
-            self.refresh_run_list()
+            if not self._shutting_down:
+                self.refresh_run_list()
 
         worker.finished.connect(_on_done)
         worker.finished.connect(worker.deleteLater)
         self._bg_workers.append(worker)
-        worker.start()
+        try:
+            worker.start()
+        except Exception as error:
+            _rollback_start(error, worker)
 
     def _refresh_status(self):
         record = self._selected_record()
@@ -2114,11 +2514,11 @@ class RunsResultsPage(QWidget):
         record = self._selected_record()
         if record is None:
             return
-        ws = self._result_workspace(record)
+        results_dir = self._download_directory(record)
         self.result_text.setPlainText(
             f"{tr('Run directory', self._language)}: {record.run_dir}\n"
             f"Database: {record.run_dir.parent / 'jobdesk.db'}\n"
-            f"{tr('Results directory', self._language)}: {ws}"
+            f"{tr('Results directory', self._language)}: {results_dir}"
         )
         self.result_text.setVisible(True)
 
@@ -2132,7 +2532,14 @@ class RunsResultsPage(QWidget):
         for timer in self._task_done_timers.values():
             timer.stop()
         self._task_done_timers.clear()
+        for timer in self._checkpoint_retry_timers.values():
+            timer.stop()
+        self._checkpoint_retry_timers.clear()
+        self._checkpoint_retry_events.clear()
+        self._checkpoint_retry_attempts.clear()
         self._pending_task_events.clear()
+        self._pending_checkpoint_events.clear()
+        self._monitor_contexts.clear()
         self._monitor.stop_all()
         for w in list(getattr(self, "_bg_workers", [])):
             w.stop_safely(3000)
@@ -2185,7 +2592,15 @@ def _confflow_workflow_state_file(result_dir: Path, mol_name: str) -> Path | Non
     return None
 
 
-def _step_progress_text(result_dir: Path, mol_name: str) -> str:
+def _run_progress_dir(record) -> Path | None:
+    """Return the record-owned live-checkpoint directory when available."""
+    run_dir = getattr(record, "run_dir", None)
+    if not isinstance(run_dir, (str, os.PathLike)):
+        return None
+    return Path(run_dir) / "progress"
+
+
+def _step_progress_text(result_dir: Path, mol_name: str, progress_dir: Path | None = None) -> str:
     """Render a short step-progress string for the Runs page table.
 
     Prefers the v1.3.0 atomic ``.workflow_state.json`` when available,
@@ -2197,18 +2612,22 @@ def _step_progress_text(result_dir: Path, mol_name: str) -> str:
         load_workflow_state_progress,
     )
 
-    # Prefer the v1.3.0 atomic state file
-    state_file = _confflow_workflow_state_file(result_dir, mol_name)
-    if state_file is not None:
-        progress = load_workflow_state_progress(state_file)
-        formatted = format_step_progress(progress)
+    def _from_directory(directory: Path) -> str:
+        state_file = _confflow_workflow_state_file(directory, mol_name)
+        if state_file is not None:
+            formatted = format_step_progress(load_workflow_state_progress(state_file))
+            if formatted:
+                return formatted
+        return format_step_progress(load_step_progress(_confflow_step_stats_file(directory, mol_name)))
+
+    # Live checkpoints are stored under the managed run directory.  When
+    # absent or empty, preserve the full state-then-stats fallback against
+    # downloaded results for completed and legacy runs.
+    if progress_dir is not None:
+        formatted = _from_directory(progress_dir)
         if formatted:
             return formatted
-
-    # Fall back to workflow_stats.json for older runs or when state file is empty
-    stats_file = _confflow_step_stats_file(result_dir, mol_name)
-    progress = load_step_progress(stats_file)
-    return format_step_progress(progress)
+    return _from_directory(result_dir)
 
 
 def _confflow_result_dir_has_summary(record, result_dir: Path, tasks=None) -> bool:

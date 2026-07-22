@@ -26,11 +26,11 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-If you are touching the ConfFlow wizard, also install the optional
-chemistry stack:
+The base development extra is enough for non-chemistry paths. The full test
+suite and workflow/node-graph tests require the optional chemistry stack too:
 
 ```powershell
-python -m pip install -e ".[chem]"
+python -m pip install -e ".[dev,chem]"
 ```
 
 ## Test / lint / type-check cycle
@@ -43,6 +43,7 @@ same on your machine before pushing.
 ```powershell
 python -m ruff check .
 python -m mypy src
+python -m pip install -e ".[dev,chem]"  # required for the full suite
 python -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
 ```
 

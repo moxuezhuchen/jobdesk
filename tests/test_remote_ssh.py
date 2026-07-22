@@ -16,6 +16,7 @@ from jobdesk_app.remote.ssh import (
     SSHClientWrapper,
     SSHResult,
     _AutoAddAndSavePolicy,
+    _is_local_port_open,
     _split_proxy_command,
 )
 
@@ -39,6 +40,63 @@ def _make_server(
         auth_method=auth_method,
         key_path=key_path,
     )
+
+
+@pytest.mark.parametrize(
+    ("banner", "expected"),
+    [(b"SSH-2.0-OpenSSH_9.9", True), (b"", False), (b"HTTP/1.1 200 OK", False)],
+)
+def test_local_port_probe_requires_ssh_banner(banner, expected):
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    sock.recv.side_effect = [banner, b""]
+
+    with patch("jobdesk_app.remote.ssh.socket.create_connection", return_value=sock):
+        assert _is_local_port_open("127.0.0.1", 22) is expected
+
+    assert sock.settimeout.call_args_list[0].args == (0.3,)
+    assert all(call.args == (255,) for call in sock.recv.call_args_list)
+
+
+def test_local_port_probe_accepts_split_ssh_identification():
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    sock.recv.side_effect = [b"SSH-", b"2.0-OpenSSH_9.9\r\n"]
+
+    with patch("jobdesk_app.remote.ssh.socket.create_connection", return_value=sock):
+        assert _is_local_port_open("127.0.0.1", 22) is True
+
+    assert sock.recv.call_args_list[0].args == (255,)
+    assert sock.recv.call_args_list[1].args == (255,)
+
+
+def test_local_port_probe_skips_ssh_pre_banner_lines():
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    sock.recv.side_effect = [b"NOTICE: starting sshd\r\n", b"SSH-2.0-OpenSSH_9.9\r\n"]
+
+    with patch("jobdesk_app.remote.ssh.socket.create_connection", return_value=sock):
+        assert _is_local_port_open("127.0.0.1", 22) is True
+
+
+@pytest.mark.parametrize("payload", [b"HTTP/1.1 200 OK\r\n", b"not-an-ssh-banner\r\n"])
+def test_local_port_probe_rejects_non_ssh_banner(payload):
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    sock.recv.side_effect = [payload, b""]
+
+    with patch("jobdesk_app.remote.ssh.socket.create_connection", return_value=sock):
+        assert _is_local_port_open("127.0.0.1", 22) is False
+
+
+@pytest.mark.parametrize("payload", [b"SSH-X", b"SSH-2.0-"])
+def test_local_port_probe_rejects_truncated_ssh_identification(payload):
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    sock.recv.side_effect = [payload, b""]
+
+    with patch("jobdesk_app.remote.ssh.socket.create_connection", return_value=sock):
+        assert _is_local_port_open("127.0.0.1", 22) is False
 
 
 class MockSSHWrapper(SSHClientWrapper):
@@ -636,12 +694,15 @@ class TestSSHClientWrapper:
         with (
             patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
-            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch(
+                "jobdesk_app.remote.ssh._is_local_port_open",
+                side_effect=[False, False, False, True],
+            ),
             patch("paramiko.SSHClient") as mock_client_class,
         ):
             mock_client_class.return_value = MagicMock()
 
-            ssh = MockSSHWrapper(server, timeout=7)
+            ssh = MockSSHWrapper(server, timeout=7, wsl_ready_poll_interval=0)
             ssh.connect()
 
         import subprocess as _sp
@@ -679,6 +740,62 @@ class TestSSHClientWrapper:
 
         run_wsl.assert_not_called()
         mock_client_class.return_value.connect.assert_called_once()
+
+    def test_wsl_bootstrap_waits_for_delayed_ssh_banner(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=2222,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu-24.04",
+        )
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch(
+                "jobdesk_app.remote.ssh._is_local_port_open",
+                side_effect=[False, False, False, True],
+            ) as ready,
+        ):
+            MockSSHWrapper(
+                server,
+                wsl_ready_timeout=1,
+                wsl_ready_poll_interval=0,
+            )._start_wsl_if_configured()
+
+        run_wsl.assert_called_once()
+        assert ready.call_count == 4
+
+    def test_wsl_bootstrap_open_without_banner_times_out_with_diagnostics(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=2200,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu-24.04",
+        )
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+        ):
+            with pytest.raises(SSHConnectionError) as raised:
+                MockSSHWrapper(
+                    server,
+                    wsl_ready_timeout=0,
+                    wsl_ready_poll_interval=0,
+                )._start_wsl_if_configured()
+
+        message = str(raised.value)
+        assert "Ubuntu-24.04" in message
+        assert "127.0.0.1:2200" in message
+        assert "valid SSH banner" in message
+        assert "0.00s" in message
+        run_wsl.assert_called_once()
 
     def test_wsl_bootstrap_skipped_for_non_local_host(self):
         """Non-local host with wsl_distro should not trigger local WSL wakeup."""
@@ -858,8 +975,11 @@ class TestSSHClientWrapper:
         )
         with (
             patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
-            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
-            patch("jobdesk_app.remote.ssh.time.monotonic", side_effect=[100.0, 101.0]),
+            patch(
+                "jobdesk_app.remote.ssh._is_local_port_open",
+                side_effect=[False, False, False, False, True],
+            ),
+            patch("jobdesk_app.remote.ssh.time.monotonic", side_effect=[100.0, 101.0, 101.0]),
             patch(
                 "jobdesk_app.remote.ssh.subprocess.run",
                 side_effect=subprocess.CalledProcessError(1, ["wsl.exe"]),
@@ -867,8 +987,9 @@ class TestSSHClientWrapper:
         ):
             with pytest.raises(SSHConnectionError):
                 MockSSHWrapper(server)._start_wsl_if_configured()
-            # Second call within cooldown should NOT spawn again
-            MockSSHWrapper(server)._start_wsl_if_configured()
+            # Second call within cooldown should NOT spawn again, but must
+            # still wait until the SSH banner becomes ready.
+            MockSSHWrapper(server, wsl_ready_poll_interval=0)._start_wsl_if_configured()
 
         run_wsl.assert_called_once()
 
@@ -905,11 +1026,14 @@ class TestSSHClientWrapper:
         )
         with (
             patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
-            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch(
+                "jobdesk_app.remote.ssh._is_local_port_open",
+                side_effect=[False, False, True],
+            ),
             patch("jobdesk_app.remote.ssh.time.monotonic", return_value=5.0),
             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
         ):
-            MockSSHWrapper(server)._start_wsl_if_configured()
+            MockSSHWrapper(server, wsl_ready_poll_interval=0)._start_wsl_if_configured()
 
         run_wsl.assert_called_once()
 

@@ -39,6 +39,8 @@ class WorkflowKind(str, Enum):
 class RunSource:
     path: str
     is_dir: bool = False
+    artifact_stem: str | None = None
+    artifact_name: str | None = None
 
     @property
     def name(self) -> str:
@@ -52,6 +54,14 @@ class RunSource:
     @property
     def parent(self) -> str:
         return posixpath.dirname(self.path.rstrip("/")) or "/"
+
+    @property
+    def rendered_stem(self) -> str:
+        return self.artifact_stem or self.stem
+
+    @property
+    def rendered_name(self) -> str:
+        return self.artifact_name or self.name
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,17 @@ class RunTaskPlan:
     command: str
     supporting_paths: list[str] = field(default_factory=list)
     remote_result_files: list[str] = field(default_factory=list)
+    workflow_kind: WorkflowKind = WorkflowKind.gaussian
+    remote_config_path: str = ""
+    remote_workflow_dir: str = ""
+    remote_state_path: str = ""
+    remote_stats_path: str = ""
+    remote_log_path: str = ""
+    remote_result_paths: list[str] = field(default_factory=list)
+    dry_run_command: str = ""
+    resume_command: str = ""
+    resume_dry_run_command: str = ""
+    resume_requested: bool = False
 
 
 @dataclass(frozen=True)
@@ -104,24 +125,59 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
         raw_task_id = (
             "current_directory"
             if spec.mode == RunMode.current_directory
-            else (source.stem or source.name or f"task_{index}")
+            else (source.rendered_stem or source.rendered_name or f"task_{index}")
         )
         task_id = _unique_task_id(_safe_task_id(raw_task_id, index), used_task_ids)
         used_task_ids.add(task_id)
         work_dir = source.path if source.is_dir else source.parent
         command = _render_command(spec.command_template, source)
+        remote_job_dir = posixpath.join(run_remote_dir, task_id)
+        remote_result_files = [_render_text_template(item, source) for item in spec.result_templates]
+        is_workflow = spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+        rendered_command = f"cd {shlex.quote(work_dir)} && {command}"
+        resume_command = _append_command_flag(rendered_command, "--resume") if is_workflow else ""
+        remote_workflow_dir = (
+            posixpath.join(spec.remote_dir, f"{source.rendered_stem}_confflow_work") if is_workflow else ""
+        )
         tasks.append(
             RunTaskPlan(
                 task_id=task_id,
                 source_path=source.path,
                 source_name=source.name,
-                remote_job_dir=posixpath.join(run_remote_dir, task_id),
-                command=f"cd {shlex.quote(work_dir)} && {command}",
+                remote_job_dir=remote_job_dir,
+                command=rendered_command,
                 supporting_paths=[item.path for item in spec.supporting_sources],
-                remote_result_files=[_render_text_template(item, source) for item in spec.result_templates],
+                remote_result_files=remote_result_files,
+                workflow_kind=spec.workflow_kind,
+                remote_config_path=_workflow_config_path(spec) if is_workflow else "",
+                remote_workflow_dir=remote_workflow_dir,
+                remote_state_path=(posixpath.join(remote_workflow_dir, ".workflow_state.json") if is_workflow else ""),
+                remote_stats_path=(posixpath.join(remote_workflow_dir, "workflow_stats.json") if is_workflow else ""),
+                remote_log_path=posixpath.join(remote_job_dir, ".jobdesk_submit.log"),
+                remote_result_paths=[posixpath.join(spec.remote_dir, item) for item in remote_result_files],
+                dry_run_command=(_append_command_flag(rendered_command, "--dry-run") if is_workflow else ""),
+                resume_command=resume_command,
+                resume_dry_run_command=(_append_command_flag(resume_command, "--dry-run") if is_workflow else ""),
+                resume_requested=is_workflow and _has_command_flag(rendered_command, "--resume"),
             )
         )
     return RunPlan(run_id=rid, created_at=datetime.now(), spec=spec, tasks=tasks)
+
+
+def _workflow_config_path(spec: RunSpec) -> str:
+    """Return the exact staged workflow configuration used by ConfFlow."""
+    for source in spec.supporting_sources:
+        if source.path.lower().endswith((".yaml", ".yml")):
+            return source.path
+    return spec.supporting_sources[0].path if spec.supporting_sources else ""
+
+
+def _has_command_flag(command: str, flag: str) -> bool:
+    return re.search(rf"(?<!\S){re.escape(flag)}(?!\S)", command) is not None
+
+
+def _append_command_flag(command: str, flag: str) -> str:
+    return command if _has_command_flag(command, flag) else f"{command} {flag}"
 
 
 def _sources_for_mode(spec: RunSpec) -> list[RunSource]:
@@ -138,8 +194,9 @@ def _render_command(template: str, source: RunSource) -> str:
     values = {
         "path": shlex.quote(source.path),
         "name": shlex.quote(source.name),
-        "stem": shlex.quote(source.stem),
-        "basename": shlex.quote(source.stem),
+        "stem": shlex.quote(source.rendered_stem),
+        "basename": shlex.quote(source.rendered_stem),
+        "artifact_name": shlex.quote(source.rendered_name),
         "dir": shlex.quote(source.parent),
     }
     result = template
@@ -152,8 +209,9 @@ def _render_text_template(template: str, source: RunSource) -> str:
     values = {
         "path": source.path,
         "name": source.name,
-        "stem": source.stem,
-        "basename": source.stem,
+        "stem": source.rendered_stem,
+        "basename": source.rendered_stem,
+        "artifact_name": source.rendered_name,
         "dir": source.parent,
     }
     result = template

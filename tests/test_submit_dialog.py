@@ -22,6 +22,7 @@ from jobdesk_app.core.submit_payload import InputSource, SubmitPayload  # noqa: 
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.dialogs.submit_dialog import SubmitDialog  # noqa: E402
 from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
+from jobdesk_app.services.submit_use_case import SubmitUseCase  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -114,6 +115,78 @@ def test_workflow_payload_uses_selected_preset(qapp_instance, tmp_path, monkeypa
     assert payload.kind in {"confflow", "dag"}
     assert payload.program == "gaussian"
     assert payload.calc.method_basis == "B3LYP 6-31G(d)"
+
+
+def test_remote_workflow_payload_writes_yaml_to_local_workspace(qapp_instance, tmp_path, monkeypatch):
+    """A POSIX remote input must not become a Windows local YAML directory."""
+    from jobdesk_app.core import workflow_spec
+
+    if not workflow_spec._CONFFLOW_AVAILABLE:
+        pytest.skip("confflow package not installed in test env")
+    cwd = tmp_path / "unrelated-cwd"
+    workspace = tmp_path / "project-workspace"
+    cwd.mkdir()
+    workspace.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(
+        "jobdesk_app.services.method_presets.get_app_data_dir",
+        lambda: tmp_path / "app-data",
+    )
+    store = MethodPresetStore()
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="gaussian",
+        method="B3LYP",
+        basis="6-31G(d)",
+        charge=0,
+        multiplicity=1,
+        nproc=4,
+        memory_mb=4096,
+    )
+    store.save_user("remote_preset", spec)
+    remote_source = InputSource(path=Path("/shared/source/mol.xyz"), side="remote", kind="xyz")
+    dlg = SubmitDialog(
+        "en",
+        files=[remote_source],
+        server_id="prod-01",
+        remote_dir="/work",
+        workspace=workspace,
+        preset_store=store,
+    )
+    try:
+        dlg.set_selected_preset_name("remote_preset")
+        payload = dlg.build_payload()
+        batch = SubmitUseCase(submission_id_factory=lambda: "remote-source").execute(payload)
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+    assert payload.output_dir == workspace
+    assert batch.ok, batch.errors
+    assert batch.remote_targets == ["/shared/source/mol.xyz"]
+    assert batch.yaml_local_path == workspace / "workflow.remote-source.yaml"
+    assert batch.yaml_local_path.exists()
+
+
+def test_mixed_inputs_prefer_local_parent_over_first_remote_source(qapp_instance, tmp_path):
+    """A remote-first mixed selection writes local artefacts beside its local input."""
+    local_dir = tmp_path / "local-inputs"
+    local_dir.mkdir()
+    dlg = SubmitDialog(
+        "en",
+        files=[
+            InputSource(path=Path("/shared/source/remote.gjf"), side="remote", kind="gjf"),
+            InputSource(path=local_dir / "local.gjf", side="local", kind="gjf"),
+        ],
+        workspace=tmp_path / "project-workspace",
+    )
+    try:
+        payload = dlg.build_payload()
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+    assert payload.output_dir == local_dir
 
 
 def test_stale_workflow_selection_cannot_accept(qapp_instance, tmp_path, monkeypatch):

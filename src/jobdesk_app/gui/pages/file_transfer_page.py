@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid as is_qobject_valid
 
 from ...config.servers import (
     load_servers,  # noqa: F401  re-exported for tests that monkeypatch the symbol on this module
@@ -882,7 +883,7 @@ class FileTransferPage(QWidget):
         return result
 
     def _on_remote_entries_loaded(self, request_id: int, remote_dir: str, entries):
-        if request_id != self._remote_list_request_id:
+        if not self._remote_list_callback_is_current(request_id):
             return
         if self._connected_server_id:
             self._server_remote_dirs[self._connected_server_id] = remote_dir
@@ -920,7 +921,7 @@ class FileTransferPage(QWidget):
         self._update_empty_state_visibility()
 
     def _on_remote_list_error(self, request_id: int, error: str):
-        if request_id != self._remote_list_request_id:
+        if not self._remote_list_callback_is_current(request_id):
             return
         if self._remote_list_fallbacks and _remote_list_error_allows_fallback(error):
             fallback = self._remote_list_fallbacks.pop(0)
@@ -934,6 +935,12 @@ class FileTransferPage(QWidget):
         if self.refresh_btn.property("feedbackState") == "pending":
             self._refresh_feedback.error(tr("Refresh failed", self._language))
         self._error_cb("Remote List Error", error.splitlines()[0])
+
+    def _remote_list_callback_is_current(self, request_id: int) -> bool:
+        """Reject late worker callbacks once the page or its status chip is gone."""
+        if self._shutting_down or request_id != self._remote_list_request_id:
+            return False
+        return is_qobject_valid(self) and is_qobject_valid(self.connection_label)
 
     def _selected_local_path(self) -> Path | None:
         paths = self._selected_local_paths()

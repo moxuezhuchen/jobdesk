@@ -1,4 +1,4 @@
-from jobdesk_app.core.run import RunMode, RunSource, RunSpec, build_run_plan, chunk_sources
+from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind, build_run_plan, chunk_sources
 
 
 def test_build_run_plan_for_selected_files():
@@ -105,6 +105,39 @@ def test_build_run_plan_preserves_supporting_inputs_and_declared_outputs():
         "water.txt",
         "water_confflow_work/run_summary.json",
     ]
+
+
+def test_build_run_plan_declares_exact_confflow_paths():
+    spec = RunSpec(
+        server_id="wsl",
+        remote_dir="/remote/submissions/job-1",
+        command_template="confflow {name} -c workflow.yaml -w {basename}_confflow_work",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/source/water.xyz", artifact_stem="water_2")],
+        supporting_sources=[RunSource("/remote/submissions/job-1/workflow.yaml")],
+        result_templates=["{basename}.txt", "{basename}_confflow_work/run_summary.json"],
+        workflow_kind=WorkflowKind.confflow,
+    )
+
+    task = build_run_plan(spec, run_id="run-paths").tasks[0]
+
+    assert task.workflow_kind == WorkflowKind.confflow
+    assert task.remote_config_path == "/remote/submissions/job-1/workflow.yaml"
+    assert task.remote_workflow_dir == "/remote/submissions/job-1/water_2_confflow_work"
+    assert task.remote_state_path == "/remote/submissions/job-1/water_2_confflow_work/.workflow_state.json"
+    assert task.remote_stats_path == "/remote/submissions/job-1/water_2_confflow_work/workflow_stats.json"
+    assert task.remote_log_path.endswith("/.jobdesk_runs/run-paths/water_2/.jobdesk_submit.log")
+    assert task.remote_result_paths == [
+        "/remote/submissions/job-1/water_2.txt",
+        "/remote/submissions/job-1/water_2_confflow_work/run_summary.json",
+    ]
+    assert task.command.count("--resume") == 0
+    assert task.dry_run_command.endswith(" --dry-run")
+    assert task.resume_command.endswith(" --resume")
+    assert task.resume_command.count("--resume") == 1
+    assert task.resume_dry_run_command.endswith(" --resume --dry-run")
+    assert task.resume_requested is False
 
 
 def test_build_run_plan_disambiguates_sanitized_task_id_collisions():

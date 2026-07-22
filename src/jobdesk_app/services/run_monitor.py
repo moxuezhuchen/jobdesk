@@ -12,6 +12,7 @@ import shlex
 import socket
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Callable
 
@@ -19,12 +20,85 @@ from .protocols import SSHClient
 
 _WATCHER_STABLE_SECONDS = 30.0
 _MAX_EVENT_LINE_CHARS = 64 * 1024
-# Polling cadence for ConfFlow checkpoint mtime detection. Independent of
+# Polling cadence for ConfFlow checkpoint content detection. Independent of
 # events.log because ConfFlow writes checkpoint files out-of-band and we
 # want the Runs page to reflect step progress even before the runner emits
 # RUNNING/DONE lines.
 _CHECKPOINT_PROBE_SECONDS = 20.0
 logger = logging.getLogger(__name__)
+
+_CHECKPOINT_SNAPSHOT_HEADER = "__JD_CHECKPOINT_SNAPSHOT_V1__"
+_CHECKPOINT_SNAPSHOT_FOOTER = "__JD_CHECKPOINT_SNAPSHOT_END_V1__"
+_CheckpointSnapshot = tuple[tuple[bool, str | None], ...]
+
+
+def _build_checkpoint_probe_script(progress_paths: Iterable[str]) -> str:
+    """Build a read-only probe that emits one complete ordered snapshot."""
+    declared = " ".join(shlex.quote(path) for path in progress_paths)
+    return (
+        "set +e\n"
+        'snapshot_tmp=$(mktemp "${TMPDIR:-/tmp}/jobdesk-checkpoint.XXXXXX") || exit 2\n'
+        'cleanup_snapshot() { [ -z "$snapshot_tmp" ] || rm -f -- "$snapshot_tmp"; }\n'
+        "trap cleanup_snapshot EXIT HUP INT TERM\n"
+        "complete=1\n"
+        "present=0\n"
+        "index=0\n"
+        f"for progress_path in {declared}; do\n"
+        '  if [ -f "$progress_path" ]; then\n'
+        '    digest_line=$(sha256sum -- "$progress_path") || { complete=; break; }\n'
+        '    digest=${digest_line%% *}\n'
+        '    if [ ! -f "$progress_path" ] || [ "${#digest}" -ne 64 ]; then complete=; break; fi\n'
+        '    case "$digest" in *[!0-9a-fA-F]*) complete=; break;; esac\n'
+        "    printf '%s\\tpresent\\t%s\\n' \"$index\" \"$digest\" >> \"$snapshot_tmp\" "
+        "|| { complete=; break; }\n"
+        "    present=1\n"
+        "  else\n"
+        "    printf '%s\\tmissing\\n' \"$index\" >> \"$snapshot_tmp\" "
+        "|| { complete=; break; }\n"
+        "  fi\n"
+        "  index=$((index + 1))\n"
+        "done\n"
+        '[ -n "$complete" ] || exit 3\n'
+        f"printf '{_CHECKPOINT_SNAPSHOT_HEADER}\\tpresent=%s\\tcount=%s\\n' "
+        '"$present" "$index" || exit 4\n'
+        'cat -- "$snapshot_tmp" || exit 4\n'
+        f"printf '{_CHECKPOINT_SNAPSHOT_FOOTER}\\tcount=%s\\n' \"$index\" || exit 4\n"
+    )
+
+
+def _parse_checkpoint_snapshot(
+    stdout: str,
+    expected_count: int,
+) -> tuple[bool, _CheckpointSnapshot] | None:
+    """Parse a complete probe frame, rejecting truncation or inconsistent flags."""
+    lines = stdout.splitlines()
+    if len(lines) != expected_count + 2:
+        return None
+    header = lines[0].split("\t")
+    if len(header) != 3 or header[0] != _CHECKPOINT_SNAPSHOT_HEADER:
+        return None
+    if header[1] not in {"present=0", "present=1"} or header[2] != f"count={expected_count}":
+        return None
+    declared_present = header[1] == "present=1"
+    snapshot: list[tuple[bool, str | None]] = []
+    for expected_index, line in enumerate(lines[1:-1]):
+        fields = line.split("\t")
+        if len(fields) < 2 or fields[0] != str(expected_index):
+            return None
+        if fields[1] == "missing" and len(fields) == 2:
+            snapshot.append((False, None))
+            continue
+        if fields[1] != "present" or len(fields) != 3:
+            return None
+        digest = fields[2].lower()
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            return None
+        snapshot.append((True, digest))
+    if lines[-1] != f"{_CHECKPOINT_SNAPSHOT_FOOTER}\tcount={expected_count}":
+        return None
+    if declared_present != any(present for present, _digest in snapshot):
+        return None
+    return declared_present, tuple(snapshot)
 
 
 @dataclass
@@ -33,13 +107,14 @@ class DoneEvent:
     server_id: str
     task_id: str
     exit_code: int | None  # None for RUNNING events
+    watch_id: str | None = None
 
 
 class RunMonitor:
     """Framework-neutral manager for remote event watchers.
 
     Accepts an optional ``progress_callback`` that fires on ConfFlow
-    checkpoint mtime changes (synthetic event with ``task_id`` starting
+    checkpoint content changes (synthetic event with ``task_id`` starting
     with ``_ckpt_`` and ``exit_code=None``). The GUI bridges it into the
     same debounced refresh path used by ``DoneEvent`` so the Runs page
     updates without waiting for the next DONE/RUNNING line in
@@ -58,9 +133,17 @@ class RunMonitor:
         self._watchers: dict[str, _Watcher] = {}  # key: "server_id:run_id"
         self._lock = threading.Lock()
 
-    def watch(self, run_id: str, server_id: str, remote_batch_dir: str, server_config: object) -> None:
+    def watch(
+        self,
+        run_id: str,
+        server_id: str,
+        remote_batch_dir: str,
+        server_config: object,
+        progress_paths: Iterable[str] = (),
+        watch_id: str | None = None,
+    ) -> None:
         """Start watching a run's events.log. Idempotent."""
-        key = f"{server_id}:{run_id}"
+        key = watch_id or f"{server_id}:{run_id}"
         with self._lock:
             if key in self._watchers:
                 return
@@ -69,15 +152,28 @@ class RunMonitor:
                 server_id,
                 remote_batch_dir,
                 server_config,
-                self._dispatch,
+                lambda watched_run_id, watched_server_id, line: self._dispatch(
+                    watched_run_id, watched_server_id, line, watch_id
+                ),
                 self._ssh_factory,
                 self._progress_callback,
+                progress_paths,
+                watch_id,
             )
             self._watchers[key] = w
-            w.start()
+            try:
+                w.start()
+            except Exception:
+                if self._watchers.get(key) is w:
+                    self._watchers.pop(key, None)
+                try:
+                    w.stop()
+                except Exception:
+                    logger.debug("failed to clean up watcher after start failure", exc_info=True)
+                raise
 
-    def unwatch(self, run_id: str, server_id: str) -> None:
-        key = f"{server_id}:{run_id}"
+    def unwatch(self, run_id: str, server_id: str, watch_id: str | None = None) -> None:
+        key = watch_id or f"{server_id}:{run_id}"
         with self._lock:
             w = self._watchers.pop(key, None)
         if w:
@@ -90,7 +186,7 @@ class RunMonitor:
         for w in watchers:
             w.stop()
 
-    def _dispatch(self, run_id: str, server_id: str, line: str) -> None:
+    def _dispatch(self, run_id: str, server_id: str, line: str, watch_id: str | None = None) -> None:
         """Called from background thread — emit signal (thread-safe via AutoConnection)."""
         parts = line.strip().split()
         if len(parts) >= 2 and parts[0] in ("DONE", "RUNNING"):
@@ -107,6 +203,7 @@ class RunMonitor:
                     server_id=server_id,
                     task_id=task_id,
                     exit_code=rc if parts[0] == "DONE" else None,
+                    watch_id=watch_id,
                 )
             )
 
@@ -123,6 +220,8 @@ class _Watcher:
         callback: Callable[[str, str, str], None],
         ssh_factory: Callable[[object], SSHClient],
         progress_callback: Callable[[DoneEvent], None] | None = None,
+        progress_paths: Iterable[str] = (),
+        watch_id: str | None = None,
     ) -> None:
         self._run_id = run_id
         self._server_id = server_id
@@ -131,8 +230,13 @@ class _Watcher:
         self._callback = callback
         self._ssh_factory = ssh_factory
         self._progress_callback = progress_callback or (lambda _event: None)
+        self._progress_paths = tuple(dict.fromkeys(path for path in progress_paths if path))
+        self._watch_id = watch_id
+        self._checkpoint_snapshot: _CheckpointSnapshot | None = None
+        self._checkpoint_generation = 0
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._cached_ssh: SSHClient | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -147,7 +251,7 @@ class _Watcher:
         # Cached SSH client kept alive across iterations so the checkpoint
         # probe doesn't pay the cost of a fresh connection every loop.
         # Closed when the watcher stops or the connection drops.
-        self._cached_ssh: object | None = None
+        self._cached_ssh = None
         while not self._stop_event.is_set():
             # Close any leftover SSH from a previous iteration's probe
             # before opening a new tail channel.
@@ -157,7 +261,7 @@ class _Watcher:
                 except Exception:
                     pass
                 self._cached_ssh = None
-            ssh = None
+            ssh: SSHClient | None = None
             try:
                 ssh = self._ssh_factory(self._server_config)
                 ssh.connect()
@@ -166,6 +270,7 @@ class _Watcher:
                 channel.exec_command(f"tail -n 0 -f {quoted}")
                 channel.settimeout(5.0)
                 connected_at = time.monotonic()
+                next_checkpoint_probe = connected_at + _CHECKPOINT_PROBE_SECONDS if self._progress_paths else None
                 decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
                 line_parts: list[str] = []
                 line_length = 0
@@ -208,6 +313,11 @@ class _Watcher:
                                 line_length = 0
                                 if line.strip():
                                     self._callback(self._run_id, self._server_id, line)
+                            if next_checkpoint_probe is not None:
+                                now = time.monotonic()
+                                if now >= next_checkpoint_probe:
+                                    self._probe_checkpoint(ssh)
+                                    next_checkpoint_probe = now + _CHECKPOINT_PROBE_SECONDS
                         except socket.timeout as exc:
                             logger.debug(
                                 "watcher %s/%s channel read timeout, continuing: %s",
@@ -215,8 +325,12 @@ class _Watcher:
                                 self._run_id,
                                 exc,
                             )
-                            if time.monotonic() - connected_at >= _WATCHER_STABLE_SECONDS:
+                            now = time.monotonic()
+                            if now - connected_at >= _WATCHER_STABLE_SECONDS:
                                 backoff = 10
+                            if next_checkpoint_probe is not None and now >= next_checkpoint_probe:
+                                self._probe_checkpoint(ssh)
+                                next_checkpoint_probe = now + _CHECKPOINT_PROBE_SECONDS
                             continue
                         except Exception as exc:
                             logger.debug(
@@ -263,52 +377,65 @@ class _Watcher:
                 pass
             self._cached_ssh = None
 
-    def _probe_checkpoint(self) -> None:
-        """Best-effort check that the ConfFlow checkpoint dir advanced.
+    def _probe_checkpoint(self, ssh: SSHClient | None = None) -> None:
+        """Best-effort check whether a declared ConfFlow progress file advanced.
 
-        We invoke ``find <work_dir> -name workflow_stats.json -newer sentinel
-        -print`` once per loop iteration. ``sentinel`` is an empty marker
-        file we touch on first probe, so subsequent probes only flag a
-        change. If any new file appears, we fire a synthetic DoneEvent to
-        nudge the GUI to refresh. Errors are swallowed — checkpoint probing
-        is opportunistic.
+        We inspect only the exact state/statistics paths persisted by the run
+        plan. The first probe reports any already-present progress file, then
+        atomically stores an ordered snapshot of path presence and content
+        digests. Later probes report content/presence changes while ignoring
+        mtime-only changes, and fire a synthetic DoneEvent to nudge the GUI
+        to refresh. Errors are swallowed — checkpoint probing is
+        opportunistic; an incomplete snapshot never replaces the last trusted
+        watcher-local snapshot.
 
-        The probe reuses the most recent live SSH connection (cached by the
-        main loop) so it does not pay the cost of a fresh connect per
+        The probe uses the active or most recently cached SSH connection, so
+        it does not pay the cost of a fresh connect per
         iteration. When the cached connection is unavailable (initial loop,
         after a drop) the probe is skipped.
         """
-        if self._stop_event.is_set():
+        if self._stop_event.is_set() or not self._progress_paths:
             return
-        ssh = getattr(self, "_cached_ssh", None)
+        ssh = ssh or self._cached_ssh
         if ssh is None:
             return
-        probe_script = (
-            "set +e\n"
-            f"marker={shlex.quote(self._events_path.rsplit('/', 1)[0])}/.jobdesk_checkpoint_marker\n"
-            '[ -f "$marker" ] || touch "$marker"\n'
-            f"updated=$(find {shlex.quote(self._events_path.rsplit('/', 1)[0])} "
-            r'\( -name workflow_stats.json -o -name .workflow_state.json \) '
-            '-newer "$marker" -print -quit 2>/dev/null)\n'
-            'touch "$marker"\n'
-            "if [ -n \"$updated\" ]; then printf '__JD_CHECKPOINT_CHANGED__\\n'; fi\n"
-        )
+        probe_script = _build_checkpoint_probe_script(self._progress_paths)
         try:
             r = ssh.run(probe_script, timeout=10)
-            if r.exit_code == 0 and "__JD_CHECKPOINT_CHANGED__" in r.stdout:
+            if r.exit_code != 0:
+                return
+            parsed = _parse_checkpoint_snapshot(r.stdout, len(self._progress_paths))
+            if parsed is None:
                 logger.debug(
-                    "watcher %s/%s detected ConfFlow checkpoint change",
+                    "watcher %s/%s ignored incomplete checkpoint snapshot",
                     self._server_id,
                     self._run_id,
                 )
-                self._progress_callback(
-                    DoneEvent(
-                        run_id=self._run_id,
-                        server_id=self._server_id,
-                        task_id="_ckpt_progress",
-                        exit_code=None,
-                    )
+                return
+            any_present, snapshot = parsed
+            previous = self._checkpoint_snapshot
+            snapshot_changed = previous != snapshot
+            changed = (previous is None and any_present) or (previous is not None and snapshot_changed)
+            self._checkpoint_snapshot = snapshot
+            if snapshot_changed:
+                self._checkpoint_generation += 1
+            if not changed:
+                return
+            logger.debug(
+                "watcher %s/%s detected ConfFlow checkpoint change at local generation %d",
+                self._server_id,
+                self._run_id,
+                self._checkpoint_generation,
+            )
+            self._progress_callback(
+                DoneEvent(
+                    run_id=self._run_id,
+                    server_id=self._server_id,
+                    task_id="_ckpt_progress",
+                    exit_code=None,
+                    watch_id=self._watch_id,
                 )
+            )
         except Exception as exc:
             logger.debug(
                 "watcher %s/%s checkpoint probe failed (ignored): %s",

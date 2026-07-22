@@ -27,6 +27,424 @@ class TestRunsPage:
         assert outcome is expected
         coordinator.refresh_and_download.assert_called_once_with("run-1", ["*.out"])
 
+    def test_progress_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
+        coordinator = MagicMock()
+        expected = SimpleNamespace(errors=[])
+        coordinator.sync_progress.return_value = expected
+        runs_page._coordinator_factory = MagicMock(return_value=coordinator)
+        record = SimpleNamespace(run_id="run-progress", local_dir=str(tmp_path))
+
+        outcome = runs_page._execute_progress_use_case(record)
+
+        assert outcome is expected
+        coordinator.sync_progress.assert_called_once_with("run-progress")
+
+    def test_confflow_progress_uses_selected_run_owned_checkpoint(self, runs_page, tmp_path):
+        """The table reads the selected run's checkpoint, never a shared basename path."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import Manifest, TaskRecord
+
+        result_dir = tmp_path / "results" / "same"
+        run_a_dir = tmp_path / "runs" / "submission-a"
+        run_b_dir = tmp_path / "runs" / "submission-b"
+        for run_dir, step_name in ((run_a_dir, "first"), (run_b_dir, "second")):
+            checkpoint = run_dir / "progress" / "same_confflow_work" / ".workflow_state.json"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "steps": {
+                            step_name: {"name": step_name, "status": "submitted"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+        manifest = run_a_dir / "manifest.tsv"
+        Manifest.write(
+            manifest,
+            [
+                TaskRecord(
+                    task_id="same",
+                    batch_id="submission-a",
+                    remote_job_dir="/work/submission-a/same",
+                    status=TaskStatus.running,
+                )
+            ],
+        )
+        record = SimpleNamespace(
+            run_id="submission-a",
+            run_dir=run_a_dir,
+            manifest_path=manifest,
+            local_dir="",
+        )
+
+        runs_page._show_confflow_batch_results(record, result_dir)
+
+        assert runs_page.result_table.rowCount() == 1
+        assert "current: first" in runs_page.result_table.item(0, 5).text()
+        assert "second" not in runs_page.result_table.item(0, 5).text()
+
+    def test_confflow_progress_falls_back_to_downloaded_workflow_state(self, runs_page, tmp_path):
+        """An empty live cache still honors a downloaded v1.3 state checkpoint."""
+        from jobdesk_app.gui.pages.runs_results_page import _step_progress_text
+
+        result_dir = tmp_path / "results"
+        state_file = result_dir / "same_confflow_work" / ".workflow_state.json"
+        state_file.parent.mkdir(parents=True)
+        state_file.write_text(
+            json.dumps({"steps": {"downloaded": {"name": "downloaded", "status": "submitted"}}}),
+            encoding="utf-8",
+        )
+
+        assert "current: downloaded" in _step_progress_text(
+            result_dir,
+            "same",
+            tmp_path / "runs" / "submission-a" / "progress",
+        )
+
+    def test_confflow_progress_prefers_live_workflow_state_over_downloaded_result(self, runs_page, tmp_path):
+        """A live run-owned state cache wins over a stale downloaded snapshot."""
+        from jobdesk_app.gui.pages.runs_results_page import _step_progress_text
+
+        result_dir = tmp_path / "results"
+        progress_dir = tmp_path / "runs" / "submission-a" / "progress"
+        for root, step_name in ((result_dir, "downloaded"), (progress_dir, "live")):
+            state_file = root / "same_confflow_work" / ".workflow_state.json"
+            state_file.parent.mkdir(parents=True)
+            state_file.write_text(
+                json.dumps({"steps": {step_name: {"name": step_name, "status": "submitted"}}}),
+                encoding="utf-8",
+            )
+
+        text = _step_progress_text(result_dir, "same", progress_dir)
+        assert "current: live" in text
+        assert "downloaded" not in text
+
+    def test_confflow_preview_prefers_current_run_results_directory(self, runs_page, tmp_path):
+        """A run must not render a same-basename result from another run."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import TaskRecord
+
+        for run_id, duration in (("submission-a", 1.0), ("submission-b", 99.0)):
+            summary = tmp_path / "results" / run_id / "same_confflow_work" / "run_summary.json"
+            summary.parent.mkdir(parents=True)
+            summary.write_text(
+                json.dumps(
+                    {
+                        "initial_conformers": 1,
+                        "final_conformers": 1,
+                        "total_duration_seconds": duration,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        record = SimpleNamespace(
+            run_id="submission-a",
+            local_dir=str(tmp_path),
+            command_template="confflow {name}",
+            status_summary={},
+        )
+        runs_page._load_tasks = lambda _record: [
+            TaskRecord(
+                task_id="same",
+                batch_id="submission-a",
+                remote_job_dir="/remote/submission-a/same",
+                status=TaskStatus.downloaded,
+            )
+        ]
+
+        payload = runs_page._collect_result_preview(record)
+
+        assert payload[0] == "confflow"
+        assert payload[2] == tmp_path / "results" / "submission-a"
+
+    def test_bound_run_preview_does_not_fall_back_to_stale_workspace_results(self, runs_page, tmp_path):
+        """A bound run with an empty result directory must not use root files from run A."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import TaskRecord
+
+        gui_workspace = tmp_path / "gui-workspace"
+        bound_workspace = tmp_path / "bound-workspace"
+        gui_workspace.mkdir()
+        (bound_workspace / "results" / "run-B").mkdir(parents=True)
+        (gui_workspace / "water.log").write_text("stale run-A output", encoding="utf-8")
+        (gui_workspace / "final_results.tsv").write_text("task\tenergy\nwater\t-76.4\n" * 3, encoding="utf-8")
+        runs_page.state.current_project_root = gui_workspace
+        record = SimpleNamespace(
+            run_id="run-B",
+            local_dir=str(bound_workspace),
+            command_template="orca {name}",
+            status_summary={},
+        )
+        runs_page._load_tasks = lambda _record: [
+            TaskRecord(
+                task_id="water",
+                batch_id="run-B",
+                remote_job_dir="/remote/run-B/water",
+                remote_task_files=["/remote/run-B/water.gjf"],
+                status=TaskStatus.downloaded,
+            )
+        ]
+
+        assert runs_page._collect_result_preview(record) == ("empty",)
+
+    def test_bound_confflow_preview_ignores_stale_workspace_summary(self, runs_page, tmp_path):
+        """A bound ConfFlow run must not display a same-name root summary from run A."""
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import TaskRecord
+
+        gui_workspace = tmp_path / "gui-workspace"
+        bound_workspace = tmp_path / "bound-workspace"
+        stale_summary = gui_workspace / "water_confflow_work" / "run_summary.json"
+        stale_summary.parent.mkdir(parents=True)
+        stale_summary.write_text('{"final_conformers": 99}', encoding="utf-8")
+        canonical = bound_workspace / "results" / "run-B"
+        canonical.mkdir(parents=True)
+        runs_page.state.current_project_root = gui_workspace
+        record = SimpleNamespace(
+            run_id="run-B",
+            local_dir=str(bound_workspace),
+            command_template="confflow {name}",
+            status_summary={},
+        )
+        runs_page._load_tasks = lambda _record: [
+            TaskRecord(
+                task_id="water",
+                batch_id="run-B",
+                remote_job_dir="/remote/run-B/water",
+                status=TaskStatus.downloaded,
+            )
+        ]
+
+        payload = runs_page._collect_result_preview(record)
+
+        assert payload == ("confflow", record, canonical)
+
+    def test_start_monitoring_passes_persisted_progress_paths(self, runs_page):
+        record = SimpleNamespace(
+            run_id="run-progress",
+            server_id="wsl",
+            remote_dir="/remote/submission",
+            status_summary={"running": 1},
+        )
+        tasks = [
+            SimpleNamespace(
+                remote_state_path="/remote/submission/work/.workflow_state.json",
+                remote_stats_path="/remote/submission/work/workflow_stats.json",
+            )
+        ]
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+        ):
+            service = service_class.return_value
+            service.list_runs.return_value = [record]
+            service.repository.load_tasks.return_value = tasks
+            server = MagicMock()
+            load_servers.return_value.servers = {"wsl": server}
+
+            runs_page._start_monitoring()
+
+        monitor.watch.assert_called_once()
+        args = monitor.watch.call_args.args
+        assert args[:5] == (
+            "run-progress",
+            "wsl",
+            "/remote/submission/.jobdesk_runs/run-progress",
+            server,
+            [
+                "/remote/submission/work/.workflow_state.json",
+                "/remote/submission/work/workflow_stats.json",
+            ],
+        )
+        assert args[5] == runs_page._monitor_identity(runs_page._workspace(), "run-progress", "wsl")
+
+    def test_start_monitoring_isolates_watch_failure_and_continues_other_runs(self, runs_page):
+        records = [
+            SimpleNamespace(
+                run_id=run_id,
+                server_id="wsl",
+                remote_dir=f"/remote/{run_id}",
+                status_summary={"running": 1},
+            )
+            for run_id in ("bad", "good")
+        ]
+        monitor = MagicMock()
+        monitor.watch.side_effect = [RuntimeError("thread unavailable"), None]
+        runs_page._monitor = monitor
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+        ):
+            service = service_class.return_value
+            service.list_runs.return_value = records
+            service.repository.load_tasks.return_value = []
+            load_servers.return_value.servers = {"wsl": MagicMock()}
+
+            runs_page._start_monitoring()
+
+        bad_watch = runs_page._monitor_identity(runs_page._workspace(), "bad", "wsl")
+        good_watch = runs_page._monitor_identity(runs_page._workspace(), "good", "wsl")
+        assert monitor.watch.call_count == 2
+        assert bad_watch not in runs_page._monitor_contexts
+        assert runs_page._monitor_contexts[good_watch] == (runs_page._workspace(), "good", "wsl")
+
+    def test_auto_refresh_retries_monitor_watch_failed_on_previous_cycle(self, runs_page):
+        record = SimpleNamespace(
+            run_id="retry-watch",
+            server_id="wsl",
+            remote_dir="/remote/retry-watch",
+            status_summary={"running": 1},
+        )
+        monitor = MagicMock()
+        monitor.watch.side_effect = [RuntimeError("thread unavailable"), None]
+        runs_page._monitor = monitor
+        worker = _FakeWorker()
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+            patch.object(runs_page, "refresh_run_list"),
+        ):
+            service = service_class.return_value
+            service.list_runs.return_value = [record]
+            service.repository.load_tasks.return_value = []
+            load_servers.return_value.servers = {"wsl": MagicMock()}
+
+            runs_page._start_monitoring()
+            runs_page._auto_refresh_active()
+
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "retry-watch", "wsl")
+        assert monitor.watch.call_count == 2
+        assert runs_page._monitor_contexts[watch_id] == (runs_page._workspace(), "retry-watch", "wsl")
+        worker.finished.emit()
+
+    def test_checkpoint_event_syncs_in_worker_before_local_reread(self, runs_page):
+        event = SimpleNamespace(
+            run_id="run-progress",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+        )
+        record = SimpleNamespace(run_id="run-progress", local_dir=str(runs_page._workspace()))
+        outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
+        captured: dict[str, object] = {}
+        worker = _FakeWorker()
+
+        def make_worker(target):
+            captured["target"] = target
+            return worker
+
+        runs_page._analyze_cache["old"] = (1,)
+        runs_page._detail_cache[("old",)] = object()
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", return_value=outcome) as sync,
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page._preview_timer, "start") as preview,
+        ):
+            service_class.return_value.load_run.return_value = record
+
+            runs_page._on_task_done(event)
+
+            worker.start.assert_called_once_with()
+            sync.assert_not_called()
+            refresh.assert_not_called()
+            captured["target"]()
+            sync.assert_called_once_with(record)
+            refresh.assert_not_called()
+            worker.finished.emit()
+
+        refresh.assert_called_once_with()
+        preview.assert_called_once_with()
+        assert runs_page._analyze_cache == {}
+        assert runs_page._detail_cache == {}
+        assert "run-progress" not in runs_page._in_progress
+
+    def test_monitor_events_remain_bound_to_original_workspace_after_switch(self, runs_page, tmp_path):
+        """Same-name A/B runs never share monitor state or reload through the current UI workspace."""
+        workspace_a = tmp_path / "workspace-a"
+        workspace_b = tmp_path / "workspace-b"
+        workspace_a.mkdir()
+        workspace_b.mkdir()
+        record_a = SimpleNamespace(run_id="same", server_id="wsl", local_dir=str(workspace_a), status_summary={})
+        record_b = SimpleNamespace(run_id="same", server_id="wsl", local_dir=str(workspace_b), status_summary={})
+        watch_a = runs_page._monitor_identity(workspace_a, "same", "wsl")
+        watch_b = runs_page._monitor_identity(workspace_b, "same", "wsl")
+        runs_page._monitor_contexts = {
+            watch_a: (workspace_a, "same", "wsl"),
+            watch_b: (workspace_b, "same", "wsl"),
+        }
+        workers: list[_FakeWorker] = []
+        targets: list = []
+
+        def _make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        service_a = MagicMock()
+        service_a.load_run.return_value = record_a
+        service_b = MagicMock()
+        service_b.load_run.return_value = record_b
+        refreshed: list[object] = []
+        outcome = SimpleNamespace(errors=[], transfer_records=[object()])
+        runs_page._monitor.unwatch = MagicMock()
+        runs_page.state.current_project_root = workspace_a
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService", side_effect=lambda ws: {
+                workspace_a: service_a,
+                workspace_b: service_b,
+            }[ws]),
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=_make_worker),
+            patch.object(runs_page, "_execute_refresh_use_case", side_effect=lambda record, *_args, **_kwargs: (
+                refreshed.append(record) or outcome
+            )),
+            patch.object(runs_page, "_get_download_patterns", return_value=["*.out"]),
+            patch.object(runs_page, "refresh_run_list") as refresh_list,
+        ):
+            for watch_id in (watch_a, watch_b):
+                runs_page._on_task_done(
+                    SimpleNamespace(
+                        run_id="same", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id
+                    )
+                )
+            assert set(runs_page._pending_task_events) == {watch_a, watch_b}
+            assert runs_page._in_progress == set()
+
+            # The UI has moved to B before either A/B watcher flushes.
+            runs_page.state.current_project_root = workspace_b
+            runs_page._flush_task_done(watch_a)
+            assert runs_page._in_progress == {watch_a}
+            targets[0]()
+            workers[0].finished.emit()
+            # A's completion must not refresh the now-selected B page.
+            refresh_list.assert_not_called()
+            runs_page._flush_task_done(watch_b)
+            assert runs_page._in_progress == {watch_b}
+            targets[1]()
+            workers[1].finished.emit()
+
+        assert refreshed == [record_a, record_b]
+        service_a.load_run.assert_called_with("same")
+        service_b.load_run.assert_called_with("same")
+        refresh_list.assert_called_once_with()
+        assert runs_page._download_directory(record_a) == workspace_a / "results" / "same"
+        assert runs_page._download_directory(record_b) == workspace_b / "results" / "same"
+        assert runs_page._monitor.unwatch.call_args_list == [
+            (("same", "wsl", watch_a),),
+            (("same", "wsl", watch_b),),
+        ]
+
     def test_table_has_correct_columns(self, runs_page):
         table = runs_page.table
         assert table.columnCount() == 6
@@ -243,6 +661,719 @@ class TestRunsPage:
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
             runs_page._flush_task_done("busy")
             mock_svc.return_value.load_run.assert_not_called()
+
+    def test_busy_flush_preserves_done_event_until_worker_is_available(self, runs_page):
+        """A busy watcher must coalesce new progress/DONE events instead of dropping them."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "busy", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "busy", "wsl")
+        running = SimpleNamespace(run_id="busy", server_id="wsl", task_id="task", exit_code=None, watch_id=watch_id)
+        done = SimpleNamespace(run_id="busy", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id)
+        runs_page._in_progress.add(watch_id)
+
+        runs_page._on_task_done(running)
+        runs_page._on_task_done(done)
+        runs_page._flush_task_done(watch_id)
+
+        assert runs_page._pending_task_events[watch_id]["has_done"] is True
+        assert watch_id in runs_page._task_done_timers
+
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        record = SimpleNamespace(run_id="busy", server_id="wsl")
+        outcome = SimpleNamespace(errors=[], transfer_records=[object()])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        runs_page._in_progress.discard(watch_id)
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._flush_task_done(watch_id)
+            targets[0]()
+            workers[0].finished.emit()
+
+        refresh.assert_called_once_with(record, [], download=True)
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._task_done_timers
+        assert watch_id not in runs_page._in_progress
+
+    def test_checkpoint_worker_replays_pending_done_event_after_releasing_watch(self, runs_page):
+        """A DONE event queued behind checkpoint sync eventually gets its one full refresh."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "checkpoint-busy", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "checkpoint-busy", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="checkpoint-busy",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        done = SimpleNamespace(
+            run_id="checkpoint-busy",
+            server_id="wsl",
+            task_id="task",
+            exit_code=0,
+            watch_id=watch_id,
+        )
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        record = SimpleNamespace(
+            run_id="checkpoint-busy",
+            server_id="wsl",
+            status_summary={"running": 1},
+        )
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", return_value=outcome),
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+            patch.object(runs_page, "refresh_run_list"),
+            patch.object(runs_page, "_selected_record", return_value=None),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._on_task_done(checkpoint)
+            runs_page._on_task_done(done)
+            runs_page._flush_task_done(watch_id)
+            assert len(workers) == 1
+
+            targets[0]()
+            workers[0].finished.emit()
+            assert len(workers) == 2
+
+            targets[1]()
+            workers[1].finished.emit()
+
+        refresh.assert_called_once_with(record, [], download=True)
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._in_progress
+
+    def test_failed_checkpoint_retry_survives_pending_running_refresh(self, runs_page):
+        """RUNNING refreshes must not consume a failed checkpoint's retry."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "checkpoint-running", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "checkpoint-running", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="checkpoint-running",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        running = SimpleNamespace(
+            run_id="checkpoint-running",
+            server_id="wsl",
+            task_id="task",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        record = SimpleNamespace(
+            run_id="checkpoint-running",
+            server_id="wsl",
+            status_summary={"running": 1},
+        )
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", return_value=outcome) as sync,
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+            patch.object(runs_page, "refresh_run_list"),
+            patch.object(runs_page, "_selected_record", return_value=None),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._on_task_done(checkpoint)
+            runs_page._on_task_done(running)
+            workers[0].error.emit(RuntimeError("checkpoint transfer failed"))
+
+            assert watch_id in runs_page._checkpoint_retry_events
+            assert runs_page._checkpoint_retry_timers[watch_id].isActive()
+
+            workers[0].finished.emit()
+            assert len(workers) == 2
+            runs_page._run_checkpoint_retry(watch_id)
+            assert watch_id in runs_page._pending_checkpoint_events
+
+            targets[1]()
+            refresh.assert_called_once_with(record, [], download=False)
+            sync.assert_not_called()
+            workers[1].finished.emit()
+
+            assert len(workers) == 3
+            targets[2]()
+            workers[2].finished.emit()
+
+        sync.assert_called_once_with(record)
+        assert watch_id not in runs_page._checkpoint_retry_events
+        assert watch_id not in runs_page._checkpoint_retry_attempts
+
+    def test_retry_timer_flushes_pending_running_before_checkpoint_sync(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "retry-running-order", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "retry-running-order", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="retry-running-order",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        running = SimpleNamespace(
+            run_id="retry-running-order",
+            server_id="wsl",
+            task_id="task",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        record = SimpleNamespace(
+            run_id="retry-running-order",
+            server_id="wsl",
+            status_summary={"running": 1},
+        )
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", return_value=outcome) as sync,
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+            patch.object(runs_page, "refresh_run_list"),
+            patch.object(runs_page, "_selected_record", return_value=None),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._schedule_checkpoint_retry(checkpoint, runs_page._workspace(), watch_id)
+            runs_page._on_task_done(running)
+            runs_page._run_checkpoint_retry(watch_id)
+
+            assert len(workers) == 1
+            targets[0]()
+            refresh.assert_called_once_with(record, [], download=False)
+            sync.assert_not_called()
+            workers[0].finished.emit()
+
+            assert len(workers) == 2
+            targets[1]()
+            workers[1].finished.emit()
+
+        sync.assert_called_once_with(record)
+
+    def test_busy_checkpoint_events_are_coalesced_and_flushed_after_gate_release(self, runs_page):
+        """Checkpoint signals received behind another worker must not be silently discarded."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "checkpoint-queued", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "checkpoint-queued", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="checkpoint-queued",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        runs_page._in_progress.add(watch_id)
+        for _ in range(3):
+            runs_page._on_task_done(checkpoint)
+
+        assert set(runs_page._pending_checkpoint_events) == {watch_id}
+
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        record = SimpleNamespace(run_id="checkpoint-queued", server_id="wsl")
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", return_value=outcome) as sync,
+            patch.object(runs_page, "refresh_run_list"),
+            patch.object(runs_page, "_selected_record", return_value=None),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._release_monitor_refresh_gate(watch_id)
+            assert len(workers) == 1
+            targets[0]()
+            workers[0].finished.emit()
+
+        sync.assert_called_once_with(record)
+        assert watch_id not in runs_page._pending_checkpoint_events
+        assert watch_id not in runs_page._in_progress
+
+    def test_failed_checkpoint_sync_retries_without_new_remote_event(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "retry", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "retry", "wsl")
+        event = SimpleNamespace(
+            run_id="retry", server_id="wsl", task_id="_ckpt_progress", exit_code=None, watch_id=watch_id
+        )
+        record = SimpleNamespace(run_id="retry", server_id="wsl")
+        outcome = SimpleNamespace(errors=[], transfer_records=[])
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case", side_effect=[RuntimeError("sftp"), outcome]) as sync,
+            patch.object(runs_page, "refresh_run_list"),
+            patch.object(runs_page, "_selected_record", return_value=None),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._on_task_done(event)
+            with pytest.raises(RuntimeError, match="sftp"):
+                targets[0]()
+            workers[0].error.emit(RuntimeError("sftp"))
+            workers[0].finished.emit()
+            assert runs_page._checkpoint_retry_timers[watch_id].isActive()
+
+            runs_page._run_checkpoint_retry(watch_id)
+            targets[1]()
+            workers[1].finished.emit()
+
+        assert sync.call_count == 2
+        assert watch_id not in runs_page._checkpoint_retry_events
+        assert watch_id not in runs_page._checkpoint_retry_timers
+        assert watch_id not in runs_page._checkpoint_retry_attempts
+
+    def test_checkpoint_retry_backoff_is_exponential_and_bounded(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "backoff", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "backoff", "wsl")
+        event = SimpleNamespace(run_id="backoff", server_id="wsl", task_id="_ckpt_progress", exit_code=None)
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.CHECKPOINT_RETRY_BASE_MS", 10),
+            patch("jobdesk_app.gui.pages.runs_results_page.CHECKPOINT_RETRY_MAX_MS", 20),
+        ):
+            runs_page._schedule_checkpoint_retry(event, runs_page._workspace(), watch_id)
+            assert runs_page._checkpoint_retry_timers[watch_id].interval() == 10
+            runs_page._schedule_checkpoint_retry(event, runs_page._workspace(), watch_id)
+            assert runs_page._checkpoint_retry_timers[watch_id].interval() == 20
+            runs_page._schedule_checkpoint_retry(event, runs_page._workspace(), watch_id)
+            assert runs_page._checkpoint_retry_timers[watch_id].interval() == 20
+
+    def test_new_checkpoint_supersedes_retry_and_cancels_old_timer(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "supersede", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "supersede", "wsl")
+        old_event = SimpleNamespace(run_id="supersede", server_id="wsl", task_id="_ckpt_old", exit_code=None)
+        new_event = SimpleNamespace(
+            run_id="supersede", server_id="wsl", task_id="_ckpt_new", exit_code=None, watch_id=watch_id
+        )
+        runs_page._schedule_checkpoint_retry(old_event, runs_page._workspace(), watch_id)
+        old_timer = runs_page._checkpoint_retry_timers[watch_id]
+
+        with patch.object(runs_page, "_sync_checkpoint_progress") as sync:
+            runs_page._on_task_done(new_event)
+
+        sync.assert_called_once_with(new_event, runs_page._workspace(), watch_id)
+        assert not old_timer.isActive()
+        assert watch_id not in runs_page._checkpoint_retry_events
+        assert watch_id not in runs_page._checkpoint_retry_attempts
+
+    def test_failed_old_checkpoint_does_not_requeue_over_newer_pending_event(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "retry-race", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "retry-race", "wsl")
+        old_event = SimpleNamespace(
+            run_id="retry-race",
+            server_id="wsl",
+            task_id="_ckpt_old",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        new_event = SimpleNamespace(
+            run_id="retry-race",
+            server_id="wsl",
+            task_id="_ckpt_new",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        worker = _FakeWorker()
+        with patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+            runs_page._on_task_done(old_event)
+            runs_page._on_task_done(new_event)
+            worker.error.emit(RuntimeError("old failed"))
+
+        assert runs_page._pending_checkpoint_events[watch_id] == (new_event, runs_page._workspace())
+        assert watch_id not in runs_page._checkpoint_retry_events
+        assert watch_id not in runs_page._checkpoint_retry_timers
+
+    def test_busy_retry_timer_merges_into_pending_checkpoint(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "retry-busy", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "retry-busy", "wsl")
+        event = SimpleNamespace(run_id="retry-busy", server_id="wsl", task_id="_ckpt_retry", exit_code=None)
+        runs_page._schedule_checkpoint_retry(event, runs_page._workspace(), watch_id)
+        runs_page._in_progress.add(watch_id)
+
+        runs_page._run_checkpoint_retry(watch_id)
+
+        assert runs_page._pending_checkpoint_events[watch_id] == (event, runs_page._workspace())
+        assert watch_id not in runs_page._checkpoint_retry_timers
+        assert watch_id in runs_page._checkpoint_retry_attempts
+
+    def test_checkpoint_retry_state_is_workspace_scoped_and_retired_independently(self, runs_page, tmp_path):
+        workspace_a = tmp_path / "a"
+        workspace_b = tmp_path / "b"
+        workspace_a.mkdir()
+        workspace_b.mkdir()
+        watch_a = runs_page._monitor_identity(workspace_a, "same", "wsl")
+        watch_b = runs_page._monitor_identity(workspace_b, "same", "wsl")
+        runs_page._monitor_contexts[watch_a] = (workspace_a, "same", "wsl")
+        runs_page._monitor_contexts[watch_b] = (workspace_b, "same", "wsl")
+        event_a = SimpleNamespace(run_id="same", server_id="wsl", task_id="_ckpt_a", exit_code=None)
+        event_b = SimpleNamespace(run_id="same", server_id="wsl", task_id="_ckpt_b", exit_code=None)
+        runs_page._schedule_checkpoint_retry(event_a, workspace_a, watch_a)
+        runs_page._schedule_checkpoint_retry(event_b, workspace_b, watch_b)
+
+        runs_page._retire_monitor_watch(watch_a)
+
+        assert watch_a not in runs_page._checkpoint_retry_events
+        assert runs_page._checkpoint_retry_events[watch_b] == (event_b, workspace_b)
+        assert runs_page._checkpoint_retry_timers[watch_b].isActive()
+
+    def test_checkpoint_worker_construction_failure_schedules_retry(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "construct", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "construct", "wsl")
+        event = SimpleNamespace(
+            run_id="construct", server_id="wsl", task_id="_ckpt_progress", exit_code=None, watch_id=watch_id
+        )
+
+        with patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=RuntimeError("construct")):
+            runs_page._on_task_done(event)
+
+        assert watch_id not in runs_page._in_progress
+        assert runs_page._checkpoint_retry_events[watch_id] == (event, runs_page._workspace())
+        assert runs_page._checkpoint_retry_timers[watch_id].isActive()
+
+    def test_checkpoint_worker_start_failure_schedules_retry_without_gate_leak(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "start", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "start", "wsl")
+        event = SimpleNamespace(
+            run_id="start", server_id="wsl", task_id="_ckpt_progress", exit_code=None, watch_id=watch_id
+        )
+        worker = _FakeWorker()
+        worker.start.side_effect = RuntimeError("start")
+
+        with patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+            runs_page._on_task_done(event)
+
+        assert watch_id not in runs_page._in_progress
+        assert worker not in runs_page._bg_workers
+        assert runs_page._checkpoint_retry_events[watch_id] == (event, runs_page._workspace())
+        assert runs_page._checkpoint_retry_timers[watch_id].isActive()
+
+    def test_checkpoint_worker_duplicate_error_signal_reports_and_schedules_once(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "error-once", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "error-once", "wsl")
+        event = SimpleNamespace(
+            run_id="error-once",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        worker = _FakeWorker()
+        runs_page._status_cb = MagicMock()
+
+        with patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker):
+            runs_page._on_task_done(event)
+            worker.error.emit(RuntimeError("first"))
+            worker.error.emit(RuntimeError("duplicate"))
+
+        runs_page._status_cb.assert_called_once()
+        assert runs_page._checkpoint_retry_attempts[watch_id] == 1
+        assert len(runs_page._checkpoint_retry_timers) == 1
+
+    @pytest.mark.parametrize("failure_point", ["construct", "start"])
+    def test_full_refresh_worker_start_failure_restores_pending_state(self, runs_page, failure_point):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "full-start", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "full-start", "wsl")
+        state = {
+            "workspace": runs_page._workspace(),
+            "run_id": "full-start",
+            "server_id": "wsl",
+            "has_done": True,
+        }
+        runs_page._pending_task_events[watch_id] = state.copy()
+        worker = _FakeWorker()
+        if failure_point == "start":
+            worker.start.side_effect = RuntimeError("start")
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker)
+        else:
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=RuntimeError("construct"))
+
+        with factory:
+            runs_page._flush_task_done(watch_id)
+
+        assert runs_page._pending_task_events[watch_id]["has_done"] is True
+        assert runs_page._task_done_timers[watch_id].isActive()
+        assert watch_id not in runs_page._in_progress
+        assert worker not in runs_page._bg_workers
+
+    def test_shutdown_blocks_late_checkpoint_callbacks_but_still_cleans_registry(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "late-checkpoint", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "late-checkpoint", "wsl")
+        event = SimpleNamespace(
+            run_id="late-checkpoint",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        worker = _FakeWorker()
+        runs_page._status_cb = MagicMock()
+        with (
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+            patch.object(runs_page, "refresh_run_list") as refresh,
+            patch.object(runs_page._preview_timer, "start") as preview,
+        ):
+            runs_page._on_task_done(event)
+            runs_page.shutdown()
+            worker.error.emit(RuntimeError("late"))
+            worker.finished.emit()
+
+        runs_page._status_cb.assert_not_called()
+        refresh.assert_not_called()
+        preview.assert_not_called()
+        assert worker not in runs_page._bg_workers
+        assert watch_id not in runs_page._in_progress
+        assert runs_page._checkpoint_retry_events == {}
+
+    def test_shutdown_blocks_late_full_refresh_callbacks(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "late-full", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "late-full", "wsl")
+        event = SimpleNamespace(
+            run_id="late-full", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id
+        )
+        worker = _FakeWorker()
+        runs_page._status_cb = MagicMock()
+        with (
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+            patch.object(runs_page, "refresh_run_list") as refresh,
+        ):
+            runs_page._on_task_done(event)
+            runs_page._flush_task_done(watch_id)
+            runs_page.shutdown()
+            worker.result.emit("late result")
+            worker.error.emit(RuntimeError("late error"))
+            worker.finished.emit()
+
+        runs_page._status_cb.assert_not_called()
+        refresh.assert_not_called()
+        assert worker not in runs_page._bg_workers
+        assert watch_id not in runs_page._in_progress
+
+    def test_terminal_done_discards_queued_checkpoint_before_any_progress_sync(self, runs_page):
+        """A terminal DONE wins over queued checkpoint sync for the same watcher."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "terminal-checkpoint", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "terminal-checkpoint", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="terminal-checkpoint",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        done = SimpleNamespace(
+            run_id="terminal-checkpoint",
+            server_id="wsl",
+            task_id="task",
+            exit_code=0,
+            watch_id=watch_id,
+        )
+        runs_page._in_progress.add(watch_id)
+        runs_page._on_task_done(checkpoint)
+        runs_page._on_task_done(done)
+
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        active = SimpleNamespace(run_id="terminal-checkpoint", server_id="wsl")
+        terminal = SimpleNamespace(status_summary={"remote_completed": 1})
+        outcome = SimpleNamespace(errors=[], transfer_records=[object()])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        runs_page._monitor.unwatch = MagicMock()
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_progress_use_case") as sync,
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+            patch.object(runs_page, "refresh_run_list"),
+        ):
+            service.return_value.load_run.side_effect = [active, terminal]
+            runs_page._release_monitor_refresh_gate(watch_id)
+            targets[0]()
+            workers[0].finished.emit()
+
+        refresh.assert_called_once_with(active, [], download=True)
+        sync.assert_not_called()
+        assert watch_id not in runs_page._pending_checkpoint_events
+        assert watch_id not in runs_page._monitor_contexts
+
+    def test_done_event_cancels_scheduled_checkpoint_retry_immediately(self, runs_page):
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "done-priority", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "done-priority", "wsl")
+        checkpoint = SimpleNamespace(
+            run_id="done-priority",
+            server_id="wsl",
+            task_id="_ckpt_progress",
+            exit_code=None,
+            watch_id=watch_id,
+        )
+        done = SimpleNamespace(
+            run_id="done-priority",
+            server_id="wsl",
+            task_id="task",
+            exit_code=0,
+            watch_id=watch_id,
+        )
+        runs_page._schedule_checkpoint_retry(checkpoint, runs_page._workspace(), watch_id)
+        timer = runs_page._checkpoint_retry_timers[watch_id]
+
+        runs_page._on_task_done(done)
+
+        assert not timer.isActive()
+        assert watch_id not in runs_page._checkpoint_retry_events
+        assert watch_id not in runs_page._checkpoint_retry_attempts
+        assert runs_page._pending_task_events[watch_id]["has_done"] is True
+
+    def test_shutdown_discards_queued_checkpoint_events(self, runs_page):
+        """Page teardown must not retain checkpoint work that can no longer be applied."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "shutdown-checkpoint", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "shutdown-checkpoint", "wsl")
+        runs_page._schedule_checkpoint_retry(MagicMock(), runs_page._workspace(), watch_id)
+        timer = runs_page._checkpoint_retry_timers[watch_id]
+        runs_page._pending_checkpoint_events[watch_id] = (MagicMock(), runs_page._workspace())
+
+        runs_page.shutdown()
+
+        assert runs_page._pending_checkpoint_events == {}
+        assert runs_page._checkpoint_retry_events == {}
+        assert runs_page._checkpoint_retry_timers == {}
+        assert runs_page._checkpoint_retry_attempts == {}
+        assert not timer.isActive()
+
+    def test_terminal_unwatch_retires_watch_and_ignores_late_events(self, runs_page):
+        """Terminal completion must retire every watch-local debounce state before late signals."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "terminal", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "terminal", "wsl")
+        event = SimpleNamespace(run_id="terminal", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id)
+        runs_page._on_task_done(event)
+        timer = runs_page._task_done_timers[watch_id]
+        runs_page._in_progress.add(watch_id)
+        runs_page._monitor.unwatch = MagicMock()
+        terminal = SimpleNamespace(status_summary={"remote_completed": 1})
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch.object(runs_page, "refresh_run_list"),
+        ):
+            service.return_value.load_run.return_value = terminal
+            runs_page._on_monitor_refresh_done(event)
+
+        runs_page._monitor.unwatch.assert_called_once_with("terminal", "wsl", watch_id)
+        assert watch_id not in runs_page._monitor_contexts
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._task_done_timers
+        assert not timer.isActive()
+
+        runs_page._on_task_done(event)
+
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._task_done_timers
+
+    def test_terminal_finished_discards_inflight_events_before_releasing_refresh_gate(self, runs_page):
+        """A late event queued during terminal download cannot spawn a second download."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "terminal-inflight", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "terminal-inflight", "wsl")
+        event = SimpleNamespace(
+            run_id="terminal-inflight",
+            server_id="wsl",
+            task_id="task",
+            exit_code=0,
+            watch_id=watch_id,
+        )
+        workers: list[_FakeWorker] = []
+        targets: list[object] = []
+        active = SimpleNamespace(run_id="terminal-inflight", server_id="wsl")
+        terminal = SimpleNamespace(status_summary={"remote_completed": 1})
+        outcome = SimpleNamespace(errors=[], transfer_records=[object()])
+
+        def make_worker(target):
+            targets.append(target)
+            worker = _FakeWorker()
+            workers.append(worker)
+            return worker
+
+        runs_page._monitor.unwatch = MagicMock()
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=make_worker),
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome) as refresh,
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+            patch.object(runs_page, "refresh_run_list"),
+        ):
+            service.return_value.load_run.side_effect = [active, terminal]
+            runs_page._on_task_done(event)
+            runs_page._flush_task_done(watch_id)
+            # The event is delivered while the first worker owns the watcher.
+            runs_page._on_task_done(event)
+            assert watch_id in runs_page._pending_task_events
+
+            targets[0]()
+            workers[0].finished.emit()
+
+        refresh.assert_called_once_with(active, [], download=True)
+        assert len(workers) == 1
+        assert watch_id not in runs_page._monitor_contexts
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._task_done_timers
+        assert watch_id not in runs_page._in_progress
 
     def test_fresh_batch_id_jumps_then_manual_selection_is_kept(self, runs_page):
         """A new current_batch_id selects that run once; later refreshes keep manual selection."""
@@ -941,8 +2072,8 @@ class TestRunsPage:
         assert runs_page.result_table.item(0, 0).text() == "mol1"
         assert "Done" in runs_page.result_table.item(0, 1).text()
 
-    def test_confflow_results_found_directly_in_local_folder(self, runs_page, tmp_path):
-        """Auto-download now stores ConfFlow outputs directly in local_dir."""
+    def test_legacy_confflow_results_found_directly_in_workspace_root(self, runs_page, tmp_path):
+        """An unbound legacy record can still read its old workspace-root summary."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         runs_page.state.current_project_root = workspace
@@ -983,7 +2114,7 @@ class TestRunsPage:
             run_id="run_direct",
             command_template="confflow {name}",
             manifest_path=str(manifest_path),
-            local_dir=str(workspace),
+            local_dir="",
         )
 
         runs_page._load_result_preview(record)
@@ -1266,6 +2397,8 @@ class TestRunsPage:
     def test_open_results_folder_calls_startfile(self, runs_page, tmp_path):
         """Open Results action opens the local download directory directly."""
         record = MagicMock(run_id="run_open", local_dir="")
+        result_dir = tmp_path / "results" / "run_open"
+        result_dir.mkdir(parents=True)
 
         with (
             patch.object(runs_page, "_selected_record", return_value=record),
@@ -1275,7 +2408,7 @@ class TestRunsPage:
             mock_os.startfile = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(tmp_path)
+        mock_os.startfile.assert_called_once_with(result_dir)
 
     def test_open_results_folder_missing_dir_shows_error(self, runs_page, tmp_path):
         """If results dir doesn't exist, show status message instead of crashing."""
@@ -1698,10 +2831,11 @@ class TestRunsPage:
 
         download.assert_called_once()
 
-    def test_open_results_uses_record_local_dir(self, runs_page, tmp_path):
-        """Open Results must use record.local_dir path."""
+    def test_open_results_uses_record_local_dir_as_workspace_anchor(self, runs_page, tmp_path):
+        """Open Results uses the selected record's run-owned result directory."""
         local_a = tmp_path / "project_a"
-        local_a.mkdir()
+        result_dir = local_a / "results" / "run_ld2"
+        result_dir.mkdir(parents=True)
         record = MagicMock(run_id="run_ld2", local_dir=str(local_a))
 
         with (
@@ -1713,7 +2847,7 @@ class TestRunsPage:
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(local_a)
+        mock_os.startfile.assert_called_once_with(result_dir)
 
     def test_show_paths_uses_record_local_dir(self, runs_page, tmp_path):
         local_a = tmp_path / "project_a"
@@ -1730,12 +2864,13 @@ class TestRunsPage:
         ):
             runs_page._show_paths()
 
-        assert str(local_a) in runs_page.result_text.toPlainText()
-        assert str(local_a / "results" / "run_paths") not in runs_page.result_text.toPlainText()
+        assert str(local_a / "results" / "run_paths") in runs_page.result_text.toPlainText()
 
-    def test_empty_local_dir_falls_back_to_workspace(self, runs_page, tmp_path):
-        """Old records with empty local_dir should use current workspace."""
+    def test_empty_local_dir_falls_back_to_workspace_result_directory(self, runs_page, tmp_path):
+        """Old records with empty local_dir use the current workspace's result directory."""
         record = MagicMock(run_id="run_old", local_dir="")
+        result_dir = tmp_path / "results" / "run_old"
+        result_dir.mkdir(parents=True)
 
         with (
             patch.object(runs_page, "_selected_record", return_value=record),
@@ -1746,7 +2881,7 @@ class TestRunsPage:
             mock_os.path = MagicMock()
             runs_page._open_results_folder()
 
-        mock_os.startfile.assert_called_once_with(tmp_path)
+        mock_os.startfile.assert_called_once_with(result_dir)
 
     def test_shutdown_stops_background_worker_with_timeout(self, runs_page):
         worker = MagicMock()

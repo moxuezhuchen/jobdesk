@@ -148,7 +148,8 @@ page-level worker callback then:
 1. Uploads the local XYZ inputs to the configured `remote_dir`.
 2. Uploads the rendered `workflow.yaml` alongside them.
 3. Submits the batch through the existing scheduler (`nohup setsid
-   confflow … --resume`).
+   confflow …`). Initial launches do not pass `--resume`; an explicit
+   retry/rerun reuses the same isolated namespace and adds `--resume`.
 
 The Submit page and the remote `confflow` binary must import the same
 Pydantic model version (`pyproject.toml` pins this).

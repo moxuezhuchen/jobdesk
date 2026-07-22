@@ -184,11 +184,64 @@ def _split_jump_spec(jump: str) -> tuple[str | None, str, int | None]:
     return user, host_port, None
 
 
+def _is_ssh_identification(line: bytes) -> bool:
+    """Return whether *line* has a complete, supported SSH identification prefix."""
+    for prefix in (b"SSH-1.99-", b"SSH-2.0-"):
+        if line.startswith(prefix):
+            software_version = line[len(prefix) :]
+            return bool(software_version) and b"\r" not in software_version and b"\n" not in software_version
+    return False
+
+
 def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
-    """Check if a local TCP port is accepting connections."""
+    """Check if a local SSH endpoint accepts an identification banner.
+
+    A TCP connect alone is not sufficient for WSL-backed SSH endpoints: a
+    stale forwarder can accept the socket while sshd is blocked in its
+    unauthenticated-startup limit.  Reading the server banner prevents the
+    WSL bootstrap path from treating that half-open state as healthy.
+
+    SSH servers may send one or more informational lines before the
+    identification string, and TCP is free to split either line at any byte
+    boundary.  Accumulate complete lines (plus the current partial line) and
+    keep the whole probe bounded by ``timeout`` so a stale endpoint cannot
+    delay the WSL bootstrap indefinitely.
+    """
+    deadline = time.monotonic() + max(0.0, timeout)
     try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            pending = bytearray()
+            read_count = 0
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                # Keep the first call's timeout observable as the requested
+                # value, then tighten it for subsequent reads so a sequence of
+                # partial packets cannot extend the overall probe deadline.
+                if read_count:
+                    sock.settimeout(remaining)
+                chunk = sock.recv(255)
+                read_count += 1
+                if not chunk:
+                    return False
+                pending.extend(chunk)
+
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        # A complete SSH identification line does not require
+                        # a trailing newline for this health probe.  This also
+                        # handles an identification string split across recv()
+                        # calls (e.g. b"SSH-" then b"2.0...").
+                        if _is_ssh_identification(bytes(pending)):
+                            return True
+                        break
+                    line = pending[:newline].rstrip(b"\r")
+                    del pending[: newline + 1]
+                    if _is_ssh_identification(bytes(line)):
+                        return True
     except (OSError, TimeoutError):
         return False
 
@@ -237,9 +290,23 @@ class SSHClientWrapper:
             result = ssh.run("echo hello")
     """
 
-    def __init__(self, server: ServerConfig, timeout: int = 15):
+    def __init__(
+        self,
+        server: ServerConfig,
+        timeout: int = 15,
+        *,
+        wsl_ready_timeout: float | None = None,
+        wsl_ready_poll_interval: float = 0.2,
+        wsl_probe_timeout: float = 0.3,
+    ):
         self._server = server
         self._timeout = timeout
+        self._wsl_ready_timeout = max(
+            0.0,
+            float(timeout if wsl_ready_timeout is None else wsl_ready_timeout),
+        )
+        self._wsl_ready_poll_interval = max(0.0, float(wsl_ready_poll_interval))
+        self._wsl_probe_timeout = max(0.01, float(wsl_probe_timeout))
         self._client: paramiko.SSHClient | None = None
         self._jump_clients: list[paramiko.SSHClient] = []
 
@@ -448,33 +515,70 @@ class SSHClientWrapper:
             return
         if self._server.host not in _LOCAL_HOSTS:
             return
-        if _is_local_port_open(self._server.host, self._server.port):
+        if _is_local_port_open(
+            self._server.host,
+            self._server.port,
+            timeout=self._wsl_probe_timeout,
+        ):
             return
 
         with _wsl_boot_lock:
             # Re-check after acquiring lock (another thread may have booted WSL)
-            if _is_local_port_open(self._server.host, self._server.port):
+            if _is_local_port_open(
+                self._server.host,
+                self._server.port,
+                timeout=self._wsl_probe_timeout,
+            ):
                 return
-            # Cooldown based on last attempt (success or failure)
+            # Cooldown suppresses only another wsl.exe launch.  A prior
+            # caller may still be booting the distribution, so every caller
+            # must continue through the bounded SSH-banner readiness wait.
             now = time.monotonic()
-            if _wsl_boot_last_attempt is not None and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN:
+            within_cooldown = (
+                _wsl_boot_last_attempt is not None
+                and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN
+            )
+            if not within_cooldown:
+                _wsl_boot_last_attempt = now
+                try:
+                    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                    subprocess.run(
+                        ["wsl.exe", "-d", distro, "--", "true"],
+                        check=True,
+                        capture_output=True,
+                        timeout=self._timeout,
+                        creationflags=creationflags,
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    raise SSHConnectionError(
+                        f"无法启动 WSL 发行版 {distro!r}: {exc}",
+                        host=self._server.host,
+                        port=self._server.port,
+                    ) from exc
+            self._wait_for_wsl_ssh_ready(distro)
+
+    def _wait_for_wsl_ssh_ready(self, distro: str) -> None:
+        """Wait until the configured local endpoint presents an SSH banner."""
+        started_at = time.monotonic()
+        while True:
+            if _is_local_port_open(
+                self._server.host,
+                self._server.port,
+                timeout=self._wsl_probe_timeout,
+            ):
                 return
-            _wsl_boot_last_attempt = now
-            try:
-                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-                subprocess.run(
-                    ["wsl.exe", "-d", distro, "--", "true"],
-                    check=True,
-                    capture_output=True,
-                    timeout=self._timeout,
-                    creationflags=creationflags,
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
+            elapsed = max(0.0, time.monotonic() - started_at)
+            if elapsed >= self._wsl_ready_timeout:
                 raise SSHConnectionError(
-                    f"无法启动 WSL 发行版 {distro!r}: {exc}",
+                    "WSL distribution "
+                    f"{distro!r} started, but SSH at "
+                    f"{self._server.host}:{self._server.port} did not present "
+                    f"a valid SSH banner within {elapsed:.2f}s",
                     host=self._server.host,
                     port=self._server.port,
-                ) from exc
+                )
+            remaining = self._wsl_ready_timeout - elapsed
+            time.sleep(min(self._wsl_ready_poll_interval, remaining))
 
     def close(self) -> None:
         """关闭 SSH 连接。"""

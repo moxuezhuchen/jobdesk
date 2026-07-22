@@ -23,6 +23,15 @@ def qapp():
     return app
 
 
+@pytest.fixture(autouse=True)
+def _isolated_gui_appdata(monkeypatch, tmp_path):
+    """Keep MainWindow smoke tests away from the developer's real profile."""
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    # AppConfig supports this override as well; clearing it prevents a
+    # machine-level value from bypassing the APPDATA isolation above.
+    monkeypatch.delenv("JOBDESK_APPDATA", raising=False)
+
+
 def _patch_dialog(monkeypatch, captured):
     """Replace WorkflowTourDialog with a fake that records the call args.
 
@@ -137,6 +146,7 @@ class _RecordingDialog:
         server_id="",
         remote_dir="/",
         max_parallel=1,
+        workspace=None,
         preset_store=None,
         preset_name=None,
         parent=None,
@@ -145,6 +155,7 @@ class _RecordingDialog:
         self.files = list(files)
         self.server_id = server_id
         self.remote_dir = remote_dir
+        self.workspace = workspace
         self.preset_name = preset_name
         self.parent = parent
         self.exec_called = False
@@ -287,3 +298,69 @@ def test_use_as_input_with_files_opens_dialog_with_sources(qapp, monkeypatch):
             pass
         window.close()
         window.deleteLater()
+
+
+def test_submit_dialog_receives_current_project_workspace(qapp, monkeypatch, tmp_path):
+    """Remote-only workflow YAML has an explicit writable project anchor."""
+    _patch_submit_dialog(monkeypatch)
+    window = MainWindow()
+    try:
+        window.state.current_project_root = tmp_path
+        _RecordingDialog.last_instance = None
+
+        window._open_submit_dialog([])
+
+        dlg = _RecordingDialog.last_instance
+        assert dlg is not None
+        assert dlg.workspace == tmp_path
+    finally:
+        try:
+            window.shutdown()
+        except Exception:
+            pass
+        window.close()
+        window.deleteLater()
+
+
+def test_main_window_does_not_query_runs_db_during_construction(qapp, monkeypatch):
+    """A broken/unavailable runs database must not block window creation."""
+    from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
+
+    with monkeypatch.context() as isolated:
+        isolated.setattr(
+            RunsResultsPage,
+            "refresh_run_list",
+            lambda _page: (_ for _ in ()).throw(AssertionError("runs DB queried during startup")),
+        )
+        window = MainWindow()
+        try:
+            assert window.runs_page is not None
+        finally:
+            try:
+                window.shutdown()
+            except Exception:
+                pass
+            window.close()
+            window.deleteLater()
+
+
+def test_runs_page_language_refresh_remains_explicit(qapp, monkeypatch):
+    """Language updates still refresh the list when explicitly requested."""
+    from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
+
+    refresh_calls: list[int] = []
+    with monkeypatch.context() as isolated:
+        isolated.setattr(RunsResultsPage, "refresh_run_list", lambda _page: refresh_calls.append(1))
+        window = MainWindow()
+        try:
+            # Constructor path translates labels only.
+            assert refresh_calls == []
+            window.runs_page.apply_language("zh")
+            assert refresh_calls == [1]
+        finally:
+            try:
+                window.shutdown()
+            except Exception:
+                pass
+            window.close()
+            window.deleteLater()

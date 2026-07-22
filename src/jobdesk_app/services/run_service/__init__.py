@@ -20,7 +20,7 @@ from jobdesk_app.services.run_repository import (
 )
 from jobdesk_app.services.submit_ownership import SUBMIT_HEARTBEAT_INTERVAL
 
-from . import _cancel, _confirm, _delete, _download, _helpers, _refresh, _rerun, _submit
+from . import _cancel, _confirm, _delete, _download, _helpers, _progress, _refresh, _rerun, _submit
 
 # re-export so tests can patch run_service.SUBMIT_HEARTBEAT_INTERVAL
 SUBMIT_HEARTBEAT_INTERVAL = SUBMIT_HEARTBEAT_INTERVAL
@@ -136,6 +136,9 @@ class RunService:
 
     def download_completed(self, run_id: str, sftp, patterns: list[str]):
         return _download.download_completed(self, run_id, sftp, patterns)
+
+    def sync_progress(self, run_id: str, sftp):
+        return _progress.sync_progress(self, run_id, sftp)
 
     def prepare_retry_failed(self, run_id: str) -> int:
         return _rerun.prepare_retry_failed(self, run_id)

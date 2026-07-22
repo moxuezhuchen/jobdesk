@@ -3,7 +3,9 @@
 使用 mock SSH + fake SFTP，不连接真实服务器。
 """
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -90,6 +92,37 @@ def _make_task(
         remote_task_files=[f"{task_id}.gjf"],
         rendered_command=rendered_command,
         status=status,
+    )
+
+
+def _make_workflow_task(*, dag: bool = False, resume: bool = False) -> TaskRecord:
+    base = "cd /remote/submission && confflow water.xyz -c workflow.yaml -w water_confflow_work"
+    task = _make_task("water", remote_job_dir="/remote/run/water", rendered_command=base)
+    task.workflow_kind = "dag" if dag else "confflow"
+    task.dry_run_command = f"{base} --dry-run"
+    task.resume_command = f"{base} --resume"
+    task.resume_dry_run_command = f"{base} --resume --dry-run"
+    task.resume_requested = resume
+    return task
+
+
+def _capability_result(*, dag: bool = True) -> SSHResult:
+    return SSHResult(
+        command="confflow --capabilities --json",
+        exit_code=0,
+        stdout=json.dumps(
+            {
+                "schema_version": 1,
+                "version": "1.4.0",
+                "capabilities": {
+                    "workflow_state": True,
+                    "resume": True,
+                    "dag": dag,
+                },
+            }
+        ),
+        stderr="",
+        duration_seconds=0.01,
     )
 
 
@@ -307,6 +340,180 @@ class TestSubmit:
         )
         result = submitter.submit_batch(SubmitMode.all)
         assert len(result.errors) > 0
+
+    def test_workflow_preflight_orders_capability_upload_dry_run_before_nohup(self):
+        events: list[str] = []
+        runner_text: list[str] = []
+        task = _make_workflow_task()
+        sftp = FakeSFTPWrapper()
+
+        def upload(local_path, remote_path, **_kwargs):
+            events.append(f"upload:{remote_path}")
+            if str(remote_path).endswith("/.jobdesk_run.sh"):
+                runner_text.append(Path(local_path).read_text(encoding="utf-8"))
+            return TransferRecord(
+                direction=TransferDirection.upload,
+                local_path=str(local_path),
+                remote_path=str(remote_path),
+                status=TransferStatusEnum.transferred,
+            )
+
+        sftp.upload_file.side_effect = upload
+
+        def run(command, **_kwargs):
+            if "--capabilities --json" in command:
+                events.append("capabilities")
+                return _capability_result()
+            if command.startswith("chmod +x"):
+                events.append("chmod")
+                return SSHResult(command, 0, "", "", 0.01)
+            if "--dry-run" in command:
+                events.append("dry-run")
+                assert command.count("--dry-run") == 1
+                assert "--resume" not in command
+                return SSHResult(command, 0, "dry run ok", "", 0.01)
+            if "nohup setsid" in command:
+                events.append("nohup")
+                return SSHResult(command, 0, "4321", "", 0.01)
+            raise AssertionError(f"unexpected SSH command: {command}")
+
+        remote_started = MagicMock(side_effect=lambda _ids: events.append("remote-started"))
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=SimpleNamespace(run=run),
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+            remote_started_callback=remote_started,
+        )
+
+        result = submitter.submit_batch()
+
+        assert result.errors == []
+        assert events[0] == "capabilities"
+        assert max(i for i, event in enumerate(events) if event.startswith("upload:")) < events.index("dry-run")
+        assert events.index("dry-run") < events.index("remote-started") < events.index("nohup")
+        assert len(runner_text) == 1
+        assert "--resume" not in runner_text[0]
+
+    def test_capability_failure_cannot_upload_or_notify_remote_started(self):
+        task = _make_workflow_task()
+        ssh = MagicMock()
+        ssh.run.return_value = SSHResult("capabilities", 0, "not json", "", 0.01)
+        sftp = FakeSFTPWrapper()
+        remote_started = MagicMock()
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+            remote_started_callback=remote_started,
+        )
+
+        result = submitter.submit_batch()
+
+        assert result.errors and "capability preflight failed" in result.errors[0]
+        sftp.upload_file.assert_not_called()
+        remote_started.assert_not_called()
+        assert not any("nohup setsid" in call.args[0] for call in ssh.run.call_args_list)
+        assert submitter._tasks[0].status == TaskStatus.uploaded
+
+    def test_dry_run_failure_after_upload_cannot_notify_or_launch_nohup(self):
+        task = _make_workflow_task()
+        ssh = MagicMock()
+        ssh.run.side_effect = [
+            _capability_result(),
+            SSHResult("chmod", 0, "", "", 0.01),
+            SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
+        ]
+        sftp = FakeSFTPWrapper()
+        remote_started = MagicMock()
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+            remote_started_callback=remote_started,
+        )
+
+        result = submitter.submit_batch()
+
+        assert any("dry-run failed: invalid workflow" in error for error in result.errors)
+        assert sftp.upload_file.call_count == 4
+        remote_started.assert_not_called()
+        assert not any("nohup setsid" in call.args[0] for call in ssh.run.call_args_list)
+        assert submitter._tasks[0].status == TaskStatus.uploaded
+
+    def test_dag_capability_is_required_only_for_dag_task(self):
+        task = _make_workflow_task(dag=True)
+        ssh = MagicMock()
+        ssh.run.return_value = _capability_result(dag=False)
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=ssh,
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+        )
+
+        result = submitter.submit_batch()
+
+        assert any("lacks required dag capability" in error for error in result.errors)
+
+    def test_resume_preflight_and_runner_use_original_namespace_and_one_resume_flag(self):
+        task = _make_workflow_task(resume=True)
+        commands: list[str] = []
+        runner_text: list[str] = []
+        ssh = MagicMock()
+
+        def run(command, **_kwargs):
+            commands.append(command)
+            if "--capabilities --json" in command:
+                return _capability_result()
+            if command.startswith("chmod +x"):
+                return SSHResult(command, 0, "", "", 0.01)
+            if "--dry-run" in command:
+                return SSHResult(command, 0, "ok", "", 0.01)
+            return SSHResult(command, 0, "4321", "", 0.01)
+
+        ssh.run.side_effect = run
+        sftp = FakeSFTPWrapper()
+
+        def upload(local_path, remote_path, **_kwargs):
+            if str(remote_path).endswith("/.jobdesk_run.sh"):
+                runner_text.append(Path(local_path).read_text(encoding="utf-8"))
+            return TransferRecord(
+                direction=TransferDirection.upload,
+                local_path=str(local_path),
+                remote_path=str(remote_path),
+                status=TransferStatusEnum.transferred,
+            )
+
+        sftp.upload_file.side_effect = upload
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=ssh,
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+        )
+
+        result = submitter.submit_batch()
+
+        assert result.errors == []
+        dry_run = next(command for command in commands if "--dry-run" in command)
+        assert dry_run.count("--resume") == 1
+        assert dry_run.count("--dry-run") == 1
+        assert "/remote/submission" in dry_run
+        assert runner_text[0].count("--resume") == 1
+        assert "/remote/submission" in runner_text[0]
 
     def test_submit_updates_manifest_to_submitted(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]

@@ -149,6 +149,36 @@ def test_settings_test_connection_feedback_pending(qtbot, tmp_path):
     assert page.test_btn.isEnabled()
 
 
+def test_settings_test_connection_ignores_duplicate_requests(qtbot, tmp_path):
+    page, _, _ = _make_settings_page(qtbot, tmp_path)
+    started: list[dict] = []
+
+    def capture_worker(_owner, **kwargs):
+        started.append(kwargs)
+        return MagicMock()
+
+    servers_path = tmp_path / "servers.yaml"
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.start_context_worker",
+            side_effect=capture_worker,
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
+    ):
+        page._test_connection()
+        page._test_connection()
+
+    assert page._connection_test_running is True
+    assert len(started) == 1
+
+    started[0]["on_finished"]()
+    assert page._connection_test_running is False
+    page._test_feedback.restore()
+
+
 def test_server_connection_test_reports_timed_out_server_without_waiting():
     release = threading.Event()
     calls: list[str] = []

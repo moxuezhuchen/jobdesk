@@ -27,6 +27,65 @@ def test_started_worker_is_kept_alive_in_registry():
     assert worker not in BackgroundWorker._active
 
 
+def test_native_start_failure_removes_worker_from_registry():
+    """A QThread that never started must not survive in the keep-alive set."""
+    from PySide6.QtCore import QThread
+
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    worker = BackgroundWorker(lambda: None)
+    with (
+        patch.object(QThread, "start", side_effect=RuntimeError("native start failed")),
+        pytest.raises(RuntimeError, match="native start failed"),
+    ):
+        worker.start()
+
+    assert worker not in BackgroundWorker._active
+    assert not worker.isRunning()
+
+
+def test_repeated_native_start_failures_do_not_grow_registry():
+    """Every failed start cleans up independently, including subclasses."""
+    from PySide6.QtCore import QThread
+
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    class DerivedWorker(BackgroundWorker):
+        pass
+
+    baseline = set(BackgroundWorker._active)
+    workers = [BackgroundWorker(lambda: None), DerivedWorker(lambda: None), BackgroundWorker(lambda: None)]
+    with patch.object(QThread, "start", side_effect=RuntimeError("native start failed")):
+        for worker in workers:
+            with pytest.raises(RuntimeError, match="native start failed"):
+                worker.start()
+
+    assert BackgroundWorker._active == baseline
+
+
+def test_worker_can_register_again_after_native_start_failure():
+    """A failed attempt leaves no false-running state that poisons a retry."""
+    from PySide6.QtCore import QThread
+
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    worker = BackgroundWorker(lambda: None)
+    with patch.object(
+        QThread,
+        "start",
+        side_effect=[RuntimeError("native start failed"), None],
+    ):
+        with pytest.raises(RuntimeError, match="native start failed"):
+            worker.start()
+        assert worker not in BackgroundWorker._active
+
+        worker.start()
+
+    assert worker in BackgroundWorker._active
+    worker._unregister()  # simulate the successful attempt's finished signal
+    assert worker not in BackgroundWorker._active
+
+
 def test_wait_all_tolerates_deleted_worker():
     """wait_all must not raise when a registered worker's C++ object was already
     deleted (e.g. on test/app teardown)."""

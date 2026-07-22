@@ -115,6 +115,7 @@ SSH/SFTP connections are owned by `SessionPool`. A lease is exclusive per server
 ```powershell
 python -m ruff check .
 python -m mypy src
+python -m pip install -e ".[dev,chem]"  # required for workflow tests
 python -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
 python -m build --outdir .build_dev
 ```
@@ -126,22 +127,26 @@ Real SSH/SFTP and ConfFlow integration tests are skipped unless the documented e
 The ConfFlow workflow engine is an **optional** dependency. JobDesk's GUI
 loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
 submitter branches become available only after `pip install -e ".[chem]"`
-on the same Python that runs JobDesk, and after `pip install confflow==X`
-on the remote Linux compute node. Versions must match between Windows and
-Linux because the GUI imports the same Pydantic models
+on the same Python that runs JobDesk, and after the matching ConfFlow wheel
+is installed on the remote Linux compute node. The current JobDesk contract
+is `confflow>=1.4.0,<2.0`; CI validates against the 1.4.0 wheel. Versions must
+match between Windows and Linux because the GUI imports the same Pydantic models
 (`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
 remote `confflow` binary consumes.
 
 ```powershell
 # Windows (JobDesk side)
+# If the package index does not provide the chemistry build, install the
+# approved wheel first (see docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md):
+# python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
 python -m pip install -e ".[chem]"
-# The ``chem`` extra pulls ``confflow`` from the archived Git tag pinned in
-# pyproject.toml — the package on PyPI named ``confflow`` is unrelated.
 ```
 
 ```bash
-# Linux compute node (same version as pyproject.toml)
-pip install "git+https://github.com/moxuezhuchen/ConfFlow@v1.1.0-archived@1.0.10"
+# Linux compute node: install the same approved ConfFlow 1.4.0 wheel.
+# The offline wheel workflow is documented in
+# docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md.
+python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
 ```
 
 ### Submit page (Phase 14)
@@ -167,7 +172,6 @@ Layout (top to bottom):
 4. **Live preview** — `.gjf` / `.inp` body or `workflow.yaml`.
 5. **Activity log** — last 50 status messages, persisted to SQLite so
    they survive application restarts (schema v5).
-5. **Activity log** — last 50 status messages.
 
 Right-click on any row in the Files page's Local or Remote table
 to push it to the Submit page as an input. The page is the single
@@ -175,19 +179,21 @@ entry point for "the user wants to submit this"; the page-level
 worker callback (in `MainWindow`) handles uploads + the
 `RunCoordinator.create_and_submit` call.
 
-On accept the Submit page writes `workflow.yaml` next to the first
-XYZ file (workflow mode), uploads the local files to the configured
-remote, and submits a `nohup setsid confflow … --resume` batch
-through the existing scheduler.
+On accept the Submit page stages `workflow.yaml` and each input in a unique
+remote submission namespace. Before launch, JobDesk requires the remote
+ConfFlow capability schema 1 with a compatible `>=1.4.0,<2.0` version and
+runs the exact per-task command with `--dry-run`. Only a successful preflight
+may start the batch through the existing `nohup setsid` scheduler.
 
 ### SSH-disconnect resilience
 
-ConfFlow runs are submitted through the existing `nohup` scheduler. The
-command template already encodes `--resume` so a dropped SSH session does
-not interrupt execution: the remote `confflow` keeps writing its
-checkpoint directory, and JobDesk's watcher reconnects and re-reads
-`events.log` plus a checkpoint `workflow_stats.json` to refresh the Runs
-page.
+`nohup` and ConfFlow resume solve different failures. `nohup` keeps an already
+running process alive when the SSH control connection drops; an initial launch
+does not use `--resume`. If a workflow process later stops or fails, an explicit
+JobDesk retry reuses that run's original isolated namespace and adds exactly one
+`--resume`, allowing ConfFlow to continue from its persisted state. The watcher
+reconnects to `events.log` and synchronizes only the exact declared
+`.workflow_state.json` and `workflow_stats.json` paths.
 
 ### Auto-sync progress
 

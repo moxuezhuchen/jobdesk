@@ -37,8 +37,14 @@ class BackgroundWorker(QThread):
 
     def start(self, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         BackgroundWorker._active.add(self)
-        self.finished.connect(self._unregister)
-        super().start(*args, **kwargs)
+        try:
+            self.finished.connect(self._unregister)
+            super().start(*args, **kwargs)
+        except Exception:
+            # A native QThread start failure never emits ``finished``, so the
+            # normal unregister callback cannot release this strong reference.
+            BackgroundWorker._active.discard(self)
+            raise
 
     def _unregister(self) -> None:
         BackgroundWorker._active.discard(self)

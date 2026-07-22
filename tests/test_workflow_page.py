@@ -11,7 +11,7 @@ import yaml
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QSplitter  # noqa: E402
 
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.nodegraph.model import Edge, NodeKind, default_node  # noqa: E402
@@ -54,6 +54,11 @@ def _first_step_id(page: WorkflowPage) -> str:
 def test_page_has_two_authoring_panes_and_generated_preview(page):
     assert page.minimumWidth() >= 1040
     assert page.settings_tabs.count() == 2
+    splitter = page.findChild(QSplitter, "WorkflowAuthoringSplitter")
+    assert splitter is page._workspace
+    assert splitter.count() == 2
+    assert splitter.widget(0) is page.settings_tabs.parentWidget()
+    assert splitter.widget(1) is page._graph_panel
     assert page.flow_scroll.widget() is page._flow_body
     assert page._flow_layout.count() >= 3  # input, output, spacer
     assert not [

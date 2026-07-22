@@ -155,6 +155,25 @@ class RunCoordinator:
         except Exception as exc:
             return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
 
+    def sync_progress(self, run_id: str) -> RunOperationOutcome:
+        """Synchronize declared live-progress files without changing task state."""
+        try:
+            record = self.service.load_run(run_id)
+        except Exception as exc:
+            return RunOperationOutcome(errors=[_error_text(exc)])
+        try:
+            server = self._server_lookup(record.server_id)
+            with self._clients(record.server_id, server, need_sftp=True) as (_ssh, sftp):
+                transfers, failures = self.service.sync_progress(run_id, sftp)
+            return RunOperationOutcome(
+                records=[self.service.load_run(run_id)],
+                transfer_records=list(transfers),
+                failures=list(failures),
+                errors=[f"{task_id}: {message}" for task_id, message in failures],
+            )
+        except Exception as exc:
+            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
+
     def cancel(self, run_id: str) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)

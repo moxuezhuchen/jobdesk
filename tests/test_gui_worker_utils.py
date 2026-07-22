@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from jobdesk_app.gui.worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 
 
@@ -52,6 +54,25 @@ def test_start_tracked_worker_removes_worker_when_finished():
     worker.finished.emit()
     assert owner._workers == []
     worker.deleteLater.assert_called_once_with()
+
+
+def test_start_tracked_worker_rolls_back_owner_registry_on_native_start_failure():
+    """The real helper must not retain a worker whose QThread never started."""
+    from PySide6.QtCore import QThread
+
+    from jobdesk_app.gui.workers import BackgroundWorker
+
+    owner = _Owner()
+    worker = BackgroundWorker(lambda: None)
+
+    with (
+        patch.object(QThread, "start", side_effect=RuntimeError("native start failed")),
+        pytest.raises(RuntimeError, match="native start failed"),
+    ):
+        start_tracked_worker(owner, worker, registry_attr="_workers")
+
+    assert owner._workers == []
+    assert worker not in BackgroundWorker._active
 
 
 def test_start_tracked_worker_wires_result_error_and_progress_callbacks():

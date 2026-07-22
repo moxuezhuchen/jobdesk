@@ -8,7 +8,9 @@ Verifies that:
 import socket
 from unittest.mock import MagicMock, patch
 
-from jobdesk_app.services.run_monitor import _Watcher
+import pytest
+
+from jobdesk_app.services.run_monitor import RunMonitor, _Watcher
 
 
 class ControlledStopEvent:
@@ -136,6 +138,51 @@ def test_watcher_backs_off_when_sessions_immediately_eof():
     waits, events = _run_watcher_sessions([[], [], []], max_waits=3)
     assert waits == [10, 20, 40]
     assert events == []
+
+
+def test_monitor_keeps_same_server_run_watchers_separate_by_workspace_identity():
+    """A/B workspaces may legitimately watch identically named remote runs."""
+    events = []
+    monitor = RunMonitor(MagicMock(), events.append)
+    with patch("jobdesk_app.services.run_monitor._Watcher"):
+        monitor.watch("same", "wsl", "/remote/a", object(), watch_id="workspace-a\x1fwsl\x1fsame")
+        monitor.watch("same", "wsl", "/remote/b", object(), watch_id="workspace-b\x1fwsl\x1fsame")
+
+    assert len(monitor._watchers) == 2
+    monitor._dispatch("same", "wsl", "DONE task 0", "workspace-a\x1fwsl\x1fsame")
+    monitor._dispatch("same", "wsl", "DONE task 0", "workspace-b\x1fwsl\x1fsame")
+    assert [event.watch_id for event in events] == ["workspace-a\x1fwsl\x1fsame", "workspace-b\x1fwsl\x1fsame"]
+
+
+def test_monitor_watch_is_idempotent_for_same_workspace_identity():
+    monitor = RunMonitor(MagicMock(), MagicMock())
+
+    with patch("jobdesk_app.services.run_monitor._Watcher") as watcher_class:
+        monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
+        monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
+
+    watcher_class.assert_called_once()
+    watcher_class.return_value.start.assert_called_once_with()
+
+
+def test_monitor_watch_start_failure_cleans_key_and_allows_retry():
+    """A failed watcher thread start must not permanently poison its key."""
+    monitor = RunMonitor(MagicMock(), MagicMock())
+    failed = MagicMock()
+    failed.start.side_effect = RuntimeError("start failed")
+    replacement = MagicMock()
+
+    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=[failed, replacement]):
+        with pytest.raises(RuntimeError, match="start failed"):
+            monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
+
+        assert "workspace\x1fwsl\x1fsame" not in monitor._watchers
+        failed.stop.assert_called_once_with()
+
+        monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
+
+    assert monitor._watchers["workspace\x1fwsl\x1fsame"] is replacement
+    replacement.start.assert_called_once_with()
 
 
 def test_watcher_resets_backoff_after_receiving_stream_data():

@@ -103,6 +103,7 @@ class SettingsServersPage(QWidget):
         self._log = log_cb
         self._status_cb = status_cb
         self._shutting_down = False
+        self._connection_test_running = False
         self._store = GuiSettingsStore()
         self._language = self._store.load().language
         self._background_workers = []
@@ -523,12 +524,15 @@ class SettingsServersPage(QWidget):
             return
 
     def _test_connection(self):
+        if self._connection_test_running:
+            return
         try:
             cfg = load_servers()
         except Exception:
             return
         if not cfg.servers:
             return
+        self._connection_test_running = True
         self._test_feedback.pending(tr("Testing...", self._language))
         for row in range(self.server_table.rowCount()):
             self.server_table.setItem(row, 4, QTableWidgetItem(tr("Testing...", self._language)))
@@ -553,11 +557,13 @@ class SettingsServersPage(QWidget):
 
         def _on_error(e):
             nonlocal failed
+            self._connection_test_running = False
             failed = True
             self._test_feedback.error(tr("Test failed", self._language))
             self._status_cb(f"{tr('Test failed:', self._language)} {e}")
 
         def _on_finished():
+            self._connection_test_running = False
             if failed:
                 return
             self._test_feedback.success(tr("Tested", self._language))

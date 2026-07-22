@@ -1414,6 +1414,24 @@ class TestFileTransferPage:
 
         assert errors == []
 
+    def test_deleted_remote_list_ui_ignores_late_worker_error(self, file_page):
+        """A queued worker signal must not touch C++ widgets after Qt deletes them."""
+        errors = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        request_id = file_page._remote_list_request_id
+
+        with (
+            patch(
+                "jobdesk_app.gui.pages.file_transfer_page.is_qobject_valid",
+                side_effect=[True, False],
+            ),
+            patch.object(file_page, "_set_connection_status") as set_status,
+        ):
+            file_page._on_remote_list_error(request_id, "late remote error")
+
+        set_status.assert_not_called()
+        assert errors == []
+
     def test_remote_list_connection_error_does_not_try_path_fallback(self, file_page):
         errors = []
         statuses = []

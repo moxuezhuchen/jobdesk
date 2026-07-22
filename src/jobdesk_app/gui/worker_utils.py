@@ -61,7 +61,13 @@ def start_tracked_worker(
     if delete_later and hasattr(worker, "deleteLater"):
         worker.finished.connect(worker.deleteLater)
     registry.append(worker)
-    worker.start()
+    try:
+        worker.start()
+    except Exception:
+        # A failed QThread.start() emits no ``finished`` signal, so the normal
+        # cleanup callback cannot release the owner's strong reference.
+        _remove_worker()
+        raise
     return worker
 
 

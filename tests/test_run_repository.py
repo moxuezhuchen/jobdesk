@@ -200,6 +200,35 @@ def test_abandon_uncertain_resets_execution_metadata_for_selected_tasks(
     assert resolved.rendered_command == "custom command"
 
 
+def test_abandon_uncertain_workflow_preserves_namespace_and_requests_resume(
+    tmp_path: Path,
+) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    task = _task("a", TaskStatus.uncertain).model_copy(
+        update={
+            "workflow_kind": "confflow",
+            "rendered_command": "confflow run /remote/project/run-1/a/workflow.yaml",
+            "resume_command": ("confflow run /remote/project/run-1/a/workflow.yaml --resume"),
+            "remote_config_path": "/remote/project/run-1/a/workflow.yaml",
+            "remote_workflow_dir": "/remote/project/run-1/a",
+            "remote_state_path": "/remote/project/run-1/a/workflow_state.json",
+            "remote_stats_path": "/remote/project/run-1/a/workflow_stats.json",
+        }
+    )
+    repository.create_run(_record(repository.runs_dir), [task])
+
+    accepted, durable = repository.resolve_uncertain_tasks("run-1", ["a"], action="abandon")
+
+    assert accepted == ["a"]
+    resolved = durable[0]
+    assert resolved.status == TaskStatus.uploaded
+    assert resolved.resume_requested is True
+    assert resolved.remote_workflow_dir == "/remote/project/run-1/a"
+    assert resolved.remote_config_path == "/remote/project/run-1/a/workflow.yaml"
+    assert resolved.remote_state_path == "/remote/project/run-1/a/workflow_state.json"
+    assert resolved.remote_stats_path == "/remote/project/run-1/a/workflow_stats.json"
+
+
 def test_resolve_uncertain_rejects_status_changed_by_concurrent_writer(
     tmp_path: Path,
 ) -> None:

@@ -629,6 +629,7 @@ def resolve_uncertain_tasks(
             if task.task_id in job_ids:
                 updates["remote_job_id"] = job_ids[task.task_id]
         else:
+            is_workflow = task.workflow_kind in {"confflow", "dag"} or "confflow" in task.rendered_command
             updates = {
                 "status": TaskStatus.uploaded,
                 "remote_job_id": None,
@@ -639,6 +640,7 @@ def resolve_uncertain_tasks(
                 "completed_at": None,
                 "downloaded_at": None,
                 "analyzed_at": None,
+                "resume_requested": task.resume_requested or is_workflow,
             }
         resolved.append(task.model_copy(update=updates, deep=True))
     if accepted:

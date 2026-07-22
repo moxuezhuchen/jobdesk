@@ -13,7 +13,13 @@ def test_confflow_adapter_builds_one_run_task_with_config_and_summary_outputs():
 
     assert [source.path for source in spec.sources] == ["/tmp/jobdesk/water.xyz"]
     assert [source.path for source in spec.supporting_sources] == ["/tmp/jobdesk/confflow.yaml"]
-    assert spec.command_template == "confflow {name} -c confflow.yaml -w {basename}_confflow_work --resume"
+    assert spec.command_template == (
+        "workspace=/tmp/jobdesk && source={path} && "
+        'staged="$workspace/"{artifact_name} && cd "$workspace" && '
+        'if [ "$source" != "$staged" ]; then cp -- "$source" "$staged"; fi && '
+        'confflow "$staged" -c /tmp/jobdesk/confflow.yaml '
+        '-w "$workspace/"{basename}_confflow_work --resume'
+    )
     assert spec.result_templates == [
         "{basename}.txt",
         "{basename}min.xyz",
@@ -66,3 +72,46 @@ def test_confflow_adapter_single_xyz_is_valid_batch_of_one():
     plan = build_run_plan(spec, run_id="single01")
     assert len(plan.tasks) == 1
     assert spec.max_parallel == 4
+
+
+def test_confflow_adapter_quotes_explicit_workspace_config_and_source_paths():
+    spec = ConfFlowAdapter.build_spec(
+        server_id="wsl",
+        remote_dir="/tmp/project with spaces/.jobdesk_submissions/run-safe",
+        xyz_paths=["/shared/input files/mol one.xyz"],
+        config_path="/tmp/project with spaces/.jobdesk_submissions/run-safe/workflow.yaml",
+        resume=True,
+    )
+
+    command = build_run_plan(spec, run_id="quoted").tasks[0].command
+    assert "workspace='/tmp/project with spaces/.jobdesk_submissions/run-safe'" in command
+    assert "source='/shared/input files/mol one.xyz'" in command
+    assert "staged=\"$workspace/\"'mol one.xyz'" in command
+    assert 'confflow "$staged"' in command
+    assert "-c '/tmp/project with spaces/.jobdesk_submissions/run-safe/workflow.yaml'" in command
+    assert "-w \"$workspace/\"'mol one'_confflow_work --resume" in command
+
+
+def test_same_basename_inputs_get_distinct_staged_work_and_checkpoint_paths():
+    spec = ConfFlowAdapter.build_spec(
+        server_id="wsl",
+        remote_dir="/tmp/jobdesk/.jobdesk_submissions/one-batch",
+        xyz_paths=["/shared/a/same.xyz", "/shared/b/same.xyz"],
+        config_path="/tmp/jobdesk/.jobdesk_submissions/one-batch/workflow.yaml",
+    )
+
+    assert [source.rendered_name for source in spec.sources] == ["same.xyz", "same_2.xyz"]
+    plan = build_run_plan(spec, run_id="same-batch")
+    assert [task.task_id for task in plan.tasks] == ["same", "same_2"]
+    assert "{artifact_name}" not in plan.tasks[0].command
+    assert 'staged="$workspace/"same.xyz' in plan.tasks[0].command
+    assert 'staged="$workspace/"same_2.xyz' in plan.tasks[1].command
+    assert set(plan.tasks[0].remote_result_files).isdisjoint(plan.tasks[1].remote_result_files)
+    assert plan.tasks[0].remote_result_files[-2:] == [
+        "same_confflow_work/workflow_stats.json",
+        "same_confflow_work/.workflow_state.json",
+    ]
+    assert plan.tasks[1].remote_result_files[-2:] == [
+        "same_2_confflow_work/workflow_stats.json",
+        "same_2_confflow_work/.workflow_state.json",
+    ]

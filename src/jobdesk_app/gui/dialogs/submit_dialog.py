@@ -114,6 +114,7 @@ class SubmitDialog(QDialog):
         server_id: str = "",
         remote_dir: str = "/",
         max_parallel: int = 1,
+        workspace: Path | None = None,
         preset_store: MethodPresetStore | None = None,
         preset_name: str | None = None,
         parent: QWidget | None = None,
@@ -124,6 +125,7 @@ class SubmitDialog(QDialog):
         self._server_id = server_id
         self._remote_dir = remote_dir
         self._max_parallel = max_parallel
+        self._workspace = Path(workspace).resolve() if workspace is not None else Path.cwd()
         self._preset_store = preset_store or MethodPresetStore()
         self._preset_name = preset_name
         self._status_callback: Callable[[str], None] = lambda _msg: None
@@ -601,7 +603,14 @@ class SubmitDialog(QDialog):
                 "Seed the dialog via files=... in __init__ or set_files()."
             )
         first = files[0].path
-        output_dir = first.parent if first.is_absolute() else first
+        # Workflow YAML is written locally before it is uploaded.  A POSIX
+        # remote path such as ``/shared/mol.xyz`` is not absolute to
+        # ``pathlib.Path`` on Windows, so it must never be used as a local
+        # output directory.  Prefer the first local input (even if a remote
+        # source appears first in a mixed selection); pure-remote submissions
+        # use the explicit project workspace instead.
+        first_local = next((source.path for source in files if source.side == "local"), None)
+        output_dir = first_local.parent if first_local is not None else self._workspace
         work_dir_name = f"{first.stem or 'job'}_work"
         server_id = self._server_id
         remote_dir = self._remote_dir

@@ -343,6 +343,7 @@ def test_format_step_progress_done_only(tmp_path: Path) -> None:
 # ConfFlowAdapter round-trips
 # ---------------------------------------------------------------------------
 
+
 def test_conf_flow_adapter_build_spec_single() -> None:
     """ConfFlowAdapter.build_spec builds a correct RunSpec for a single molecule."""
     from jobdesk_app.services.program_adapters import ConfFlowAdapter
@@ -363,7 +364,9 @@ def test_conf_flow_adapter_build_spec_single() -> None:
     assert len(spec.supporting_sources) == 1
     assert "confflow.yaml" in spec.command_template
     assert "{basename}_confflow_work" in spec.command_template
-    assert "{name}" in spec.command_template
+    assert "{path}" in spec.command_template
+    assert "{artifact_name}" in spec.command_template
+    assert 'confflow "$staged"' in spec.command_template
     assert "--resume" not in spec.command_template
     assert spec.workflow_kind.value == "confflow"
 
@@ -406,6 +409,7 @@ def test_conf_flow_adapter_build_dag_spec() -> None:
 # ---------------------------------------------------------------------------
 # DAG workflow execution (explicit inputs edges)
 # ---------------------------------------------------------------------------
+
 
 def test_run_workflow_dag_fan_out(methane_xyz: Path, tmp_path: Path) -> None:
     """DAG fan-out: two calc steps each depend on confgen, run in parallel."""
@@ -555,6 +559,7 @@ def test_run_workflow_dag_linear_backward_compatibility(methane_xyz: Path, tmp_p
 # ---------------------------------------------------------------------------
 # ConfFlow CLI build_parser and stop_all_confflow_processes
 # ---------------------------------------------------------------------------
+
 
 def test_cli_build_parser_routes_stop() -> None:
     """cli.build_parser returns an ArgumentParser with expected arguments."""
