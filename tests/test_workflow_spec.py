@@ -7,6 +7,9 @@ package is missing, round-trip serialization when it is available.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,6 +31,51 @@ def test_require_confflow_raises_when_unavailable():
         pytest.skip("confflow package is installed; behavior is covered by other tests")
     with pytest.raises(ConfFlowUnavailableError):
         require_confflow()
+
+
+def test_workflow_spec_import_does_not_load_confflow_models():
+    """Importing the module keeps the optional model dependency lazy."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import jobdesk_app.core.workflow_spec; assert 'confflow.core.models' not in sys.modules",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode == 0, probe.stderr or probe.stdout
+
+
+def test_workflow_spec_loads_models_only_on_first_use():
+    """The first model operation, not module import, loads ConfFlow models."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; "
+            "from jobdesk_app.core import workflow_spec; "
+            "assert 'confflow.core.models' not in sys.modules; "
+            "assert workflow_spec._load_confflow_models() is not None; "
+            "assert 'confflow.core.models' in sys.modules",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode != 0 and "confflow" not in probe.stderr.lower():
+        pytest.fail(probe.stderr or probe.stdout)
+    if probe.returncode != 0:
+        pytest.skip("ConfFlow not installed; lazy load cannot be exercised")
 
 
 def test_from_yaml_round_trip_when_confflow_available(tmp_path: Path):

@@ -7,7 +7,12 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
 from ..config.servers import load_servers
+from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
+from ..remote.confflow_probe import (
+    ConfFlowCapabilityPreflightError,
+    probe_confflow_capabilities,
+)
 from ..services.gui_settings import GuiSettingsStore
 from ..services.method_presets import MethodPresetStore
 from ..services.run_coordinator import RunCoordinator
@@ -318,19 +323,11 @@ class MainWindow(QMainWindow):
             batch = use_case.execute(payload)
             if not batch.ok:
                 return batch
-            for local_path, remote_target in zip(
-                batch.local_paths,
-                batch.upload_targets,
-                strict=True,
-            ):
-                records = service.upload_path(local_path, remote_target)
-                _raise(records, remote_target)
-            if batch.yaml_local_path is not None and batch.yaml_local_path.exists():
-                yaml_target = batch.yaml_remote_path
-                if yaml_target is None:
-                    raise RuntimeError("Prepared workflow batch has no remote YAML target")
-                records = service.upload_path(batch.yaml_local_path, yaml_target)
-                _raise(records, yaml_target)
+            try:
+                _upload_prepared_batch(batch, payload, service)
+            except ConfFlowCapabilityPreflightError as exc:
+                batch.errors.append(str(exc))
+                return batch
             coordinator = RunCoordinator(
                 RunService(workspace),
                 server_lookup=lambda sid: load_servers().servers[sid],
@@ -513,6 +510,52 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.shutdown()
         super().closeEvent(event)
+
+
+def _preflight_batch_capabilities(batch, payload) -> None:
+    """Run the upload-time capability gate for workflow submissions."""
+    workflow_specs = [spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}]
+    if not workflow_specs:
+        return
+
+    ssh = None
+    try:
+        server = load_servers().servers[payload.server_id]
+        ssh = create_ssh_client(server)
+        ssh.connect()
+        probe_confflow_capabilities(
+            ssh,
+            env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+            require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
+        )
+    except ConfFlowCapabilityPreflightError:
+        raise
+    except Exception as exc:
+        raise ConfFlowCapabilityPreflightError(f"ConfFlow capability preflight failed: {exc}") from exc
+    finally:
+        if ssh is not None:
+            try:
+                ssh.close()
+            except Exception:
+                pass
+
+
+def _upload_prepared_batch(batch, payload, service) -> None:
+    """Preflight and upload a prepared batch without creating a run."""
+    _preflight_batch_capabilities(batch, payload)
+    for local_path, remote_target in zip(
+        batch.local_paths,
+        batch.upload_targets,
+        strict=True,
+    ):
+        records = service.upload_path(local_path, remote_target)
+        _raise(records, remote_target)
+    if batch.yaml_local_path is not None and batch.yaml_local_path.exists():
+        yaml_target = batch.yaml_remote_path
+        if yaml_target is None:
+            raise RuntimeError("Prepared workflow batch has no remote YAML target")
+        records = service.upload_path(batch.yaml_local_path, yaml_target)
+        _raise(records, yaml_target)
 
 
 def _raise(records, target):

@@ -30,6 +30,12 @@ if TYPE_CHECKING:
     from ...core.parsers import GaussianResult, OrcaResult
 
 from ...config.servers import load_servers
+from ...core.confflow_contract import (
+    RUN_SUMMARY_FILE,
+    WORK_DIR_SUFFIX,
+    WORKFLOW_STATE_FILE,
+    WORKFLOW_STATS_FILE,
+)
 from ...core.run import remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_coordinator import RunCoordinator
@@ -112,7 +118,9 @@ def _format_status_overview(summaries: list[dict[str, int]], language: str = "en
     for summary in summaries:
         totals["running"] += summary.get("running", 0) + summary.get("submitting", 0)
         totals["submitted"] += summary.get("submitted", 0)
-        totals["completed"] += summary.get("downloaded", 0) + summary.get("analyzed", 0) + summary.get("remote_completed", 0)
+        totals["completed"] += (
+            summary.get("downloaded", 0) + summary.get("analyzed", 0) + summary.get("remote_completed", 0)
+        )
         totals["failed"] += summary.get("failed", 0)
         totals["total"] += sum(summary.values())
 
@@ -264,9 +272,7 @@ class RunsResultsPage(QWidget):
         self._overview_title = QLabel(tr("Runs overview:", self._language), self._status_overview)
         status_layout.addWidget(self._overview_title)
         self._overview_label = QLabel(tr("No runs yet", self._language), self._status_overview)
-        self._overview_label.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-        )
+        self._overview_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
         status_layout.addWidget(self._overview_label)
         status_layout.addStretch(1)
         self._refresh_overview_timer = QTimer(self)
@@ -464,9 +470,7 @@ class RunsResultsPage(QWidget):
         # watch_id. Built-in monitors always provide it, so this never binds a
         # real watcher through the currently selected workspace.
         matches = [
-            context
-            for context in self._monitor_contexts.values()
-            if context[1:] == (event.run_id, event.server_id)
+            context for context in self._monitor_contexts.values() if context[1:] == (event.run_id, event.server_id)
         ]
         if len(matches) == 1:
             return matches[0]
@@ -535,9 +539,7 @@ class RunsResultsPage(QWidget):
         # Keep direct callers of the historical private hook working. The
         # built-in monitor always sends a registered string watch id.
         watch_id = (
-            event_watch_id
-            if isinstance(event_watch_id, str) and event_watch_id in self._monitor_contexts
-            else run_id
+            event_watch_id if isinstance(event_watch_id, str) and event_watch_id in self._monitor_contexts else run_id
         )
         is_checkpoint = isinstance(event.task_id, str) and event.task_id.startswith("_ckpt_")
         if is_checkpoint:
@@ -590,6 +592,7 @@ class RunsResultsPage(QWidget):
         self._monitor_contexts.setdefault(watch_id, (workspace, run_id, server_id))
         self._in_progress.add(watch_id)
         has_done = state["has_done"]
+
         def _run():
             record = RunService(workspace).load_run(run_id)
             patterns = self._get_download_patterns(record)
@@ -620,15 +623,13 @@ class RunsResultsPage(QWidget):
             self._rollback_monitor_refresh_start(watch_id, state, error)
             return
 
-        w.result.connect(
-            lambda message: self._status_cb(message)
-            if message and not self._shutting_down
-            else None
-        )
+        w.result.connect(lambda message: self._status_cb(message) if message and not self._shutting_down else None)
         w.error.connect(
-            lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
-            if not self._shutting_down
-            else None
+            lambda error: (
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+                if not self._shutting_down
+                else None
+            )
         )
         w.finished.connect(lambda: self._on_monitor_refresh_done(evt))
         w.finished.connect(lambda: self._finish_monitor_refresh(watch_id))
@@ -714,9 +715,7 @@ class RunsResultsPage(QWidget):
         # failed. A terminal DONE refresh also wins, but an ordinary RUNNING
         # refresh does not carry checkpoint files and must preserve the retry.
         pending_task = self._pending_task_events.get(watch_id)
-        if watch_id in self._pending_checkpoint_events or (
-            pending_task is not None and pending_task["has_done"]
-        ):
+        if watch_id in self._pending_checkpoint_events or (pending_task is not None and pending_task["has_done"]):
             self._clear_checkpoint_retry(watch_id)
             return
         self._checkpoint_retry_events[watch_id] = (event, workspace)
@@ -741,11 +740,7 @@ class RunsResultsPage(QWidget):
             timer.stop()
             timer.deleteLater()
         retry = self._checkpoint_retry_events.pop(watch_id, None)
-        if (
-            retry is None
-            or self._shutting_down
-            or watch_id not in self._monitor_contexts
-        ):
+        if retry is None or self._shutting_down or watch_id not in self._monitor_contexts:
             self._checkpoint_retry_attempts.pop(watch_id, None)
             return
         event, workspace = retry
@@ -1368,7 +1363,7 @@ class RunsResultsPage(QWidget):
 
         for result_dir in result_dirs:
             if result_dir.exists():
-                summaries = sorted(result_dir.rglob("run_summary.json"))
+                summaries = sorted(result_dir.rglob(RUN_SUMMARY_FILE))
                 if summaries:
                     return ("confflow", record, result_dir)
                 rows = self._auto_analyze(result_dir)
@@ -1482,7 +1477,7 @@ class RunsResultsPage(QWidget):
         # Prefer auto-analysis on downloaded files
         for result_dir in result_dirs:
             if result_dir.exists():
-                summaries = sorted(result_dir.rglob("run_summary.json"))
+                summaries = sorted(result_dir.rglob(RUN_SUMMARY_FILE))
                 if summaries:
                     self._show_confflow_batch_results(record, result_dir)
                     return
@@ -1723,8 +1718,8 @@ class RunsResultsPage(QWidget):
             if result_dir.exists():
                 for task_dir in sorted(d for d in result_dir.iterdir() if d.is_dir()):
                     mol_name = (
-                        task_dir.name.removesuffix("_confflow_work")
-                        if task_dir.name.endswith("_confflow_work")
+                        task_dir.name.removesuffix(WORK_DIR_SUFFIX)
+                        if task_dir.name.endswith(WORK_DIR_SUFFIX)
                         else task_dir.name
                     )
                     summary_file = _confflow_summary_file(result_dir, mol_name)
@@ -1976,9 +1971,7 @@ class RunsResultsPage(QWidget):
         ]
         # Skip runs the monitor-driven flush is already handling.
         active = [
-            r
-            for r in active
-            if self._monitor_identity(workspace, r.run_id, r.server_id) not in self._in_progress
+            r for r in active if self._monitor_identity(workspace, r.run_id, r.server_id) not in self._in_progress
         ]
         needs_download = [
             r
@@ -1989,10 +1982,7 @@ class RunsResultsPage(QWidget):
             return
 
         self._auto_refresh_running = True
-        claimed = [
-            self._monitor_identity(workspace, r.run_id, r.server_id)
-            for r in [*active, *needs_download]
-        ]
+        claimed = [self._monitor_identity(workspace, r.run_id, r.server_id) for r in [*active, *needs_download]]
         self._in_progress.update(claimed)
         backoff = getattr(self, "_download_backoff", {})
 
@@ -2069,9 +2059,11 @@ class RunsResultsPage(QWidget):
 
         worker.result.connect(_report)
         worker.error.connect(
-            lambda error: self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
-            if not self._shutting_down
-            else None
+            lambda error: (
+                self._status_cb(tr("Automatic refresh failed: {e}", self._language, e=error))
+                if not self._shutting_down
+                else None
+            )
         )
 
         def _on_done():
@@ -2637,8 +2629,8 @@ def _too_large_for_preview(path: Path) -> bool:
 
 def _confflow_summary_file(result_dir: Path, mol_name: str) -> Path:
     candidates = [
-        result_dir / f"{mol_name}_confflow_work" / "run_summary.json",
-        result_dir / mol_name / f"{mol_name}_confflow_work" / "run_summary.json",
+        result_dir / f"{mol_name}{WORK_DIR_SUFFIX}" / RUN_SUMMARY_FILE,
+        result_dir / mol_name / f"{mol_name}{WORK_DIR_SUFFIX}" / RUN_SUMMARY_FILE,
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -2647,10 +2639,10 @@ def _confflow_summary_file(result_dir: Path, mol_name: str) -> Path:
 
 
 def _confflow_step_stats_file(result_dir: Path, mol_name: str) -> Path:
-    """Locate ``workflow_stats.json`` next to a run summary if present."""
+    """Locate the workflow stats file next to a run summary if present."""
     candidates = [
-        result_dir / f"{mol_name}_confflow_work" / "workflow_stats.json",
-        result_dir / mol_name / f"{mol_name}_confflow_work" / "workflow_stats.json",
+        result_dir / f"{mol_name}{WORK_DIR_SUFFIX}" / WORKFLOW_STATS_FILE,
+        result_dir / mol_name / f"{mol_name}{WORK_DIR_SUFFIX}" / WORKFLOW_STATS_FILE,
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -2659,14 +2651,14 @@ def _confflow_step_stats_file(result_dir: Path, mol_name: str) -> Path:
 
 
 def _confflow_workflow_state_file(result_dir: Path, mol_name: str) -> Path | None:
-    """Locate ``.workflow_state.json`` (v1.3.0 atomic checkpoint).
+    """Locate the workflow state file (v1.3.0+ atomic checkpoint).
 
     Returns the path if found, otherwise None. Callers should fall back to
-    ``workflow_stats.json`` when this returns None.
+    the workflow stats file when this returns None.
     """
     candidates = [
-        result_dir / f"{mol_name}_confflow_work" / ".workflow_state.json",
-        result_dir / mol_name / f"{mol_name}_confflow_work" / ".workflow_state.json",
+        result_dir / f"{mol_name}{WORK_DIR_SUFFIX}" / WORKFLOW_STATE_FILE,
+        result_dir / mol_name / f"{mol_name}{WORK_DIR_SUFFIX}" / WORKFLOW_STATE_FILE,
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -2685,8 +2677,9 @@ def _run_progress_dir(record) -> Path | None:
 def _step_progress_text(result_dir: Path, mol_name: str, progress_dir: Path | None = None) -> str:
     """Render a short step-progress string for the Runs page table.
 
-    Prefers the v1.3.0 atomic ``.workflow_state.json`` when available,
-    falling back to ``workflow_stats.json`` for older runs.
+    Prefers the v1.3.0+ atomic workflow state file when available, falling
+    back to the workflow stats file for older runs. File names are sourced
+    from :mod:`jobdesk_app.core.confflow_contract`.
     """
     from ...services.confflow_results import (
         format_step_progress,
@@ -2721,7 +2714,7 @@ def _confflow_result_dir_has_summary(record, result_dir: Path, tasks=None) -> bo
             and _confflow_summary_file(result_dir, task.task_id).exists()
             for task in tasks
         )
-    return any(result_dir.rglob("run_summary.json")) if result_dir.exists() else False
+    return any(result_dir.rglob(RUN_SUMMARY_FILE)) if result_dir.exists() else False
 
 
 def _command_executable(command: str) -> str:

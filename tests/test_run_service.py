@@ -956,9 +956,14 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     )
     capability_json = json.dumps(
         {
-            "schema_version": 1,
-            "version": "1.4.1",
+            "schema_version": 2,
+            "version": "1.4.2",
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
+            "artifacts": {
+                "run_summary": "run_summary.json",
+                "workflow_stats": "workflow_stats.json",
+                "workflow_state": ".workflow_state.json",
+            },
         }
     )
     ssh = MagicMock()

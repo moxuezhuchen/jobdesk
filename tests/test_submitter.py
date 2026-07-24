@@ -107,17 +107,26 @@ def _make_workflow_task(*, dag: bool = False, resume: bool = False) -> TaskRecor
 
 
 def _capability_result(*, dag: bool = True) -> SSHResult:
+    from jobdesk_app.core.confflow_contract import (
+        EXPECTED_ARTIFACTS,
+    )
+
     return SSHResult(
         command="confflow --capabilities --json",
         exit_code=0,
         stdout=json.dumps(
             {
-                "schema_version": 1,
-                "version": "1.4.1",
+                "schema_version": 2,
+                "version": "1.4.2",
                 "capabilities": {
                     "workflow_state": True,
                     "resume": True,
                     "dag": dag,
+                },
+                "artifacts": {
+                    "run_summary": EXPECTED_ARTIFACTS.run_summary,
+                    "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
+                    "workflow_state": EXPECTED_ARTIFACTS.workflow_state,
                 },
             }
         ),

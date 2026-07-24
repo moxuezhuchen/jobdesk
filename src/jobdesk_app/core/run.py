@@ -7,6 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
+from .confflow_contract import (
+    WORKFLOW_STATE_FILE,
+    WORKFLOW_STATS_FILE,
+    work_dir_name,
+)
+
 
 class RunMode(str, Enum):
     selected_files = "selected_files"
@@ -137,7 +143,7 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
         rendered_command = f"cd {shlex.quote(work_dir)} && {command}"
         resume_command = _append_command_flag(rendered_command, "--resume") if is_workflow else ""
         remote_workflow_dir = (
-            posixpath.join(spec.remote_dir, f"{source.rendered_stem}_confflow_work") if is_workflow else ""
+            posixpath.join(spec.remote_dir, work_dir_name(source.rendered_stem)) if is_workflow else ""
         )
         tasks.append(
             RunTaskPlan(
@@ -151,8 +157,8 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
                 workflow_kind=spec.workflow_kind,
                 remote_config_path=_workflow_config_path(spec) if is_workflow else "",
                 remote_workflow_dir=remote_workflow_dir,
-                remote_state_path=(posixpath.join(remote_workflow_dir, ".workflow_state.json") if is_workflow else ""),
-                remote_stats_path=(posixpath.join(remote_workflow_dir, "workflow_stats.json") if is_workflow else ""),
+                remote_state_path=(posixpath.join(remote_workflow_dir, WORKFLOW_STATE_FILE) if is_workflow else ""),
+                remote_stats_path=(posixpath.join(remote_workflow_dir, WORKFLOW_STATS_FILE) if is_workflow else ""),
                 remote_log_path=posixpath.join(remote_job_dir, ".jobdesk_submit.log"),
                 remote_result_paths=[posixpath.join(spec.remote_dir, item) for item in remote_result_files],
                 dry_run_command=(_append_command_flag(rendered_command, "--dry-run") if is_workflow else ""),

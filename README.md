@@ -127,26 +127,36 @@ Real SSH/SFTP and ConfFlow integration tests are skipped unless the documented e
 The ConfFlow workflow engine is an **optional** dependency. JobDesk's GUI
 loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
 submitter branches become available only after `pip install -e ".[chem]"`
-on the same Python that runs JobDesk, and after the matching ConfFlow wheel
-is installed on the remote Linux compute node. The current JobDesk contract
-is `confflow>=1.4.1,<2.0`; CI validates against the 1.4.1 wheel. Versions must
+on the same Python that runs JobDesk, and after the matching ConfFlow
+wheel is installed on the remote Linux compute node. The current JobDesk
+contract is `confflow>=1.4.2,<2.0`; CI validates against the 1.4.2 wheel. Versions must
 match between Windows and Linux because the GUI imports the same Pydantic models
 (`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
 remote `confflow` binary consumes.
 
+The cross-repository contract is the **CLI capability JSON** only:
+JobDesk never imports ConfFlow's contract module. ConfFlow 1.4.2 emits
+`schema_version=2` and an `artifacts` block that names the on-disk
+files JobDesk is allowed to discover (the run summary, workflow stats,
+and workflow state files). JobDesk's `MIN_VERSION` / `MAX_EXCLUSIVE`
+The required artifact names are `run_summary.json`, `workflow_stats.json`, and `.workflow_state.json`.
+in `jobdesk_app.core.confflow_contract` is the structured source of
+truth for the producer window; pyproject, CI, and this README are
+mirrors.
+
 ```powershell
 # Windows (JobDesk side)
 # If the package index does not provide the chemistry build, install the
-# approved wheel first (see docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md):
-# python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
+# approved wheel first (see docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md):
+# python -m pip install /path/to/confflow-1.4.2-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux compute node: install the same approved ConfFlow 1.4.1 wheel.
+# Linux compute node: install the same approved ConfFlow 1.4.2 wheel.
 # The offline wheel workflow is documented in
-# docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md.
-python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
+# docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md.
+python -m pip install /path/to/confflow-1.4.2-py3-none-any.whl
 ```
 
 ### Submit page (Phase 14)
@@ -181,7 +191,8 @@ worker callback (in `MainWindow`) handles uploads + the
 
 On accept the Submit page stages `workflow.yaml` and each input in a unique
 remote submission namespace. Before launch, JobDesk requires the remote
-ConfFlow capability schema 1 with a compatible `>=1.4.1,<2.0` version and
+ConfFlow capability schema 2 with a compatible `>=1.4.2,<2.0` version, the
+declared `artifacts` block matching the consumer contract field-by-field, and
 runs the exact per-task command with `--dry-run`. Only a successful preflight
 may start the batch through the existing `nohup setsid` scheduler.
 
@@ -193,7 +204,8 @@ does not use `--resume`. If a workflow process later stops or fails, an explicit
 JobDesk retry reuses that run's original isolated namespace and adds exactly one
 `--resume`, allowing ConfFlow to continue from its persisted state. The watcher
 reconnects to `events.log` and synchronizes only the exact declared
-`.workflow_state.json` and `workflow_stats.json` paths.
+workflow state and workflow stats paths (sourced from
+`jobdesk_app.core.confflow_contract`).
 
 ### Auto-sync progress
 

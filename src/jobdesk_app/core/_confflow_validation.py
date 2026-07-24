@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
 
 """
-ConfFlow YAML configuration validation.
+Offline stable subset of ConfFlow YAML configuration validation.
 
-This module provides standalone validation functions for workflow YAML documents
-that are compatible with the ConfFlow schema. These functions are maintained
-locally so editor validation remains independent of the external package.
+This module is the **offline stable subset** of ConfFlow's validator.
+It is intentionally a strict subset of what ConfFlow's own
+``confflow.shared.config_validation.validate_yaml_config`` accepts:
+
+* It covers the structural checks that the wizard and the inline
+  config editor need to fail fast (missing required sections, malformed
+  ``steps`` lists, common type errors on the ``global`` keys).
+* It does **not** cover numeric range checks, dependency checks
+  (e.g. ``rmsd_threshold`` consistency), or cross-section invariants
+  that newer ConfFlow releases add.
+
+The remote ``confflow --dry-run`` probe is the **final authority**
+before submission: this module is only meant to keep the editor
+snappy and the wizard's "next" button honest while the user is still
+typing. Do not rely on it as a substitute for the producer-side
+validator — and do not extend it to attempt a ConfFlow shadow import;
+the cross-repository contract is the CLI capability JSON, not Python
+``import confflow.shared.config_validation``.
 """
 
 from __future__ import annotations
@@ -14,9 +29,7 @@ import re
 from typing import Any
 
 
-def validate_yaml_config(
-    config: dict[str, Any], required_sections: list[str] | None = None
-) -> list[str]:
+def validate_yaml_config(config: dict[str, Any], required_sections: list[str] | None = None) -> list[str]:
     """Validate the structure of a YAML configuration file.
 
     Parameters
@@ -46,12 +59,20 @@ def validate_yaml_config(
         if not isinstance(global_config, dict):
             errors.append("'global' must be a mapping")
         else:
+            # Mirror ConfFlow 1.4.2's ``_is_positive_int_like`` exactly so
+            # the offline subset accepts the same numeric inputs as the
+            # producer-side validator. ``bool`` is rejected because it
+            # is not a positive integer in the PEP 440 sense.
             cores = global_config.get("cores_per_task", 1)
-            if not isinstance(cores, int) or cores <= 0:
+            if isinstance(cores, bool) or not isinstance(cores, (int, float)):
+                errors.append(f"invalid cores_per_task: {cores}")
+            elif int(cores) != cores or cores <= 0:
                 errors.append(f"invalid cores_per_task: {cores}")
 
             max_jobs = global_config.get("max_parallel_jobs", 1)
-            if not isinstance(max_jobs, int) or max_jobs <= 0:
+            if isinstance(max_jobs, bool) or not isinstance(max_jobs, (int, float)):
+                errors.append(f"invalid max_parallel_jobs: {max_jobs}")
+            elif int(max_jobs) != max_jobs or max_jobs <= 0:
                 errors.append(f"invalid max_parallel_jobs: {max_jobs}")
 
     if "steps" in config:
@@ -100,9 +121,7 @@ def _validate_step_config(step: dict[str, Any], index: int) -> list[str]:
         step_type = step["type"]
         valid_types = ["confgen", "calc", "gen", "task"]
         if step_type not in valid_types:
-            errors.append(
-                f"{step_id}: invalid type '{step_type}', must be 'confgen', 'calc', 'gen' or 'task'"
-            )
+            errors.append(f"{step_id}: invalid type '{step_type}', must be 'confgen', 'calc', 'gen' or 'task'")
 
     if "params" in step:
         params = step["params"]

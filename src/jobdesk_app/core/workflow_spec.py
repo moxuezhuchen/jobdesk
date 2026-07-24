@@ -16,20 +16,50 @@ between form input and the on-disk ``workflow.yaml`` that the remote
 from __future__ import annotations
 
 import functools
+import importlib.util
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    from confflow.core.models import CalcConfigModel, GlobalConfigModel
 
-    _CONFFLOW_AVAILABLE = True
-except ImportError:  # confflow package not installed (chem extra was skipped)
-    CalcConfigModel = None  # type: ignore[misc,assignment]
-    GlobalConfigModel = None  # type: ignore[misc,assignment]
-    _CONFFLOW_AVAILABLE = False
+@functools.lru_cache(maxsize=1)
+def _load_confflow_models() -> tuple[Any, Any] | None:
+    """Return the ConfFlow pydantic models used by the workflow schema.
+
+    Imported lazily and cached so that:
+
+    * ``import jobdesk_app.core.workflow_spec`` always succeeds (even when
+      the ``confflow`` package is not installed — the GUI still loads).
+    * Only the first call pays the import cost; subsequent calls return
+      the same objects without re-importing.
+    """
+    try:
+        from confflow.core.models import CalcConfigModel, GlobalConfigModel
+    except ImportError:
+        return None
+    return CalcConfigModel, GlobalConfigModel
+
+
+def _confflow_models() -> tuple[Any, Any]:
+    """Return ``(CalcConfigModel, GlobalConfigModel)`` or raise ImportError."""
+    loaded = _load_confflow_models()
+    if loaded is None:
+        raise ImportError("confflow is not installed (chem extra was skipped)")
+    return loaded
+
+
+def _confflow_available() -> bool:
+    """True when the ConfFlow pydantic models import successfully."""
+    return _load_confflow_models() is not None
+
+
+# Backwards-compatible module attribute. find_spec only inspects the
+# import path; it does not import confflow.core.models. Actual model
+# loading remains exclusively inside _load_confflow_models.
+# Runtime checks should use _load_confflow_models directly.
+_CONFFLOW_AVAILABLE: bool = importlib.util.find_spec("confflow") is not None
 
 
 @dataclass(frozen=True)
@@ -84,7 +114,7 @@ class ConfFlowUnavailableError(RuntimeError):
 
 
 def require_confflow() -> None:
-    if not _CONFFLOW_AVAILABLE:
+    if _load_confflow_models() is None:
         raise ConfFlowUnavailableError(
             "confflow package is not installed. "
             "Reinstall with `pip install -e .[chem]` on the same Python that "
@@ -412,8 +442,7 @@ def _validate_via_global_model(raw: dict[str, Any]) -> None:
     :class:`GlobalConfigModel` only covers the ``global`` half of the
     schema — it knows nothing about ``steps``.
     """
-    from confflow.core.models import GlobalConfigModel
-
+    _, GlobalConfigModel = _confflow_models()
     GlobalConfigModel.model_validate(raw.get("global") or {})
 
 
@@ -534,7 +563,9 @@ class WorkflowSpec:
         except Exception:
             # Fall back to a permissive model_validate of just the
             # global part so users still get typed defaults.
+            _, GlobalConfigModel = _confflow_models()
             GlobalConfigModel.model_validate(global_payload or {})
+        _, GlobalConfigModel = _confflow_models()
         return cls(global_config=GlobalConfigModel.model_validate(global_payload or {}), _raw=raw)
 
     @classmethod
@@ -565,6 +596,7 @@ class WorkflowSpec:
         # Populate the typed global model for callers that want it
         # (engine integration, default-supplementation).
         global_dict = normalised.get("global", {}) or {}
+        _, GlobalConfigModel = _confflow_models()
         model = GlobalConfigModel.model_validate(global_dict)
         return cls(global_config=model, _raw=normalised)
 
@@ -674,8 +706,7 @@ class WorkflowSpec:
         defaults and the user didn't pick them. ``freeze`` is shown
         when non-empty (a non-trivial constraint).
         """
-        from confflow.core.models import GlobalConfigModel
-
+        _, GlobalConfigModel = _confflow_models()
         defaults = {
             fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None
         }

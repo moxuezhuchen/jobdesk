@@ -15,10 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from ..core.confflow_preflight import parse_confflow_capabilities, validate_confflow_capabilities
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
+from .confflow_probe import (
+    ConfFlowCapabilityPreflightError,
+    build_confflow_preflight_shell,
+    probe_confflow_capabilities,
+)
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -525,24 +529,14 @@ class JobSubmitter:
         workflow_tasks = [task for task in tasks if _is_confflow_task(task)]
         if not workflow_tasks:
             return True
-        command = self._preflight_shell("confflow --capabilities --json")
         try:
-            response = self._ssh.run(command, timeout=30)
-        except Exception as exc:
-            result.errors.append(f"ConfFlow capability preflight failed: {exc}")
-            return False
-        if response.exit_code != 0:
-            detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
-            result.errors.append(f"ConfFlow capability preflight failed: {detail}")
-            return False
-        try:
-            capabilities = parse_confflow_capabilities(response.stdout)
-            validate_confflow_capabilities(
-                capabilities,
+            probe_confflow_capabilities(
+                self._ssh,
+                env_init_scripts=self._env_init_scripts,
                 require_dag=any(task.workflow_kind == "dag" for task in workflow_tasks),
             )
-        except ValueError as exc:
-            result.errors.append(f"ConfFlow capability preflight failed: {exc}")
+        except ConfFlowCapabilityPreflightError as exc:
+            result.errors.append(str(exc))
             return False
         return True
 
@@ -563,20 +557,7 @@ class JobSubmitter:
         return True
 
     def _preflight_shell(self, command: str) -> str:
-        lines = [
-            "set +u",
-            "[ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true",
-            '[ -f "$HOME/.bash_profile" ] && . "$HOME/.bash_profile" >/dev/null 2>&1 || true',
-            '[ -f "$HOME/.profile" ] && . "$HOME/.profile" >/dev/null 2>&1 || true',
-            '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" >/dev/null 2>&1 || true',
-        ]
-        lines.extend(
-            f"[ -f {shlex.quote(script)} ] && . {shlex.quote(script)} >/dev/null 2>&1 || true"
-            for script in self._env_init_scripts
-            if script
-        )
-        lines.append(command)
-        return "\n".join(lines)
+        return build_confflow_preflight_shell(command, self._env_init_scripts)
 
     def _mark_submitted(self, tasks, result, scheduler_type: str = "nohup", remote_job_id: str | None = None):
         now = datetime.now()

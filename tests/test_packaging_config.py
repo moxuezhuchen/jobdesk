@@ -1,6 +1,8 @@
 import tomllib
 from pathlib import Path
 
+from jobdesk_app.core.confflow_contract import version_spec
+
 
 def test_gui_resources_are_declared_as_package_data():
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -49,10 +51,13 @@ def test_package_extra_includes_pyinstaller():
 
 
 def test_chem_extra_bounds_confflow_to_supported_major():
+    # The pyproject.toml pin must mirror the structured version window
+    # in ``jobdesk_app.core.confflow_contract``. Pinning the literal here
+    # would silently drift on the next release-train bump.
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     chem_extra = config["project"]["optional-dependencies"]["chem"]
 
-    assert "confflow>=1.4.1,<2.0" in chem_extra
+    assert f"confflow{version_spec()}" in chem_extra
 
 
 def test_source_distribution_manifest_includes_public_support_files():

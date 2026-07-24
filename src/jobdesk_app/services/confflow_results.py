@@ -24,8 +24,8 @@ class ConfFlowStepProgress:
     """Per-step progress snapshot for a single molecule.
 
     ``completed`` is the set of step names that finished according to the
-    latest ``workflow_stats.json`` or ``.workflow_state.json``.
-    ``current`` is the step that is running right now, if any.
+    latest workflow stats or state file. ``current`` is the step that is
+    running right now, if any.
     ``step_statuses`` maps step names to their current status strings.
     Both come from the workflow-stats tracker or state file; when the
     file is missing or unparsable, ``completed`` is empty.
@@ -63,10 +63,10 @@ def load_summary(path: Path) -> ConfFlowSummary:
 
 
 def load_step_progress(path: Path) -> ConfFlowStepProgress:
-    """Parse ConfFlow's ``workflow_stats.json`` for per-step completion.
+    """Parse ConfFlow's workflow stats file for per-step completion.
 
-    ConfFlow writes one ``workflow_stats.json`` per molecule under
-    ``{stem}_confflow_work/``. The shape (v1.0.10) is::
+    ConfFlow writes one workflow stats file per molecule under the
+    consumer-owned work directory.  The shape (v1.0.10) is::
 
         {
           "steps": [
@@ -113,7 +113,7 @@ def load_step_progress(path: Path) -> ConfFlowStepProgress:
 
 
 def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
-    """Parse ConfFlow v1.3.0's ``.workflow_state.json`` for per-step progress.
+    """Parse ConfFlow v1.3.0's workflow state file for per-step progress.
 
     The v1.3.0 state file format is::
 

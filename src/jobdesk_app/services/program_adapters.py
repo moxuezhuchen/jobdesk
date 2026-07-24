@@ -16,6 +16,12 @@ from __future__ import annotations
 import posixpath
 import shlex
 
+from ..core.confflow_contract import (
+    RUN_SUMMARY_FILE,
+    WORK_DIR_SUFFIX,
+    WORKFLOW_STATE_FILE,
+    WORKFLOW_STATS_FILE,
+)
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind
 
 
@@ -33,12 +39,13 @@ class ConfFlowAdapter:
     ) -> RunSpec:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
+        work_dir_token = f"{{basename}}{WORK_DIR_SUFFIX}"
         command = (
             f"workspace={shlex.quote(remote_dir)} && source={{path}} && "
             'staged="$workspace/"{artifact_name} && cd "$workspace" && '
             'if [ "$source" != "$staged" ]; then cp -- "$source" "$staged"; fi && '
             f'confflow "$staged" -c {shlex.quote(config_path)} '
-            '-w "$workspace/"{basename}_confflow_work'
+            f'-w "$workspace/"{work_dir_token}'
         )
         if resume:
             command += " --resume"
@@ -53,9 +60,9 @@ class ConfFlowAdapter:
             result_templates=[
                 "{basename}.txt",
                 "{basename}min.xyz",
-                "{basename}_confflow_work/run_summary.json",
-                "{basename}_confflow_work/workflow_stats.json",
-                "{basename}_confflow_work/.workflow_state.json",
+                f"{work_dir_token}/{RUN_SUMMARY_FILE}",
+                f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
+                f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
             ],
             workflow_kind=WorkflowKind.confflow,
         )
@@ -80,12 +87,13 @@ class ConfFlowAdapter:
         """
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
+        work_dir_token = f"{{basename}}{WORK_DIR_SUFFIX}"
         command = (
             f"workspace={shlex.quote(remote_dir)} && source={{path}} && "
             'staged="$workspace/"{artifact_name} && cd "$workspace" && '
             'if [ "$source" != "$staged" ]; then cp -- "$source" "$staged"; fi && '
             f'confflow "$staged" -c {shlex.quote(config_path)} '
-            '-w "$workspace/"{basename}_confflow_work'
+            f'-w "$workspace/"{work_dir_token}'
         )
         if resume:
             command += " --resume"
@@ -100,9 +108,9 @@ class ConfFlowAdapter:
             result_templates=[
                 "{basename}.txt",
                 "{basename}min.xyz",
-                "{basename}_confflow_work/run_summary.json",
-                "{basename}_confflow_work/workflow_stats.json",
-                "{basename}_confflow_work/.workflow_state.json",
+                f"{work_dir_token}/{RUN_SUMMARY_FILE}",
+                f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
+                f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
             ],
             workflow_kind=WorkflowKind.dag,
         )
