@@ -11,7 +11,7 @@ import yaml
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QApplication, QSplitter  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSplitter  # noqa: E402
 
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.nodegraph.model import Edge, NodeKind, default_node  # noqa: E402
@@ -285,6 +285,40 @@ def test_validate_commits_pending_step_yaml_without_an_apply_button(page):
     assert not page._step_text_dirty
     assert page._draft.graph.nodes[node_id].title == "renamed_opt"
     assert "name: renamed_opt" in page.full_yaml_preview.toPlainText()
+
+
+def test_preview_retranslates_after_language_switch(page):
+    toggle = page.findChild(QPushButton, "PreviewToggleBtn")
+    title = next(label for label in page.findChildren(QLabel) if label.text() == "YAML Preview")
+
+    page.apply_language("zh")
+
+    assert title.text() == "YAML 预览"
+    assert toggle.toolTip() == "显示 YAML 预览"
+    page._set_preview_expanded(True)
+    assert toggle.toolTip() == "隐藏 YAML 预览"
+
+
+def test_validate_expands_yaml_preview_and_first_toggle_collapses_it(page):
+    toggle = page.findChild(QPushButton, "PreviewToggleBtn")
+
+    assert toggle is not None
+    assert page.full_yaml_preview.isHidden()
+    assert toggle.text() == "\u25b6"
+    assert toggle.toolTip() == "Show YAML preview"
+
+    _first_step_id(page)
+    page._validate_workflow()
+
+    assert not page.full_yaml_preview.isHidden()
+    assert toggle.text() == "\u25bc"
+    assert toggle.toolTip() == "Hide YAML preview"
+
+    toggle.click()
+
+    assert page.full_yaml_preview.isHidden()
+    assert toggle.text() == "\u25b6"
+    assert toggle.toolTip() == "Show YAML preview"
 
 
 def test_step_yaml_rejects_graph_owned_inputs(page):

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QTableWidget,
     QVBoxLayout,
     QWidget,
@@ -88,14 +89,35 @@ class StyledTableWidget(QTableWidget):
         self._column_width_key: str | None = None
         self._restoring_column_widths = False
         self.setHorizontalHeader(_GridHeaderView(Qt.Horizontal, self))
+        self._apply_table_density()
         self.setShowGrid(False)
         self.setStyleSheet(
             "QTableWidget { background: transparent; border: none; border-radius: 0; }"
-            " QTableWidget::item { background: transparent; }"
+            f" QTableWidget::item {{ background: transparent; border: none; "
+            f"padding: {Metrics.TABLE_CELL_VERTICAL_PADDING}px {Metrics.TABLE_CELL_HORIZONTAL_PADDING}px; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }}"
             " QTableCornerButton::section { background: transparent; border: none; }"
             " QHeaderView { background: transparent; border: none; }"
-            " QHeaderView::section { background: transparent; border: none; font-weight: normal; }"
+            f" QHeaderView::section {{ background: transparent; border: none; font-weight: 500; "
+            f"padding: {Metrics.TABLE_CELL_VERTICAL_PADDING}px {Metrics.TABLE_CELL_HORIZONTAL_PADDING}px; "
+            f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }}"
         )
+
+    def _apply_table_density(self) -> None:
+        """Apply the compact reference density to rows and the header.
+
+        QSS controls the visual padding, but QTableWidget keeps its row
+        geometry in the vertical header.  Setting both explicitly prevents
+        platform style defaults from reintroducing the empty first-row gap.
+        """
+        vertical_header = self.verticalHeader()
+        vertical_header.setDefaultSectionSize(Metrics.TABLE_ROW_HEIGHT)
+        vertical_header.setMinimumSectionSize(Metrics.TABLE_ROW_HEIGHT)
+        vertical_header.setSectionResizeMode(QHeaderView.Fixed)
+        horizontal_header = self.horizontalHeader()
+        horizontal_header.setMinimumHeight(Metrics.TABLE_HEADER_HEIGHT)
+        horizontal_header.setMaximumHeight(Metrics.TABLE_HEADER_HEIGHT)
+        horizontal_header.setFixedHeight(Metrics.TABLE_HEADER_HEIGHT)
 
     def bind_column_widths(self, key: str, default_widths: list[int] | None = None) -> None:
         self._column_width_key = key
@@ -223,6 +245,9 @@ class _SidebarItem(QWidget):
         self._label = label
         self._active = False
         self._hover = False
+        # The production shell is icon-only. Keep the label for tooltips and
+        # accessibility, but do not spend horizontal space painting it.
+        self._compact = True
         self.setFixedHeight(Metrics.SIDEBAR_ITEM_HEIGHT)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(label)
@@ -259,6 +284,11 @@ class _SidebarItem(QWidget):
         self.setAccessibleName(text)
         self.update()
 
+    def set_compact_mode(self, compact: bool) -> None:
+        """Hide label text in compact mode to show only the icon."""
+        self._compact = compact
+        self.update()
+
     def enterEvent(self, event) -> None:
         self._hover = True
         self.update()
@@ -293,9 +323,28 @@ class _SidebarItem(QWidget):
             icon_color = Colors.SIDEBAR_TEXT
 
         icon = get_icon(self._icon_name, icon_color, Metrics.SIDEBAR_ICON_SIZE)
-        ix = (w - Metrics.SIDEBAR_ICON_SIZE) // 2
-        iy = (h - Metrics.SIDEBAR_ICON_SIZE) // 2
-        icon.paint(p, ix, iy, Metrics.SIDEBAR_ICON_SIZE, Metrics.SIDEBAR_ICON_SIZE)
+
+        if self._compact:
+            # Compact mode: icon centered horizontally
+            ix = (w - Metrics.SIDEBAR_ICON_SIZE) // 2
+            iy = (h - Metrics.SIDEBAR_ICON_SIZE) // 2
+            icon.paint(p, ix, iy, Metrics.SIDEBAR_ICON_SIZE, Metrics.SIDEBAR_ICON_SIZE)
+        else:
+            # Expanded mode: icon + label
+            icon_x = 16
+            icon_y = (h - Metrics.SIDEBAR_ICON_SIZE) // 2
+            icon.paint(p, icon_x, icon_y, Metrics.SIDEBAR_ICON_SIZE, Metrics.SIDEBAR_ICON_SIZE)
+
+            # Draw label text
+            text_x = icon_x + Metrics.SIDEBAR_ICON_SIZE + 12
+            text_color = icon_color
+            p.setPen(QColor(text_color))
+            font = p.font()
+            font.setPixelSize(Metrics.SIDEBAR_FONT_PX)
+            p.setFont(font)
+            text_rect = QRectF(text_x, 0, w - text_x - 8, h)
+            p.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self._label)
+
         p.end()
 
     def mousePressEvent(self, event) -> None:
@@ -347,23 +396,41 @@ class Sidebar(QWidget):
     ``role="tab"`` (via ``QAccessible.Role.PageTab``) on each item so
     screen readers announce the four pages correctly. Keyboard users
     can Tab between items and press Space / Enter to navigate.
+
+    Phase 19 — added collapsible mode: sidebar can be collapsed to an
+    The shell starts as a compact icon-only strip. The animated expansion
+    API remains available for accessibility/debug tooling, but no expansion
+    control is shown in the normal shell.
     """
 
     current_changed = Signal(int)
 
+    # Compact mode constants
+    ANIM_DURATION_MS = 250
+
     def __init__(self, items: list[tuple[str, str]], parent: QWidget | None = None):
         super().__init__(parent)
-        self.setFixedWidth(Metrics.SIDEBAR_WIDTH)
+        self._full_width = Metrics.SIDEBAR_EXPANDED_WIDTH
+        self._collapsed = True
+        self._animating = False
+        self.setFixedWidth(Metrics.SIDEBAR_COLLAPSED_WIDTH)
         self.setObjectName("SidebarNav")
         self.setStyleSheet(
             f"#SidebarNav {{ background: {Colors.SIDEBAR_BG}; "
             f"border-right: 1px solid rgba(0,0,0,0.2); }}"
             f" QToolTip {{ background: {Colors.BG_SURFACE}; color: {Colors.TEXT}; "
             f"border: 1px solid {Colors.BORDER}; padding: 6px 12px; "
-            f"border-radius: {Radius.MD}px; font-size: 16px; }}"
+            f"border-radius: {Radius.MD}px; font-size: {Metrics.CARD_BODY_FONT_PX}px; }}"
         )
         self.setAccessibleName("Navigation")
         self.setProperty("role", "tablist")
+
+        # Animation for width transition
+        self._sidebar_width = Metrics.SIDEBAR_COLLAPSED_WIDTH
+        self._width_anim = QPropertyAnimation(self, b"sidebar_width", self)
+        self._width_anim.setDuration(self.ANIM_DURATION_MS)
+        self._width_anim.valueChanged.connect(self._on_width_anim_changed)
+        self._width_anim.finished.connect(self._on_width_anim_finished)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, Spacing.LG, 0, Spacing.LG)
@@ -375,7 +442,10 @@ class Sidebar(QWidget):
         # the design system.
         logo_container = QFrame(self)
         logo_container.setFixedHeight(48)
-        logo_container.setStyleSheet(f"background: {Colors.PRIMARY}; border-radius: {Radius.MD}px; margin: 0 8px;")
+        logo_container.setObjectName("SidebarLogo")
+        logo_container.setStyleSheet(
+            f"#SidebarLogo {{ background: {Colors.PRIMARY}; border-radius: {Radius.MD}px; margin: 0 8px; }}"
+        )
         logo_layout = QVBoxLayout(logo_container)
         logo_layout.setContentsMargins(0, 0, 0, 0)
         logo = QLabel("J", logo_container)
@@ -392,12 +462,78 @@ class Sidebar(QWidget):
         self._current = -1
         for icon_name, label in items:
             item = _SidebarItem(icon_name, label, self)
+            item.set_compact_mode(True)
             idx = len(self._items)
             item.clicked.connect(lambda i=idx: self.set_current(i))
             self._items.append(item)
             lay.addWidget(item)
 
         lay.addStretch()
+
+        # Collapse/expand toggle button at bottom
+        self._collapse_btn = QPushButton(self)
+        self._collapse_btn.setObjectName("SidebarCollapseBtn")
+        self._collapse_btn.setFixedSize(24, 24)
+        self._collapse_btn.setCursor(Qt.PointingHandCursor)
+        self._collapse_btn.setToolTip("Collapse sidebar")
+        self._collapse_btn.clicked.connect(self.toggle_collapse)
+        self._collapse_btn.setStyleSheet(
+            f"#SidebarCollapseBtn {{ background-color: transparent; border: none; "
+            f"color: {Colors.SIDEBAR_TEXT}; font-size: {Metrics.CHIP_FONT_PX}px; border-radius: 4px; padding: 0; "
+            "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; }}"
+            f"#SidebarCollapseBtn:hover {{ background-color: rgba(255, 255, 255, 0.1); color: {Colors.SIDEBAR_TEXT_ACTIVE}; }}"
+        )
+        self._update_collapse_btn_icon()
+        # Keep the legacy toggle object for programmatic callers and tests,
+        # but hide it from the compact production shell.
+        self._collapse_btn.setVisible(False)
+
+    def toggle_collapse(self) -> None:
+        """Toggle between collapsed (icon-only) and expanded mode."""
+        if self._animating:
+            return
+        self._collapsed = not self._collapsed
+        self._start_width_animation()
+
+    def _start_width_animation(self) -> None:
+        target_width = Metrics.SIDEBAR_COLLAPSED_WIDTH if self._collapsed else self._full_width
+        self._width_anim.stop()
+        self._width_anim.setStartValue(self.width())
+        self._width_anim.setEndValue(target_width)
+        self._animating = True
+        self._width_anim.start()
+
+    def _on_width_anim_changed(self) -> None:
+        new_width = int(self._width_anim.currentValue())
+        self.setFixedWidth(new_width)
+        # Update visibility of text labels based on current width
+        for item in self._items:
+            item.set_compact_mode(self._collapsed)
+
+    def _on_width_anim_finished(self) -> None:
+        self._animating = False
+        self._update_collapse_btn_icon()
+
+    # QPropertyAnimation target methods for width transitions
+    def _get_sidebar_width(self) -> int:
+        return self._sidebar_width
+
+    def _set_sidebar_width(self, width: int) -> None:
+        self._sidebar_width = width
+        self.setFixedWidth(width)
+        for item in self._items:
+            item.set_compact_mode(width < Metrics.SIDEBAR_EXPANDED_WIDTH)
+
+    sidebar_width = Property(int, _get_sidebar_width, _set_sidebar_width)  # type: ignore[arg-type]
+
+    def _update_collapse_btn_icon(self) -> None:
+        # Use text icon for cross-platform compatibility
+        # ◀ when collapsed (points left, meaning "expand left")
+        # ▶ when expanded (points right, meaning "collapse right")
+        icon_char = "\u25b6" if self._collapsed else "\u25c0"  # ▶ or ◀
+        tooltip = "Expand sidebar" if self._collapsed else "Collapse sidebar"
+        self._collapse_btn.setText(icon_char)
+        self._collapse_btn.setToolTip(tooltip)
 
     def set_current(self, index: int) -> None:
         if index == self._current:
@@ -412,7 +548,7 @@ class Sidebar(QWidget):
             self._items[index].set_label(text)
 
     def sizeHint(self) -> QSize:
-        return QSize(Metrics.SIDEBAR_WIDTH, 600)
+        return QSize(self.width(), 600)
 
 
 # ─── Settings-page shared widgets ──────────────────────────────────────────────
@@ -574,9 +710,8 @@ class ToggleSwitch(QWidget):
 class SettingCard(QFrame):
     """Modern settings card with clean layout: title + description on left, control on right.
 
-    Phase 18 visual cleanup: title font 17 px → 14 px (now via the
-    shared ``Metrics.CARD_TITLE_FONT_PX`` token); description 14 pt →
-    ``Metrics.CARD_BODY_FONT_PX`` (13 px). The hard ``setFixedHeight(72)``
+    The title and description use the shared readable type scale
+    (19 px / 18 px). The hard ``setFixedHeight(72)``
     is removed so a two-line description no longer clips.
     """
 

@@ -121,26 +121,31 @@ class Animation:
 
 class Metrics:
     SIDEBAR_WIDTH = 72
-    SIDEBAR_ICON_SIZE = 26
-    SIDEBAR_ITEM_HEIGHT = 56
-    # The default control height. test_build_app_stylesheet_…
-    # asserts this is 38 px (matches the legacy Qt Designer forms the
-    # original FileTransferPage was built against); the new restyle
-    # does not change button geometry, so the token stays at 38 even
-    # though the visual padding was redrawn.
-    CONTROL_HEIGHT = 38
-    TABLE_ROW_HEIGHT = 48
-    TABLE_HEADER_HEIGHT = 52
+    # Icon-only navigation is the default; labels remain available via
+    # tooltips and accessible names without taking content width.
+    SIDEBAR_COLLAPSED_WIDTH = SIDEBAR_WIDTH
+    SIDEBAR_EXPANDED_WIDTH = 200
+    SIDEBAR_ICON_SIZE = 30
+    SIDEBAR_ITEM_HEIGHT = 64
+    # Shared height keeps buttons, inputs and compact page headers aligned.
+    CONTROL_HEIGHT = 56
+    # File lists and the runs/settings tables use a readable compact density.
+    # Keep the explicit row geometry so a platform style cannot reintroduce
+    # the empty spacer above the first row, while still leaving room for the
+    # larger, Codex-sized body text.
+    TABLE_ROW_HEIGHT = 52
+    TABLE_HEADER_HEIGHT = 56
+    TABLE_CELL_HORIZONTAL_PADDING = 18
+    TABLE_CELL_VERTICAL_PADDING = 8
     PAGE_PADDING = 24
-    # Phase 18 (visual cleanup): consistent font sizes used across all
-    # four pages. Page titles stay at 22 px (down from the per-page
-    # 24/26 px that was inconsistent), section titles at 15 px (down
-    # from the per-page 20-24 px that competed with the page title),
-    # card body text at 13 px (down from 14-15 px), and chip / helper
-    # text at 12 px.
-    PAGE_TITLE_FONT_PX = 22
-    SECTION_TITLE_FONT_PX = 15
-    CARD_TITLE_FONT_PX = 14
-    CARD_BODY_FONT_PX = 13
-    CHIP_FONT_PX = 12
-    HELP_TEXT_FONT_PX = 12
+    # Readable type scale shared by all four pages.  The previous scale
+    # reduced body/helper text while leaving table geometry oversized, so
+    # screens looked sparse without becoming easier to read.
+    BASE_FONT_PX = 26
+    PAGE_TITLE_FONT_PX = 38
+    SECTION_TITLE_FONT_PX = 30
+    CARD_TITLE_FONT_PX = 27
+    CARD_BODY_FONT_PX = 26
+    CHIP_FONT_PX = 24
+    HELP_TEXT_FONT_PX = 24
+    SIDEBAR_FONT_PX = 26

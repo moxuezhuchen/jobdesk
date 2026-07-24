@@ -56,6 +56,9 @@ class InlineBanner(QFrame):
         self._dismiss = QPushButton("\u2715", self)  # ✕
         self._dismiss.setObjectName("InlineBannerDismiss")
         self._dismiss.setFixedSize(24, 24)
+        self._dismiss.setStyleSheet(
+            "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0;"
+        )
         self._dismiss.setFlat(True)
         self._dismiss.clicked.connect(self._on_dismiss)
 

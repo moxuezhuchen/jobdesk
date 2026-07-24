@@ -26,7 +26,9 @@ def main():
     app.setOrganizationName("JobDesk")
     app.setApplicationName("JobDesk")
 
-    font = QFont("Microsoft YaHei UI", 12)
+    # Keep the native Qt fallback close to the QSS body size so widgets that
+    # do not expose a style selector remain readable at the same scale.
+    font = QFont("Microsoft YaHei UI", 24)
     font.setWeight(QFont.Weight.Normal)
     font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     app.setFont(font)

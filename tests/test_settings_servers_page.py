@@ -107,7 +107,7 @@ def test_settings_small_helper_text_uses_readable_size(qtbot, tmp_path):
     Phase 18 visual cleanup: the previous test asserted a single hard
     ``font-size: 14pt`` value across three labels.  The new design
     system centralises the readable-size values as
-    ``Metrics.CARD_BODY_FONT_PX`` (13 px) and ``Metrics.HELP_TEXT_FONT_PX``
+    ``Metrics.CARD_BODY_FONT_PX`` (20 px) and ``Metrics.HELP_TEXT_FONT_PX``
     (12 px); the test now pins those tokens so a future regression
     to either "8 px illegible" or "16 px paragraph" is caught.
     """

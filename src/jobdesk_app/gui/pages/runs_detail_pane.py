@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..design.tokens import Colors, Radius
+from ..design.tokens import Colors, Metrics, Radius
 from .runs_results_helpers import format_energy, format_seconds
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
@@ -44,7 +44,9 @@ class ResultDetailPane(QWidget):
         layout.setSpacing(4)
 
         self.title_label = QLabel("—")
-        self.title_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 18px;")
+        self.title_label.setStyleSheet(
+            f"color: {Colors.TEXT}; font-weight: 600; font-size: {Metrics.SECTION_TITLE_FONT_PX}px;"
+        )
         layout.addWidget(self.title_label)
 
         self.status_label = QLabel("—")
@@ -81,7 +83,9 @@ class ResultDetailPane(QWidget):
         layout.addLayout(form)
 
         geom_label = QLabel("Final geometry (XYZ, first 100 lines)")
-        geom_label.setStyleSheet(f"color: {Colors.TEXT}; font-weight: 600; font-size: 15px;")
+        geom_label.setStyleSheet(
+            f"color: {Colors.TEXT}; font-weight: 600; font-size: {Metrics.CARD_TITLE_FONT_PX}px;"
+        )
         layout.addWidget(geom_label)
         self.geometry_view = QTextEdit()
         self.geometry_view.setReadOnly(True)

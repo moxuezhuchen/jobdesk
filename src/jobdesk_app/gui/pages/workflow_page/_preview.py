@@ -120,10 +120,12 @@ def build_step_card(
 
     # Move up button
     up = QPushButton("\u2191", card)
+    up.setObjectName("WorkflowStepMoveBtn")
     up.setEnabled(index > 0)
     up.setFixedSize(36, 32)
     up.setStyleSheet(
-        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px; "
+        "min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;"
     )
     up.setToolTip(tr("Move up", language))
     up.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, -1))
@@ -131,10 +133,12 @@ def build_step_card(
 
     # Move down button
     down = QPushButton("\u2193", card)
+    down.setObjectName("WorkflowStepMoveBtn")
     down.setEnabled(index < total - 1)
     down.setFixedSize(36, 32)
     down.setStyleSheet(
-        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px;"
+        f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px; "
+        "min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;"
     )
     down.setToolTip(tr("Move down", language))
     down.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, 1))
@@ -142,11 +146,13 @@ def build_step_card(
 
     # Delete button
     remove = QPushButton("\u00d7", card)
+    remove.setObjectName("WorkflowStepRemoveBtn")
     remove.setFixedSize(32, 32)
     remove.setStyleSheet(
         f"QPushButton {{ color: {Colors.ERROR}; padding: 0; "
         f"border: 1px solid {Colors.ERROR_BORDER}; border-radius: {Radius.SM}px; "
-        f"background: {Colors.ERROR_BG}; }}"
+        f"background: {Colors.ERROR_BG}; min-width: 30px; max-width: 30px; "
+        f"min-height: 30px; max-height: 30px; }}"
         f"QPushButton:hover {{ background: {Colors.ERROR}; color: white; }}"
     )
     remove.clicked.connect(lambda _checked=False, nid=node.id: on_delete(nid))
@@ -189,7 +195,7 @@ def refresh_flow_diagram(
     # Input structure label
     start = QLabel(tr("Input structure", language), flow_body)
     start.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    start.setFixedHeight(48)
+    start.setFixedHeight(Metrics.CONTROL_HEIGHT)
     start.setStyleSheet(
         f"font-weight: 600; color: {Colors.PRIMARY}; "
         f"background: {Colors.INFO_BG}; border: 1px solid {Colors.INFO_BORDER}; "
@@ -201,7 +207,7 @@ def refresh_flow_diagram(
     if not ordered_nodes:
         hint = QLabel(tr("Choose a step on the left, then add it to the workflow.", language), flow_body)
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setFixedHeight(48)
+        hint.setFixedHeight(Metrics.CONTROL_HEIGHT)
         hint.setStyleSheet(f"color: {Colors.TEXT_MUTED}; border: none; background: transparent;")
         flow_layout.addWidget(hint)
     else:
@@ -209,7 +215,7 @@ def refresh_flow_diagram(
             # Arrow before card
             arrow = QLabel("\u2193", flow_body)
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            arrow.setFixedHeight(28)
+            arrow.setFixedHeight(Metrics.CHIP_FONT_PX + 12)
             arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
             flow_layout.addWidget(arrow)
 
@@ -230,14 +236,14 @@ def refresh_flow_diagram(
         # Arrow after last card
         arrow = QLabel("\u2193", flow_body)
         arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        arrow.setFixedHeight(28)
+        arrow.setFixedHeight(Metrics.CHIP_FONT_PX + 12)
         arrow.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_MUTED};")
         flow_layout.addWidget(arrow)
 
     # Output label
     output = QLabel(tr("Workflow output", language), flow_body)
     output.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    output.setFixedHeight(48)
+    output.setFixedHeight(Metrics.CONTROL_HEIGHT)
     output.setStyleSheet(
         f"font-weight: 600; color: {Colors.SUCCESS}; "
         f"background: {Colors.SUCCESS_BG}; border: 1px solid {Colors.SUCCESS_BORDER}; "

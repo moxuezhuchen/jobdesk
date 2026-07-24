@@ -74,7 +74,7 @@ from .file_transfer_widgets import (
     _setup_table,
 )
 
-CONTROL_HEIGHT = 38
+CONTROL_HEIGHT = Metrics.CONTROL_HEIGHT
 RENAME_DIALOG_MIN_WIDTH = 460
 RENAME_DIALOG_INPUT_MIN_WIDTH = 380
 TRANSFER_PROGRESS_HEIGHT = 30
@@ -211,7 +211,7 @@ class FileTransferPage(QWidget):
         self.remote_path.setMinimumWidth(80)
         self.remote_path.returnPressed.connect(self._refresh_remote)
         for label in (self.server_label,):
-            label.setFixedHeight(36)
+            label.setFixedHeight(CONTROL_HEIGHT)
             label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._normalize_control_heights(
             self.local_path_btn,
@@ -298,14 +298,16 @@ class FileTransferPage(QWidget):
         local_pane_layout.setSpacing(4)
         local_header_widget = QWidget()
         local_header_widget.setObjectName("LocalHeader")
+        # Phase 19: streamlined header with subtle background, less border competition
         local_header_widget.setStyleSheet(
-            f"#LocalHeader {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; "
-            f"border-radius: {Radius.MD}px; border-top-right-radius: 0; border-bottom-right-radius: 0; }}"
+            f"#LocalHeader {{ background: {Colors.BG_SURFACE}; border-bottom: 1px solid {Colors.BORDER}; }}"
+            f"#LocalHeader QPushButton {{ background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.MD}px; padding: 0 10px; min-height: {CONTROL_HEIGHT}px; max-height: {CONTROL_HEIGHT}px; }}"
         )
-        local_header_widget.setFixedHeight(52)
+        local_header_widget.setFixedHeight(CONTROL_HEIGHT + 10)
         local_header = QHBoxLayout(local_header_widget)
-        local_header.setContentsMargins(8, 0, 8, 0)
-        local_header.setSpacing(12)
+        local_header.setContentsMargins(8, 4, 8, 4)
+        local_header.setSpacing(8)
         local_header.addWidget(self.local_path_btn, 1)
         local_header.addWidget(self.refresh_btn, 0)
         local_pane_layout.addWidget(local_header_widget)
@@ -318,18 +320,20 @@ class FileTransferPage(QWidget):
         remote_pane_layout.setSpacing(4)
         remote_header_widget = QWidget()
         remote_header_widget.setObjectName("RemoteHeader")
+        # Phase 19: streamlined header with unified connection context
         remote_header_widget.setStyleSheet(
-            f"#RemoteHeader {{ background: {Colors.CARD_BG}; border: 1px solid {Colors.BORDER}; "
-            f"border-radius: {Radius.MD}px; border-top-left-radius: 0; border-bottom-left-radius: 0; }} "
-            f" #RemoteHeader QLineEdit, #RemoteHeader QComboBox {{"
+            f"#RemoteHeader {{ background: {Colors.BG_SURFACE}; border-bottom: 1px solid {Colors.BORDER}; }} "
+            f"#RemoteHeader QLineEdit, #RemoteHeader QComboBox {{"
             f" background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; "
-            f"padding: 0 10px; min-height: 36px; max-height: 36px; }} "
-            f" #RemoteHeader QLabel {{ background: transparent; }}"
+            f"padding: 0 10px; min-height: {CONTROL_HEIGHT}px; max-height: {CONTROL_HEIGHT}px; }} "
+            f"#RemoteHeader QPushButton {{ background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; "
+            f"border-radius: {Radius.MD}px; padding: 0 10px; min-height: {CONTROL_HEIGHT}px; max-height: {CONTROL_HEIGHT}px; }} "
+            f"#RemoteHeader QLabel {{ background: transparent; }}"
         )
-        remote_header_widget.setFixedHeight(52)
+        remote_header_widget.setFixedHeight(CONTROL_HEIGHT + 10)
         remote_header = QHBoxLayout(remote_header_widget)
-        remote_header.setContentsMargins(8, 0, 8, 0)
-        remote_header.setSpacing(12)
+        remote_header.setContentsMargins(8, 4, 8, 4)
+        remote_header.setSpacing(8)
         remote_header.addWidget(self.server_label, 0)
         remote_header.addWidget(self.server_combo, 0)
         remote_header.addWidget(self.connection_label)
@@ -344,6 +348,18 @@ class FileTransferPage(QWidget):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([500, 620])
 
+        # Phase 19: unified file workspace wrapper card
+        file_workspace = QWidget()
+        file_workspace.setObjectName("FileWorkspace")
+        file_workspace.setStyleSheet(
+            f"#FileWorkspace {{ background: {Colors.CARD_BG}; "
+            f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
+        )
+        file_workspace_layout = QVBoxLayout(file_workspace)
+        file_workspace_layout.setContentsMargins(0, 0, 0, 0)
+        file_workspace_layout.setSpacing(0)
+        file_workspace_layout.addWidget(splitter)
+
         # Progress bar — surfaces transfer progress (upload/download).  Lives
         # outside the splitter so it doesn't steal vertical space from the
         # file tables.  Hidden by default; flipped on by _start_transfer_worker.
@@ -354,6 +370,48 @@ class FileTransferPage(QWidget):
         self.progress_bar.setMinimumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setMaximumHeight(TRANSFER_PROGRESS_HEIGHT)
         self.progress_bar.setTextVisible(True)
+        progress_wrap = QWidget()
+        progress_layout = QVBoxLayout(progress_wrap)
+        progress_layout.setContentsMargins(8, 8, 8, 8)
+        progress_layout.addWidget(self.progress_bar, 0, Qt.AlignCenter)
+
+        # Phase 2.0: primary [Submit] button — must exist before the
+        # action_row below adds it to the layout.
+        self.submit_btn = QPushButton(tr("Submit (selected files)", self._language))
+        self.submit_btn.setObjectName("FilesSubmitBtn")
+        apply_button_role(self.submit_btn, ButtonRole.PRIMARY_ACTION)
+        self.submit_btn.setEnabled(False)
+        self._normalize_control_heights(self.submit_btn)
+        self.submit_btn.clicked.connect(self._on_submit_clicked)
+
+        # Phase 19: action row surfaces the selection summary + Submit.
+        self.selection_label = QLabel(format_selection_summary(0, 0, self._language))
+        self.selection_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(16, 12, 16, 12)
+        action_row.setSpacing(16)
+        action_row.addWidget(self.selection_label, 1)
+        action_row.addWidget(self.submit_btn, 0)
+        action_wrap = QWidget()
+        action_wrap.setObjectName("FilesActionBar")
+        action_wrap.setStyleSheet(
+            f"#FilesActionBar {{ background: {Colors.CARD_BG}; "
+            f"border-top: 1px solid {Colors.BORDER}; }}"
+        )
+        action_wrap.setLayout(action_row)
+
+        main_splitter = QSplitter(Qt.Vertical)
+        main_splitter.setHandleWidth(1)
+        main_splitter.setChildrenCollapsible(False)
+        main_splitter.addWidget(file_workspace)
+        main_splitter.addWidget(progress_wrap)
+        main_splitter.addWidget(action_wrap)
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 0)
+        main_splitter.setStretchFactor(2, 0)
+        main_splitter.setSizes([100, 0, 48])
+        layout.addWidget(main_splitter, 1)
+
         self._transfer_runner = TransferRunner(
             owner=self,
             progress_bar=self.progress_bar,
@@ -394,45 +452,6 @@ class FileTransferPage(QWidget):
             ),
             remote_dir_provider=lambda: self.remote_path.text().strip() or "/",
         )
-        progress_row = QHBoxLayout()
-        progress_row.setContentsMargins(0, 0, 0, 0)
-        progress_row.setSpacing(0)
-        progress_row.addStretch()
-        progress_row.addWidget(self.progress_bar)
-        progress_wrap = QWidget()
-        progress_wrap.setLayout(progress_row)
-        progress_wrap.setContentsMargins(0, 0, 0, 0)
-
-        # Phase 2.0: primary [Submit] button — must exist before the
-        # action_row below adds it to the layout.
-        self.submit_btn = QPushButton(tr("Submit (selected files)", self._language))
-        self.submit_btn.setObjectName("FilesSubmitBtn")
-        apply_button_role(self.submit_btn, ButtonRole.PRIMARY_ACTION)
-        self.submit_btn.setEnabled(False)
-        self._normalize_control_heights(self.submit_btn)
-        self.submit_btn.clicked.connect(self._on_submit_clicked)
-
-        # Phase 2.0: action row surfaces the selection summary + Submit.
-        self.selection_label = QLabel(format_selection_summary(0, 0, self._language))
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(8)
-        action_row.addWidget(self.selection_label, 1)
-        action_row.addWidget(self.submit_btn, 0)
-        action_wrap = QWidget()
-        action_wrap.setLayout(action_row)
-        action_wrap.setContentsMargins(0, 0, 0, 0)
-
-        main_splitter = QSplitter(Qt.Vertical)
-        main_splitter.setHandleWidth(8)
-        main_splitter.setChildrenCollapsible(False)
-        main_splitter.addWidget(splitter)
-        main_splitter.addWidget(progress_wrap)
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 0)
-        main_splitter.setSizes([100, 0])
-        layout.addWidget(main_splitter, 1)
-        layout.addWidget(action_wrap, 0)
 
         self._refresh_feedback = ButtonFeedback(self.refresh_btn, role=ButtonRole.REFRESH_ACTION)
         self._terminal_feedback = ButtonFeedback(self.open_terminal_btn, role=ButtonRole.INSTANT_ACTION)

@@ -11,7 +11,6 @@ from typing import Callable
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -26,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from ...button_feedback import ButtonRole, apply_button_role
 from ...design.components import StatusChip
-from ...design.tokens import Colors, Metrics
+from ...design.tokens import Colors, Metrics, Radius
 from ...i18n import tr
 from ...theme import help_text, section_title_label
 
@@ -43,8 +42,12 @@ def build_header(
         Tuple of (header_widget, preset_combo, btn_new, btn_validate, dirty_label)
     """
     panel = QFrame(page)
-    panel.setMinimumWidth(560)
-    panel.setObjectName("workflowHeader")
+    panel.setObjectName("WorkflowHeader")
+    # Phase 19: streamlined header styling
+    panel.setStyleSheet(
+        f"#WorkflowHeader {{ background: {Colors.CARD_BG}; "
+        f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
+    )
     layout = QVBoxLayout(panel)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(8)
@@ -330,16 +333,32 @@ def build_graph_panel(
 def build_preview_box(
     page: QWidget,
     language: str,
-) -> tuple[QGroupBox, QPlainTextEdit]:
-    """Build the YAML preview box.
+) -> tuple[QWidget, QPlainTextEdit, Callable[[bool], None], Callable[[str], None]]:
+    """Build the YAML preview box (collapsible).
+
+    Phase 19: the preview is now collapsible via a checkable header,
+    allowing users to hide it when not needed to reduce visual competition.
 
     Returns:
-        Tuple of (box, full_yaml_preview)
+        Tuple of (box, full_yaml_preview, set_expanded_fn, apply_language_fn)
     """
-    box = QGroupBox(tr("Final workflow YAML", language), page)
-    box.setCheckable(True)
-    box.setChecked(False)
+    box = QFrame(page)
+    box.setObjectName("WorkflowPreviewBox")
+    box.setStyleSheet(
+        f"#WorkflowPreviewBox {{ background: {Colors.CARD_BG}; "
+        f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }}"
+    )
     layout = QVBoxLayout(box)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(8)
+
+    # Collapsible header with toggle
+    header = QHBoxLayout()
+    header.setSpacing(8)
+    title = QLabel(tr("YAML Preview", language), box)
+    title.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT}; font-size: {Metrics.SECTION_TITLE_FONT_PX}px;")
+    header.addWidget(title)
+    header.addStretch(1)
 
     full_yaml_preview = QPlainTextEdit(box)
     full_yaml_preview.setObjectName("WorkflowYamlPreview")
@@ -347,13 +366,47 @@ def build_preview_box(
     full_yaml_preview.setMaximumBlockCount(2000)
     full_yaml_preview.setStyleSheet(
         f"font-family: Consolas, Menlo, monospace; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        f" border: 1px solid {Colors.BORDER_SUBTLE}; border-radius: {Radius.SM}px; padding: 8px;"
     )
+
+    # Toggle button for preview visibility
+    # Initial state: collapsed (hidden)
+    is_expanded = [False]
+    current_language = [language]
+    toggle_btn = QPushButton("\u25b6", box)  # ▶
+    toggle_btn.setObjectName("PreviewToggleBtn")
+    toggle_btn.setFixedSize(24, 24)
+    toggle_btn.setStyleSheet(
+        f"background: transparent; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px; "
+        f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CHIP_FONT_PX}px; "
+        "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0;"
+    )
+    toggle_btn.setToolTip(tr("Show YAML preview", language))
+
+    def set_expanded(expanded: bool):
+        """Set the preview expanded state and update UI accordingly."""
+        is_expanded[0] = expanded
+        full_yaml_preview.setVisible(expanded)
+        toggle_btn.setText("\u25b6" if not expanded else "\u25bc")  # ▶ or ▼
+        tooltip_key = "Hide YAML preview" if expanded else "Show YAML preview"
+        toggle_btn.setToolTip(tr(tooltip_key, current_language[0]))
+
+    def apply_language(new_language: str) -> None:
+        current_language[0] = new_language
+        title.setText(tr("YAML Preview", new_language))
+        tooltip_key = "Hide YAML preview" if is_expanded[0] else "Show YAML preview"
+        toggle_btn.setToolTip(tr(tooltip_key, new_language))
+
+    def toggle_preview():
+        set_expanded(not is_expanded[0])
+
+    toggle_btn.clicked.connect(toggle_preview)
+    header.addWidget(toggle_btn)
+    layout.addLayout(header)
     layout.addWidget(full_yaml_preview)
+    set_expanded(False)
 
-    box.toggled.connect(full_yaml_preview.setVisible)
-    full_yaml_preview.setVisible(False)
-
-    return box, full_yaml_preview
+    return box, full_yaml_preview, set_expanded, apply_language
 
 
 def build_footer(

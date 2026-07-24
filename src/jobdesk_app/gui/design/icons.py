@@ -13,6 +13,17 @@ _ICONS: dict[str, str] = {
         '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'
         "</svg>"
     ),
+    # Workflow is a connected-node glyph rather than another folder.  The
+    # navigation icon names intentionally match the page keys in
+    # ``main_window._NAV_ITEMS`` so a missing registration cannot silently
+    # fall back to the folder icon.
+    "workflow": (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<circle cx="6" cy="5" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="19" r="3"/>'
+        '<path d="M6 8v8"/><path d="M9 5h3a6 6 0 0 1 6 6v0"/><path d="M9 19h3a6 6 0 0 0 6-6v0"/>'
+        "</svg>"
+    ),
     "rocket": (
         '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
         'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'

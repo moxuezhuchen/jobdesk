@@ -159,6 +159,11 @@ class SettingsServersPage(QWidget):
         self._empty_hint.setVisible(False)
         layout.addWidget(self._empty_hint)
 
+        # Phase 19: local settings section header for better grouping
+        self._local_settings_title = section_title_label(tr("Local Settings", self._language))
+        layout.addWidget(self._local_settings_title)
+        layout.addSpacing(4)
+
         # ─── 本地目录 ───
         folder_ctrl = QWidget()
         fc_layout = QHBoxLayout(folder_ctrl)
@@ -235,13 +240,27 @@ class SettingsServersPage(QWidget):
         layout.addWidget(self._card_dotfiles)
 
         # ─── 服务器配置 ───
-        layout.addSpacing(12)
-        # Phase 18 visual cleanup: sub-section header now uses the
-        # shared ``section_title_label`` helper (15 px / 600) instead
-        # of a 24 px PageTitle-style label that competed with the
+        layout.addSpacing(16)
+        # The sub-section header uses the shared ``section_title_label``
+        # helper (22 px / 600) instead of a 30 px PageTitle-style label
+        # that competed with the
         # page-level "Settings" title for visual weight.
+        # Phase 19: improved server section header
         self._srv_title = section_title_label(tr("Server Profiles", self._language))
-        layout.addWidget(self._srv_title)
+        srv_header_layout = QHBoxLayout()
+        srv_header_layout.setSpacing(8)
+        srv_header_layout.addWidget(self._srv_title)
+        srv_header_layout.addStretch(1)
+        self._srv_add_btn = QPushButton("+ " + tr("Add server", self._language), self)
+        self._srv_add_btn.setObjectName("SettingsAddServerBtn")
+        self._srv_add_btn.setStyleSheet(
+            f"#SettingsAddServerBtn {{ background: {Colors.PRIMARY}; color: {Colors.PRIMARY_TEXT}; "
+            f"border: none; border-radius: {Radius.SM}px; padding: 6px 12px; font-weight: 600; }}"
+            f"#SettingsAddServerBtn:hover {{ background: {Colors.PRIMARY_HOVER}; }}"
+        )
+        self._srv_add_btn.clicked.connect(self._add_server)
+        srv_header_layout.addWidget(self._srv_add_btn)
+        layout.addLayout(srv_header_layout)
         layout.addSpacing(4)
 
         srv_card = QFrame()
@@ -413,6 +432,7 @@ class SettingsServersPage(QWidget):
         self._language = language
         # Page and section titles
         self._page_title.setText(tr("Settings", language))
+        self._local_settings_title.setText(tr("Local Settings", language))
         self._dl_title.setText(tr("Software Profiles", language))
         self._dl_desc.setText(tr("{name}=filename, {basename}=name without extension", language))
         self._confflow_note.setText(
@@ -423,6 +443,7 @@ class SettingsServersPage(QWidget):
             )
         )
         self._srv_title.setText(tr("Server Profiles", language))
+        self._srv_add_btn.setText("+ " + tr("Add server", language))
         # Setting cards
         self._card_local.lbl_title.setText(tr("Local Directory", language))
         self._card_local.lbl_desc.setText(tr("Default save path for downloaded results", language))

@@ -598,7 +598,13 @@ class TestRunsPage:
         with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
             mock_svc.return_value.list_runs.return_value = []
             runs_page.refresh_run_list()
+            mock_svc.return_value.list_runs.assert_called_once_with()
         assert runs_page.table.rowCount() == 0
+
+    def test_status_overview_retranslates_without_reloading_runs(self, runs_page):
+        runs_page.apply_language("zh", refresh=False)
+
+        assert runs_page._overview_title.text() == "运行概览："
 
     def test_refresh_caches_record_and_selected_record_avoids_reload(self, runs_page):
         """refresh_run_list stores the RunRecord on the row; _selected_record reads it without load_run."""

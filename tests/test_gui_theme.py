@@ -13,7 +13,7 @@ def test_build_app_stylesheet_contains_core_selectors_and_tokens():
     css = build_app_stylesheet()
 
     assert Colors.PRIMARY == "#315f95"
-    assert ThemeMetrics.CONTROL_HEIGHT == 38
+    assert ThemeMetrics.CONTROL_HEIGHT == 56
     assert "QMainWindow" in css
     assert Colors.PRIMARY in css
     assert Colors.ERROR in css
@@ -28,11 +28,59 @@ def test_build_app_stylesheet_contains_core_selectors_and_tokens():
     assert 'QPushButton[buttonRole="settings_action"]' in css
     assert 'QPushButton[buttonRole="test_action"]' in css
     assert 'QPushButton[buttonRole="instant_action"]' in css
+    assert "QPushButton#FilesSubmitBtn:disabled" in css
     assert 'QPushButton[feedbackState="pending"]' in css
     assert 'QPushButton[feedbackState="success"]' in css
     assert 'QPushButton[feedbackState="error"]' in css
     assert 'QPushButton[feedbackState="blocked"]' in css
     assert "QHeaderView::section" in css
+
+
+def test_fixed_icon_buttons_keep_their_geometry_under_app_stylesheet(qt_app):
+    from PySide6.QtWidgets import QPushButton, QWidget
+
+    from jobdesk_app.gui.pages.workflow_page._form_builder import build_preview_box
+    from jobdesk_app.gui.theme import build_app_stylesheet
+
+    previous_stylesheet = qt_app.styleSheet()
+    qt_app.setStyleSheet(build_app_stylesheet())
+    buttons = []
+    try:
+        for object_name, size in (
+            ("PreviewToggleBtn", (24, 24)),
+            ("SidebarCollapseBtn", (24, 24)),
+            ("InlineBannerDismiss", (24, 24)),
+            ("WorkflowStepMoveBtn", (36, 32)),
+            ("WorkflowStepRemoveBtn", (32, 32)),
+        ):
+            button = QPushButton("x")
+            button.setObjectName(object_name)
+            button.setFixedSize(*size)
+            button.setStyleSheet("padding: 0; border: 1px solid #ccc;")
+            button.show()
+            buttons.append(button)
+        qt_app.processEvents()
+
+        assert [(button.width(), button.height()) for button in buttons] == [
+            (24, 24),
+            (24, 24),
+            (24, 24),
+            (36, 32),
+            (32, 32),
+        ]
+
+        parent = QWidget()
+        preview_box, _preview, _set_expanded, _apply_language = build_preview_box(parent, "en")
+        parent.show()
+        qt_app.processEvents()
+        preview_toggle = preview_box.findChild(QPushButton, "PreviewToggleBtn")
+        assert preview_toggle is not None
+        assert (preview_toggle.width(), preview_toggle.height()) == (24, 24)
+        parent.deleteLater()
+    finally:
+        for button in buttons:
+            button.deleteLater()
+        qt_app.setStyleSheet(previous_stylesheet)
 
 
 def test_page_title_helper_sets_object_name_and_text(qt_app):
@@ -135,6 +183,35 @@ def test_sidebar_accessibility_selection_interface_is_single_select(qt_app):
     assert not selection.selectAll()
 
 
+def test_sidebar_starts_icon_only_and_can_expand_programmatically(qt_app):
+    from PySide6.QtTest import QTest
+
+    from jobdesk_app.gui.design.components import Sidebar
+    from jobdesk_app.gui.design.tokens import Metrics
+
+    sidebar = Sidebar([("settings", "Settings"), ("files", "Files")])
+    item = sidebar._items[0]
+    assert sidebar.width() == Metrics.SIDEBAR_COLLAPSED_WIDTH
+    assert sidebar.width() == Metrics.SIDEBAR_WIDTH
+    assert item._compact
+    assert not sidebar._collapse_btn.isVisible()
+    assert sidebar._collapse_btn.toolTip() == "Expand sidebar"
+
+    sidebar.toggle_collapse()
+    QTest.qWait(Sidebar.ANIM_DURATION_MS + 50)
+
+    assert sidebar.width() == Metrics.SIDEBAR_EXPANDED_WIDTH
+    assert not item._compact
+    assert sidebar._collapse_btn.toolTip() == "Collapse sidebar"
+
+    sidebar.toggle_collapse()
+    QTest.qWait(Sidebar.ANIM_DURATION_MS + 50)
+
+    assert sidebar.width() == Metrics.SIDEBAR_COLLAPSED_WIDTH
+    assert item._compact
+    assert sidebar._collapse_btn.toolTip() == "Expand sidebar"
+
+
 def test_button_feedback_styles_are_global_not_page_only():
     from jobdesk_app.gui.theme import build_app_stylesheet
 
@@ -154,6 +231,39 @@ def test_scrollbar_styles_are_thick_enough_for_file_lists():
     assert "width: 14px;" in css
     assert "height: 14px;" in css
     assert "border-radius: 7px;" in css
+
+
+def test_styled_tables_use_compact_reference_density(qt_app):
+    from jobdesk_app.gui.design.components import StyledTableWidget
+    from jobdesk_app.gui.design.tokens import Metrics
+
+    table = StyledTableWidget()
+    table.setColumnCount(2)
+    table.setRowCount(1)
+    table.resize(480, 180)
+    table.show()
+    qt_app.processEvents()
+
+    assert table.verticalHeader().defaultSectionSize() == Metrics.TABLE_ROW_HEIGHT
+    assert table.rowHeight(0) == Metrics.TABLE_ROW_HEIGHT
+    assert table.horizontalHeader().height() == Metrics.TABLE_HEADER_HEIGHT
+
+
+def test_readable_font_scale_matches_codex_baseline():
+    from jobdesk_app.gui.design.tokens import Metrics
+
+    assert Metrics.BASE_FONT_PX == 26
+    assert Metrics.CARD_BODY_FONT_PX == 26
+    assert Metrics.TABLE_ROW_HEIGHT >= 52
+    assert Metrics.TABLE_HEADER_HEIGHT >= Metrics.TABLE_ROW_HEIGHT
+
+
+def test_navigation_icons_have_distinct_registered_glyphs():
+    from jobdesk_app.gui.design.icons import _ICONS
+
+    navigation_icons = ("folder", "workflow", "bar-chart", "settings")
+    assert all(name in _ICONS for name in navigation_icons)
+    assert len({_ICONS[name] for name in navigation_icons}) == len(navigation_icons)
 
 
 def test_button_role_styles_are_winscp_neutral_not_type_colored():

@@ -91,6 +91,46 @@ def _format_status(summary: dict[str, int], language: str = "en") -> str:
     return " | ".join(parts)
 
 
+def _format_status_overview(summaries: list[dict[str, int]], language: str = "en") -> str:
+    """Format a compact status overview from multiple run status summaries.
+
+    Phase 19: lightweight overview that shows aggregate task counts at a glance.
+    """
+    from ..i18n import tr
+
+    if not summaries:
+        return tr("No runs yet", language)
+
+    totals = {
+        "running": 0,
+        "submitted": 0,
+        "completed": 0,
+        "failed": 0,
+        "total": 0,
+    }
+
+    for summary in summaries:
+        totals["running"] += summary.get("running", 0) + summary.get("submitting", 0)
+        totals["submitted"] += summary.get("submitted", 0)
+        totals["completed"] += summary.get("downloaded", 0) + summary.get("analyzed", 0) + summary.get("remote_completed", 0)
+        totals["failed"] += summary.get("failed", 0)
+        totals["total"] += sum(summary.values())
+
+    parts = []
+    if totals["running"] > 0:
+        parts.append(tr("Running", language) + f" {totals['running']}")
+    if totals["submitted"] > 0:
+        parts.append(tr("Submitted", language) + f" {totals['submitted']}")
+    if totals["completed"] > 0:
+        parts.append(tr("Completed", language) + f" {totals['completed']}")
+    if totals["failed"] > 0:
+        parts.append(tr("Failed", language) + f" {totals['failed']}")
+
+    if not parts:
+        return tr("No active runs", language)
+    return " · ".join(parts)
+
+
 def _format_row(record: RunRecord, language: str = "en") -> list[str]:
     return [
         record.run_id,
@@ -163,7 +203,7 @@ class RunsResultsPage(QWidget):
         self._log_view.setObjectName("RunsActivityLog")
         log_font = QFont("Consolas")
         log_font.setStyleHint(QFont.Monospace)
-        log_font.setPointSize(9)
+        log_font.setPixelSize(Metrics.CARD_BODY_FONT_PX)
         self._log_view.setFont(log_font)
         self._log_view.setPlaceholderText(tr("Activity log — status messages and errors", self._language))
 
@@ -210,6 +250,33 @@ class RunsResultsPage(QWidget):
         layout.addWidget(self._empty_hint)
 
         splitter = QSplitter(Qt.Vertical)
+
+        # Phase 19: lightweight task status overview bar
+        self._status_overview = QWidget()
+        self._status_overview.setObjectName("RunsStatusOverview")
+        self._status_overview.setStyleSheet(
+            f"#RunsStatusOverview {{ background: {Colors.BG_SURFACE}; "
+            f"border-bottom: 1px solid {Colors.BORDER}; padding: 8px 16px; }}"
+        )
+        status_layout = QHBoxLayout(self._status_overview)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(16)
+        self._overview_title = QLabel(tr("Runs overview:", self._language), self._status_overview)
+        status_layout.addWidget(self._overview_title)
+        self._overview_label = QLabel(tr("No runs yet", self._language), self._status_overview)
+        self._overview_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
+        )
+        status_layout.addWidget(self._overview_label)
+        status_layout.addStretch(1)
+        self._refresh_overview_timer = QTimer(self)
+        self._refresh_overview_timer.setInterval(5000)
+        self._refresh_overview_timer.timeout.connect(self._refresh_status_overview)
+        # Timer refreshes the aggregate from the already-loaded run records;
+        # it never opens the runs database itself.
+        layout.addWidget(self._status_overview)
+
+        self._run_records: list[RunRecord] = []
 
         # ─── Top: Run list ───
         top = QWidget()
@@ -295,8 +362,8 @@ class RunsResultsPage(QWidget):
         bottom_layout.setContentsMargins(16, 12, 16, 12)
         bottom_layout.setSpacing(8)
 
-        # Phase 18 visual cleanup: "Result Preview" sub-section title
-        # uses the shared ``section_title_label`` helper (15 px / 600)
+        # "Result Preview" uses the shared ``section_title_label`` helper
+        # (22 px / 600)
         # so it stops competing with the page-level activity log label
         # for visual weight.
         self.result_label = section_title_label(tr("Result Preview", self._language))
@@ -815,6 +882,7 @@ class RunsResultsPage(QWidget):
         self._language = settings.language
         self._refresh_timer.setInterval(settings.auto_refresh_interval * 1000)
         self._refresh_timer.stop()
+        self._refresh_overview_timer.start()
         self._activation_timer.start(0)
 
     def _run_deferred_activation(self):
@@ -897,6 +965,7 @@ class RunsResultsPage(QWidget):
         self.confirm_submitted_btn.setText(tr("Confirm Submitted", language))
         self.abandon_submit_btn.setText(tr("Abandon Submit", language))
         self.result_label.setText(tr("Result Preview", language))
+        self._overview_title.setText(tr("Runs overview:", language))
         self.activity_log_label.setText(tr("Activity log", language))
         self.clear_log_btn.setText(tr("Clear Log", language))
         self._set_headers()
@@ -908,6 +977,7 @@ class RunsResultsPage(QWidget):
             self.detail_pane.apply_language(language)
         # Phase 2.1: retranslate the empty-state hint copy.
         self._empty_hint.apply_language(language)
+        self._refresh_status_overview()
 
     # ─── Phase 16: persistent scrolling activity log ────────────────────
 
@@ -1064,6 +1134,7 @@ class RunsResultsPage(QWidget):
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
         runs = RunService(workspace).list_runs()
+        self._run_records = runs
         prev_selected = self._current_run_id()
         self._set_headers()
         self.table.blockSignals(True)
@@ -1081,6 +1152,8 @@ class RunsResultsPage(QWidget):
             if record.run_id == getattr(self.state, "current_batch_id", None):
                 batch_row = row
         self.table.blockSignals(False)
+        # Phase 19: update status overview after loading runs
+        self._refresh_status_overview(runs)
         # A freshly-set current_batch_id (new submission) jumps to that run;
         # otherwise keep the user's manual selection across refreshes.
         batch_id = getattr(self.state, "current_batch_id", None)
@@ -1213,6 +1286,14 @@ class RunsResultsPage(QWidget):
         self.abandon_submit_btn.setVisible(enabled)
         self.confirm_submitted_btn.setEnabled(enabled)
         self.abandon_submit_btn.setEnabled(enabled)
+
+    def _refresh_status_overview(self, runs: list[RunRecord] | None = None) -> None:
+        """Update the runs status overview bar with aggregate task counts."""
+        if not hasattr(self, "_overview_label"):
+            return
+        records = self._run_records if runs is None else runs
+        summaries = [record.status_summary for record in records]
+        self._overview_label.setText(_format_status_overview(summaries, self._language))
 
     def _selected_uncertain_task_ids(self) -> list[str]:
         selected_rows = sorted({index.row() for index in self.result_table.selectedIndexes()})
@@ -2527,6 +2608,7 @@ class RunsResultsPage(QWidget):
         self._finish_remote_mutation()
         self._preview_request_id += 1
         self._refresh_timer.stop()
+        self._refresh_overview_timer.stop()
         self._preview_timer.stop()
         self._activation_timer.stop()
         for timer in self._task_done_timers.values():

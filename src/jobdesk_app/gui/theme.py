@@ -30,6 +30,7 @@ def build_app_stylesheet() -> str:
     return f"""
 * {{
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: {Metrics.BASE_FONT_PX}px;
     outline: none;
 }}
 QToolTip {{
@@ -38,7 +39,7 @@ QToolTip {{
     border: 1px solid {c.BORDER};
     border-radius: {Radius.MD}px;
     padding: 8px 14px;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
 }}
 QMainWindow {{
     background: {c.BG_BASE};
@@ -89,7 +90,7 @@ QLabel#PageDescription {{
 /* ─── Checkboxes ─── */
 QCheckBox {{
     spacing: 12px;
-    font-size: 16px;
+    font-size: {Metrics.CARD_BODY_FONT_PX}px;
     color: {c.TEXT};
 }}
 QCheckBox::indicator {{
@@ -144,6 +145,34 @@ QPushButton:disabled {{
 QPushButton:focus {{
     border-color: {c.PRIMARY};
 }}
+
+/* Compact icon buttons opt out of the shared action-control height.  Their
+ * geometry is intentionally fixed by the owning widget, so the global
+ * 56px button rule must not stretch them vertically. */
+QPushButton#PreviewToggleBtn,
+QPushButton#SidebarCollapseBtn,
+QPushButton#InlineBannerDismiss {{
+    min-width: 0;
+    max-width: 24px;
+    min-height: 0;
+    max-height: 24px;
+    padding: 0;
+}}
+QPushButton#WorkflowStepMoveBtn {{
+    min-width: 0;
+    max-width: 36px;
+    min-height: 0;
+    max-height: 32px;
+    padding: 0;
+}}
+QPushButton#WorkflowStepRemoveBtn {{
+    min-width: 0;
+    max-width: 32px;
+    min-height: 0;
+    max-height: 32px;
+    padding: 0;
+}}
+
 QPushButton#PrimaryBtn,
 QPushButton#FilesSubmitBtn,
 QPushButton#WorkflowDispatchBtn {{
@@ -223,6 +252,16 @@ QPushButton[feedbackState="blocked"] {{
     border-color: {c.BORDER};
 }}
 
+/* Disabled primary actions still need readable contrast. */
+QPushButton#PrimaryBtn:disabled,
+QPushButton#FilesSubmitBtn:disabled,
+QPushButton#WorkflowDispatchBtn:disabled {{
+    background: {c.INFO_BG};
+    color: {c.PRIMARY};
+    border-color: {c.INFO_BORDER};
+    font-weight: 600;
+}}
+
 /* ─── Input Controls ─── */
 QLineEdit, QComboBox, QSpinBox {{
     background: {c.BG_SURFACE};
@@ -290,7 +329,7 @@ QTableWidget {{
     outline: none;
 }}
 QTableWidget::item {{
-    padding: 10px 14px;
+    padding: {Metrics.TABLE_CELL_VERTICAL_PADDING}px {Metrics.TABLE_CELL_HORIZONTAL_PADDING}px;
     border: none;
     border-bottom: 1px solid {c.BORDER_SUBTLE};
 }}
@@ -306,7 +345,7 @@ QHeaderView::section {{
     border: none;
     border-bottom: 1px solid {c.BORDER};
     border-right: 1px solid {c.BORDER_SUBTLE};
-    padding: 12px 14px;
+    padding: {Metrics.TABLE_CELL_VERTICAL_PADDING}px {Metrics.TABLE_CELL_HORIZONTAL_PADDING}px;
     min-height: {m.TABLE_HEADER_HEIGHT}px;
     max-height: {m.TABLE_HEADER_HEIGHT}px;
     color: #64748b;
@@ -469,7 +508,7 @@ QProgressBar {{
     border-radius: {Radius.MD}px;
     height: 8px;
     text-align: center;
-    font-size: 11px;
+    font-size: {Metrics.CHIP_FONT_PX}px;
     color: {c.TEXT_MUTED};
 }}
 QProgressBar::chunk {{
@@ -507,7 +546,7 @@ QDialog {{
 
 
 def page_title_label(text: str = "") -> QLabel:
-    """Return a QLabel styled as the page-level title (24 px, weight 600)."""
+    """Return a QLabel styled as the page-level title (30 px, weight 600)."""
     label = QLabel(text)
     label.setObjectName("PageTitle")
     return label
@@ -516,11 +555,11 @@ def page_title_label(text: str = "") -> QLabel:
 def section_title_label(text: str = "") -> QLabel:
     """Return a QLabel styled as a sub-section header on a page.
 
-    Phase 18 visual cleanup: the Settings / Runs pages used to reuse
-    ``PageTitle`` styling (24 px / weight 600) for everything from
+    The Settings / Runs pages use a dedicated 22 px style instead of
+    reusing the page title (30 px / weight 600) for everything from
     "Server Profiles" to "Software Profiles", which made every section
     title compete with the page title for visual attention. This helper
-    gives sub-section headers their own ``SectionTitle`` ID (15 px,
+    gives sub-section headers their own ``SectionTitle`` ID (22 px,
     weight 600) and is the canonical way for pages to label cards.
     """
     label = QLabel(text)

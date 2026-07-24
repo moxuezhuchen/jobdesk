@@ -825,6 +825,14 @@ ZH: dict[str, str] = {
     "e.g. 16GB": "\u5982 16GB",
     "Gaussian": "Gaussian \u8ba1\u7b97",
     "ORCA": "ORCA \u8ba1\u7b97",
+    # -- Phase 2.0: Files page + Settings/Servers page + Runs page --
+    "Add server": "\u6dfb\u52a0\u670d\u52a1\u5668",
+    "Local Settings": "\u672c\u5730\u8bbe\u7f6e",
+    "No active runs": "\u6682\u65e0\u6d3b\u8dc3\u8fd0\u884c",
+    "Runs overview:": "\u8fd0\u884c\u6982\u89c8\uff1a",
+    "Show YAML preview": "\u663e\u793a YAML \u9884\u89c8",
+    "Hide YAML preview": "\u9690\u85cf YAML \u9884\u89c8",
+    "YAML Preview": "YAML \u9884\u89c8",
 }
 
 

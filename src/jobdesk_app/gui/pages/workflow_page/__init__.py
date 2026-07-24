@@ -78,7 +78,7 @@ class WorkflowPage(QWidget):
         self.setMinimumWidth(1040)
 
         self.setStyleSheet(
-            f"QFrame#workflowHeader {{ background: {Colors.CARD_BG}; "
+            f"QFrame#WorkflowHeader {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
             f"QFrame#workflowSettingsPanel {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
@@ -89,7 +89,7 @@ class WorkflowPage(QWidget):
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
             f"QTabBar::tab {{ padding: 12px 20px; "
             f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }} "
-            f"QComboBox {{ min-height: 40px; padding: 6px 14px; "
+            f"QComboBox {{ min-height: {Metrics.CONTROL_HEIGHT}px; padding: 6px 14px; "
             f"font-size: {Metrics.CARD_BODY_FONT_PX}px; }}"
         )
         outer = QVBoxLayout(self)
@@ -145,8 +145,13 @@ class WorkflowPage(QWidget):
         )
         outer.addWidget(self._workspace, 1)
 
-        # Build preview
-        self._preview_box, self.full_yaml_preview = _form_builder.build_preview_box(self, self._language)
+        # Build preview (defaults to collapsed to reduce visual competition)
+        (
+            self._preview_box,
+            self.full_yaml_preview,
+            self._set_preview_expanded,
+            self._apply_preview_language,
+        ) = _form_builder.build_preview_box(self, self._language)
         outer.addWidget(self._preview_box)
 
         # Build footer
@@ -768,6 +773,8 @@ class WorkflowPage(QWidget):
     def _validate_workflow(self) -> None:
         if not self._commit_pending_step_yaml():
             return
+        # Phase 19: show preview when validating so user can see generated YAML
+        self._set_preview_expanded(True)
         _preview.validate_workflow(
             self._build_workflow_yaml,
             lambda exc: self._on_error(tr("Workflow validation", self._language), exc),
@@ -874,6 +881,7 @@ class WorkflowPage(QWidget):
 
     def apply_language(self, language: str) -> None:
         self._language = language
+        self._apply_preview_language(language)
         self._refresh_flow_diagram()
 
 
