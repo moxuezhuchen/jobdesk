@@ -14,7 +14,7 @@ from jobdesk_app.core.confflow_preflight import (
 def _payload(**overrides) -> str:
     value = {
         "schema_version": 1,
-        "version": "1.4.0",
+        "version": "1.4.1",
         "capabilities": {
             "workflow_state": True,
             "resume": True,
@@ -28,7 +28,7 @@ def _payload(**overrides) -> str:
 def test_parse_and_validate_supported_capabilities():
     capabilities = parse_confflow_capabilities(_payload())
 
-    assert capabilities == ConfFlowCapabilities(1, "1.4.0", True, True, True)
+    assert capabilities == ConfFlowCapabilities(1, "1.4.1", True, True, True)
     validate_confflow_capabilities(capabilities, require_dag=True)
 
 
@@ -52,14 +52,15 @@ def test_parser_rejects_missing_or_malformed_output(stdout, message):
 @pytest.mark.parametrize(
     "capabilities, require_dag, message",
     [
-        (ConfFlowCapabilities(2, "1.4.0", True, True, True), False, "schema"),
-        (ConfFlowCapabilities(1, "1.3.9", True, True, True), False, ">=1.4.0,<2.0"),
-        (ConfFlowCapabilities(1, "1.4.0-alpha.1", True, True, True), False, ">=1.4.0,<2.0"),
-        (ConfFlowCapabilities(1, "2.0.0", True, True, True), False, ">=1.4.0,<2.0"),
+        (ConfFlowCapabilities(2, "1.4.1", True, True, True), False, "schema"),
+        (ConfFlowCapabilities(1, "1.3.9", True, True, True), False, ">=1.4.1,<2.0"),
+        (ConfFlowCapabilities(1, "1.4.0", True, True, True), False, ">=1.4.1,<2.0"),
+        (ConfFlowCapabilities(1, "1.4.0-alpha.1", True, True, True), False, ">=1.4.1,<2.0"),
+        (ConfFlowCapabilities(1, "2.0.0", True, True, True), False, ">=1.4.1,<2.0"),
         (ConfFlowCapabilities(1, "1.04.0", True, True, True), False, "semantic version"),
-        (ConfFlowCapabilities(1, "1.4.0", False, True, True), False, "workflow_state"),
-        (ConfFlowCapabilities(1, "1.4.0", True, False, True), False, "resume"),
-        (ConfFlowCapabilities(1, "1.4.0", True, True, False), True, "dag"),
+        (ConfFlowCapabilities(1, "1.4.1", False, True, True), False, "workflow_state"),
+        (ConfFlowCapabilities(1, "1.4.1", True, False, True), False, "resume"),
+        (ConfFlowCapabilities(1, "1.4.1", True, True, False), True, "dag"),
     ],
 )
 def test_validator_fails_closed_on_incompatible_contract(capabilities, require_dag, message):

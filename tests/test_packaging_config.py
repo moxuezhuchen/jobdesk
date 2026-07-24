@@ -52,7 +52,7 @@ def test_chem_extra_bounds_confflow_to_supported_major():
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     chem_extra = config["project"]["optional-dependencies"]["chem"]
 
-    assert "confflow>=1.4.0,<2.0" in chem_extra
+    assert "confflow>=1.4.1,<2.0" in chem_extra
 
 
 def test_source_distribution_manifest_includes_public_support_files():

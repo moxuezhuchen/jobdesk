@@ -129,7 +129,7 @@ loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
 submitter branches become available only after `pip install -e ".[chem]"`
 on the same Python that runs JobDesk, and after the matching ConfFlow wheel
 is installed on the remote Linux compute node. The current JobDesk contract
-is `confflow>=1.4.0,<2.0`; CI validates against the 1.4.0 wheel. Versions must
+is `confflow>=1.4.1,<2.0`; CI validates against the 1.4.1 wheel. Versions must
 match between Windows and Linux because the GUI imports the same Pydantic models
 (`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
 remote `confflow` binary consumes.
@@ -137,16 +137,16 @@ remote `confflow` binary consumes.
 ```powershell
 # Windows (JobDesk side)
 # If the package index does not provide the chemistry build, install the
-# approved wheel first (see docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md):
-# python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
+# approved wheel first (see docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md):
+# python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux compute node: install the same approved ConfFlow 1.4.0 wheel.
+# Linux compute node: install the same approved ConfFlow 1.4.1 wheel.
 # The offline wheel workflow is documented in
-# docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md.
-python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
+# docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md.
+python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
 ```
 
 ### Submit page (Phase 14)
@@ -181,7 +181,7 @@ worker callback (in `MainWindow`) handles uploads + the
 
 On accept the Submit page stages `workflow.yaml` and each input in a unique
 remote submission namespace. Before launch, JobDesk requires the remote
-ConfFlow capability schema 1 with a compatible `>=1.4.0,<2.0` version and
+ConfFlow capability schema 1 with a compatible `>=1.4.1,<2.0` version and
 runs the exact per-task command with `--dry-run`. Only a successful preflight
 may start the batch through the existing `nohup setsid` scheduler.
 

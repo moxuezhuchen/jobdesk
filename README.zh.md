@@ -112,20 +112,20 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=1.4.0,<2.0`，CI 按 1.4.0 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=1.4.1,<2.0`，CI 按 1.4.1 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。
 
 ```powershell
 # Windows（JobDesk 端）
 # 如果包索引没有提供化学版本，请先安装已批准的 wheel；
-# 离线 wheel 流程见 docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md：
-# python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
+# 离线 wheel 流程见 docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md：
+# python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux 计算节点也安装相同的 ConfFlow 1.4.0 wheel。
-# 离线 wheel 流程见 docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md。
-python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
+# Linux 计算节点也安装相同的 ConfFlow 1.4.1 wheel。
+# 离线 wheel 流程见 docs/CONFFLOW_1_4_1_WHEEL_DEPLOYMENT.md。
+python -m pip install /path/to/confflow-1.4.1-py3-none-any.whl
 ```
 
 ### 提交页（Phase 14）
@@ -144,7 +144,7 @@ python -m pip install /path/to/confflow-1.4.0-py3-none-any.whl
 
 在文件页的本地或远端表任意行上右键，即可将其作为输入推送到提交页。提交页是"用户希望提交"这一动作的唯一入口；页面级工作线程回调（位于 `MainWindow`）负责上传与 `RunCoordinator.create_and_submit` 调用。
 
-确认后（工作流模式），提交页会把 `workflow.yaml` 与输入文件放入本次提交独占的远端命名空间。启动前，JobDesk 要求远端 ConfFlow 返回 schema 1、版本范围 `>=1.4.0,<2.0` 的能力信息，并以 `--dry-run` 执行每个任务的真实命令；只有全部预检成功后才通过现有的 `nohup setsid` 调度器启动。
+确认后（工作流模式），提交页会把 `workflow.yaml` 与输入文件放入本次提交独占的远端命名空间。启动前，JobDesk 要求远端 ConfFlow 返回 schema 1、版本范围 `>=1.4.1,<2.0` 的能力信息，并以 `--dry-run` 执行每个任务的真实命令；只有全部预检成功后才通过现有的 `nohup setsid` 调度器启动。
 
 ### SSH 断连韧性
 

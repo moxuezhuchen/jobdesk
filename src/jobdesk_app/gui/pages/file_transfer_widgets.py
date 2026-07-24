@@ -1,7 +1,7 @@
 """File-table widgets and table helpers for the Files page."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl, Signal
 from PySide6.QtGui import QDrag
@@ -302,9 +302,17 @@ def _parse_size_bytes(text: str) -> float | None:
 
 def _parse_timestamp(text: str) -> float | None:
     try:
-        return datetime.fromisoformat(text.strip()).timestamp()
+        parsed = datetime.fromisoformat(text.strip())
     except ValueError:
         return None
+
+    # ``datetime.timestamp()`` delegates naive values to the Windows C
+    # runtime, which rejects dates around the Unix epoch on some hosts.  File
+    # timestamps are only used as sortable keys, so calculate the offset
+    # directly and preserve timezone-aware instants when one is provided.
+    if parsed.tzinfo is None:
+        return (parsed - datetime(1970, 1, 1)).total_seconds()
+    return (parsed.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds()
 
 
 def _default_column_widths(key: str) -> list[int]:

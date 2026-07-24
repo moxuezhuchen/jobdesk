@@ -113,7 +113,7 @@ def _capability_result(*, dag: bool = True) -> SSHResult:
         stdout=json.dumps(
             {
                 "schema_version": 1,
-                "version": "1.4.0",
+                "version": "1.4.1",
                 "capabilities": {
                     "workflow_state": True,
                     "resume": True,

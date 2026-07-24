@@ -11,7 +11,7 @@ _SEMVER_RE = re.compile(
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
-_MINIMUM_VERSION = (1, 4, 0)
+_MINIMUM_VERSION = (1, 4, 1)
 _MAXIMUM_MAJOR = 2
 _CAPABILITY_SCHEMA_VERSION = 1
 
@@ -73,9 +73,9 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
     core = version[:3]
     prerelease = version[3]
     if core < _MINIMUM_VERSION or (core == _MINIMUM_VERSION and prerelease is not None):
-        raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require >=1.4.0,<2.0")
+        raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require >=1.4.1,<2.0")
     if core[0] >= _MAXIMUM_MAJOR:
-        raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require >=1.4.0,<2.0")
+        raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require >=1.4.1,<2.0")
     if not capabilities.workflow_state:
         raise ValueError("remote ConfFlow lacks required workflow_state capability")
     if not capabilities.resume:

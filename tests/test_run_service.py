@@ -957,7 +957,7 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     capability_json = json.dumps(
         {
             "schema_version": 1,
-            "version": "1.4.0",
+            "version": "1.4.1",
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
         }
     )
