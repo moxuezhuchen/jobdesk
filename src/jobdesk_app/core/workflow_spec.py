@@ -461,6 +461,13 @@ class WorkflowSpec:
     # can round-trip without losing the steps list or any non-typed
     # fields the engine understands but ``GlobalConfigModel`` ignores.
     _raw: dict[str, Any] = field(default_factory=dict)
+    # Wizard-only metadata that must NOT leak into the engine-facing YAML.
+    # Currently holds ``work_dir``: the wizard records the user-picked
+    # work directory name so it can be replayed on reload, but the CLI
+    # is the authoritative source of the work directory (single
+    # ownership, R-M4 / P-M4).  ``to_yaml`` strips this; ``to_form``
+    # reads ``work_dir`` from here when populating the form.
+    _wizard_metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_form(
@@ -524,12 +531,13 @@ class WorkflowSpec:
             global_payload["max_parallel_jobs"] = int(max_parallel_jobs)
         # Drop None entries so they don't trip exclude_none=False dumps.
         global_payload = {k: v for k, v in global_payload.items() if v is not None}
-        # Wizard-supplied work directory.  confflow treats this as a
-        # CLI-level concern (``--work-dir``), but the wizard persists
-        # it inside ``global`` so a saved preset can be reloaded and
-        # round-tripped back to the same name.
+        # Wizard-supplied work directory.  Legacy behaviour was to put
+        # ``work_dir`` into ``global``; R-M4 (P-M4) moves it to
+        # ``_wizard_metadata`` so the CLI (``-w``) is the single source
+        # of truth and the engine-facing YAML never carries it.
+        wizard_metadata: dict[str, Any] = {}
         if work_dir_name:
-            global_payload["work_dir"] = work_dir_name
+            wizard_metadata["work_dir"] = work_dir_name
 
         # Build the steps list. Each user-visible step ("opt_freq",
         # "opt", "sp", "ts", "freq", "confgen", "preopt", "refine")
@@ -566,7 +574,11 @@ class WorkflowSpec:
             _, GlobalConfigModel = _confflow_models()
             GlobalConfigModel.model_validate(global_payload or {})
         _, GlobalConfigModel = _confflow_models()
-        return cls(global_config=GlobalConfigModel.model_validate(global_payload or {}), _raw=raw)
+        return cls(
+            global_config=GlobalConfigModel.model_validate(global_payload or {}),
+            _raw=raw,
+            _wizard_metadata=wizard_metadata,
+        )
 
     @classmethod
     def from_yaml(cls, yaml_text: str) -> "WorkflowSpec":
@@ -596,9 +608,20 @@ class WorkflowSpec:
         # Populate the typed global model for callers that want it
         # (engine integration, default-supplementation).
         global_dict = normalised.get("global", {}) or {}
+        # P-M4: hoist ``work_dir`` out of ``global`` into wizard
+        # metadata.  Older YAML files (pre-R-M4) wrote it there; we
+        # preserve the value for the form without leaking it into the
+        # next ``to_yaml`` output.
+        wizard_metadata: dict[str, Any] = {}
+        if "work_dir" in global_dict:
+            wizard_metadata["work_dir"] = global_dict.pop("work_dir")
         _, GlobalConfigModel = _confflow_models()
         model = GlobalConfigModel.model_validate(global_dict)
-        return cls(global_config=model, _raw=normalised)
+        return cls(
+            global_config=model,
+            _raw=normalised,
+            _wizard_metadata=wizard_metadata,
+        )
 
     def to_yaml(self) -> str:
         """Serialise to the canonical confflow YAML the engine consumes.
@@ -639,6 +662,12 @@ class WorkflowSpec:
         # ``itask: opt_freq`` silently changes a frequency workflow to an
         # optimisation when ConfFlow applies its own default.
         out = deepcopy(raw)
+        # P-M4 (R-M4): ``work_dir`` is owned by the CLI (``-w``).  Strip
+        # it from the engine-facing output if it slipped in via a
+        # legacy YAML or a hand-edited preset.
+        global_block = out.get("global") if isinstance(out, dict) else None
+        if isinstance(global_block, dict) and "work_dir" in global_block:
+            global_block.pop("work_dir", None)
         return yaml.safe_dump(out, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
     def to_user_yaml(self) -> str:
@@ -919,8 +948,13 @@ class WorkflowSpec:
             tokens.append(name or kind)
         nproc = int(global_dict.get("cores_per_task", 1) or 1)
         memory_mb = _parse_mem_mb_local(global_dict.get("total_memory"))
+        # P-M4: read ``work_dir`` from wizard metadata first; fall back
+        # to ``global`` for legacy ``_raw`` (which was constructed
+        # before the migration and may still have the value there).
+        wizard_metadata = getattr(self, "_wizard_metadata", None) or {}
+        work_dir_name = wizard_metadata.get("work_dir") or global_dict.get("work_dir", "")
         return {
-            "work_dir_name": global_dict.get("work_dir", ""),
+            "work_dir_name": work_dir_name,
             "program": program,
             "method": method,
             "basis": basis,

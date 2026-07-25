@@ -115,3 +115,45 @@ def test_same_basename_inputs_get_distinct_staged_work_and_checkpoint_paths():
         "same_2_confflow_work/workflow_stats.json",
         "same_2_confflow_work/.workflow_state.json",
     ]
+
+
+def test_cli_work_dir_is_authoritative():
+    """P-M4 (R-M4): the CLI is the single source of truth for work_dir.
+
+    The adapter bakes ``-w`` into the command template using a fixed
+    ``<basename>_confflow_work`` token.  The user's form value must
+    not leak into the engine-facing YAML; ``to_yaml`` must strip
+    ``work_dir`` from the global payload even when a form value is
+    present.
+    """
+    import yaml
+
+    from jobdesk_app.core.workflow_spec import WorkflowSpec
+
+    spec = ConfFlowAdapter.build_spec(
+        server_id="wsl",
+        remote_dir="/tmp/jobdesk",
+        xyz_paths=["/tmp/jobdesk/water.xyz"],
+        config_path="/tmp/jobdesk/workflow.yaml",
+    )
+    plan = build_run_plan(spec, run_id="auth-cli")
+    assert "-w" in plan.tasks[0].command
+    assert "_confflow_work" in plan.tasks[0].command
+
+    from jobdesk_app.core import workflow_spec as workflow_spec_module
+
+    if workflow_spec_module._CONFFLOW_AVAILABLE:
+        form_spec = WorkflowSpec.from_form(
+            work_dir_name="ignored_work_dir",
+            program="gaussian",
+            method="HF",
+            basis="3-21G",
+            charge=0,
+            multiplicity=1,
+            nproc=1,
+            memory_mb=1024,
+        )
+        parsed = yaml.safe_load(form_spec.to_yaml()) or {}
+        assert "work_dir" not in parsed.get("global", {})
+        # Wizard metadata still holds the form value for re-display.
+        assert form_spec.to_form().get("work_dir_name") == "ignored_work_dir"

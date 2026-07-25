@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -320,6 +321,15 @@ class SubmitDialog(QDialog):
         layout.addRow(tr("Charge:", self._language), self.charge_spin)
         layout.addRow(tr("Multiplicity:", self._language), self.mult_spin)
         layout.addRow(tr("Server:", self._language), self.server_combo)
+        # P-M4 (R-M4): work directory is owned by the CLI (``-w``); the
+        # GUI surfaces it as a read-only hint so the user can see the
+        # exact value that will be passed to ConFlow at submit time.
+        self.work_dir_label = QLineEdit()
+        self.work_dir_label.setReadOnly(True)
+        self.work_dir_label.setPlaceholderText(
+            tr("Work dir (locked by CLI: <basename>_confflow_work)", self._language)
+        )
+        layout.addRow(tr("Work dir:", self._language), self.work_dir_label)
         return box
 
     # -- State refresh --
@@ -612,6 +622,12 @@ class SubmitDialog(QDialog):
         first_local = next((source.path for source in files if source.side == "local"), None)
         output_dir = first_local.parent if first_local is not None else self._workspace
         work_dir_name = f"{first.stem or 'job'}_work"
+        # P-M4 (R-M4): surface the CLI-locked work directory on the
+        # read-only label so the user sees the exact value that will be
+        # passed via ``-w`` at submit time.
+        work_dir_label = getattr(self, "work_dir_label", None)
+        if work_dir_label is not None:
+            work_dir_label.setText(work_dir_name)
         server_id = self._server_id
         remote_dir = self._remote_dir
         max_parallel = self._max_parallel

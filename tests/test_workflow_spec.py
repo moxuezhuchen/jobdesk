@@ -171,9 +171,11 @@ def test_write_workflow_yaml_is_atomic(tmp_path: Path):
 
         parsed = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
         assert parsed != {}
-        # v6 schema: ``work_dir`` lives under the canonical
-        # ``global`` section (the confflow loader shape).
-        assert parsed.get("global", {}).get("work_dir") == "x"
+        # P-M4 (R-M4): ``work_dir`` is single-owned by the CLI
+        # (``-w``).  The engine-facing ``to_yaml()`` must NOT emit it
+        # under ``global``; the form value is only available to the
+        # wizard via ``_wizard_metadata``.
+        assert "work_dir" not in parsed.get("global", {})
         # Each step has a ``name``; ``type`` is omitted when it is the
         # default value ``calc`` (the wizard's only wizard-visible
         # step type).
