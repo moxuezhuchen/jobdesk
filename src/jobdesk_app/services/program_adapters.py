@@ -28,8 +28,9 @@ from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind
 class ConfFlowAdapter:
     """Build a single JobDesk run whose remote program owns the workflow."""
 
-    @staticmethod
+    @classmethod
     def build_spec(
+        cls,
         server_id: str,
         remote_dir: str,
         xyz_paths: list[str] | str,
@@ -37,38 +38,19 @@ class ConfFlowAdapter:
         max_parallel: int = 1,
         resume: bool = False,
     ) -> RunSpec:
-        if isinstance(xyz_paths, str):
-            xyz_paths = [xyz_paths]
-        work_dir_token = f"{{basename}}{WORK_DIR_SUFFIX}"
-        command = (
-            f"workspace={shlex.quote(remote_dir)} && source={{path}} && "
-            'staged="$workspace/"{artifact_name} && cd "$workspace" && '
-            'if [ "$source" != "$staged" ]; then cp -- "$source" "$staged"; fi && '
-            f'confflow "$staged" -c {shlex.quote(config_path)} '
-            f'-w "$workspace/"{work_dir_token}'
-        )
-        if resume:
-            command += " --resume"
-        return RunSpec(
+        return cls._build(
+            WorkflowKind.confflow,
             server_id=server_id,
             remote_dir=remote_dir,
-            command_template=command,
+            xyz_paths=xyz_paths,
+            config_path=config_path,
             max_parallel=max_parallel,
-            mode=RunMode.selected_files,
-            sources=_workflow_sources(xyz_paths),
-            supporting_sources=[RunSource(config_path)],
-            result_templates=[
-                "{basename}.txt",
-                "{basename}min.xyz",
-                f"{work_dir_token}/{RUN_SUMMARY_FILE}",
-                f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
-                f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
-            ],
-            workflow_kind=WorkflowKind.confflow,
+            resume=resume,
         )
 
-    @staticmethod
+    @classmethod
     def build_dag_spec(
+        cls,
         server_id: str,
         remote_dir: str,
         xyz_paths: list[str] | str,
@@ -85,6 +67,27 @@ class ConfFlowAdapter:
         flip ``workflow_kind`` to ``WorkflowKind.dag`` so the runs
         / results page can distinguish a DAG run from a linear one.
         """
+        return cls._build(
+            WorkflowKind.dag,
+            server_id=server_id,
+            remote_dir=remote_dir,
+            xyz_paths=xyz_paths,
+            config_path=config_path,
+            max_parallel=max_parallel,
+            resume=resume,
+        )
+
+    @staticmethod
+    def _build(
+        workflow_kind: WorkflowKind,
+        *,
+        server_id: str,
+        remote_dir: str,
+        xyz_paths: list[str] | str,
+        config_path: str,
+        max_parallel: int = 1,
+        resume: bool = False,
+    ) -> RunSpec:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
         work_dir_token = f"{{basename}}{WORK_DIR_SUFFIX}"
@@ -112,7 +115,7 @@ class ConfFlowAdapter:
                 f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
                 f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
             ],
-            workflow_kind=WorkflowKind.dag,
+            workflow_kind=workflow_kind,
         )
 
 
