@@ -2,6 +2,12 @@
 
 Maintains one SSH connection per server, tailing _batch/events.log.
 Emits a signal when a task completes (DONE line received).
+
+Writes:
+- events.log: touch only (read-only tail consumers). No writes from this module.
+- mktemp under remote scratch (``${TMPDIR:-/tmp}/jobdesk-checkpoint.XXXXXX``):
+  created by the probe, removed via EXIT trap; never persists beyond a single
+  checkpoint probe.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +192,9 @@ def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
     last_updated_at = raw.get("last_updated_at")
     if last_updated_at is not None:
         try:
-            last_updated = datetime.fromtimestamp(float(last_updated_at)).isoformat()
+            last_updated = datetime.fromtimestamp(
+                float(last_updated_at), tz=timezone.utc
+            ).isoformat()
         except (ValueError, OSError):
             pass
 
