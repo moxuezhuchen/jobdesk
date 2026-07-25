@@ -40,7 +40,7 @@ servers:
     username: root
     auth_method: key
     key_path: C:/Users/me/.ssh/id_rsa
-    wsl_distro: Ubuntu
+    wsl_distro: Ubuntu-24.04
     trust_on_first_use: false
     env_init_scripts: []
     ssh_access:

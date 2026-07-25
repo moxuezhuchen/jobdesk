@@ -102,7 +102,7 @@ enables reliable resume:
 ## WSL Prerequisites
 
 - `wsl` exists in `%APPDATA%\JobDesk\servers.yaml`, includes
-  `wsl_distro: Ubuntu`, and connects over SSH.
+  `wsl_distro: Ubuntu-24.04`, and connects over SSH.
 - The JobDesk task shell can find `confflow` and the calculation program used
   by the YAML.
 - For the provided integration test, Gaussian is available at `/opt/g16/g16`.

@@ -155,8 +155,9 @@ The Submit page and the remote `confflow` binary must import the same
 Pydantic model version (`pyproject.toml` pins this).
 
 A ConfFlow run is observed via `services/run_monitor.py` polling the
-remote `events.log` (DONE / RUNNING) **and** probing
-`workflow_stats.json` mtime once per iteration. The latter fires a
+remote `events.log` (DONE / RUNNING) **and** probing the SHA-256 digest
+of state + stats files once per iteration (see
+`_CHECKPOINT_PROBE_SECONDS` in `run_monitor.py`). The latter fires a
 synthetic DoneEvent so the Runs page Progress column updates
 between DONE lines.
 
