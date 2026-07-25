@@ -5,7 +5,19 @@ from .app_paths import get_logs_dir
 
 
 def configure_file_logging(logger_name: str = "jobdesk") -> logging.Logger:
-    logger = logging.getLogger(logger_name)
+    """Configure file logging on the ``jobdesk_app`` namespace logger.
+
+    All loggers named ``jobdesk_app`` (and any descendants ``jobdesk_app.*``)
+    share a single file handler chain so submodule logs land in the same
+    ``%APPDATA%\\JobDesk\\logs\\jobdesk-YYYYMMDD.log`` file.
+
+    The legacy ``logger_name="jobdesk"`` parameter is preserved for backward
+    compatibility: when supplied, calls are bridged to the ``jobdesk_app``
+    namespace so the same handler chain is reused across the process and
+    duplicate handlers are not added.
+    """
+    target_name = "jobdesk_app" if logger_name == "jobdesk" else logger_name
+    logger = logging.getLogger(target_name)
     logger.setLevel(logging.INFO)
     try:
         logs_dir = get_logs_dir()
@@ -20,6 +32,7 @@ def configure_file_logging(logger_name: str = "jobdesk") -> logging.Logger:
         handler = logging.FileHandler(log_path, encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
+        logger.propagate = False
     except OSError:
         if not logger.handlers:
             logger.addHandler(logging.NullHandler())

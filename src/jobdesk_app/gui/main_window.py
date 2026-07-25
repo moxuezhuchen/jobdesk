@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
         self.resize(size[0], size[1])
         self.state = AppState()
         self.language = settings.language
-        self._file_logger = configure_file_logging()
+        self._file_logger = configure_file_logging("jobdesk_app")
         self.setStyleSheet(build_app_stylesheet())
 
         nav_items = [(icon, tr(label, self.language)) for icon, label in _NAV_ITEMS]
@@ -354,6 +354,13 @@ class MainWindow(QMainWindow):
             if outcome.errors:
                 self.show_error(tr("Submit", self.language), "\n".join(outcome.errors))
                 return
+            warnings = [
+                warning
+                for result in outcome.submit_results
+                for warning in result.warnings
+            ]
+            if warnings:
+                self.runs_page.set_submit_warnings(warnings)
             run_ids = [r.run_id for r in outcome.records if not outcome.errors]
             _show_submitted_runs(self, run_ids)
 
