@@ -140,23 +140,14 @@ def _legacy_load_summary(path: Path) -> ConfFlowSummary:
 load_summary = _legacy_load_summary
 
 
-def load_step_progress(path: Path) -> ConfFlowStepProgress:
-    """Parse ConfFlow's workflow stats file for per-step completion.
+def _load_step_progress_inner(path: Path) -> ConfFlowStepProgress:
+    """Inner step-progress parser; raises nothing and never returns ``None``.
 
-    ConfFlow writes one workflow stats file per molecule under the
-    consumer-owned work directory.  The shape (v1.0.10) is::
-
-        {
-          "steps": [
-            {"name": "confgen", "status": "completed", ...},
-            {"name": "opt",      "status": "running",   ...}
-          ],
-          "last_updated": "2026-07-06T..."
-        }
-
-    Missing or malformed files yield an empty progress snapshot — callers
-    decide whether to render that as "no progress yet" or to flag a parse
-    error. We never raise.
+    R-L2 (P-L2): this is the shared implementation for both
+    :func:`load_step_progress` (legacy) and
+    :func:`load_step_progress_result` (state-aware).  It always
+    returns a :class:`ConfFlowStepProgress` and never raises so
+    retry loops can keep reading partial writes.
     """
     if not path.exists():
         return ConfFlowStepProgress()
@@ -166,7 +157,9 @@ def load_step_progress(path: Path) -> ConfFlowStepProgress:
         return ConfFlowStepProgress()
     steps = raw.get("steps") if isinstance(raw, dict) else None
     if not isinstance(steps, list):
-        return ConfFlowStepProgress(last_updated=str(raw.get("last_updated", "")) if isinstance(raw, dict) else "")
+        return ConfFlowStepProgress(
+            last_updated=str(raw.get("last_updated", "")) if isinstance(raw, dict) else ""
+        )
     completed: list[str] = []
     current = ""
     step_statuses: dict[str, str] = {}
@@ -188,6 +181,63 @@ def load_step_progress(path: Path) -> ConfFlowStepProgress:
         last_updated=str(raw.get("last_updated", "")) if isinstance(raw, dict) else "",
         step_statuses=step_statuses,
     )
+
+
+def load_step_progress_result(path: Path) -> ParseResult[ConfFlowStepProgress]:
+    """State-aware step-progress parser (R-L2 / P-L2).
+
+    Returns a :class:`ParseResult` whose ``state`` is:
+
+    - ``OK``        — ``path`` parsed cleanly; ``summary`` is the
+      :class:`ConfFlowStepProgress`.
+    - ``MISSING``   — ``path`` does not exist; ``summary`` is an empty
+      :class:`ConfFlowStepProgress` (so the caller can still drive a
+      "no progress yet" UI without having to special-case ``None``).
+    - ``MALFORMED`` — ``path`` exists but is unreadable / not JSON / not
+      a dict; ``summary`` is an empty :class:`ConfFlowStepProgress`.
+
+    The GUI uses ``state`` to render "✗ Missing" / "⚠ Parse Error" /
+    "✓ Done" explicitly.  Inserting an empty progress into the
+    summary field for MISSING/MALFORMED keeps callers that ignore
+    ``state`` (consumer of the legacy ``load_step_progress`` API)
+    behaving as before.
+    """
+    if not path.exists():
+        return ParseResult(state=ParseState.MISSING, summary=ConfFlowStepProgress())
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
+    if not isinstance(raw, dict):
+        return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
+    return ParseResult(state=ParseState.OK, summary=_load_step_progress_inner(path))
+
+
+def load_step_progress(path: Path) -> ConfFlowStepProgress:
+    """Parse ConfFlow's workflow stats file for per-step completion.
+
+    ConfFlow writes one workflow stats file per molecule under the
+    consumer-owned work directory.  The shape (v1.0.10) is::
+
+        {
+          "steps": [
+            {"name": "confgen", "status": "completed", ...},
+            {"name": "opt",      "status": "running",   ...}
+          ],
+          "last_updated": "2026-07-06T..."
+        }
+
+    Missing or malformed files yield an empty progress snapshot — callers
+    decide whether to render that as "no progress yet" or to flag a parse
+    error. We never raise.
+
+    R-L2 (P-L2): this is the legacy entry point.  Internal parsing was
+    moved to :func:`_load_step_progress_inner`; the state-aware API is
+    :func:`load_step_progress_result`.  New callers should use the
+    state-aware API; this wrapper is preserved for backward
+    compatibility.
+    """
+    return _load_step_progress_inner(path)
 
 
 def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
