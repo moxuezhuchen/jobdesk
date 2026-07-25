@@ -10,7 +10,11 @@ import shlex
 from collections.abc import Iterable
 from typing import Any
 
-from ..core.confflow_preflight import parse_confflow_capabilities, validate_confflow_capabilities
+from ..core.confflow_preflight import (
+    ConfFlowCapabilities,
+    parse_confflow_capabilities,
+    validate_confflow_capabilities,
+)
 
 
 class ConfFlowCapabilityPreflightError(RuntimeError):
@@ -43,11 +47,15 @@ def probe_confflow_capabilities(
     *,
     env_init_scripts: Iterable[str] = (),
     require_dag: bool = False,
-) -> None:
-    """Run and validate the v2 capability handshake on an SSH client.
+) -> ConfFlowCapabilities:
+    """Run and validate the capability handshake on an SSH client.
 
-    Raises ConfFlowCapabilityPreflightError for connection,
-    command, parsing, schema, version, capability, or artifact failures.
+    Raises ConfFlowCapabilityPreflightError for connection, command,
+    parsing, schema, version, capability, or artifact failures.
+
+    Returns the parsed ``ConfFlowCapabilities`` on success so the
+    caller can forward reusable fields (build provenance, version)
+    to the SubmitResult warnings (R-M1 / P-H0 / P-H2C).
     """
     command = build_confflow_preflight_shell(env_init_scripts=env_init_scripts)
     try:
@@ -62,3 +70,4 @@ def probe_confflow_capabilities(
         validate_confflow_capabilities(capabilities, require_dag=require_dag)
     except ValueError as exc:
         raise ConfFlowCapabilityPreflightError(f"ConfFlow capability preflight failed: {exc}") from exc
+    return capabilities

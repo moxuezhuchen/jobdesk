@@ -561,3 +561,46 @@ def test_refresh_requests_ssh_only_session_pool_lease(tmp_path, monkeypatch) -> 
     assert outcome.errors == []
     service.refresh_run.assert_called_once_with(record.run_id, ssh)
     pool.lease.assert_called_once_with("server", _server("server"), need_sftp=False)
+
+
+def test_probe_capabilities_uses_session_pool(tmp_path, monkeypatch) -> None:
+    """P-M1 (R-M1): the capability probe borrows the shared pool.
+
+    Asserts that ``probe_capabilities`` routes through
+    ``self._clients`` (which leases from the shared pool), unpacks
+    ``(ssh, _)``, and forwards both ``env_init_scripts`` and
+    ``require_dag`` to the underlying probe.
+    """
+    from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
+
+    capabilities = MagicMock(spec=ConfFlowCapabilities)
+    monkeypatch.setattr(
+        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        MagicMock(return_value=capabilities),
+    )
+    ssh = MagicMock()
+    lease = MagicMock()
+    lease.__enter__.return_value = SimpleNamespace(ssh=ssh, sftp=None)
+    pool = MagicMock()
+    pool.lease.return_value = lease
+    service = MagicMock()
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=_server,
+        ssh_factory=MagicMock(),
+        sftp_factory=MagicMock(),
+        session_pool=pool,
+    )
+
+    result = coordinator.probe_capabilities("server", require_dag=True)
+
+    assert result is capabilities
+    pool.lease.assert_called_once_with("server", _server("server"), need_sftp=False)
+    probe = coordinator.probe_capabilities.__globals__["probe_confflow_capabilities"]
+    # The ``require_dag`` + ``env_init_scripts`` forwarding lives on
+    # the probe call site; re-invoke so we can check it.
+    probe.reset_mock()
+    coordinator.probe_capabilities("server", require_dag=True)
+    call_kwargs = probe.call_args.kwargs
+    assert call_kwargs["require_dag"] is True
+    assert call_kwargs["env_init_scripts"] == []

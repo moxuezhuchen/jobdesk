@@ -18,6 +18,8 @@ from ..config.schema import ServerConfig
 from ..core.run import RunSpec
 from ..core.submit import SubmitResult
 from ..core.transfer import TransferRecord
+from ..core.confflow_preflight import ConfFlowCapabilities
+from ..remote.confflow_probe import probe_confflow_capabilities
 from .run_repository import RunRecord
 from .run_service import RunService
 from .scheduler_helpers import resources_from_server, scheduler_from_server
@@ -269,6 +271,28 @@ class RunCoordinator:
         except Exception as exc:
             errors.append(_error_text(exc))
         return RunOperationOutcome(changed_count=changed, errors=errors)
+
+    def probe_capabilities(
+        self,
+        server_id: str,
+        *,
+        require_dag: bool = False,
+    ) -> ConfFlowCapabilities:
+        """Run the ConfFlow capability handshake through the shared pool.
+
+        P-M1 (R-M1): the probe borrows the same SSH transport that
+        subsequent upload/refresh traffic will use, so the GUI does
+        not open a second connection on the upload path.  When no
+        pool is configured (tests / CLI), we fall back to a fresh
+        client via ``_clients``.
+        """
+        server = self._server_lookup(server_id)
+        with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
+            return probe_confflow_capabilities(
+                ssh,
+                env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+                require_dag=require_dag,
+            )
 
     # ---- composed -------------------------------------------------------------
 

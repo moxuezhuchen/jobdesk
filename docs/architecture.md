@@ -35,6 +35,18 @@ The GUI never talks directly to `remote/`; everything routes through
 `services/run_coordinator.RunCoordinator`, which is the only place
 that holds session leases via `SessionPool`.
 
+> **P-M1 (R-M1) — serialised reuse, not concurrency.** The
+> `SessionPool` owned by `MainWindow` is shared by the Files page and
+> the Runs page (and each `RunCoordinator` they create).  When the
+> GUI runs a ConfFlow capability probe before upload, the probe
+> borrows the same SSH transport that the subsequent upload will
+> reuse.  Each `pool.lease(...)` returns both an SSH and an SFTP
+> handle and they are released together when the lease exits — read
+> and write therefore serialise through one SFTP channel rather
+> than racing two.  Long-lived leases held across multiple
+> operations are intentionally not supported: every file operation
+> enters and exits its own lease.
+
 ## 3-page GUI shell
 
 `gui/main_window.py` wires a `QStackedWidget` of four pages (Phase 14):
