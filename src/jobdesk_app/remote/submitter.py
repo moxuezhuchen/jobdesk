@@ -556,6 +556,42 @@ class JobSubmitter:
                 return False
         return True
 
+    def resource_budget_warning(self, server_max_cores: int | None) -> str | None:
+        """Return a one-line warning when the effective slot count exceeds the
+        server budget threshold.
+
+        P-M2 (R-M2): reads the per-task ``resource_budget`` (carried
+        by the run spec / task plan from the wizard) and compares
+        ``effective_slots`` against ``server_max_cores * 0.8``.
+        Returns ``None`` when no budget is recorded or the run is
+        under the threshold.  The caller (``RunService`` or the GUI
+        layer) decides whether to surface it via the
+        ``SubmitResult.warnings`` list (P-H0) or the GUI banner.
+        """
+        from ..core.manifest import ResourceBudget
+
+        budget_data = None
+        for task in self._tasks:
+            if task.resource_budget is not None:
+                budget_data = task.resource_budget
+                break
+        if budget_data is None:
+            return None
+        # ``resource_budget`` is persisted as a JSON dict (see
+        # ``TaskRecord.model_dump``); rebuild the dataclass.
+        budget = ResourceBudget(
+            jobdesk_max_parallel=int(budget_data.get("jobdesk_max_parallel", 1) or 1),
+            yaml_max_parallel_jobs=int(budget_data.get("yaml_max_parallel_jobs", 1) or 1),
+            cores_per_task=int(budget_data.get("cores_per_task", 1) or 1),
+        )
+        if not budget.exceeds(server_max_cores):
+            return None
+        return (
+            f"Effective slots {budget.effective_slots} exceed "
+            f"{int((server_max_cores or 0) * 0.8)} (80% of server "
+            f"max_cores={server_max_cores})"
+        )
+
     def _preflight_shell(self, command: str) -> str:
         return build_confflow_preflight_shell(command, self._env_init_scripts)
 

@@ -2,9 +2,11 @@ import csv
 import io
 import json
 import threading
+from dataclasses import dataclass
 from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -109,6 +111,43 @@ class TaskRecord(BaseModel):
     downloaded_at: datetime | None = None
     analyzed_at: datetime | None = None
     error_message: str | None = None
+    # P-M2 (R-M2): effective core-slot budget for the run.  Persisted
+    # in the SQLite ``tasks.payload_json`` via ``model_dump``; the TSV
+    # manifest path leaves the column out so old manifests keep
+    # loading cleanly.  When the SQLite column exists, this field is
+    # the authoritative read/write surface.
+    resource_budget: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ResourceBudget:
+    """Effective resource budget for a ConfFlow run.
+
+    The CLI (``jobdesk``), the wizard, and the remote scheduler all
+    multiply a different per-level concurrency value. The total
+    effective core slots used by one submission is::
+
+        jobdesk_max_parallel
+          × yaml_max_parallel_jobs
+          × cores_per_task
+
+    P-M2 (R-M2): persisted alongside the run so the GUI / refresh
+    path can flag the run when its effective slot count exceeds the
+    configured ``ServerConfig.max_cores`` threshold (default 80 %).
+    """
+
+    jobdesk_max_parallel: int
+    yaml_max_parallel_jobs: int
+    cores_per_task: int
+
+    @property
+    def effective_slots(self) -> int:
+        return int(self.jobdesk_max_parallel) * int(self.yaml_max_parallel_jobs) * int(self.cores_per_task)
+
+    def exceeds(self, server_max_cores: int | None, *, threshold: float = 0.8) -> bool:
+        if not server_max_cores:
+            return False
+        return self.effective_slots > int(server_max_cores) * threshold
 
 
 class Manifest:

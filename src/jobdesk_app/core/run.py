@@ -6,12 +6,16 @@ import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from .confflow_contract import (
     WORKFLOW_STATE_FILE,
     WORKFLOW_STATS_FILE,
     work_dir_name,
 )
+
+if TYPE_CHECKING:
+    from .manifest import ResourceBudget
 
 
 class RunMode(str, Enum):
@@ -84,6 +88,12 @@ class RunSpec:
     # How the remote program interprets command_template; default keeps
     # backwards compatibility with rows that predate WorkflowKind.
     workflow_kind: WorkflowKind = WorkflowKind.gaussian
+    # P-M2 (R-M2): effective resource budget (jobdesk × yaml × cores)
+    # captured at submit time so the warning surface downstream can
+    # compare against ``ServerConfig.max_cores`` without re-reading
+    # the wizard / YAML inputs.  Optional because Gaussian/ORCA runs do
+    # not always carry a YAML-level parallel setting.
+    resource_budget: "ResourceBudget | None" = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +116,10 @@ class RunTaskPlan:
     resume_command: str = ""
     resume_dry_run_command: str = ""
     resume_requested: bool = False
+    # P-M2 (R-M2): see ``RunSpec.resource_budget``.  Propagated so
+    # downstream warning logic can compute effective slots without
+    # re-reading the YAML.
+    resource_budget: "ResourceBudget | None" = None
 
 
 @dataclass(frozen=True)
@@ -165,6 +179,7 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
                 resume_command=resume_command,
                 resume_dry_run_command=(_append_command_flag(resume_command, "--dry-run") if is_workflow else ""),
                 resume_requested=is_workflow and _has_command_flag(rendered_command, "--resume"),
+                resource_budget=spec.resource_budget,
             )
         )
     return RunPlan(run_id=rid, created_at=datetime.now(), spec=spec, tasks=tasks)
