@@ -3,11 +3,32 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 # Status values that indicate the run has reached a terminal state
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "skipped"})
+
+
+class ParseState(Enum):
+    """Tri-state result of attempting to parse a producer artifact.
+
+    ``OK``        — file parsed cleanly with the expected fields (extra keys
+                    allowed; producer may add forward-compatible fields).
+    ``MISSING``   — file does not exist on disk (caller decides what to render).
+    ``MALFORMED`` — file exists but is unreadable / wrong shape / not a dict /
+                    contains invalid types for the expected fields.
+
+    P-H1 (R-H1): explicit three-way distinction replaces the old
+    ``load_summary`` behaviour, which silently folded ``missing`` and
+    ``malformed`` into a zero-valued ``ConfFlowSummary`` and hid the
+    distinction from the GUI.
+    """
+
+    OK = "ok"
+    MISSING = "missing"
+    MALFORMED = "malformed"
 
 
 @dataclass(frozen=True)
@@ -17,6 +38,25 @@ class ConfFlowSummary:
     total_duration_seconds: float
     step_status_counts: dict[str, int] = field(default_factory=dict)
     lowest_conformer: dict[str, Any] | None = None
+
+
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class ParseResult(Generic[_T]):
+    """Outcome of a parse attempt.
+
+    ``state``  — ``OK`` / ``MISSING`` / ``MALFORMED`` (see :class:`ParseState`).
+    ``summary`` — the parsed payload when ``state is OK``; ``None`` otherwise.
+
+    R-H1 introduced this so the GUI can render ``✗ Missing`` vs
+    ``✗ Parse Error`` vs ``✓ Done`` explicitly, instead of treating both
+    missing and malformed as zero-valued summaries.
+    """
+
+    state: ParseState
+    summary: _T | None = None
 
 
 @dataclass(frozen=True)
@@ -38,28 +78,66 @@ class ConfFlowStepProgress:
     final_status: str = ""
 
 
-def load_summary(path: Path) -> ConfFlowSummary:
+def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
+    """Parse a ConfFlow run_summary.json with explicit state.
+
+    R-H1 (P-H1) API. Replaces the silent fallback in :func:`load_summary`,
+    which folded ``missing`` and ``malformed`` into a zero-valued
+    :class:`ConfFlowSummary` and prevented the GUI from distinguishing
+    "file absent" from "file present but unreadable".
+
+    Returns:
+        ``ParseResult(state=OK, summary=<ConfFlowSummary>)`` when the file
+        parses cleanly; ``summary`` may carry extra keys (forward compat).
+        ``ParseResult(state=MISSING, summary=None)`` when ``path`` is absent.
+        ``ParseResult(state=MALFORMED, summary=None)`` when the file is
+        unreadable, not valid JSON, not a JSON object, or has wrong field
+        types for any expected key.
+    """
     if not path.exists():
-        return ConfFlowSummary(
-            initial_conformers=0,
-            final_conformers=0,
-            total_duration_seconds=0.0,
-        )
+        return ParseResult(state=ParseState.MISSING, summary=None)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ConfFlowSummary(
-            initial_conformers=0,
-            final_conformers=0,
-            total_duration_seconds=0.0,
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
+    if not isinstance(raw, dict):
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
+    try:
+        summary = ConfFlowSummary(
+            initial_conformers=int(raw.get("initial_conformers", 0) or 0),
+            final_conformers=int(raw.get("final_conformers", 0) or 0),
+            total_duration_seconds=float(
+                raw.get("total_duration_seconds", 0) or 0
+            ),
+            step_status_counts=dict(raw.get("step_status_counts", {}) or {}),
+            lowest_conformer=raw.get("lowest_conformer"),
         )
+    except (TypeError, ValueError):
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
+    return ParseResult(state=ParseState.OK, summary=summary)
+
+
+def _legacy_load_summary(path: Path) -> ConfFlowSummary:
+    """Legacy ``load_summary`` — kept for existing callers (R-H1 P-H1).
+
+    Forwards to :func:`load_summary_result` and returns a zero-valued
+    :class:`ConfFlowSummary` for any non-``OK`` state, preserving the
+    original "never raise, never distinguish" contract for back-compat.
+    """
+    result = load_summary_result(path)
+    if result.state is ParseState.OK and result.summary is not None:
+        return result.summary
     return ConfFlowSummary(
-        initial_conformers=int(raw.get("initial_conformers", 0) or 0),
-        final_conformers=int(raw.get("final_conformers", 0) or 0),
-        total_duration_seconds=float(raw.get("total_duration_seconds", 0) or 0),
-        step_status_counts=dict(raw.get("step_status_counts", {}) or {}),
-        lowest_conformer=raw.get("lowest_conformer"),
+        initial_conformers=0,
+        final_conformers=0,
+        total_duration_seconds=0.0,
     )
+
+
+# Backwards-compatible alias: existing call sites import ``load_summary``.
+# R-H1 keeps the name; the implementation now routes through the explicit
+# state API so that new GUI code can call ``load_summary_result`` directly.
+load_summary = _legacy_load_summary
 
 
 def load_step_progress(path: Path) -> ConfFlowStepProgress:
@@ -207,7 +285,17 @@ def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
     )
 
 
-def format_summary(summary: ConfFlowSummary) -> str:
+def format_summary(summary: ConfFlowSummary | None) -> str:
+    """Render a ConfFlow summary as multi-line text.
+
+    R-H1 (P-H1): ``None`` is rendered as an empty placeholder so callers that
+    pass a missing/malformed result (the ``summary`` field of
+    :class:`ParseResult` for non-OK states) do not crash. Callers are
+    expected to gate on the :class:`ParseState` first and only call this
+    when state is ``OK``; the ``None`` branch is a defensive backstop.
+    """
+    if summary is None:
+        return ""
     lines = [
         "ConfFlow summary",
         f"Initial conformers: {summary.initial_conformers}",
