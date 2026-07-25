@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jobdesk_app.core.run import WorkflowKind
 
 # Seconds a non-leader worker will wait for another worker that just
 # authored the ``files_isolated`` journal advance to finish the cleanup
@@ -46,6 +50,10 @@ class RunRecord:
     env_init_scripts: list = field(default_factory=list)
     scheduler_type: str = "nohup"
     resources: dict = field(default_factory=dict)
+    # Derived (NOT a SQL column): aggregated from tasks.payload_json by
+    # ``_row_to_record`` so ``load_run`` and ``list_runs`` agree. ``None`` when
+    # tasks are empty or mixed across kinds.
+    workflow_kind: "WorkflowKind | None" = None
 
 
 @dataclass(frozen=True)

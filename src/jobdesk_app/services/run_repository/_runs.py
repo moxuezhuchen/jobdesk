@@ -63,6 +63,7 @@ def _row_to_record(connection: sqlite3.Connection, row: sqlite3.Row, runs_dir: P
         """,
         (run_id,),
     ).fetchall()
+    workflow_kind = _derive_workflow_kind(connection, run_id)
     return RunRecord(
         run_id=run_id,
         server_id=str(row["server_id"]),
@@ -79,7 +80,44 @@ def _row_to_record(connection: sqlite3.Connection, row: sqlite3.Row, runs_dir: P
         env_init_scripts=list(json.loads(row["env_init_scripts_json"])),
         scheduler_type=str(row["scheduler_type"]),
         resources=dict(json.loads(row["resources_json"])),
+        workflow_kind=workflow_kind,
     )
+
+
+def _load_task_workflow_kinds(connection: sqlite3.Connection, run_id: str) -> list[str]:
+    """Return the distinct ``workflow_kind`` values across tasks for ``run_id``.
+
+    Empty list means no tasks. The aggregation is one query, not N+1.
+    """
+    rows = connection.execute(
+        "SELECT DISTINCT payload_json FROM tasks WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+    kinds: set[str] = set()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (ValueError, TypeError):
+            continue
+        value = payload.get("workflow_kind") if isinstance(payload, dict) else None
+        if value is not None:
+            kinds.add(str(value))
+    return sorted(kinds)
+
+
+def _derive_workflow_kind(connection: sqlite3.Connection, run_id: str):
+    """Single-query aggregation: all-empty → None, all-same → value, mixed → None."""
+    from jobdesk_app.core.run import WorkflowKind
+
+    distinct = _load_task_workflow_kinds(connection, run_id)
+    if not distinct:
+        return None
+    if len(distinct) == 1:
+        try:
+            return WorkflowKind(distinct[0])
+        except ValueError:
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------

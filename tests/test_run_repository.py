@@ -15,6 +15,7 @@ import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest, TaskRecord
+from jobdesk_app.core.run import WorkflowKind
 from jobdesk_app.services.run_repository import OperationRecord, RunRecord, RunRepository
 from tests.repository_helpers import replace_tasks_for_test
 
@@ -1754,6 +1755,83 @@ def test_ready_database_restores_wal_after_external_journal_mode_change(
 
     with sqlite3.connect(repository.database_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_run_record_workflow_kind_derived_from_tasks(tmp_path: Path) -> None:
+    """All tasks share a workflow_kind → that kind is derived on the record."""
+    repository = RunRepository(tmp_path / "runs")
+    record = _record(repository.runs_dir, "run-wf")
+    repository.create_run(record, [_task("a", batch_id=record.run_id)])
+
+    replace_tasks_for_test(
+        repository,
+        record.run_id,
+        [
+            _task("a", batch_id=record.run_id).model_copy(
+                update={"workflow_kind": "confflow"}
+            ),
+            _task("b", batch_id=record.run_id).model_copy(
+                update={"workflow_kind": "confflow"}
+            ),
+        ],
+    )
+
+    loaded = repository.load_run(record.run_id)
+    assert loaded.workflow_kind is WorkflowKind.confflow
+
+
+def test_run_record_workflow_kind_empty_when_no_tasks(tmp_path: Path) -> None:
+    """An empty task set yields ``workflow_kind=None``."""
+    repository = RunRepository(tmp_path / "runs")
+    record = _record(repository.runs_dir, "run-empty")
+    repository.create_run(record, [_task("a", batch_id=record.run_id)])
+
+    replace_tasks_for_test(repository, record.run_id, [])
+
+    assert repository.load_run(record.run_id).workflow_kind is None
+
+
+def test_run_record_workflow_kind_none_when_mixed(tmp_path: Path) -> None:
+    """Mixed kinds across tasks collapse to ``None``."""
+    repository = RunRepository(tmp_path / "runs")
+    record = _record(repository.runs_dir, "run-mix")
+    repository.create_run(record, [_task("a", batch_id=record.run_id)])
+
+    replace_tasks_for_test(
+        repository,
+        record.run_id,
+        [
+            _task("a", batch_id=record.run_id).model_copy(
+                update={"workflow_kind": "confflow"}
+            ),
+            _task("b", batch_id=record.run_id).model_copy(
+                update={"workflow_kind": "dag"}
+            ),
+        ],
+    )
+
+    assert repository.load_run(record.run_id).workflow_kind is None
+
+
+def test_list_runs_populates_workflow_kind(tmp_path: Path) -> None:
+    """``list_runs`` reuses the same derivation as ``load_run``."""
+    repository = RunRepository(tmp_path / "runs")
+    record = _record(repository.runs_dir, "run-list")
+    repository.create_run(record, [_task("a", batch_id=record.run_id)])
+
+    replace_tasks_for_test(
+        repository,
+        record.run_id,
+        [
+            _task("a", batch_id=record.run_id).model_copy(
+                update={"workflow_kind": "dag"}
+            ),
+        ],
+    )
+
+    listed = repository.list_runs()
+    assert len(listed) == 1
+    assert listed[0].workflow_kind is WorkflowKind.dag
 
 
 def test_migration_errors_do_not_force_write_initialization_on_normal_open(
