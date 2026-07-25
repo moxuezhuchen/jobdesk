@@ -89,9 +89,19 @@ def validate_yaml_config(config: dict[str, Any], required_sections: list[str] | 
 
 
 def _validate_step_config(step: dict[str, Any], index: int) -> list[str]:
-    """Validate a single step's configuration."""
+    """Validate a single step's configuration.
+
+    R-H3 (P-H3) — early return on non-dict ``step`` and non-dict
+    ``params`` so the remaining ``.get()`` calls below are statically
+    known to operate on a dict. The function signature is unchanged;
+    callers continue to call ``errors.extend(_validate_step_config(...))``.
+    """
     errors: list[str] = []
     step_id = f"step {index + 1}"
+
+    if not isinstance(step, dict):
+        errors.append(f"{step_id}: must be a mapping, got {type(step).__name__}")
+        return errors
 
     def _pair_list_ok(val: Any) -> bool:
         if val is None:
@@ -125,6 +135,9 @@ def _validate_step_config(step: dict[str, Any], index: int) -> list[str]:
 
     if "params" in step:
         params = step["params"]
+        if not isinstance(params, dict):
+            errors.append(f"{step_id} params: must be a mapping, got {type(params).__name__}")
+            return errors
         step_type = step.get("type", "")
 
         if step_type in ["calc", "task"]:

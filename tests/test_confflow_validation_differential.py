@@ -182,6 +182,21 @@ EXPECTED_REJECTED_BY_BOTH: list[dict[str, Any]] = [
         },
         id="orca_task_missing_keyword",
     ),
+    # R-H3 (P-H3): the offline validator must no longer raise
+    # TypeError / AttributeError on a non-mapping step or a
+    # non-mapping ``params`` value; both inputs are rejected (not
+    # accepted and not crashed) on the JobDesk side.
+    pytest.param(
+        {"global": {}, "steps": [None]},
+        id="null_step_rh3",
+    ),
+    pytest.param(
+        {
+            "global": {},
+            "steps": [{"name": "x", "type": "calc", "params": "oops"}],
+        },
+        id="params_string_rh3",
+    ),
 ]
 
 
