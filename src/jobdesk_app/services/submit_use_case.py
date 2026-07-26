@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..core.manifest import ResourceBudget
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind, chunk_sources
 from ..core.submit_payload import SubmitPayload
 from ..core.workflow_spec import (
@@ -254,7 +255,7 @@ class SubmitUseCase:
             # The workflow page already assembled and validated the final
             # document.  Submit that exact document; reducing it to the old
             # form fields loses per-step params, names and dependencies.
-            WorkflowSpec.from_yaml(workflow.yaml_text)
+            parsed_spec = WorkflowSpec.from_yaml(workflow.yaml_text)
             yaml_local.parent.mkdir(parents=True, exist_ok=True)
             tmp = yaml_local.with_suffix(yaml_local.suffix + ".tmp")
             tmp.write_text(workflow.yaml_text, encoding="utf-8")
@@ -267,6 +268,7 @@ class SubmitUseCase:
                 config_path=yaml_target,
                 max_parallel=payload.max_parallel,
                 resume=False,
+                resource_budget=_resource_budget(parsed_spec, payload.max_parallel),
             )
             return [run_spec], yaml_local, yaml_target
 
@@ -293,6 +295,7 @@ class SubmitUseCase:
             config_path=yaml_target,
             max_parallel=payload.max_parallel,
             resume=False,
+            resource_budget=_resource_budget(spec, payload.max_parallel),
         )
         return [run_spec], yaml_local, yaml_target
 
@@ -348,9 +351,32 @@ class SubmitUseCase:
             config_path=yaml_target,
             max_parallel=payload.max_parallel,
             resume=False,
+            resource_budget=_resource_budget(spec, payload.max_parallel),
         )
         return [run_spec], yaml_local, yaml_target
 
+
+
+
+def _resource_budget(spec: WorkflowSpec, jobdesk_max_parallel: int) -> ResourceBudget:
+    """Capture the three concurrency levels at the submit boundary."""
+    global_config = getattr(spec, "global_config", None)
+    raw_global = getattr(spec, "_raw", {}).get("global", {}) if isinstance(getattr(spec, "_raw", {}), dict) else {}
+
+    def positive(name: str, default: int) -> int:
+        value = getattr(global_config, name, None)
+        if value is None and isinstance(raw_global, dict):
+            value = raw_global.get(name)
+        try:
+            return max(1, int(value or default))
+        except (TypeError, ValueError):
+            return default
+
+    return ResourceBudget(
+        jobdesk_max_parallel=max(1, int(jobdesk_max_parallel or 1)),
+        yaml_max_parallel_jobs=positive("max_parallel_jobs", 1),
+        cores_per_task=positive("cores_per_task", 1),
+    )
 
 def remote_child_path(remote_dir: str, name: str) -> str:
     """Mirror :func:`file_transfer_helpers.remote_child_path` (no GUI dep)."""

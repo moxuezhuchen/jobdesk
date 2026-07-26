@@ -956,14 +956,18 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     )
     capability_json = json.dumps(
         {
-            "schema_version": 2,
-            "version": "1.4.2",
+            "schema_version": 3,
+            "version": "1.4.3",
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
             "artifacts": {
                 "run_summary": "run_summary.json",
                 "workflow_stats": "workflow_stats.json",
                 "workflow_state": ".workflow_state.json",
+                "run_report": "{basename}.txt",
+                "min_xyz": "{basename}min.xyz",
             },
+            "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
+            "build": {"commit": "abc1234", "dirty": False},
         }
     )
     ssh = MagicMock()

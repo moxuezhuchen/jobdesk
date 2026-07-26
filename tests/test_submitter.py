@@ -12,7 +12,7 @@ import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import TaskRecord
-from jobdesk_app.core.submit import SubmitMode
+from jobdesk_app.core.submit import SubmitMode, SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord
 from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
 from jobdesk_app.remote.scheduler import SlurmAdapter
@@ -106,7 +106,7 @@ def _make_workflow_task(*, dag: bool = False, resume: bool = False) -> TaskRecor
     return task
 
 
-def _capability_result(*, dag: bool = True) -> SSHResult:
+def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHResult:
     from jobdesk_app.core.confflow_contract import (
         EXPECTED_ARTIFACTS,
     )
@@ -116,8 +116,8 @@ def _capability_result(*, dag: bool = True) -> SSHResult:
         exit_code=0,
         stdout=json.dumps(
             {
-                "schema_version": 2,
-                "version": "1.4.2",
+                "schema_version": 3,
+                "version": "1.4.3",
                 "capabilities": {
                     "workflow_state": True,
                     "resume": True,
@@ -127,7 +127,11 @@ def _capability_result(*, dag: bool = True) -> SSHResult:
                     "run_summary": EXPECTED_ARTIFACTS.run_summary,
                     "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
                     "workflow_state": EXPECTED_ARTIFACTS.workflow_state,
+                    "run_report": EXPECTED_ARTIFACTS.run_report,
+                    "min_xyz": EXPECTED_ARTIFACTS.min_xyz,
                 },
+                "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
+                "build": build if build is not None else {"commit": "abc1234", "dirty": False},
             }
         ),
         stderr="",
@@ -135,6 +139,25 @@ def _capability_result(*, dag: bool = True) -> SSHResult:
     )
 
 
+
+def test_preflight_warns_for_dirty_or_unknown_producer_build():
+    task = _make_workflow_task()
+    ssh = MagicMock()
+    ssh.run.return_value = _capability_result(build={"commit": None, "dirty": True})
+    submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
+    result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
+    assert submitter._preflight_capabilities([task], result) is True
+    assert result.warnings == ["producer build is dirty or provenance unknown"]
+
+
+def test_preflight_accepts_clean_producer_build_without_warning():
+    task = _make_workflow_task()
+    ssh = MagicMock()
+    ssh.run.return_value = _capability_result(build={"commit": "abc1234", "dirty": False})
+    submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
+    result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
+    assert submitter._preflight_capabilities([task], result) is True
+    assert result.warnings == []
 # ---- task selection ----------------------------------------------------
 
 

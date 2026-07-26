@@ -39,6 +39,13 @@ tmp60f7j8ix/
 # GAUSS_SCRDIR is misconfigured or the scratch dir is missing)
 Gau-*.inp
 
+# NUL is a Win32 reserved device name; Git for Windows reports it as
+# an untracked entry under the repo root but no real file exists.
+# See docs/NUL_INVESTIGATION.md for the diagnosis. Hiding it here only
+# suppresses the status line — the device artifact cannot be deleted in
+# user mode.
+NUL
+
 # Release-readiness review scratch logs (ruff_review.log, mypy_review.log,
 # pytest_review*.log, .public_tree.log, etc.)
 *.review.log

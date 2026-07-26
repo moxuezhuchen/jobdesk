@@ -11,12 +11,12 @@ from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
 from ..remote.confflow_probe import (
     ConfFlowCapabilityPreflightError,
-    probe_confflow_capabilities,
 )
 from ..services.gui_settings import GuiSettingsStore
 from ..services.method_presets import MethodPresetStore
 from ..services.run_coordinator import RunCoordinator
 from ..services.run_service import RunService
+from ..services.session_pool import SessionPool
 from .dialogs.submit_dialog import SubmitDialog
 from .i18n import tr
 from .layouts.shell import AppShell
@@ -39,6 +39,15 @@ _NAV_ITEMS = [
 ]
 
 
+def _construct_page_with_session_pool(page_factory, *args, session_pool):
+    """Keep lightweight test/plugin page factories compatible with injection."""
+    try:
+        return page_factory(*args, session_pool=session_pool)
+    except TypeError as exc:
+        if "session_pool" not in str(exc):
+            raise
+        return page_factory(*args)
+
 def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
     if run_ids:
         window.state.current_batch_id = run_ids[-1]
@@ -50,7 +59,7 @@ def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, session_pool: SessionPool | None = None):
         super().__init__()
         self.setWindowTitle("JobDesk")
         self._settings_store = GuiSettingsStore()
@@ -58,6 +67,7 @@ class MainWindow(QMainWindow):
         size = settings.window_size or [1320, 860]
         self.resize(size[0], size[1])
         self.state = AppState()
+        self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
         self.language = settings.language
         self._file_logger = configure_file_logging("jobdesk_app")
         self.setStyleSheet(build_app_stylesheet())
@@ -67,7 +77,14 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.shell)
 
         # 4 pages
-        self.files_page = FileTransferPage(self.state, self._log, self._update_status, self.show_error)
+        self.files_page = _construct_page_with_session_pool(
+            FileTransferPage,
+            self.state,
+            self._log,
+            self._update_status,
+            self.show_error,
+            session_pool=self._session_pool,
+        )
         self._preset_store = MethodPresetStore()
         self.workflow_page = WorkflowPage(
             self.state,
@@ -77,7 +94,13 @@ class MainWindow(QMainWindow):
             on_status=self._update_status,
             on_error=self.show_error,
         )
-        self.runs_page = RunsResultsPage(self.state, self._log, self._update_status)
+        self.runs_page = _construct_page_with_session_pool(
+            RunsResultsPage,
+            self.state,
+            self._log,
+            self._update_status,
+            session_pool=self._session_pool,
+        )
         self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
         self.settings_page.language_changed.connect(self._on_language_changed)
         self.files_page.runs_submitted.connect(
@@ -155,8 +178,9 @@ class MainWindow(QMainWindow):
         # database refresh asynchronously once the target page is visible.
         self._apply_language(refresh_runs=False)
         page = self.shell.pages.widget(index)
-        if hasattr(page, "on_activated"):
-            page.on_activated()
+        on_activated = getattr(page, "on_activated", None)
+        if callable(on_activated):
+            on_activated()
         # Keep WorkflowPage's server pill in sync with whatever Files page
         # is currently connected to.
         if index == 1 and page is self.workflow_page:
@@ -323,17 +347,18 @@ class MainWindow(QMainWindow):
             batch = use_case.execute(payload)
             if not batch.ok:
                 return batch
-            try:
-                _upload_prepared_batch(batch, payload, service)
-            except ConfFlowCapabilityPreflightError as exc:
-                batch.errors.append(str(exc))
-                return batch
             coordinator = RunCoordinator(
                 RunService(workspace),
                 server_lookup=lambda sid: load_servers().servers[sid],
                 ssh_factory=create_ssh_client,
                 sftp_factory=create_sftp_client,
+                session_pool=self._session_pool,
             )
+            try:
+                _upload_prepared_batch(batch, payload, service, coordinator)
+            except ConfFlowCapabilityPreflightError as exc:
+                batch.errors.append(str(exc))
+                return batch
             outcomes = []
             for spec in batch.specs:
                 if submit:
@@ -351,16 +376,15 @@ class MainWindow(QMainWindow):
             return combined
 
         def _done(outcome):
+            warnings = [
+                warning
+                for result in getattr(outcome, "submit_results", [])
+                for warning in result.warnings
+            ]
+            self.runs_page.set_submit_warnings(warnings)
             if outcome.errors:
                 self.show_error(tr("Submit", self.language), "\n".join(outcome.errors))
                 return
-            warnings = [
-                warning
-                for result in outcome.submit_results
-                for warning in result.warnings
-            ]
-            if warnings:
-                self.runs_page.set_submit_warnings(warnings)
             run_ids = [r.run_id for r in outcome.records if not outcome.errors]
             _show_submitted_runs(self, run_ids)
 
@@ -513,43 +537,35 @@ class MainWindow(QMainWindow):
         from .workers import BackgroundWorker
 
         BackgroundWorker.wait_all()
+        self._session_pool.close()
+        logger = getattr(self, "_file_logger", None)
+        if logger is not None:
+            for handler in list(getattr(logger, "handlers", ())):
+                try:
+                    logger.removeHandler(handler)
+                    handler.close()
+                except Exception:
+                    pass
+            try:
+                logger.propagate = True
+            except Exception:
+                pass
 
     def closeEvent(self, event):
         self.shutdown()
         super().closeEvent(event)
 
 
-def _preflight_batch_capabilities(batch, payload) -> None:
-    """Run the upload-time capability gate for workflow submissions."""
-    workflow_specs = [spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}]
-    if not workflow_specs:
-        return
-
-    ssh = None
-    try:
-        server = load_servers().servers[payload.server_id]
-        ssh = create_ssh_client(server)
-        ssh.connect()
-        probe_confflow_capabilities(
-            ssh,
-            env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
+def _upload_prepared_batch(batch, payload, service, coordinator) -> None:
+    """Preflight and upload a prepared batch without creating a run."""
+    workflow_specs = [
+        spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+    ]
+    if workflow_specs:
+        coordinator.probe_capabilities(
+            payload.server_id,
             require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
         )
-    except ConfFlowCapabilityPreflightError:
-        raise
-    except Exception as exc:
-        raise ConfFlowCapabilityPreflightError(f"ConfFlow capability preflight failed: {exc}") from exc
-    finally:
-        if ssh is not None:
-            try:
-                ssh.close()
-            except Exception:
-                pass
-
-
-def _upload_prepared_batch(batch, payload, service) -> None:
-    """Preflight and upload a prepared batch without creating a run."""
-    _preflight_batch_capabilities(batch, payload)
     for local_path, remote_target in zip(
         batch.local_paths,
         batch.upload_targets,

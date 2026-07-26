@@ -37,6 +37,11 @@ ZH: dict[str, str] = {
     "Download files:": "\u4e0b\u8f7d\u6587\u4ef6:",
     "Edit": "\u7f16\u8f91",
     "English": "English",
+"Work dir:": "\u5de5\u4f5c\u76ee\u5f55:",
+    "Work dir (locked by CLI: <basename>_confflow_work)": (
+        "\u5de5\u4f5c\u76ee\u5f55\uff08\u7531 CLI \u9501\u5b9a\uff1a<basename>_confflow_work\uff09"
+    ),
+    "{n} submission warnings": "{n} \u6761\u63d0\u4ea4\u8b66\u544a",
     "Calcs": "\u8ba1\u7b97",
     "Sentinels": "\u7ec8\u6b62",
     "Linear OPT + FREQ": "\u7ebf\u6027 OPT + FREQ",
@@ -678,6 +683,9 @@ ZH: dict[str, str] = {
     ),
     # -- 2.0: Workflow Builder + Submit dual entry --
     "Workflow": "\u5de5\u4f5c\u6d41",
+    "Unknown": "\u672a\u77e5",
+    "Max cores:": "\u6700\u5927 CPU \u6838\u6570:",
+    "Unlimited": "\u4e0d\u9650\u5236",
     "Workflow presets": "\u5de5\u4f5c\u6d41\u9884\u8bbe",
     "No saved workflows": "\u6682\u65e0\u5df2\u4fdd\u5b58\u7684\u5de5\u4f5c\u6d41",
     "Step YAML": "\u6b65\u9aa4 YAML",

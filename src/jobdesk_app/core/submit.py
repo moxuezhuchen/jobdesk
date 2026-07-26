@@ -44,3 +44,10 @@ class SubmitResult:
     updated_task_ids: list[str] = field(default_factory=list)
     updated_tasks: list[TaskRecord] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # P-H0 (R-H0): non-fatal advisory messages that the CLI / GUI
+    # surface after a successful submit.  Keeps the SubmitResult a
+    # plain dataclass (not a BaseModel) so existing JSON-serialisation
+    # paths are untouched.  Producer build-warning / resource budget
+    # warning strings land here once P-H2C / P-M2 wire their producers;
+    # this PR only adds the field and the propagation surface.
+    warnings: list[str] = field(default_factory=list)

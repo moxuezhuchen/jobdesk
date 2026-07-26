@@ -28,6 +28,7 @@ def submit_run(
     env_init_scripts: list[str] | None = None,
     scheduler=None,
     resources=None,
+    max_cores: int | None = None,
 ) -> SubmitResult:
     """Submit a run's tasks to the remote cluster.
 
@@ -105,6 +106,7 @@ def submit_run(
                 env_init_scripts=list(env_init_scripts),
                 scheduler=scheduler,
                 resources=resources,
+                max_cores=max_cores,
                 task_update_callback=sink.update_tasks,
                 remote_started_callback=sink.mark_remote_started,
             )

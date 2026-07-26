@@ -59,7 +59,7 @@ def validate_yaml_config(config: dict[str, Any], required_sections: list[str] | 
         if not isinstance(global_config, dict):
             errors.append("'global' must be a mapping")
         else:
-            # Mirror ConfFlow 1.4.2's ``_is_positive_int_like`` exactly so
+            # Mirror ConfFlow 1.4.3's ``_is_positive_int_like`` exactly so
             # the offline subset accepts the same numeric inputs as the
             # producer-side validator. ``bool`` is rejected because it
             # is not a positive integer in the PEP 440 sense.

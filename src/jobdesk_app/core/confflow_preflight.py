@@ -5,15 +5,14 @@ the payload to be accepted. The check happens before any upload, dry-run,
 or nohup so that an incompatible remote never gets a hand on JobDesk's
 workload.
 
-Schema v2 vs v1
+Schema v3 vs v1/v2
 ---------------
 The current contract (see :mod:`.confflow_contract`) requires ConfFlow
-to emit a v2 payload (includes ``artifacts``). v1 payloads (any older
-ConfFlow whose ``--capabilities --json`` omits ``schema_version`` 2)
-are rejected outright — there is no negotiation and no "artifacts is
-None" escape hatch. The parser still tolerates a missing ``artifacts``
-block so that v1 payloads parse cleanly and the validator can give a
-precise diagnostic instead of a malformed-JSON error.
+to emit a v3 payload including ``artifacts``, ``commands``, and ``build``.
+Older payloads whose ``--capabilities --json`` output omits
+``schema_version`` 3 are rejected outright — there is no negotiation.
+The parser still tolerates missing optional blocks so the validator can
+report the schema mismatch precisely instead of a malformed-JSON error.
 """
 
 from __future__ import annotations
@@ -27,9 +26,13 @@ from .confflow_contract import (
     EXPECTED_ARTIFACTS,
     MAX_EXCLUSIVE,
     MIN_VERSION,
+    REQUIRED_COMMANDS,
     ConfFlowArtifactContract,
     version_spec,
 )
+
+PRERELEASE_AT_MIN_REJECT = True
+PRERELEASE_ABOVE_MIN_ACCEPT = True
 
 _SEMVER_RE = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
@@ -49,6 +52,8 @@ class ConfFlowCapabilities:
     # "unsupported schema" rather than as malformed JSON. The validator
     # demands a not-None value when schema_version == CAPABILITY_SCHEMA_VERSION.
     artifacts: ConfFlowArtifactContract | None = None
+    commands: dict[str, bool] | None = None
+    build: dict[str, object] | None = None
 
 
 def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
@@ -85,6 +90,8 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         parsed[name] = value
 
     artifacts = _parse_artifacts(payload.get("artifacts"))
+    commands = _parse_commands(payload.get("commands"))
+    build = _parse_build(payload.get("build"))
 
     return ConfFlowCapabilities(
         schema_version=schema_version,
@@ -93,7 +100,36 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         resume=parsed["resume"],
         dag=parsed["dag"],
         artifacts=artifacts,
+        commands=commands,
+        build=build,
     )
+
+
+def _parse_commands(raw: object) -> dict[str, bool] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("ConfFlow capability commands must be an object")
+    commands: dict[str, bool] = {}
+    for name, value in raw.items():
+        if not isinstance(name, str) or type(value) is not bool:
+            raise ValueError("ConfFlow capability commands must map names to booleans")
+        commands[name] = value
+    return commands
+
+
+def _parse_build(raw: object) -> dict[str, object] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("ConfFlow capability build must be an object")
+    commit = raw.get("commit")
+    dirty = raw.get("dirty")
+    if commit is not None and not isinstance(commit, str):
+        raise ValueError("ConfFlow capability build.commit must be a string or null")
+    if dirty is not None and type(dirty) is not bool:
+        raise ValueError("ConfFlow capability build.dirty must be boolean or null")
+    return {"commit": commit, "dirty": dirty}
 
 
 def _parse_artifacts(raw: object) -> ConfFlowArtifactContract | None:
@@ -107,11 +143,16 @@ def _parse_artifacts(raw: object) -> ConfFlowArtifactContract | None:
         return None
     if not isinstance(raw, dict):
         return None
+    names = ("run_summary", "workflow_stats", "workflow_state", "run_report", "min_xyz")
+    if any(not isinstance(raw.get(name), str) for name in names):
+        return None
     try:
         return ConfFlowArtifactContract(
-            run_summary=str(raw["run_summary"]),
-            workflow_stats=str(raw["workflow_stats"]),
-            workflow_state=str(raw["workflow_state"]),
+            run_summary=raw["run_summary"],
+            workflow_stats=raw["workflow_stats"],
+            workflow_state=raw["workflow_state"],
+            run_report=raw["run_report"],
+            min_xyz=raw["min_xyz"],
         )
     except (KeyError, TypeError):
         return None
@@ -133,7 +174,7 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
     version = _parse_semver(capabilities.version)
     core = version[:3]
     prerelease = version[3]
-    if core < MIN_VERSION or (core == MIN_VERSION and prerelease is not None):
+    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease is not None) or (core > MIN_VERSION and prerelease is not None and not PRERELEASE_ABOVE_MIN_ACCEPT):
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
     if core >= MAX_EXCLUSIVE:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
@@ -145,6 +186,11 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
         raise ValueError(
             f"ConfFlow artifacts contract mismatch: expected {EXPECTED_ARTIFACTS}, got {capabilities.artifacts}"
         )
+    if capabilities.commands is None:
+        raise ValueError("ConfFlow capability schema requires a commands block")
+    missing_commands = [name for name in REQUIRED_COMMANDS if capabilities.commands.get(name) is not True]
+    if missing_commands:
+        raise ValueError("ConfFlow missing commands: " + ", ".join(missing_commands))
     if not capabilities.workflow_state:
         raise ValueError("remote ConfFlow lacks required workflow_state capability")
     if not capabilities.resume:

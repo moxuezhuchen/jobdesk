@@ -8,12 +8,61 @@ from unittest.mock import MagicMock, patch
 import pytest
 from tests.test_gui_behavior.conftest import _FakeWorker
 
+from jobdesk_app.core.run import WorkflowKind
+
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 
 class TestRunsPage:
     def test_page_creates_without_crash(self, runs_page):
         assert runs_page is not None
+
+    def test_runs_page_uses_workflow_kind(self, runs_page):
+        from jobdesk_app.gui.pages.runs_results_page import _format_row
+
+        base = dict(
+            run_id="run-1",
+            server_id="wsl",
+            remote_dir="/remote/run-1",
+            status_summary={},
+            command_template="confflow --config workflow.yaml",
+            created_at="2026-07-26T00:00:00",
+        )
+        assert _format_row(SimpleNamespace(**base, workflow_kind=WorkflowKind.dag))[4] == "dag"
+        assert _format_row(SimpleNamespace(**base, workflow_kind=None))[4] == "Unknown"
+
+    def test_submit_warnings_show_visible_advisory_with_details(self, runs_page):
+        runs_page.set_submit_warnings(["producer provenance unknown", "resource budget exceeded"])
+
+        assert runs_page._submit_warning_banner.isVisibleTo(runs_page)
+        assert "2 submission warnings" in runs_page._submit_warning_banner.text()
+        assert "producer provenance unknown" in runs_page._submit_warning_banner.toolTip()
+        assert "resource budget exceeded" in runs_page._submit_warning_banner.toolTip()
+
+        runs_page.set_submit_warnings([])
+        assert not runs_page._submit_warning_banner.isVisible()
+
+    def test_malformed_confflow_summary_renders_parse_error(self, runs_page, tmp_path):
+        from jobdesk_app.core.lifecycle import TaskStatus
+        from jobdesk_app.core.manifest import TaskRecord
+
+        result_dir = tmp_path / "results"
+        summary = result_dir / "water_confflow_work" / "run_summary.json"
+        summary.parent.mkdir(parents=True)
+        summary.write_text("{broken", encoding="utf-8")
+        record = SimpleNamespace(run_id="run-1", run_dir=tmp_path / "runs" / "run-1")
+        runs_page._load_tasks = lambda _record: [
+            TaskRecord(
+                task_id="water",
+                batch_id="run-1",
+                remote_job_dir="/remote/water",
+                status=TaskStatus.downloaded,
+            )
+        ]
+
+        runs_page._show_confflow_batch_results(record, result_dir)
+
+        assert runs_page.result_table.item(0, 1).text() == "\u26a0 Parse Error"
 
     def test_refresh_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
         coordinator = MagicMock()
@@ -143,6 +192,7 @@ class TestRunsPage:
             run_id="submission-a",
             local_dir=str(tmp_path),
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             status_summary={},
         )
         runs_page._load_tasks = lambda _record: [
@@ -206,6 +256,7 @@ class TestRunsPage:
             run_id="run-B",
             local_dir=str(bound_workspace),
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             status_summary={},
         )
         runs_page._load_tasks = lambda _record: [
@@ -447,7 +498,7 @@ class TestRunsPage:
 
     def test_table_has_correct_columns(self, runs_page):
         table = runs_page.table
-        assert table.columnCount() == 6
+        assert table.columnCount() == 7
 
     def test_buttons_exist(self, runs_page):
         assert runs_page.retry_btn is not None
@@ -1476,7 +1527,7 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run001", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="run001", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
 
         runs_page._load_result_preview(record)
 
@@ -1925,7 +1976,7 @@ class TestRunsPage:
                 for mol in ("mol1", "mol2", "mol3", "mol4")
             ],
         )
-        record = MagicMock(run_id="batch01", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="batch01", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 4
@@ -1978,7 +2029,7 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="batch02", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="batch02", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 2
@@ -2016,7 +2067,7 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="batch03", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="batch03", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 2
@@ -2064,7 +2115,7 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run04", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="run04", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace
@@ -2119,6 +2170,7 @@ class TestRunsPage:
         record = MagicMock(
             run_id="run_direct",
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             manifest_path=str(manifest_path),
             local_dir="",
         )
@@ -2171,6 +2223,7 @@ class TestRunsPage:
         record = MagicMock(
             run_id="run_direct_stale",
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             manifest_path=str(manifest_path),
             local_dir=str(workspace),
         )
@@ -2236,6 +2289,7 @@ class TestRunsPage:
         record = MagicMock(
             run_id="run_legacy",
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             manifest_path=str(manifest_path),
             local_dir=str(workspace),
         )
@@ -2287,7 +2341,7 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run05", command_template="confflow {name}", manifest_path=str(manifest_path))
+        record = MagicMock(run_id="run05", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace as dc_replace
@@ -2332,6 +2386,7 @@ class TestRunsPage:
             run_id="cf_batch",
             manifest_path=manifest,
             command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
             status_summary={},
         )
 

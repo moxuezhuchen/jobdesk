@@ -212,6 +212,11 @@ def _cmd_run_submit(args) -> int:
     print(f"submitted={result.submitted_task_count}, errors={len(result.errors)}")
     for e in result.errors:
         print(f"  ERROR: {e}")
+    # P-H0 (R-H0): surface advisory warnings to stderr so CI / shell
+    # users can see producer build / resource budget advisories
+    # without going through the GUI.
+    for w in result.warnings:
+        print(f"  WARNING: {w}", file=sys.stderr)
     return 0 if not result.errors else 2
 
 

@@ -813,6 +813,11 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
         sched_widgets = build_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {}, self._language)
+        max_cores_edit = QSpinBox()
+        max_cores_edit.setRange(0, 1000000)
+        max_cores_edit.setSpecialValueText(tr("Unlimited", self._language))
+        max_cores_edit.setValue(int(srv.get("max_cores") or 0))
+        form.addRow(tr("Max cores:", self._language), max_cores_edit)
         external_widgets = build_external_tools_fields(form, srv.get("external_tools", {}) or {}, self._language)
         ssh_access_widgets = build_ssh_access_fields(form, srv.get("ssh_access", {}) or {}, self._language)
 
@@ -842,6 +847,10 @@ class SettingsServersPage(QWidget):
                 "trust_on_first_use": tofu_toggle.isChecked(),
             }
         )
+        if max_cores_edit.value() > 0:
+            existing["max_cores"] = max_cores_edit.value()
+        else:
+            existing.pop("max_cores", None)
         existing["scheduler"] = scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
         existing["external_tools"] = external_tools_dict(
             external_widgets,
@@ -929,6 +938,10 @@ class SettingsServersPage(QWidget):
         form.addRow(tr("Key Path:", self._language), key_row)
         form.addRow("Trust unknown host key on first connection:", tofu_toggle)
         sched_widgets = build_scheduler_fields(form, dlg, {}, self._language)
+        max_cores_edit = QSpinBox()
+        max_cores_edit.setRange(0, 1000000)
+        max_cores_edit.setSpecialValueText(tr("Unlimited", self._language))
+        form.addRow(tr("Max cores:", self._language), max_cores_edit)
         external_widgets = build_external_tools_fields(form, {}, self._language)
         ssh_access_widgets = build_ssh_access_fields(form, {}, self._language)
 
@@ -966,6 +979,8 @@ class SettingsServersPage(QWidget):
             "external_tools": external_tools_dict(external_widgets),
             "ssh_access": ssh_access_dict(ssh_access_widgets),
         }
+        if max_cores_edit.value() > 0:
+            servers[sid]["max_cores"] = max_cores_edit.value()
         if key_edit.text().strip():
             servers[sid]["key_path"] = key_edit.text().strip()
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))

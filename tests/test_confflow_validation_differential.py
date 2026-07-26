@@ -14,7 +14,7 @@ pin the *boundaries* between the two:
   / ``accepted_by_confflow_only``) and a stable ``id`` so the gap can
   be referenced in code review without being mistaken for a bug.
 
-When ConfFlow is installed (the CI runner installs the 1.4.2 wheel),
+When ConfFlow is installed (the CI runner installs the 1.4.3 wheel),
 the differential runs against the real producer-side validator. When
 ConfFlow is *not* installed the file is skipped through the
 ``test_module_skips_are_never_silent`` guard so silent skips cannot
@@ -85,7 +85,7 @@ EXPECTED_ACCEPTED_BY_BOTH: list[dict[str, Any]] = [
         id="orca_task_with_explicit_keyword",
     ),
     pytest.param(
-        # ConfFlow 1.4.2 accepts whole-number floats; the offline subset
+        # ConfFlow 1.4.3 accepts whole-number floats; the offline subset
         # mirrors this behaviour.
         {"global": {"cores_per_task": 4.0, "max_parallel_jobs": 1}, "steps": []},
         id="floating_cores_per_task",
@@ -216,8 +216,8 @@ def test_expected_rejected_by_both(config):
 # accepts.
 #
 #   * ``accepted_by_jobdesk_only`` — JobDesk offline subset accepts,
-#     ConfFlow 1.4.2 rejects. The offline subset is more permissive.
-#   * ``accepted_by_confflow_only`` — ConfFlow 1.4.2 accepts,
+#     ConfFlow 1.4.3 rejects. The offline subset is more permissive.
+#   * ``accepted_by_confflow_only`` — ConfFlow 1.4.3 accepts,
 #     JobDesk offline subset rejects. The offline subset is more
 #     conservative.
 #
@@ -226,7 +226,7 @@ def test_expected_rejected_by_both(config):
 # deliberately (and a new test pinned).
 KNOWN_DIVERGENCE: list[dict[str, Any]] = [
     pytest.param(
-        # ConfFlow 1.4.2 normalizes ``global: None`` to ``{}``. The
+        # ConfFlow 1.4.3 normalizes ``global: None`` to ``{}``. The
         # offline subset rejects it as "must be a mapping" because the
         # YAML editor should never write ``global: null`` and we want
         # to catch it early.
@@ -234,7 +234,7 @@ KNOWN_DIVERGENCE: list[dict[str, Any]] = [
         id="accepted_by_confflow_only__global_is_none",
     ),
     pytest.param(
-        # ConfFlow 1.4.2 tolerates ``cores_per_task: True`` (python
+        # ConfFlow 1.4.3 tolerates ``cores_per_task: True`` (python
         # ``bool`` is a subclass of ``int`` and ``int(True) == 1``).
         # The offline subset rejects bool explicitly because the wizard
         # should never pass a boolean for a numeric field.
@@ -242,7 +242,7 @@ KNOWN_DIVERGENCE: list[dict[str, Any]] = [
         id="accepted_by_confflow_only__bool_cores_per_task",
     ),
     pytest.param(
-        # ConfFlow 1.4.2 calls ``int(4.5) == 4`` for ``cores_per_task``
+        # ConfFlow 1.4.3 calls ``int(4.5) == 4`` for ``cores_per_task``
         # and accepts the input. The offline subset rejects non-integer
         # floats because the wizard emits ints and accepting a float
         # would mask a config bug.
@@ -250,7 +250,7 @@ KNOWN_DIVERGENCE: list[dict[str, Any]] = [
         id="accepted_by_confflow_only__non_integer_cores",
     ),
     pytest.param(
-        # ConfFlow 1.4.2 checks that ``gaussian_path`` / ``orca_path``
+        # ConfFlow 1.4.3 checks that ``gaussian_path`` / ``orca_path``
         # exist on disk. The offline subset trusts the path: the
         # consumer-side path check would degrade the editor's snappy
         # UX while the user is typing on a path that does not exist
@@ -330,8 +330,8 @@ def test_known_divergence_direction_matches_id(config, request):
 def test_module_skips_are_never_silent():
     """If ConfFlow is installed *and* the differential fixtures do not
     run, the test session must fail. The CI runner installs the
-    ConfFlow 1.4.2 wheel as part of the workflow's
-    ``Install ConfFlow v1.4.2`` step, so a skip here means the
+    ConfFlow 1.4.3 wheel as part of the workflow's
+    ``Install ConfFlow v1.4.3`` step, so a skip here means the
     install failed silently.
     """
     _require_or_skip_differential()

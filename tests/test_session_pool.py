@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from jobdesk_app.services.session_pool import SessionPool
+from jobdesk_app.services.session_pool import SessionPool, pooled_sftp_factory
 
 
 @dataclass
@@ -359,6 +359,22 @@ def test_acquire_idempotent_release() -> None:
     handle.release()
     handle.release()
     lease.__exit__(None, None, None)
+    pool.close()
+    assert factory.created_sftp[0].closed == 1
+    assert factory.created_ssh[0].closed == 1
+
+
+def test_pooled_sftp_factory_releases_lease_without_closing_pool_clients() -> None:
+    pool, factory = make_pool()
+    factory_fn = pooled_sftp_factory(pool, "a", Config("a"))
+
+    sftp = factory_fn()
+    assert sftp.is_alive()
+    sftp.close()
+    sftp.close()
+    assert factory.created_ssh[0].closed == 0
+    assert factory.created_sftp[0].closed == 0
+
     pool.close()
     assert factory.created_sftp[0].closed == 1
     assert factory.created_ssh[0].closed == 1

@@ -8,6 +8,7 @@ from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
     MIN_VERSION,
+    REQUIRED_COMMANDS,
 )
 from jobdesk_app.core.confflow_preflight import (
     ConfFlowCapabilities,
@@ -29,7 +30,11 @@ def _payload(**overrides) -> str:
             "run_summary": EXPECTED_ARTIFACTS.run_summary,
             "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
             "workflow_state": EXPECTED_ARTIFACTS.workflow_state,
+            "run_report": EXPECTED_ARTIFACTS.run_report,
+            "min_xyz": EXPECTED_ARTIFACTS.min_xyz,
         },
+        "commands": {name: True for name in REQUIRED_COMMANDS},
+        "build": {"commit": "abc1234", "dirty": False},
     }
     value.update(overrides)
     return json.dumps(value)
@@ -45,6 +50,8 @@ def test_parse_and_validate_supported_capabilities():
         True,
         True,
         artifacts=EXPECTED_ARTIFACTS,
+        commands={name: True for name in REQUIRED_COMMANDS},
+        build={"commit": "abc1234", "dirty": False},
     )
     validate_confflow_capabilities(capabilities, require_dag=True)
 
@@ -106,15 +113,15 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(2, "1.4.2", True, True, True, artifacts=None),
+            ConfFlowCapabilities(3, "1.4.3", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "requires an artifacts block",
         ),
         # Schema==2 but artifacts payload has a wrong filename.
         (
             ConfFlowCapabilities(
-                2,
-                "1.4.2",
+                3,
+                "1.4.3",
                 True,
                 True,
                 True,
@@ -129,41 +136,41 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but version is older than MIN_VERSION.
         (
-            ConfFlowCapabilities(2, "1.4.1", True, True, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.4.2", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.2",
+            "1.4.3",
         ),
         # Schema==2 but version is 1.4.2 prerelease → rejected.
         (
-            ConfFlowCapabilities(2, "1.4.2-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.4.3-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.2",
+            "1.4.3",
         ),
         # Schema==2 but version is >= MAX_EXCLUSIVE.
         (
-            ConfFlowCapabilities(2, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.2",
+            "1.4.3",
         ),
         # Schema==2 but version is malformed.
         (
-            ConfFlowCapabilities(2, "1.04.2", True, True, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.04.3", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "semantic version",
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(2, "1.4.2", False, True, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.4.3", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(2, "1.4.2", True, False, True, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.4.3", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(2, "1.4.2", True, True, False, artifacts=EXPECTED_ARTIFACTS),
+            ConfFlowCapabilities(3, "1.4.3", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             True,
             "dag",
         ),
@@ -184,12 +191,41 @@ def test_linear_workflow_does_not_require_dag_capability():
             True,
             False,
             artifacts=EXPECTED_ARTIFACTS,
+            commands={name: True for name in REQUIRED_COMMANDS},
         ),
         require_dag=False,
     )
 
 
-def test_validator_accepts_legal_v2_payload_with_extra_unknown_keys():
+
+@pytest.mark.parametrize("missing_name", ("run_summary", "workflow_stats", "workflow_state", "run_report", "min_xyz"))
+def test_validator_rejects_missing_v3_artifacts(missing_name):
+    payload = json.loads(_payload())
+    del payload["artifacts"][missing_name]
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+    with pytest.raises(ValueError, match="requires an artifacts block"):
+        validate_confflow_capabilities(capabilities, require_dag=False)
+
+
+def test_validator_rejects_missing_or_false_commands():
+    payload = json.loads(_payload())
+    payload["commands"].pop("bash")
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+    with pytest.raises(ValueError, match="missing commands: bash"):
+        validate_confflow_capabilities(capabilities, require_dag=False)
+    payload = json.loads(_payload())
+    payload["commands"]["bash"] = False
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+    with pytest.raises(ValueError, match="missing commands: bash"):
+        validate_confflow_capabilities(capabilities, require_dag=False)
+
+
+def test_parser_rejects_invalid_commands_and_build_types():
+    with pytest.raises(ValueError, match="commands must map"):
+        parse_confflow_capabilities(_payload(commands={"bash": "yes"}))
+    with pytest.raises(ValueError, match="build.dirty"):
+        parse_confflow_capabilities(_payload(build={"commit": "abc1234", "dirty": "no"}))
+def test_validator_accepts_legal_v3_payload_with_extra_unknown_keys():
     """Forward compatibility: extra top-level keys are tolerated."""
     payload = _payload(experimental_feature=True)
     capabilities = parse_confflow_capabilities(payload)

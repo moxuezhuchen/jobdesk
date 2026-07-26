@@ -81,6 +81,7 @@ class ServerConfig(BaseModel):
     username: str = Field(..., description="登录用户名")
     auth_method: AuthMethod = Field(default=AuthMethod.key, description="认证方式")
     key_path: str | None = Field(default=None, description="SSH 私钥路径")
+    max_cores: int | None = Field(default=None, ge=1, description="Maximum effective core slots for resource warnings")
 
     @property
     def auth_unsupported_message(self) -> str:

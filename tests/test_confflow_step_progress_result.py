@@ -7,7 +7,6 @@ from pathlib import Path
 
 from jobdesk_app.services.confflow_results import (
     ConfFlowStepProgress,
-    ParseResult,
     ParseState,
     load_step_progress,
     load_step_progress_result,

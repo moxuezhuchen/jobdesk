@@ -94,6 +94,7 @@ class JobSubmitter:
         scheduler=None,  # SchedulerAdapter | None
         resources=None,  # ResourceSpec | None
         *,
+        max_cores: int | None = None,
         tasks: list[TaskRecord] | None = None,
         task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
         remote_started_callback: Callable[[list[str]], None] | None = None,
@@ -114,6 +115,7 @@ class JobSubmitter:
 
         self._scheduler = scheduler if scheduler is not None else NohupAdapter()
         self._resources = resources if resources is not None else ResourceSpec()
+        self._max_cores = max_cores
         self._task_update_callback = task_update_callback
         self._remote_started_callback = remote_started_callback
 
@@ -366,6 +368,10 @@ class JobSubmitter:
             result.errors.append("no tasks available to submit (all tasks must be in uploaded status)")
             return result
 
+        warning = self.resource_budget_warning(self._max_cores)
+        if warning:
+            result.warnings.append(warning)
+
         if not self._preflight_capabilities(tasks, result):
             return result
 
@@ -530,11 +536,14 @@ class JobSubmitter:
         if not workflow_tasks:
             return True
         try:
-            probe_confflow_capabilities(
+            capabilities = probe_confflow_capabilities(
                 self._ssh,
                 env_init_scripts=self._env_init_scripts,
                 require_dag=any(task.workflow_kind == "dag" for task in workflow_tasks),
             )
+            build = capabilities.build or {}
+            if build.get("dirty") is True or not build.get("commit"):
+                result.warnings.append("producer build is dirty or provenance unknown")
         except ConfFlowCapabilityPreflightError as exc:
             result.errors.append(str(exc))
             return False
@@ -577,13 +586,14 @@ class JobSubmitter:
                 break
         if budget_data is None:
             return None
-        # ``resource_budget`` is persisted as a JSON dict (see
-        # ``TaskRecord.model_dump``); rebuild the dataclass.
-        budget = ResourceBudget(
-            jobdesk_max_parallel=int(budget_data.get("jobdesk_max_parallel", 1) or 1),
-            yaml_max_parallel_jobs=int(budget_data.get("yaml_max_parallel_jobs", 1) or 1),
-            cores_per_task=int(budget_data.get("cores_per_task", 1) or 1),
-        )
+        if isinstance(budget_data, ResourceBudget):
+            budget = budget_data
+        else:
+            budget = ResourceBudget(
+                jobdesk_max_parallel=int(budget_data.get("jobdesk_max_parallel", 1) or 1),
+                yaml_max_parallel_jobs=int(budget_data.get("yaml_max_parallel_jobs", 1) or 1),
+                cores_per_task=int(budget_data.get("cores_per_task", 1) or 1),
+            )
         if not budget.exceeds(server_max_cores):
             return None
         return (

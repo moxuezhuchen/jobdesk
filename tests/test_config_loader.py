@@ -56,6 +56,12 @@ class TestServerConfig:
         assert cfg.auth_method == AuthMethod.password
         assert cfg.key_path is None
 
+    def test_server_config_max_cores_validation(self):
+        assert ServerConfig(server_id="s", host="h", username="u").max_cores is None
+        assert ServerConfig(server_id="s", host="h", username="u", max_cores=64).max_cores == 64
+        with pytest.raises(Exception):
+            ServerConfig(server_id="s", host="h", username="u", max_cores=0)
+
     def test_server_config_invalid_port(self):
         with pytest.raises(Exception):
             ServerConfig(server_id="s", host="h", username="u", port=99999)
@@ -74,6 +80,7 @@ servers:
     username: xianj
     auth_method: key
     key_path: C:/Users/xianj/.ssh/id_ed25519
+    max_cores: 64
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             f.write(yaml_content)
@@ -83,6 +90,7 @@ servers:
             cfg = load_servers(tmp_path)
             assert "wcm" in cfg.servers
             assert cfg.servers["wcm"].host == "example.com"
+            assert cfg.servers["wcm"].max_cores == 64
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 

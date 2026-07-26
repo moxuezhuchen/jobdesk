@@ -15,15 +15,8 @@ from jobdesk_app.services.submit_use_case import PreparedBatch
 
 
 def test_capability_failure_before_upload_does_not_upload_or_create_run(monkeypatch, tmp_path: Path):
-    ssh = Mock()
-    server = SimpleNamespace(env_init_scripts=[])
-    monkeypatch.setattr(main_window, "load_servers", lambda: SimpleNamespace(servers={"srv": server}))
-    monkeypatch.setattr(main_window, "create_ssh_client", lambda _server: ssh)
-
-    def fail_probe(*_args, **_kwargs):
-        raise ConfFlowCapabilityPreflightError("ConfFlow capability preflight failed: incompatible")
-
-    monkeypatch.setattr(main_window, "probe_confflow_capabilities", fail_probe)
+    coordinator = Mock()
+    coordinator.probe_capabilities.side_effect = ConfFlowCapabilityPreflightError("ConfFlow capability preflight failed: incompatible")
 
     source = RunSource(path="/remote/a.xyz")
     spec = RunSpec(
@@ -44,9 +37,7 @@ def test_capability_failure_before_upload_does_not_upload_or_create_run(monkeypa
     payload = SimpleNamespace(server_id="srv")
 
     with pytest.raises(ConfFlowCapabilityPreflightError):
-        main_window._upload_prepared_batch(batch, payload, service)
+        main_window._upload_prepared_batch(batch, payload, service, coordinator)
 
     service.upload_path.assert_not_called()
-    ssh.run.assert_not_called()
-    ssh.connect.assert_called_once()
-    ssh.close.assert_called_once()
+    coordinator.probe_capabilities.assert_called_once_with("srv", require_dag=False)

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.core.manifest import Manifest, TaskRecord
+from jobdesk_app.core.manifest import Manifest, ResourceBudget, TaskRecord
 from jobdesk_app.core.run import WorkflowKind
 from jobdesk_app.services.run_repository import OperationRecord, RunRecord, RunRepository
 from tests.repository_helpers import replace_tasks_for_test
@@ -70,6 +70,14 @@ def _set_status_in_process(runs_dir: str, task_id: str, status: str) -> None:
 def _recover_orphan_submits_in_process(runs_dir: str) -> None:
     RunRepository(Path(runs_dir)).recover_legacy_orphan_submit_tasks()
 
+
+def test_resource_budget_sqlite_round_trip(tmp_path: Path) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    budget = ResourceBudget(jobdesk_max_parallel=2, yaml_max_parallel_jobs=4, cores_per_task=8)
+    original = _task("budgeted").model_copy(update={"resource_budget": budget})
+    repository.create_run(_record(repository.runs_dir), [original])
+
+    assert repository.load_tasks("run-1")[0].resource_budget == budget
 
 def test_replace_tasks_rejects_batch_id_mismatch_without_changing_existing_rows(
     tmp_path: Path,

@@ -17,11 +17,14 @@ import posixpath
 import shlex
 
 from ..core.confflow_contract import (
+    RUN_MIN_XYZ_TEMPLATE,
+    RUN_REPORT_FILE,
     RUN_SUMMARY_FILE,
     WORK_DIR_SUFFIX,
     WORKFLOW_STATE_FILE,
     WORKFLOW_STATS_FILE,
 )
+from ..core.manifest import ResourceBudget
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind
 
 
@@ -37,6 +40,7 @@ class ConfFlowAdapter:
         config_path: str,
         max_parallel: int = 1,
         resume: bool = False,
+        resource_budget: "ResourceBudget | None" = None,
     ) -> RunSpec:
         return cls._build(
             WorkflowKind.confflow,
@@ -46,6 +50,7 @@ class ConfFlowAdapter:
             config_path=config_path,
             max_parallel=max_parallel,
             resume=resume,
+            resource_budget=resource_budget,
         )
 
     @classmethod
@@ -57,6 +62,7 @@ class ConfFlowAdapter:
         config_path: str,
         max_parallel: int = 1,
         resume: bool = False,
+        resource_budget: "ResourceBudget | None" = None,
     ) -> RunSpec:
         """Build a DAG-flavoured ConfFlow run.
 
@@ -75,6 +81,7 @@ class ConfFlowAdapter:
             config_path=config_path,
             max_parallel=max_parallel,
             resume=resume,
+            resource_budget=resource_budget,
         )
 
     @staticmethod
@@ -87,6 +94,7 @@ class ConfFlowAdapter:
         config_path: str,
         max_parallel: int = 1,
         resume: bool = False,
+        resource_budget: "ResourceBudget | None" = None,
     ) -> RunSpec:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
@@ -109,13 +117,14 @@ class ConfFlowAdapter:
             sources=_workflow_sources(xyz_paths),
             supporting_sources=[RunSource(config_path)],
             result_templates=[
-                "{basename}.txt",
-                "{basename}min.xyz",
+                RUN_REPORT_FILE,
+                RUN_MIN_XYZ_TEMPLATE,
                 f"{work_dir_token}/{RUN_SUMMARY_FILE}",
                 f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
                 f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
             ],
             workflow_kind=workflow_kind,
+            resource_budget=resource_budget,
         )
 
 

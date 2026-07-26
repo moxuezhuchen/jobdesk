@@ -15,10 +15,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..config.schema import ServerConfig
+from ..core.confflow_preflight import ConfFlowCapabilities
 from ..core.run import RunSpec
 from ..core.submit import SubmitResult
 from ..core.transfer import TransferRecord
-from ..core.confflow_preflight import ConfFlowCapabilities
 from ..remote.confflow_probe import probe_confflow_capabilities
 from .run_repository import RunRecord
 from .run_service import RunService
@@ -104,6 +104,7 @@ class RunCoordinator:
                     env_init_scripts=list(server.env_init_scripts or []),
                     scheduler=scheduler,
                     resources=resources,
+                    max_cores=getattr(server, "max_cores", None),
                 )
             try:
                 durable_record = self.service.load_run(run_id)

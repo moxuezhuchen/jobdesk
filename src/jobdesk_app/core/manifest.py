@@ -2,7 +2,7 @@ import csv
 import io
 import json
 import threading
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
@@ -70,7 +70,39 @@ _MANIFEST_COLUMNS: list[str] = [
     "downloaded_at",
     "analyzed_at",
     "error_message",
+    "resource_budget",
 ]
+
+
+@dataclass(frozen=True)
+class ResourceBudget:
+    """Effective resource budget for a ConfFlow run.
+
+    The CLI (``jobdesk``), the wizard, and the remote scheduler all
+    multiply a different per-level concurrency value. The total
+    effective core slots used by one submission is::
+
+        jobdesk_max_parallel
+          × yaml_max_parallel_jobs
+          × cores_per_task
+
+    P-M2 (R-M2): persisted alongside the run so the GUI / refresh
+    path can flag the run when its effective slot count exceeds the
+    configured ``ServerConfig.max_cores`` threshold (default 80 %).
+    """
+
+    jobdesk_max_parallel: int
+    yaml_max_parallel_jobs: int
+    cores_per_task: int
+
+    @property
+    def effective_slots(self) -> int:
+        return int(self.jobdesk_max_parallel) * int(self.yaml_max_parallel_jobs) * int(self.cores_per_task)
+
+    def exceeds(self, server_max_cores: int | None, *, threshold: float = 0.8) -> bool:
+        if not server_max_cores:
+            return False
+        return self.effective_slots > int(server_max_cores) * threshold
 
 
 class TaskRecord(BaseModel):
@@ -112,42 +144,10 @@ class TaskRecord(BaseModel):
     analyzed_at: datetime | None = None
     error_message: str | None = None
     # P-M2 (R-M2): effective core-slot budget for the run.  Persisted
-    # in the SQLite ``tasks.payload_json`` via ``model_dump``; the TSV
-    # manifest path leaves the column out so old manifests keep
-    # loading cleanly.  When the SQLite column exists, this field is
-    # the authoritative read/write surface.
-    resource_budget: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class ResourceBudget:
-    """Effective resource budget for a ConfFlow run.
-
-    The CLI (``jobdesk``), the wizard, and the remote scheduler all
-    multiply a different per-level concurrency value. The total
-    effective core slots used by one submission is::
-
-        jobdesk_max_parallel
-          × yaml_max_parallel_jobs
-          × cores_per_task
-
-    P-M2 (R-M2): persisted alongside the run so the GUI / refresh
-    path can flag the run when its effective slot count exceeds the
-    configured ``ServerConfig.max_cores`` threshold (default 80 %).
-    """
-
-    jobdesk_max_parallel: int
-    yaml_max_parallel_jobs: int
-    cores_per_task: int
-
-    @property
-    def effective_slots(self) -> int:
-        return int(self.jobdesk_max_parallel) * int(self.yaml_max_parallel_jobs) * int(self.cores_per_task)
-
-    def exceeds(self, server_max_cores: int | None, *, threshold: float = 0.8) -> bool:
-        if not server_max_cores:
-            return False
-        return self.effective_slots > int(server_max_cores) * threshold
+    # in SQLite ``tasks.payload_json`` via ``model_dump`` and in the
+    # optional TSV ``resource_budget`` column.  Legacy TSV manifests
+    # without that column continue to load with ``None``.
+    resource_budget: ResourceBudget | None = None
 
 
 class Manifest:
@@ -231,6 +231,7 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         _fmt_dt(task.downloaded_at),
         _fmt_dt(task.analyzed_at),
         task.error_message or "",
+        json.dumps(asdict(task.resource_budget), ensure_ascii=False) if task.resource_budget else "",
     ]
 
 
@@ -265,7 +266,7 @@ def _parse_json_dict(
     field_name: str,
     manifest_path: Path | None = None,
     row_number: int | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if not s:
         return {}
     try:
@@ -273,6 +274,20 @@ def _parse_json_dict(
     except JSONDecodeError as exc:
         raise _manifest_read_error(manifest_path, row_number, field_name, exc) from exc
     return value if isinstance(value, dict) else {}
+
+
+def _parse_resource_budget(
+    s: str,
+    manifest_path: Path | None = None,
+    row_number: int | None = None,
+) -> ResourceBudget | None:
+    values = _parse_json_dict(s, "resource_budget", manifest_path, row_number)
+    if not values:
+        return None
+    try:
+        return ResourceBudget(**values)
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_int(s: str) -> int | None:
@@ -337,4 +352,5 @@ def _row_to_task(
         downloaded_at=_parse_dt(values.get("downloaded_at", "")),
         analyzed_at=_parse_dt(values.get("analyzed_at", "")),
         error_message=values.get("error_message") or None,
+        resource_budget=_parse_resource_budget(values.get("resource_budget", ""), manifest_path, row_number),
     )

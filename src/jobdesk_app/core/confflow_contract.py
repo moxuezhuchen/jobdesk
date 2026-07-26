@@ -17,7 +17,7 @@ Structured version source of truth
 ``MIN_VERSION`` and ``MAX_EXCLUSIVE`` are the structured tuple that
 ``version_spec()`` derives the human-readable spec from. Every other
 surface (pyproject pin, CI wheel pin, README, validator error messages)
-must be a *mirror* of these tuples — never a free-floating literal.
+must be a *mirror* of these tuples 鈥?never a free-floating literal.
 """
 
 from __future__ import annotations
@@ -36,6 +36,9 @@ __all__ = [
     "MIN_VERSION",
     "MAX_EXCLUSIVE",
     "version_spec",
+    "RUN_REPORT_FILE",
+    "RUN_MIN_XYZ_TEMPLATE",
+    "REQUIRED_COMMANDS",
 ]
 
 
@@ -55,9 +58,9 @@ def work_dir_name(stem: str) -> str:
 
 @dataclass(frozen=True)
 class ConfFlowArtifactContract:
-    """JobDesk's expected shape of the ``artifacts`` block in the v2 payload.
+    """JobDesk's expected shape of the ``artifacts`` block in the v3 payload.
 
-    The three fields must round-trip exactly to the producer-side
+    The five fields must round-trip exactly to the producer-side
     constants in ``confflow.contract``. Comparison is field-by-field
     structural equality, not name-only.
     """
@@ -65,9 +68,11 @@ class ConfFlowArtifactContract:
     run_summary: str
     workflow_stats: str
     workflow_state: str
+    run_report: str | None = None
+    min_xyz: str | None = None
 
 
-CAPABILITY_SCHEMA_VERSION: int = 2
+CAPABILITY_SCHEMA_VERSION: int = 3
 
 # The three producer-side artifact names are mirrored here as module
 # constants so JobDesk code can reference them by name without going
@@ -76,18 +81,23 @@ CAPABILITY_SCHEMA_VERSION: int = 2
 RUN_SUMMARY_FILE: str = "run_summary.json"
 WORKFLOW_STATS_FILE: str = "workflow_stats.json"
 WORKFLOW_STATE_FILE: str = ".workflow_state.json"
+RUN_REPORT_FILE: str = "{basename}.txt"
+RUN_MIN_XYZ_TEMPLATE: str = "{basename}min.xyz"
+REQUIRED_COMMANDS: tuple[str, ...] = ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")
 
 EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
     run_summary=RUN_SUMMARY_FILE,
     workflow_stats=WORKFLOW_STATS_FILE,
     workflow_state=WORKFLOW_STATE_FILE,
+    run_report=RUN_REPORT_FILE,
+    min_xyz=RUN_MIN_XYZ_TEMPLATE,
 )
 
 
 # Structured version source of truth. Any change here must be mirrored
 # into pyproject.toml's confflow pin, CI's checkout ref + wheel glob,
 # docs, and the package's expected reference build.
-MIN_VERSION: tuple[int, int, int] = (1, 4, 2)
+MIN_VERSION: tuple[int, int, int] = (1, 4, 3)
 MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
 
 
@@ -96,7 +106,7 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 
     Trailing ``.0`` segments are stripped *except* the trailing one,
     so ``(2, 0, 0)`` renders as ``2.0`` (PEP 440 normal form) and
-    ``(1, 4, 2)`` renders as ``1.4.2``. We never render a single
+    ``(1, 4, 3)`` renders as ``1.4.3``. We never render a single
     major-only version because it would collapse e.g. ``(1, 4, 0)``
     into ``1`` which PEP 440 parses as ``1.0.0`` and round-trips
     silently.
@@ -110,6 +120,6 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 def version_spec() -> str:
     """Return the human-readable PEP 440 spec derived from MIN/MAX.
 
-    Example: ``version_spec() == ">=1.4.2,<2.0"``.
+    Example: ``version_spec() == ">=1.4.3,<2.0"``.
     """
     return f">={_format_version_tuple(MIN_VERSION)},<{_format_version_tuple(MAX_EXCLUSIVE)}"

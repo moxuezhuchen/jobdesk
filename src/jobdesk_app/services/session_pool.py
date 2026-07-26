@@ -231,3 +231,43 @@ class SessionPool:
                     client.close()
                 except Exception:
                     pass
+
+
+class PooledSFTP:
+    """SFTP facade whose close operation releases a :class:`SessionLease`.
+
+    File-transfer operations already use a short-lived factory/context
+    contract. This facade lets those operations borrow the app-owned pool
+    without closing the underlying reusable SSH/SFTP clients.
+    """
+
+    def __init__(self, lease: SessionLease) -> None:
+        if lease.sftp is None:
+            lease.release()
+            raise RuntimeError("SFTP lease did not provide an SFTP client")
+        self._lease = lease
+        self._sftp = lease.sftp
+        self._closed = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._sftp, name)
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._lease.release()
+
+
+def pooled_sftp_factory(pool: SessionPool, server_id: str, server_config: Any) -> Callable[[], PooledSFTP]:
+    """Return a short-lived SFTP factory backed by ``pool``."""
+
+    def factory() -> PooledSFTP:
+        lease = pool.lease(server_id, server_config, need_sftp=True)
+        lease.__enter__()
+        try:
+            return PooledSFTP(lease)
+        except BaseException:
+            lease.release()
+            raise
+
+    return factory

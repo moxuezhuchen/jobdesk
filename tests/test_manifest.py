@@ -1,6 +1,7 @@
 """测试 core/manifest.py - Manifest TSV 读写。"""
 
 import tempfile
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -257,6 +258,21 @@ class TestManifestRead:
 
         assert loaded.remote_result_files == original.remote_result_files
 
+    def test_resource_budget_tsv_round_trip(self, tmp_path):
+        budget = {"jobdesk_max_parallel": 2, "yaml_max_parallel_jobs": 4, "cores_per_task": 8}
+        original = TaskRecord(
+            task_id="budgeted",
+            batch_id="run-budget",
+            remote_job_dir="/remote/run-budget/budgeted",
+            resource_budget=budget,
+        )
+        path = tmp_path / "manifest.tsv"
+        Manifest.write(path, [original])
+
+        loaded = Manifest.read(path)[0]
+
+        assert asdict(loaded.resource_budget) == budget
+
     def test_read_preserves_declared_workflow_paths(self, tmp_path):
         original = TaskRecord(
             task_id="water",
@@ -306,6 +322,7 @@ class TestManifestRead:
         assert loaded.resume_command == ""
         assert loaded.resume_dry_run_command == ""
         assert loaded.resume_requested is False
+        assert loaded.resource_budget is None
 
     def test_read_preserves_remote_execution_identity(self):
         original = TaskRecord(

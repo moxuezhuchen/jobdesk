@@ -19,7 +19,9 @@ def main():
     from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication, QStyleFactory
 
+    from ..services.session_pool import SessionPool
     from .main_window import MainWindow
+    from .session import create_sftp_client, create_ssh_client
 
     app = QApplication(sys.argv)
     app.setStyle(QStyleFactory.create("Fusion"))
@@ -33,7 +35,8 @@ def main():
     font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     app.setFont(font)
 
-    window = MainWindow()
+    app_session_pool = SessionPool(create_ssh_client, create_sftp_client)
+    window = MainWindow(session_pool=app_session_pool)
     sys.excepthook = window._make_exception_hook()
     app.aboutToQuit.connect(window.shutdown)
     window.show()

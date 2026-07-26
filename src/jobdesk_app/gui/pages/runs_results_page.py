@@ -36,7 +36,7 @@ from ...core.confflow_contract import (
     WORKFLOW_STATE_FILE,
     WORKFLOW_STATS_FILE,
 )
-from ...core.run import remote_run_dir
+from ...core.run import WorkflowKind, remote_run_dir
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_service import RunRecord, RunService
@@ -139,12 +139,24 @@ def _format_status_overview(summaries: list[dict[str, int]], language: str = "en
     return " · ".join(parts)
 
 
+def _format_workflow_kind(record: RunRecord, language: str = "en") -> str:
+    """Render the persisted workflow kind without inferring it from commands."""
+    value = getattr(record, "workflow_kind", None)
+    if value is None:
+        return tr("Unknown", language)
+    try:
+        return WorkflowKind(value).value
+    except (TypeError, ValueError):
+        return tr("Unknown", language)
+
+
 def _format_row(record: RunRecord, language: str = "en") -> list[str]:
     return [
         record.run_id,
         record.server_id,
         record.remote_dir,
         _format_status(record.status_summary, language),
+        _format_workflow_kind(record, language),
         record.command_template,
         record.created_at,
     ]
@@ -170,6 +182,7 @@ class RunsResultsPage(QWidget):
         log_cb: Callable[[str], None] | None,
         status_cb: Callable[[str], None] | None,
         coordinator_factory: Callable[..., RunCoordinator] | None = None,
+        session_pool: SessionPool | None = None,
     ) -> None:
         super().__init__()
         self.state = state
@@ -181,6 +194,8 @@ class RunsResultsPage(QWidget):
         # not block the UI thread.
         self._status_cb = self._wrap_status_cb(status_cb)
         self._coordinator_factory = coordinator_factory
+        self._owns_session_pool = session_pool is None
+        self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
         self._language = GuiSettingsStore().load().language
         self._shutting_down = False
         self._recovery_running = False
@@ -240,6 +255,17 @@ class RunsResultsPage(QWidget):
         log_card_layout.addWidget(self._log_view)
         layout.addWidget(log_card)
 
+        self._submit_warning_banner = QLabel()
+        self._submit_warning_banner.setObjectName("SubmitWarningBanner")
+        self._submit_warning_banner.setWordWrap(True)
+        self._submit_warning_banner.setStyleSheet(
+            f"#SubmitWarningBanner {{ color: {Colors.WARNING}; "
+            "background: #fffbeb; border: 1px solid #f59e0b; "
+            "border-radius: 6px; padding: 8px 12px; font-weight: 600; }"
+        )
+        self._submit_warning_banner.setVisible(False)
+        layout.addWidget(self._submit_warning_banner)
+
         # -- Phase 2.1: empty-state hint for "no runs yet" --
         # Shows when the runs list is empty; action buttons route to
         # the Submit page via the go_to_submit_requested signal.
@@ -291,7 +317,7 @@ class RunsResultsPage(QWidget):
         top_layout.setSpacing(6)
 
         self.table = StyledTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -452,7 +478,6 @@ class RunsResultsPage(QWidget):
         # (a new submission) still jumps while later refreshes keep manual selection.
         self._applied_batch_id: str | None = None
 
-        self._session_pool = SessionPool(create_ssh_client, create_sftp_client)
 
     @staticmethod
     def _monitor_identity(workspace: Path, run_id: str, server_id: str) -> str:
@@ -1035,13 +1060,29 @@ class RunsResultsPage(QWidget):
         if hasattr(self, "_log_view") and self._log_view is not None:
             self._log_view.clear()
 
+    def set_submit_warnings(self, warnings: list[str]) -> None:
+        """Show non-fatal submission advisories without persisting them."""
+        cleaned = [str(warning).strip() for warning in warnings if str(warning).strip()]
+        if not cleaned:
+            self._submit_warning_banner.clear()
+            self._submit_warning_banner.setToolTip("")
+            self._submit_warning_banner.setVisible(False)
+            return
+        self._submit_warning_banner.setText(
+            tr("{n} submission warnings", self._language, n=len(cleaned))
+        )
+        self._submit_warning_banner.setToolTip("\n".join(cleaned))
+        self._submit_warning_banner.setVisible(True)
+
     def _set_headers(self):
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
             [
                 tr("Run ID", self._language),
                 tr("Server", self._language),
                 tr("Remote Dir", self._language),
                 tr("Status", self._language),
+                tr("Workflow", self._language),
                 tr("Command", self._language),
                 tr("Created At", self._language),
             ]
@@ -1344,7 +1385,7 @@ class RunsResultsPage(QWidget):
                 candidates.append(gui_ws)
         result_dirs = self._result_search_directories(record, candidates)
 
-        is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
+        is_confflow = getattr(record, "workflow_kind", None) in {WorkflowKind.confflow, WorkflowKind.dag}
         if is_confflow:
             best_dir = None
             fallback_dir = None
@@ -1363,9 +1404,6 @@ class RunsResultsPage(QWidget):
 
         for result_dir in result_dirs:
             if result_dir.exists():
-                summaries = sorted(result_dir.rglob(RUN_SUMMARY_FILE))
-                if summaries:
-                    return ("confflow", record, result_dir)
                 rows = self._auto_analyze(result_dir)
                 if rows:
                     return ("analysis", rows, tr("Result Preview - Auto Analysis", self._language))
@@ -1454,8 +1492,8 @@ class RunsResultsPage(QWidget):
                 candidates.append(gui_ws)
         result_dirs = self._result_search_directories(record, candidates)
 
-        # Detect ConfFlow batch by command_template
-        is_confflow = "confflow" in (getattr(record, "command_template", "") or "").lower()
+        # Detect workflow batches from the persisted workflow kind
+        is_confflow = getattr(record, "workflow_kind", None) in {WorkflowKind.confflow, WorkflowKind.dag}
         if is_confflow:
             best_dir = None
             fallback_dir = None
@@ -1477,10 +1515,6 @@ class RunsResultsPage(QWidget):
         # Prefer auto-analysis on downloaded files
         for result_dir in result_dirs:
             if result_dir.exists():
-                summaries = sorted(result_dir.rglob(RUN_SUMMARY_FILE))
-                if summaries:
-                    self._show_confflow_batch_results(record, result_dir)
-                    return
                 rows = self._auto_analyze(result_dir)
                 if rows:
                     self.result_text.setVisible(False)
@@ -1667,7 +1701,7 @@ class RunsResultsPage(QWidget):
     def _show_confflow_batch_results(self, record, result_dir: Path):
         """Display per-molecule ConfFlow summary table using manifest as authority."""
         from ...core.lifecycle import TaskStatus
-        from ...services.confflow_results import load_summary
+        from ...services.confflow_results import ParseState, load_summary_result
 
         headers = ["Molecule", "Status", "Conformers (in→out)", "Duration (s)", "Steps", "Progress"]
         rows: list[list[str]] = []
@@ -1681,7 +1715,14 @@ class RunsResultsPage(QWidget):
                 summary_file = _confflow_summary_file(result_dir, mol_name)
                 if task.status in (TaskStatus.downloaded, TaskStatus.analyzed) and summary_file.exists():
                     try:
-                        s = load_summary(summary_file)
+                        parsed = load_summary_result(summary_file)
+                        if parsed.state is ParseState.MALFORMED:
+                            rows.append([mol_name, "\u26a0 Parse Error", "", "", "", ""])
+                            continue
+                        if parsed.state is ParseState.MISSING or parsed.summary is None:
+                            rows.append([mol_name, "\u2717 Missing", "", "", "", ""])
+                            continue
+                        s = parsed.summary
                         steps = (
                             ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items())
                             if s.step_status_counts
@@ -1725,7 +1766,14 @@ class RunsResultsPage(QWidget):
                     summary_file = _confflow_summary_file(result_dir, mol_name)
                     if summary_file.exists():
                         try:
-                            s = load_summary(summary_file)
+                            parsed = load_summary_result(summary_file)
+                            if parsed.state is ParseState.MALFORMED:
+                                rows.append([mol_name, "\u26a0 Parse Error", "", "", "", ""])
+                                continue
+                            if parsed.state is ParseState.MISSING or parsed.summary is None:
+                                rows.append([mol_name, "\u2717 Missing", "", "", "", ""])
+                                continue
+                            s = parsed.summary
                             steps = (
                                 ", ".join(f"{k}={v}" for k, v in s.step_status_counts.items())
                                 if s.step_status_counts
@@ -2620,7 +2668,8 @@ class RunsResultsPage(QWidget):
         w = getattr(self, "_worker", None)
         if w and hasattr(w, "stop_safely"):
             w.stop_safely(3000)
-        self._session_pool.close()
+        if self._owns_session_pool:
+            self._session_pool.close()
 
 
 def _too_large_for_preview(path: Path) -> bool:

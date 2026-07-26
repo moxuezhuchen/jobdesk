@@ -1,7 +1,7 @@
 # ConfFlow 1.4.0 Wheel 构建与部署指南
 
-> **Archived:** JobDesk now certifies ConfFlow 1.4.2 (with 1.4.3 planned in
-> P-H2C). Use `CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md` for current guidance;
+> **Archived:** JobDesk now certifies ConfFlow 1.4.3 (this 1.4.0 guide is retained for history;
+> Use `CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md` for current guidance;
 > this file is retained for the historical 1.4.0 deployment record.
 
 JobDesk 的 `chem` extra 要求 `confflow>=1.4.0`。权威源码仓库位于

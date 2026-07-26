@@ -34,6 +34,7 @@ from ...services.external_terminal import build_terminal_launch, launch_terminal
 from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_service import RunService
+from ...services.session_pool import pooled_sftp_factory
 from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
 from ..design.components import StatusChip
 from ..design.tokens import Colors, Metrics, Radius
@@ -97,13 +98,14 @@ class FileTransferPage(QWidget):
     # raising the signal — never for calling a navigator directly.
     open_settings_requested = Signal()
 
-    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None):
+    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None, session_pool=None):
         super().__init__()
         self.state = state
         self._log = log_cb
         self._status_cb = status_cb
         self._error_cb = error_cb
         self._coordinator_factory = coordinator_factory
+        self._session_pool = session_pool
         self._servers = {}
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
@@ -648,10 +650,11 @@ class FileTransferPage(QWidget):
 
         if self._service is not None:
             self._close_service_async(self._service)
+        pooled = self._session_pool is not None
         service = FileTransferService(
-            self._build_service_factory(server),
+            self._build_service_factory(server, server_id if pooled else None),
             allowed_delete_roots=collect_remote_delete_roots(self._current_run_tasks()),
-            persistent_session=True,
+            persistent_session=not pooled,
         )
         self._service = service
         self._connections.set_server(server_id, server, service)
@@ -666,12 +669,15 @@ class FileTransferPage(QWidget):
         # state flipped from "none" to "connected".
         self._update_empty_state_visibility()
 
-    def _build_service_factory(self, server):
+    def _build_service_factory(self, server, server_id=None):
         """Build a FileTransferService factory that opens (ssh, sftp) for ``server``.
 
         Factored out so ``_connect`` can pass it through the coordinator's
         runner path without leaking the page's create_* helpers.
         """
+
+        if self._session_pool is not None and server_id:
+            return pooled_sftp_factory(self._session_pool, server_id, server)
 
         def factory():
             ssh = create_ssh_client(server)

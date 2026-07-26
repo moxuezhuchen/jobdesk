@@ -204,7 +204,7 @@ def step_main_window(app: QApplication):
     mw_mod.RunsResultsPage = _RunsStub
     mw_mod.SettingsServersPage = _SettingsStub
     mw_mod.GuiSettingsStore = _GuiSettingsStoreStub
-    mw_mod.configure_file_logging = lambda: _NullLogger()
+    mw_mod.configure_file_logging = lambda *_args, **_kwargs: _NullLogger()
 
     # SettingsServersPage imports a few helpers; stub load_servers so
     # they don't hit disk.

@@ -124,9 +124,9 @@ class RunService:
         return self.repository.retry_legacy_imports()
 
     def submit_run(
-        self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None
+        self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None, max_cores: int | None = None
     ):
-        return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources)
+        return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources, max_cores)
 
     def recover_submit_operations(self, run_id: str | None = None) -> int:
         return _submit.recover_submit_operations(self, run_id)
