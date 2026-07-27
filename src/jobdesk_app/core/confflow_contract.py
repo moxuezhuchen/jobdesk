@@ -17,7 +17,21 @@ Structured version source of truth
 ``MIN_VERSION`` and ``MAX_EXCLUSIVE`` are the structured tuple that
 ``version_spec()`` derives the human-readable spec from. Every other
 surface (pyproject pin, CI wheel pin, README, validator error messages)
-must be a *mirror* of these tuples 鈥?never a free-floating literal.
+must be a *mirror* of these tuples; never a free-floating literal.
+
+Reference build artefact
+------------------------
+The ConfFlow v1.4.3 wheel that this revision of JobDesk (commit
+``5167477`` on main) was integrated against has the following SHA-256::
+
+    confflow-1.4.3-py3-none-any.whl
+    sha256: 415875e294a454ffd6d6a12835f087f33c8b5731cec74cb5e36588036ff7671d
+    commit: 7b37c223d2c07a062ab62965911c3cd8d6641591
+
+The provenance is enforced by ``tests/test_confflow_wheel_build.py``
+in CI, which asserts both the COMMIT and the DIRTY flag captured at
+build time. If the wheel fingerprint changes, update the SHA above and
+bump the reference commit.
 """
 
 from __future__ import annotations
