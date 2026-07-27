@@ -118,6 +118,13 @@ jobs:
           python -m pip install $wheel.FullName
           python -c "import confflow; assert confflow.__version__ == '1.4.3'; print(confflow.__version__)"
 
+      - name: Verify ConfFlow wheel build provenance
+        shell: pwsh
+        env:
+          JOBDESK_CONFFLOW_WHEEL_DIR: .ci/confflow-dist
+          JOBDESK_CONFFLOW_CHECKOUT_DIR: .ci/confflow
+        run: python -m pytest tests/test_confflow_wheel_build.py -v
+
       - name: Install ripgrep
         shell: pwsh
         run: choco install ripgrep -y --no-progress
