@@ -770,7 +770,7 @@ class TestStaticSafety:
             .replace("'/opt/g16/l1.exe.real'", repr(str(backup)))
             .replace("'/opt/g16/l1.exe.real.jobdesk.json'", repr(str(manifest)))
         )
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(source).decode("ascii")))
 
         if failure == "write":
@@ -834,7 +834,7 @@ class TestStaticSafety:
             .replace("'/opt/g16/l1.exe.real'", repr(str(backup)))
             .replace("'/opt/g16/l1.exe.real.jobdesk.json'", repr(str(manifest)))
         )
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(source).decode("ascii")))
 
         if existing == "partial":
@@ -863,7 +863,7 @@ class TestStaticSafety:
             Path(target).write_bytes(b"partial backup")
             raise OSError("injected backup copy failure")
 
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(shutil, "copy2", _partial_copy)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(b"mock").decode("ascii")))
         with pytest.raises(OSError):
@@ -894,7 +894,7 @@ class TestStaticSafety:
                 raise OSError("injected manifest publish failure")
             return original_replace(src, target)
 
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(os, "replace", _fail_manifest_replace)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(source).decode("ascii")))
         with pytest.raises(OSError):
@@ -938,7 +938,7 @@ class TestStaticSafety:
             .replace("'/opt/g16/l1.exe.real'", repr(str(backup)))
             .replace("'/opt/g16/l1.exe.real.jobdesk.json'", repr(str(manifest)))
         )
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(b"mock").decode("ascii")))
 
         with pytest.raises(SystemExit) as exc_info:
@@ -959,7 +959,7 @@ class TestStaticSafety:
             .replace("'/opt/g16/l1.exe.real'", repr(str(backup)))
             .replace("'/opt/g16/l1.exe.real.jobdesk.json'", repr(str(manifest)))
         )
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(b"mock").decode("ascii")))
 
         exec(compile(script, "REMOTE_INSTALL_PY", "exec"), {})
@@ -989,7 +989,7 @@ class TestStaticSafety:
             .replace("'/opt/g16/l1.exe.real'", repr(str(backup)))
             .replace("'/opt/g16/l1.exe.real.jobdesk.json'", repr(str(manifest)))
         )
-        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+        monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None, raising=False)
         monkeypatch.setattr(sys, "stdin", io.StringIO(base64.b64encode(b"replacement").decode("ascii")))
 
         with pytest.raises(SystemExit) as exc_info:
