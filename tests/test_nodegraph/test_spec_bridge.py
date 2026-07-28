@@ -232,11 +232,7 @@ def test_to_workflow_spec_rejects_cycle():
         to_workflow_spec(g)
 
 
-def test_to_workflow_spec_accepts_fan_out():
-    """One OPT feeding two STRUCTURE successors is fan-out and is now
-    allowed by Phase 10. Both successors see ``"opt"`` in their
-    ``inputs`` array.
-    """
+def test_to_workflow_spec_rejects_fan_out_with_multiple_terminals():
     g = NodeGraph()
     xyz = default_node(NodeKind.XYZ_FILE, position=(0, 0))
     opt = default_node(NodeKind.OPT, position=(200, 0))
@@ -249,12 +245,8 @@ def test_to_workflow_spec_accepts_fan_out():
     g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=opt.id, dst_port="in"))
     g.add_edge(Edge(id="e2", src_node=opt.id, src_port="out", dst_node=a.id, dst_port="in"))
     g.add_edge(Edge(id="e3", src_node=opt.id, src_port="out", dst_node=b.id, dst_port="in"))
-    payload = to_workflow_spec(g)
-    names = {s["name"]: s for s in payload.steps}
-    opt_name = names["opt"]["name"]
-    assert "sp" in names and "freq" in names
-    assert names["sp"]["inputs"] == [opt_name]
-    assert names["freq"]["inputs"] == [opt_name]
+    with pytest.raises(WorkflowSpecError, match="freq, sp.*final merge or calculation step"):
+        to_workflow_spec(g)
 
 
 def test_to_workflow_spec_rejects_fan_in_to_structure_port():
@@ -380,31 +372,62 @@ def _make_fanout_graph() -> NodeGraph:
     return g
 
 
-def test_from_workflow_spec_round_trips_fanout():
-    """serialize -> deserialize -> serialize byte-identical."""
-    original = _make_fanout_graph()
-    payload1 = to_workflow_spec(original)
-    yaml1 = payload1.to_yaml()
+def _historical_fanout_payload() -> dict[str, object]:
+    return {
+        "steps": [
+            {"name": "confgen", "type": "confgen", "params": {}},
+            {"name": "sp", "type": "calc", "params": {"itask": "sp"}, "inputs": ["confgen"]},
+            {"name": "freq", "type": "calc", "params": {"itask": "freq"}, "inputs": ["confgen"]},
+        ]
+    }
 
-    rebuilt = from_workflow_spec(payload1)
-    payload2 = to_workflow_spec(rebuilt)
-    yaml2 = payload2.to_yaml()
-    # The YAML output is byte-identical because every step name and
-    # ``inputs`` list survives the round-trip. ``rebuilt.validate()``
-    # can legitimately flag the synthetic ``OUTPUT`` sentinel edges
-    # (``OUTPUT`` has no input ports by design, see ``NodeKind.OUTPUT``
-    # in ``model.py``).
-    assert yaml1 == yaml2
+
+def test_to_workflow_spec_rejects_multiple_terminal_steps():
+    graph = _make_fanout_graph()
+
+    with pytest.raises(WorkflowSpecError, match="freq, sp.*final merge or calculation step"):
+        to_workflow_spec(graph)
+
+
+def test_from_workflow_spec_displays_historical_multiple_terminal_steps_but_blocks_resubmission():
+    graph = from_workflow_spec(_historical_fanout_payload())
+
+    assert {node.title for node in graph.nodes.values() if node.kind in _STEP_EMITTING_KINDS_FOR_TEST} == {
+        "confgen",
+        "sp",
+        "freq",
+    }
+    with pytest.raises(WorkflowSpecError, match="freq, sp.*final merge or calculation step"):
+        to_workflow_spec(graph)
+
+
+def test_to_workflow_spec_accepts_joined_diamond():
+    graph = NodeGraph()
+    xyz = default_node(NodeKind.XYZ_FILE, position=(0, 0))
+    confgen = default_node(NodeKind.CONF_GEN, position=(160, 0))
+    opt = default_node(NodeKind.OPT, position=(320, -80))
+    refine = default_node(NodeKind.REFINE, position=(480, 0))
+    output = default_node(NodeKind.OUTPUT, position=(640, 0))
+    for node in (xyz, confgen, opt, refine, output):
+        graph.add_node(node)
+    graph.add_edge(Edge(id="xyz-conf", src_node=xyz.id, src_port="out", dst_node=confgen.id, dst_port="in"))
+    graph.add_edge(Edge(id="conf-opt", src_node=confgen.id, src_port="out", dst_node=opt.id, dst_port="in"))
+    graph.add_edge(Edge(id="conf-refine", src_node=confgen.id, src_port="out", dst_node=refine.id, dst_port="ensemble"))
+    graph.add_edge(Edge(id="opt-refine", src_node=opt.id, src_port="out", dst_node=refine.id, dst_port="candidate"))
+
+    payload = to_workflow_spec(graph)
+
+    assert [step["name"] for step in payload.steps] == ["confgen", "opt", "refine"]
+    assert payload.steps[-1]["inputs"] == ["confgen", "opt"]
 
 
 def test_from_workflow_spec_rebuilt_topology_matches_original():
     """The rebuilt graph has the same set of step names and inputs."""
-    original = _make_fanout_graph()
-    payload = to_workflow_spec(original)
+    payload = _historical_fanout_payload()
     rebuilt = from_workflow_spec(payload)
 
     # Step names must match.
-    original_names = sorted(s["name"] for s in payload.steps)
+    original_names = sorted(step["name"] for step in payload["steps"])
     rebuilt_step_pairs = [
         (n.kind.value, n.title)
         for n in rebuilt.nodes.values()
@@ -416,9 +439,7 @@ def test_from_workflow_spec_rebuilt_topology_matches_original():
 
 def test_from_workflow_spec_recovers_fanout_topology():
     """The rebuilt graph must have a SP and FREQ both wired from CONF_GEN."""
-    original = _make_fanout_graph()
-    payload = to_workflow_spec(original)
-    rebuilt = from_workflow_spec(payload)
+    rebuilt = from_workflow_spec(_historical_fanout_payload())
 
     # Build a name -> node-id map for the calc nodes only.
     by_name: dict[str, str] = {n.title: n.id for n in rebuilt.nodes.values() if n.kind in _STEP_EMITTING_KINDS_FOR_TEST}
@@ -470,29 +491,17 @@ def test_dag_kind_serialize_deserialize_round_trip():
     must keep every step name and ``inputs`` entry intact, so the
     editor → bridge → use case plumbing is faithful.
     """
-    original = _make_fanout_graph()
-    payload1 = to_workflow_spec(original)
-    # DAG payloads have non-empty ``inputs`` on at least one step; this is
-    # the contract the SubmitPage auto-detect uses to choose kind="dag".
-    has_dag_input = any(bool(s.get("inputs")) for s in payload1.steps)
-    assert has_dag_input, "fan-out fixture must exercise non-empty inputs"
-
-    rebuilt = from_workflow_spec(payload1)
-    payload2 = to_workflow_spec(rebuilt)
-    # The 4-tuple round trip in test_from_workflow_spec_round_trips_fanout
-    # is byte-identical; the DAG kind piggy-backs on the same fixture.
-    assert payload1.to_yaml() == payload2.to_yaml()
+    graph = from_workflow_spec(_historical_fanout_payload())
+    with pytest.raises(WorkflowSpecError, match="multiple terminal steps"):
+        to_workflow_spec(graph)
 
 
 def test_dag_payload_has_non_empty_inputs_after_round_trip():
     """Round-tripping a DAG must preserve the ``inputs`` list on every sink."""
-    original = _make_fanout_graph()
-    spec_payload = to_workflow_spec(original)
-    rebuilt = from_workflow_spec(spec_payload)
-    payload_after = to_workflow_spec(rebuilt)
-    by_name = {step["name"]: step for step in payload_after.steps}
-    assert by_name["sp"]["inputs"] == ["confgen"]
-    assert by_name["freq"]["inputs"] == ["confgen"]
+    graph = from_workflow_spec(_historical_fanout_payload())
+    by_name = {node.title: node.id for node in graph.nodes.values() if node.kind in _STEP_EMITTING_KINDS_FOR_TEST}
+    assert any(edge.src_node == by_name["confgen"] and edge.dst_node == by_name["sp"] for edge in graph.edges.values())
+    assert any(edge.src_node == by_name["confgen"] and edge.dst_node == by_name["freq"] for edge in graph.edges.values())
 
 
 def test_dag_payload_dag_step_count_is_stable():
@@ -503,11 +512,8 @@ def test_dag_payload_dag_step_count_is_stable():
     invariant: the YAML the engine sees must match step-for-step what the
     editor produced.
     """
-    original = _make_fanout_graph()
-    payload_before = to_workflow_spec(original)
-    rebuilt = from_workflow_spec(payload_before)
-    payload_after = to_workflow_spec(rebuilt)
-    assert len(payload_before.steps) == len(payload_after.steps)
+    graph = from_workflow_spec(_historical_fanout_payload())
+    assert len([node for node in graph.nodes.values() if node.kind in _STEP_EMITTING_KINDS_FOR_TEST]) == 3
 
 
 # ── step-name uniqueness ─────────────────────────────────────────────────

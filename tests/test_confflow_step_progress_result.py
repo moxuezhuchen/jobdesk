@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from jobdesk_app.services.confflow_results import (
     ConfFlowStepProgress,
     ParseState,
@@ -37,6 +39,22 @@ def test_load_step_progress_result_not_a_dict(tmp_path: Path) -> None:
     target.write_text("[1, 2]", encoding="utf-8")
     result = load_step_progress_result(target)
     assert result.state is ParseState.MALFORMED
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"steps": {}},
+        {"steps": ["broken"]},
+        {"steps": [{"name": "opt"}]},
+        {"steps": [{"name": " ", "status": "completed"}]},
+        {"steps": [{"name": "opt", "status": " "}]},
+    ),
+)
+def test_load_step_progress_result_rejects_incompatible_steps(tmp_path: Path, payload: object) -> None:
+    target = tmp_path / "stats.json"
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_step_progress_result(target).state is ParseState.MALFORMED
 
 
 def test_load_step_progress_result_ok(tmp_path: Path) -> None:

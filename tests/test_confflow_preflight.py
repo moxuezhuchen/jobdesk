@@ -197,6 +197,39 @@ def test_linear_workflow_does_not_require_dag_capability():
     )
 
 
+@pytest.mark.parametrize("version", ("1.9.0rc1", "1.9.0-rc.1"))
+def test_validator_accepts_prerelease_above_minimum(version):
+    validate_confflow_capabilities(
+        ConfFlowCapabilities(
+            CAPABILITY_SCHEMA_VERSION,
+            version,
+            True,
+            True,
+            True,
+            artifacts=EXPECTED_ARTIFACTS,
+            commands={name: True for name in REQUIRED_COMMANDS},
+        ),
+        require_dag=True,
+    )
+
+
+@pytest.mark.parametrize("version", ("1.4.3rc1", "1.4.3-rc.1"))
+def test_validator_rejects_prerelease_at_minimum(version):
+    with pytest.raises(ValueError, match="1.4.3"):
+        validate_confflow_capabilities(
+            ConfFlowCapabilities(
+                CAPABILITY_SCHEMA_VERSION,
+                version,
+                True,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
+            require_dag=True,
+        )
+
+
 
 @pytest.mark.parametrize("missing_name", ("run_summary", "workflow_stats", "workflow_state", "run_report", "min_xyz"))
 def test_validator_rejects_missing_v3_artifacts(missing_name):

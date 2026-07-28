@@ -21,6 +21,8 @@ import json
 import re
 from dataclasses import dataclass
 
+from packaging.version import InvalidVersion, Version
+
 from .confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
@@ -34,10 +36,8 @@ from .confflow_contract import (
 PRERELEASE_AT_MIN_REJECT = True
 PRERELEASE_ABOVE_MIN_ACCEPT = True
 
-_SEMVER_RE = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+_ACCEPTED_VERSION_SPELLING_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:rc\d+|-rc\.\d+)?$"
 )
 
 
@@ -171,10 +171,10 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
             "unsupported ConfFlow capability schema: "
             f"expected {CAPABILITY_SCHEMA_VERSION}, got {capabilities.schema_version}"
         )
-    version = _parse_semver(capabilities.version)
-    core = version[:3]
-    prerelease = version[3]
-    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease is not None) or (core > MIN_VERSION and prerelease is not None and not PRERELEASE_ABOVE_MIN_ACCEPT):
+    version = _parse_version(capabilities.version)
+    core = version.release
+    prerelease = version.is_prerelease
+    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT):
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
     if core >= MAX_EXCLUSIVE:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
@@ -199,16 +199,16 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
         raise ValueError("remote ConfFlow lacks required dag capability")
 
 
-def _parse_semver(value: str) -> tuple[int, int, int, str | None]:
-    match = _SEMVER_RE.fullmatch(value)
-    if match is None:
+def _parse_version(value: str) -> Version:
+    if not _ACCEPTED_VERSION_SPELLING_RE.fullmatch(value):
         raise ValueError(f"invalid ConfFlow semantic version: {value}")
-    prerelease = match.group(4)
-    if prerelease is not None:
-        for identifier in prerelease.split("."):
-            if identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0"):
-                raise ValueError(f"invalid ConfFlow semantic version: {value}")
-    return int(match.group(1)), int(match.group(2)), int(match.group(3)), prerelease
+    try:
+        version = Version(value)
+    except InvalidVersion as exc:
+        raise ValueError(f"invalid ConfFlow semantic version: {value}") from exc
+    if version.epoch or version.dev is not None or version.post is not None or version.local is not None:
+        raise ValueError(f"invalid ConfFlow semantic version: {value}")
+    return version
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

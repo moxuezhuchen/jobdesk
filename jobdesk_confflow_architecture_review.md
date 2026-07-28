@@ -1,5 +1,17 @@
 # JobDesk × ConfFlow 跨项目架构评审报告
 
+## 2026-07-28 deployment update
+
+The supported ConfFlow 1.4.3 installation is present at
+`/opt/ConfFlow/.venv/bin/confflow` and is exposed through
+`/usr/local/bin/confflow`. The incident reviewed here was not a missing wheel:
+the persisted JobDesk `wsl` server entry sourced an obsolete isolated
+environment script, which shadowed that deployment with ConfFlow 1.4.0. The
+stale `env_init_scripts` entry has been removed. Operator checks must compare
+`command -v confflow` and `confflow --capabilities --json` in the exact task
+shell, including configured init scripts, before diagnosing a deployment
+failure.
+
 > **评审对象**：
 > - Consumer（Windows 端）: `C:\dft\tool\jobdesk-dev`（PySide6 + Paramiko 应用，v0.5.0+）
 > - Producer（WSL/Linux 端）: `/opt/ConfFlow`（`confflow` 1.4.3，Python 3.10–3.13）

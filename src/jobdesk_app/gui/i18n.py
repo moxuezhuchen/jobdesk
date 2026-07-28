@@ -515,8 +515,8 @@ ZH: dict[str, str] = {
     "Free-form key=value options": "\u81ea\u7531 key=value \u9009\u9879",
     "Workflow terminator (emits workflow.yaml)": "\u5de5\u4f5c\u6d41\u7ec8\u6b62\u8282\u70b9\uff08\u8f93\u51fa workflow.yaml\uff09",
     "Output": "\u8f93\u51fa",
-    "Aggregate all upstream paths into workflow.yaml terminator": (
-        "\u5c06\u4e0a\u6e38\u6240\u6709\u5206\u652f\u5408\u5e76\u5230 workflow.yaml \u7ec8\u6b62\u8282\u70b9"
+    "Final workflow result; exactly one terminal workflow step is required": (
+        "\u6700\u7ec8\u5de5\u4f5c\u6d41\u7ed3\u679c\uff1b\u53ea\u5141\u8bb8\u4e00\u4e2a\u7ec8\u7aef\u5de5\u4f5c\u6d41\u6b65\u9aa4"
     ),
     "Inputs: {names} ({n} incoming edges)": ("\u8f93\u5165: {names}\uff08{n} \u6761\u8f93\u5165\u8fb9\uff09"),
     "Inputs: {names} (1 incoming edge)": ("\u8f93\u5165: {names}\uff081 \u6761\u8f93\u5165\u8fb9\uff09"),

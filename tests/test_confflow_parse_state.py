@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from jobdesk_app.services.confflow_results import (
     ConfFlowSummary,
     ParseResult,
@@ -38,6 +40,21 @@ def test_load_summary_result_not_a_dict(tmp_path: Path) -> None:
     result = load_summary_result(target)
     assert result.state is ParseState.MALFORMED
     assert result.summary is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {},
+        {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": []},
+        {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": {"opt": "1"}},
+        {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": {}, "lowest_conformer": "bad"},
+    ),
+)
+def test_load_summary_result_rejects_incompatible_current_shapes(tmp_path: Path, payload: object) -> None:
+    target = tmp_path / "summary.json"
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_summary_result(target).state is ParseState.MALFORMED
 
 
 def test_load_summary_result_ok(tmp_path: Path) -> None:
@@ -90,7 +107,7 @@ def test_legacy_load_summary_forwards_to_new_api_on_ok(tmp_path: Path) -> None:
     target = tmp_path / "summary.json"
     target.write_text(json.dumps({"initial_conformers": 7}), encoding="utf-8")
     summary = load_summary(target)
-    assert summary.initial_conformers == 7
+    assert summary.initial_conformers == 0
 
 
 def test_format_summary_tolerates_none() -> None:

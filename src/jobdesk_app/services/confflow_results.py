@@ -102,15 +102,28 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
         return ParseResult(state=ParseState.MALFORMED, summary=None)
     if not isinstance(raw, dict):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
+    required = ("initial_conformers", "final_conformers", "total_duration_seconds", "step_status_counts")
+    if any(name not in raw for name in required):
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
+    counts = raw["step_status_counts"]
+    lowest = raw.get("lowest_conformer")
+    if (
+        not isinstance(counts, dict)
+        or any(not isinstance(name, str) or type(count) is not int for name, count in counts.items())
+        or type(raw["initial_conformers"]) is not int
+        or type(raw["final_conformers"]) is not int
+        or not isinstance(raw["total_duration_seconds"], (int, float))
+        or isinstance(raw["total_duration_seconds"], bool)
+        or (lowest is not None and not isinstance(lowest, dict))
+    ):
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
     try:
         summary = ConfFlowSummary(
-            initial_conformers=int(raw.get("initial_conformers", 0) or 0),
-            final_conformers=int(raw.get("final_conformers", 0) or 0),
-            total_duration_seconds=float(
-                raw.get("total_duration_seconds", 0) or 0
-            ),
-            step_status_counts=dict(raw.get("step_status_counts", {}) or {}),
-            lowest_conformer=raw.get("lowest_conformer"),
+            initial_conformers=raw["initial_conformers"],
+            final_conformers=raw["final_conformers"],
+            total_duration_seconds=float(raw["total_duration_seconds"]),
+            step_status_counts=dict(counts),
+            lowest_conformer=lowest,
         )
     except (TypeError, ValueError):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
@@ -209,6 +222,16 @@ def load_step_progress_result(path: Path) -> ParseResult[ConfFlowStepProgress]:
     except (OSError, json.JSONDecodeError):
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
     if not isinstance(raw, dict):
+        return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
+    steps = raw.get("steps")
+    if not isinstance(steps, list) or any(
+        not isinstance(step, dict)
+        or not isinstance(step.get("name"), str)
+        or not isinstance(step.get("status"), str)
+        or not step["name"].strip()
+        or not step["status"].strip()
+        for step in steps
+    ):
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
     return ParseResult(state=ParseState.OK, summary=_load_step_progress_inner(path))
 

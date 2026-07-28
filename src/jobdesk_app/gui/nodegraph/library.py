@@ -120,7 +120,7 @@ _RAW_TOOLTIP: dict[NodeKind, str] = {
     NodeKind.TS: "Transition state search; Input: STRUCTURE",
     NodeKind.REFINE: "Refine best conformer with high accuracy; Input: STRUCTURE + ensemble",
     NodeKind.ADVANCED: "Free-form key=value options",
-    NodeKind.OUTPUT: "Aggregate all upstream paths into workflow.yaml terminator",
+    NodeKind.OUTPUT: "Final workflow result; exactly one terminal workflow step is required",
 }
 
 

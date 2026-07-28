@@ -162,14 +162,14 @@ def test_tooltip_calc_kinds_advertise_input_structure(qtbot):
         assert "STRUCTURE" in tip, f"kind={kind} tip={tip!r}"
 
 
-def test_tooltip_output_mentions_aggregating_upstream(qtbot):
-    """OUTPUT tooltip says it aggregates all upstream paths."""
+def test_tooltip_output_describes_single_terminal_result(qtbot):
+    """OUTPUT tooltip describes the one supported final result."""
     panel = NodeLibraryPanel(language="en")
     qtbot.addWidget(panel)
     panel.show()
     tip = panel._buttons[NodeKind.OUTPUT].toolTip()
-    assert "upstream" in tip.lower()
-    assert "terminator" in tip.lower() or "workflow.yaml" in tip.lower()
+    assert "final workflow result" in tip.lower()
+    assert "exactly one terminal" in tip.lower()
 
 
 def test_tooltips_translate_to_chinese(qtbot):

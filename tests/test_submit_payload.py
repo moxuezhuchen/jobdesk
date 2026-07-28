@@ -221,32 +221,14 @@ def test_submit_payload_dag_defaults_to_none():
     assert payload.dag is None
 
 
-def test_dag_workflow_payload_serializes_yaml():
-    """``WorkflowGraphPayload.to_yaml()`` already includes the DAG ``inputs`` list.
-
-    Phase 10.5 plumbing accepts that YAML verbatim on the submit side;
-    this test is the contract: serialise a fan-out graph and assert
-    every step's ``inputs`` field survives.
-    """
-    import yaml
-
-    from jobdesk_app.core import workflow_spec
-
-    if not workflow_spec._CONFFLOW_AVAILABLE:
-        pytest.skip("confflow package not installed in test env")
-    from jobdesk_app.gui.nodegraph.spec_bridge import to_workflow_spec
+def test_dag_workflow_payload_rejects_ambiguous_fanout():
+    """A fan-out without a final join cannot be submitted as a workflow."""
+    from jobdesk_app.gui.nodegraph.spec_bridge import WorkflowSpecError, to_workflow_spec
     from tests.test_nodegraph.test_spec_bridge import _make_fanout_graph
 
     graph = _make_fanout_graph()
-    spec_payload = to_workflow_spec(graph)
-    yaml_text = spec_payload.to_yaml()
-    parsed = yaml.safe_load(yaml_text)
-    by_name = {step["name"]: step for step in parsed["steps"]}
-    # Both fan-out sinks must name "confgen" in their inputs list.
-    assert by_name["sp"]["inputs"] == ["confgen"]
-    assert by_name["freq"]["inputs"] == ["confgen"]
-    # The root step still has an empty inputs list (it consumes global XYZ).
-    assert by_name["confgen"]["inputs"] == []
+    with pytest.raises(WorkflowSpecError, match="multiple terminal steps"):
+        to_workflow_spec(graph)
 
 
 def test_workflow_kind_dag_round_trip():

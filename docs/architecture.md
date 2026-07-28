@@ -1,5 +1,17 @@
 # JobDesk Architecture
 
+## ConfFlow contract update (2026-07-28)
+
+The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
+Workflow method presets are supplied by `jobdesk_app.services.method_presets`,
+while the editable local `WorkflowSpec` and the remote `confflow` CLI form a
+two-part contract. JobDesk accepts ConfFlow in the compatibility window
+`>=1.4.3,<2.0`; this is a capability window, not an exact shared model pin.
+
+An executable DAG must have one semantic terminal step. The OUTPUT node
+visualizes that one result and does not aggregate independent branches; add a
+final merge or calculation step before submitting a fan-out workflow.
+
 A high-level map of the codebase. The intended audience is a new
 contributor trying to locate where to make a change.
 
@@ -47,7 +59,7 @@ that holds session leases via `SessionPool`.
 > operations are intentionally not supported: every file operation
 > enters and exits its own lease.
 
-## 3-page GUI shell
+## 4-page GUI shell
 
 `gui/main_window.py` wires a `QStackedWidget` of four pages (Phase 14):
 
@@ -62,7 +74,7 @@ The Submit page (Phase 2) is now split across three modules:
 
 * `gui/dialogs/submit_dialog.py` — modal that produces a `SubmitPayload`. Auto-detects Single vs Workflow mode from the selected input files.
 * `gui/dialogs/workflow_builder_dialog.py` — modal that hosts `WorkflowGraphEditor` for editing a single preset.
-* `gui/services/method_presets.py` — disk-backed `MethodPresetStore` that loads YAML presets from built-in (`jobdesk_app.resources.method_presets`) and user (`<app_data_dir>/method_presets`).
+* `services/method_presets.py` — disk-backed `MethodPresetStore` that loads user workflow presets from `<app_data_dir>/method_presets`; built-in step presets live under `jobdesk_app.resources.step_presets`.
 
 ```
 InputSourcePanel  ──+──►  SubmitDialog  ──►  SubmitPayload  ──►  SubmitUseCase  ──►  PreparedBatch
@@ -127,26 +139,23 @@ organisational; all reads / writes still flow through
 
 ## Method Preset Store
 
-`services/method_presets.py::MethodPresetStore` is the single source
-of truth for workflow presets. Both built-in presets (packaged under
-`jobdesk_app.resources.method_presets`) and user presets
-(`<appdata>/method_presets/`) load as `WorkflowSpec` via
-`WorkflowSpec.from_yaml()`. The store keeps the editor, the dialog,
-and the run service aligned on the same on-disk schema.
+`services/method_presets.py::MethodPresetStore` is the source of truth for
+user-saved workflow compositions under `<appdata>/method_presets/`. Each file
+loads as a `WorkflowSpec` via `WorkflowSpec.from_yaml()`. The historical class
+name remains for compatibility, but it no longer exposes bundled workflows.
 
-Lookup precedence: **user > built-in**, matching the behaviour of
-`services/analysis_profiles.py`.
+`StepPresetStore` owns reusable single-step fragments. It combines bundled
+entries from `jobdesk_app.resources.step_presets` with optional user entries
+under `<appdata>/step_presets/`; user fragments take precedence by name. Step
+presets deliberately omit workflow-global fields and graph edges.
 
 Save path: `MethodPresetStore.save_user(name, spec)` writes
 `spec.to_yaml()` to `<user_dir>/<name>.yaml` via
 `core/atomic_write.atomic_write_text`. Renames go through temp+move;
 deletes are unconditional `unlink`.
 
-The store ships nine built-in presets across `gaussian/` (5) / `orca/`
-(3) / `conflow/` (1) subdirectories — the file stem is the preset
-name; the subdirectory is advisory only. The dual-entry SubmitDialog
-reads presets via the store so the preset picker inside the modal
-stays in sync with what the Workflow page shows.
+The Workflow page and Submit dialog use these stores so saved compositions and
+reusable steps follow the same persistence rules.
 
 ## ConfFlow integration
 
@@ -154,7 +163,9 @@ The Submit page's "Build workflow" tab is the optional ConfFlow
 front-end. JobDesk works without it. When installed
 (`pip install -e ".[chem]"`), `SubmitUseCase` produces a
 `WorkflowSpec` that round-trips through ConfFlow's Pydantic models
-plus a `workflow.yaml` written next to the first XYZ input. The
+plus a uniquely named local staging file (`workflow.<submission-id>.yaml`),
+which is uploaded as `workflow.yaml` inside that submission's isolated remote
+namespace. The
 page-level worker callback then:
 
 1. Uploads the local XYZ inputs to the configured `remote_dir`.
@@ -163,8 +174,9 @@ page-level worker callback then:
    confflow …`). Initial launches do not pass `--resume`; an explicit
    retry/rerun reuses the same isolated namespace and adds `--resume`.
 
-The Submit page and the remote `confflow` binary must import the same
-Pydantic model version (`pyproject.toml` pins this).
+The local model validates authoring inputs, while the remote CLI owns execution
+and artifact production. They are coupled by the capability and file contracts,
+not by an exact shared Pydantic model version.
 
 A ConfFlow run is observed via `services/run_monitor.py` polling the
 remote `events.log` (DONE / RUNNING) **and** probing the SHA-256 digest

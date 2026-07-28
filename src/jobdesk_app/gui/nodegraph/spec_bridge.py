@@ -383,6 +383,9 @@ def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
       can be sourced from, and any extra wiring would mean the user
       mis-dragged).
     * ``OUTPUT`` has no outgoing edges.
+    * Exactly one emitted workflow step is terminal. ``OUTPUT`` is a visual
+      sentinel for that one final result; it does not aggregate unrelated
+      calculation paths.
     * Each ``STRUCTURE`` input port of a calc / confgen / refine
       node accepts **at most one** incoming edge. ``STRUCTURES`` is
       the only port type that allows many-to-one fan-in (e.g. two
@@ -406,6 +409,22 @@ def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
             continue
         if node.kind in (NodeKind.ADVANCED,):
             continue
+
+    terminal_steps = [
+        node
+        for node in ordered
+        if node.kind in _STEP_EMITTING_KINDS
+        and not any(
+            graph.nodes[edge.dst_node].kind in _STEP_EMITTING_KINDS
+            for edge in graph.outgoing_edges(node.id)
+        )
+    ]
+    if len(terminal_steps) > 1:
+        terminals = ", ".join(sorted(label(node) for node in terminal_steps))
+        raise WorkflowSpecError(
+            "workflow has multiple terminal steps: "
+            f"{terminals}; add a final merge or calculation step so OUTPUT represents one final result"
+        )
 
     # Many-to-one fan-in is only allowed on ``STRUCTURES``-typed input
     # ports. For every other port type we expect ≤ 1 incoming edge.

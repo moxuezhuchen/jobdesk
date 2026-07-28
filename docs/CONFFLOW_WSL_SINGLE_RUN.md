@@ -105,6 +105,10 @@ enables reliable resume:
   `wsl_distro: Ubuntu-24.04`, and connects over SSH.
 - The JobDesk task shell can find `confflow` and the calculation program used
   by the YAML.
+- Keep `env_init_scripts` minimal. Before adding an activation script, compare
+  `command -v confflow` and `confflow --capabilities --json` with and without
+  that script. An obsolete isolated environment can silently shadow the
+  supported `/usr/local/bin/confflow` deployment for every JobDesk task.
 - For the provided integration test, Gaussian is available at `/opt/g16/g16`.
 
 ### g16 Environment Variables
