@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..config.schema import ServerConfig
@@ -68,6 +68,11 @@ class RunCoordinator:
         local_dir: str = "",
     ) -> RunOperationOutcome:
         try:
+            if spec.workflow_kind.value in {"confflow", "dag"} and not spec.confflow_executable:
+                server = self._server_lookup(spec.server_id)
+                configured = str(getattr(server, "confflow_executable", "") or "")
+                if configured:
+                    spec = replace(spec, confflow_executable=configured)
             record = self.service.create_run(spec, run_id=run_id, local_dir=local_dir)
             return RunOperationOutcome(records=[record])
         except Exception as exc:
@@ -293,6 +298,7 @@ class RunCoordinator:
                 ssh,
                 env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
                 require_dag=require_dag,
+                confflow_executable=str(getattr(server, "confflow_executable", "") or ""),
             )
 
     # ---- composed -------------------------------------------------------------

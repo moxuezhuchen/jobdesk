@@ -64,6 +64,7 @@ def submit_run(
         resources=asdict(resources),
         env_init_scripts=list(env_init_scripts),
         per_task=scheduler_type != "nohup",
+        remote_staging_root=remote_run_dir(record.remote_dir, record.run_id),
         owner_id=owner_id,
         lease_seconds=lease_seconds,
     )
@@ -111,6 +112,21 @@ def submit_run(
                 remote_started_callback=sink.mark_remote_started,
             )
             result = submitter.submit_batch()
+            accepted = getattr(submitter, "accepted_capabilities", None)
+            raw_capability = getattr(accepted, "raw_payload", None)
+            if accepted is not None and isinstance(raw_capability, dict):
+                executable_data = accepted.executable if isinstance(accepted.executable, dict) else {}
+                resolved = executable_data.get("path") or next(
+                    (task.confflow_executable for task in tasks if task.confflow_executable),
+                    "confflow",
+                )
+                realpath = executable_data.get("realpath") or resolved
+                service.persist_confflow_provenance(
+                    run_id,
+                    raw_capability,
+                    resolved_executable=str(resolved),
+                    resolved_realpath=str(realpath),
+                )
     except Exception as exc:
         primary_error = exc
         guard.stop_heartbeat()

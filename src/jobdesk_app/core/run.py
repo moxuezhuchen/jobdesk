@@ -94,6 +94,9 @@ class RunSpec:
     # the wizard / YAML inputs.  Optional because Gaussian/ORCA runs do
     # not always carry a YAML-level parallel setting.
     resource_budget: "ResourceBudget | None" = None
+    # Optional server-pinned executable. It is copied to every task so a
+    # later server-profile edit cannot silently change an already-created run.
+    confflow_executable: str = ""
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,7 @@ class RunTaskPlan:
     # downstream warning logic can compute effective slots without
     # re-reading the YAML.
     resource_budget: "ResourceBudget | None" = None
+    confflow_executable: str = ""
 
 
 @dataclass(frozen=True)
@@ -151,9 +155,11 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
         used_task_ids.add(task_id)
         work_dir = source.path if source.is_dir else source.parent
         command = _render_command(spec.command_template, source)
+        is_workflow = spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+        if is_workflow:
+            command = _bind_confflow_executable(command, spec.confflow_executable)
         remote_job_dir = posixpath.join(run_remote_dir, task_id)
         remote_result_files = [_render_text_template(item, source) for item in spec.result_templates]
-        is_workflow = spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
         rendered_command = f"cd {shlex.quote(work_dir)} && {command}"
         resume_command = _append_command_flag(rendered_command, "--resume") if is_workflow else ""
         remote_workflow_dir = (
@@ -180,6 +186,7 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
                 resume_dry_run_command=(_append_command_flag(resume_command, "--dry-run") if is_workflow else ""),
                 resume_requested=is_workflow and _has_command_flag(rendered_command, "--resume"),
                 resource_budget=spec.resource_budget,
+                confflow_executable=spec.confflow_executable,
             )
         )
     return RunPlan(run_id=rid, created_at=datetime.now(), spec=spec, tasks=tasks)
@@ -224,6 +231,24 @@ def _render_command(template: str, source: RunSource) -> str:
     for key, value in values.items():
         result = result.replace("{" + key + "}", value)
     return result
+
+
+def _bind_confflow_executable(command: str, executable: str) -> str:
+    """Replace the workflow command's executable token when configured."""
+    value = executable.strip()
+    if not value:
+        return command
+    if "\x00" in value or "\n" in value or "\r" in value:
+        raise ValueError("ConfFlow executable must not contain NUL or newlines")
+    bound, count = re.subn(
+        r"(?<![A-Za-z0-9_.-])confflow(?=(?:\s|$))",
+        shlex.quote(value),
+        command,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("workflow command does not contain a bindable confflow executable")
+    return bound
 
 
 def _render_text_template(template: str, source: RunSource) -> str:

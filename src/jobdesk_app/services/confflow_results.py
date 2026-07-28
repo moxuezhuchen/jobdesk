@@ -11,6 +11,24 @@ from typing import Any, Generic, TypeVar
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "skipped"})
 
 
+def _artifact_payload(raw: object, expected_schema: str) -> dict[str, Any] | None:
+    """Return a versioned artifact payload, or a legacy object unchanged."""
+    if not isinstance(raw, dict):
+        return None
+    schema = raw.get("content_schema")
+    if schema is None:
+        return raw
+    if schema != expected_schema:
+        return None
+    payload = raw.get("payload")
+    if isinstance(payload, dict):
+        return payload
+    # ConfFlow v1 keeps the historical fields at the artifact top level and
+    # adds only the content_schema discriminator. Accept that canonical shape
+    # as well as the enveloped form used by newer producers.
+    return {key: value for key, value in raw.items() if key != "content_schema"}
+
+
 class ParseState(Enum):
     """Tri-state result of attempting to parse a producer artifact.
 
@@ -38,6 +56,9 @@ class ConfFlowSummary:
     total_duration_seconds: float
     step_status_counts: dict[str, int] = field(default_factory=dict)
     lowest_conformer: dict[str, Any] | None = None
+    final_output: str | None = None
+    final_outputs: tuple[str, ...] = ()
+    terminal_outputs: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 _T = TypeVar("_T")
@@ -100,7 +121,8 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
-    if not isinstance(raw, dict):
+    raw = _artifact_payload(raw, "run_summary.v1")
+    if raw is None:
         return ParseResult(state=ParseState.MALFORMED, summary=None)
     required = ("initial_conformers", "final_conformers", "total_duration_seconds", "step_status_counts")
     if any(name not in raw for name in required):
@@ -117,6 +139,25 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
         or (lowest is not None and not isinstance(lowest, dict))
     ):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
+    final_output = raw.get("final_output")
+    final_outputs = raw.get("final_outputs", [])
+    terminal_outputs = raw.get("terminal_outputs", {})
+    if (
+        final_output is not None
+        and not isinstance(final_output, str)
+    ) or (
+        not isinstance(final_outputs, list)
+        or any(not isinstance(item, str) for item in final_outputs)
+    ) or (
+        not isinstance(terminal_outputs, dict)
+        or any(
+            not isinstance(name, str)
+            or not isinstance(values, list)
+            or any(not isinstance(item, str) for item in values)
+            for name, values in terminal_outputs.items()
+        )
+    ):
+        return ParseResult(state=ParseState.MALFORMED, summary=None)
     try:
         summary = ConfFlowSummary(
             initial_conformers=raw["initial_conformers"],
@@ -124,6 +165,9 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
             total_duration_seconds=float(raw["total_duration_seconds"]),
             step_status_counts=dict(counts),
             lowest_conformer=lowest,
+            final_output=final_output,
+            final_outputs=tuple(final_outputs),
+            terminal_outputs={name: tuple(values) for name, values in terminal_outputs.items()},
         )
     except (TypeError, ValueError):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
@@ -168,6 +212,7 @@ def _load_step_progress_inner(path: Path) -> ConfFlowStepProgress:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ConfFlowStepProgress()
+    raw = _artifact_payload(raw, "workflow_stats.v1")
     steps = raw.get("steps") if isinstance(raw, dict) else None
     if not isinstance(steps, list):
         return ConfFlowStepProgress(
@@ -221,7 +266,8 @@ def load_step_progress_result(path: Path) -> ParseResult[ConfFlowStepProgress]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
-    if not isinstance(raw, dict):
+    raw = _artifact_payload(raw, "workflow_stats.v1")
+    if raw is None:
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
     steps = raw.get("steps")
     if not isinstance(steps, list) or any(
@@ -313,7 +359,8 @@ def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
     except (OSError, json.JSONDecodeError):
         return ConfFlowStepProgress()
 
-    if not isinstance(raw, dict):
+    raw = _artifact_payload(raw, "workflow_state.v1")
+    if raw is None:
         return ConfFlowStepProgress()
 
     completed: list[str] = []

@@ -34,11 +34,11 @@ C:\dft\tool\verify-venv\Scripts\python.exe -c `
 C:\dft\tool\verify-venv\Scripts\confflow.exe --capabilities --json
 ```
 
-预期版本为 `1.4.3`，且 capability JSON 必须满足 schema v3：
+预期版本为 `1.4.3`，且 capability JSON 必须满足 schema v4：
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "artifacts": {
     "run_summary": "run_summary.json",
     "workflow_stats": "workflow_stats.json",
@@ -48,6 +48,9 @@ C:\dft\tool\verify-venv\Scripts\confflow.exe --capabilities --json
   }
 }
 ```
+
+schema v4 还必须包含 `producer`（package/version/build/wheel）和 `executable`
+（path/sha256/python）两个 provenance 块；正式 wheel 发布要求 `wheel.sha256` 非空。
 
 同时，`capabilities.workflow_state`、`capabilities.resume`、`capabilities.dag`
 均必须为 `true`。
@@ -62,7 +65,7 @@ confflow --version
 confflow --capabilities --json
 ```
 
-JobDesk 在输入上传前和提交阶段各执行一次 capability v3 preflight，并拒绝
+JobDesk 在输入上传前和提交阶段各执行一次 capability v4 preflight，并拒绝
 不满足 `>=1.4.3,<2.0`、缺少任一必需能力或 artifacts 不匹配的远端 ConfFlow。
 
 ## 发布边界

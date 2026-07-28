@@ -6,6 +6,8 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, cast
 
 from jobdesk_app.core.lifecycle import TaskStatus
@@ -43,6 +45,77 @@ def _parse_lease_timestamp(value: str) -> datetime:
 # ---------------------------------------------------------------------------
 
 
+_SUBMIT_JOURNAL_SCHEMA = "jobdesk.submit.v1"
+
+
+def _submit_idempotency_key(run_id: str, task_ids: list[str]) -> str:
+    """Return the stable key for one run/task submission intent."""
+    material = "\0".join((run_id, *sorted(task_ids))).encode("utf-8")
+    return f"sha256:{sha256(material).hexdigest()}"
+
+
+def _validate_remote_staging_root(run_id: str, value: str | None) -> str:
+    """Accept only the JobDesk-owned staging root for ``run_id``.
+
+    Recovery has no SSH client and must not infer arbitrary deletion targets
+    from a journal.  The stored root is therefore deliberately constrained to
+    ``.../.jobdesk_runs/<run_id>`` before it can become compensation metadata.
+    Empty preserves the legacy direct-repository API while new service calls
+    always provide the concrete root.
+    """
+    root = (value or "").strip()
+    if not root:
+        return ""
+    if "\x00" in root or "\\" in root:
+        raise ValueError("remote staging root must be a POSIX path")
+    path = PurePosixPath(root)
+    if not path.is_absolute() or ".." in path.parts or path.parts[-2:] != (".jobdesk_runs", run_id):
+        raise ValueError("remote staging root must be the JobDesk-owned run staging directory")
+    return str(path)
+
+
+def _submit_compensation_metadata(staging_root: str) -> dict[str, object]:
+    return {
+        "cleanup_scope": "jobdesk_owned_staging_root",
+        "remote_staging_root": staging_root,
+        # A remote-started operation is deliberately quarantined, never
+        # remotely deleted by local recovery: it may already be running.
+        "cleanup_status": "not_attempted",
+    }
+
+
+def _submit_recovery_metadata_error(operation: OperationRecord) -> str | None:
+    """Validate v1 compensation metadata; legacy journals remain readable."""
+    payload = operation.payload
+    if payload.get("submit_schema") is None:
+        return None
+    if payload.get("submit_schema") != _SUBMIT_JOURNAL_SCHEMA:
+        return "submit journal schema is invalid"
+    task_ids = payload.get("task_ids")
+    valid_task_ids = (
+        isinstance(task_ids, list)
+        and bool(task_ids)
+        and all(isinstance(task_id, str) and task_id for task_id in task_ids)
+        and len(set(task_ids)) == len(task_ids)
+    )
+    # Keep historical task-set diagnostics authoritative for malformed
+    # journal task lists; validate the idempotency key once that set is sound.
+    if valid_task_ids and payload.get("idempotency_key") != _submit_idempotency_key(
+        operation.run_id, cast(list[str], task_ids)
+    ):
+        return "submit idempotency metadata is invalid"
+    try:
+        staging_root = _validate_remote_staging_root(operation.run_id, payload.get("remote_staging_root"))
+    except ValueError:
+        return "submit compensation metadata is invalid"
+    compensation = payload.get("compensation")
+    if not isinstance(compensation, dict):
+        return "submit compensation metadata is invalid"
+    if compensation != _submit_compensation_metadata(staging_root):
+        return "submit compensation metadata is invalid"
+    return None
+
+
 def claim_submit_tasks(
     connection: sqlite3.Connection,
     run_id: str,
@@ -51,10 +124,12 @@ def claim_submit_tasks(
     resources: dict,
     env_init_scripts: list,
     per_task: bool,
+    remote_staging_root: str | None = None,
     owner_id: str | None = None,
     lease_seconds: float = 60.0,
 ) -> tuple[list, list[OperationRecord]]:
     """Claim uploaded tasks and create their submit journal entries atomically."""
+    staging_root = _validate_remote_staging_root(run_id, remote_staging_root)
     timestamp = datetime.now().isoformat()
     lease_expires_at = (
         _utc_lease_timestamp(datetime.now(timezone.utc) + timedelta(seconds=lease_seconds))
@@ -87,10 +162,14 @@ def claim_submit_tasks(
     for task_ids in groups:
         operation_id = str(uuid.uuid4())
         payload: dict = {
+            "submit_schema": _SUBMIT_JOURNAL_SCHEMA,
             "task_ids": task_ids,
+            "idempotency_key": _submit_idempotency_key(run_id, task_ids),
             "scheduler_type": scheduler_type,
             "resources": resources,
             "env_init_scripts": env_init_scripts,
+            "remote_staging_root": staging_root,
+            "compensation": _submit_compensation_metadata(staging_root),
             "results": {},
         }
         payload_json = json.dumps(payload, ensure_ascii=False)
@@ -473,6 +552,14 @@ def release_claimed_submit_operation(
     if row is None:
         return False
     operation = _row_to_operation(row)
+    metadata_error = _submit_recovery_metadata_error(operation)
+    if metadata_error is not None:
+        connection.execute(
+            "UPDATE operations SET last_error = ?, updated_at = ? "
+            "WHERE operation_id = ? AND completed_at IS NULL",
+            (metadata_error, timestamp, operation_id),
+        )
+        return False
     current = _load_tasks(connection, operation.run_id)
     validated = _validated_operation_task_ids(operation, current, TaskStatus.submitting)
     if validated is None:
@@ -519,6 +606,14 @@ def recover_submit_operation(
     if row is None:
         return False
     operation = _row_to_operation(row)
+    metadata_error = _submit_recovery_metadata_error(operation)
+    if metadata_error is not None:
+        connection.execute(
+            "UPDATE operations SET last_error = ?, updated_at = ? "
+            "WHERE operation_id = ? AND completed_at IS NULL",
+            (metadata_error, timestamp, operation_id),
+        )
+        return False
     current = _load_tasks(connection, operation.run_id)
     scheduler_type: str | None = None
     if operation.phase == "claimed":

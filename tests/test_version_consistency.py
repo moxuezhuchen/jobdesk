@@ -70,11 +70,11 @@ def test_ci_yaml_wheel_glob_matches_wheel_name():
 
 
 def test_readme_states_version_spec():
-    """README must state the version spec and the v3 schema."""
+    """README must state the version spec and the v4 schema."""
     content = _read("README.md")
     assert "confflow>=1.4.3,<2.0" in content
     assert "1.4.1" not in content
-    assert "schema_version=3" in content
+    assert "schema_version=4" in content
     assert "run_summary.json" in content
     assert "workflow_stats.json" in content
     assert ".workflow_state.json" in content
@@ -90,7 +90,7 @@ def test_deployment_doc_mirrors_version_and_capability_contract():
     assert content.count("confflow-1.4.3-py3-none-any.whl") == 3
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
-    assert '"schema_version": 3' in content
+    assert '"schema_version": 4' in content
     for filename in ("run_summary.json", "workflow_stats.json", ".workflow_state.json", "{basename}.txt", "{basename}min.xyz"):
         assert filename in content
 
@@ -120,15 +120,17 @@ def test_validator_error_message_uses_version_spec():
     """
     from jobdesk_app.core import confflow_contract as cc
 
-    # Build a v3 payload with a too-old version and assert the validator
+    # Build a v4 payload with a too-old version and assert the validator
     # complaint quotes the structured spec.
     payload = (
-        '{"schema_version": 3, "version": "1.4.1", '
+        '{"schema_version": 4, "version": "1.4.1", '
         '"capabilities": {"workflow_state": true, "resume": true, "dag": true}, '
         '"artifacts": {"run_summary": "run_summary.json", '
         '"workflow_stats": "workflow_stats.json", '
         '"workflow_state": ".workflow_state.json", "run_report": "{basename}.txt", "min_xyz": "{basename}min.xyz"}, ' +
-        '"commands": {"bash": true, "nohup": true, "setsid": true, "xargs": true, "sha256sum": true, "mktemp": true, "base64": true}, "build": {"commit": "abc1234", "dirty": false}}'
+        '"commands": {"bash": true, "nohup": true, "setsid": true, "xargs": true, "sha256sum": true, "mktemp": true, "base64": true}, "build": {"commit": "abc1234", "dirty": false}, '
+        '"producer": {"package": "confflow", "version": "1.4.1", "build": {"commit": "abc1234", "dirty": false}, "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"}}, '
+        '"executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"}}'
     )
     from jobdesk_app.core.confflow_preflight import parse_confflow_capabilities
 

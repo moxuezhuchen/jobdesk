@@ -86,11 +86,12 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share state without rewriting manifest files.
 
-Schema v5 is current. Schema v2 introduced the durable submit/delete operation
+Schema v6 is current. Schema v2 introduced the durable submit/delete operation
 journal; schema v3 added an independent trusted-workspace registry and
 delete-operation-to-workspace bindings; schema v4 added renewable submit
 ownership leases (lease timestamps stored and compared in UTC); schema v5
-adds a `submit_activity_log` table that persists SubmitPage activity
+adds a `submit_activity_log` table that persists SubmitPage activity, and
+schema v6 adds the `run_provenance` table for ConfFlow producer identity
 across restarts. Recovery takes over only ownerless legacy submissions or
 submissions whose lease has expired. The v2-to-v3 migration seeds
 workspace trust only from live run rows and leaves old delete operations
@@ -136,8 +137,8 @@ remote `confflow` binary consumes.
 
 The cross-repository contract is the **CLI capability JSON** only:
 JobDesk never imports ConfFlow's contract module. ConfFlow 1.4.3 emits
-schema_version=3 and an artifacts block that names all five on-disk files JobDesk is allowed to discover: run_summary.json, workflow_stats.json, .workflow_state.json, {basename}.txt, and {basename}min.xyz.
-The required remote commands are bash, nohup, setsid, xargs, sha256sum, mktemp, and base64; the optional build block reports commit and dirty provenance.
+schema_version=4 and producer/executable provenance blocks plus an artifacts block that names all five on-disk files JobDesk is allowed to discover: run_summary.json, workflow_stats.json, .workflow_state.json, {basename}.txt, and {basename}min.xyz.
+The required remote commands are bash, nohup, setsid, xargs, sha256sum, mktemp, and base64; the build, producer, and executable blocks report commit, wheel, interpreter, and executable provenance.
 JobDesk's MIN_VERSION / MAX_EXCLUSIVE in jobdesk_app.core.confflow_contract is the structured source of truth for the producer window; pyproject, CI, and this README are mirrors.
 
 ```powershell
@@ -177,7 +178,7 @@ Layout (top to bottom):
    **Create tasks only** / **Refresh preview**.
 4. **Live preview** — `.gjf` / `.inp` body or `workflow.yaml`.
 5. **Activity log** — last 50 status messages, persisted to SQLite so
-   they survive application restarts (schema v5).
+   they survive application restarts (schema v6).
 
 Right-click on any row in the Files page's Local or Remote table
 to push it to the Submit page as an input. The page is the single

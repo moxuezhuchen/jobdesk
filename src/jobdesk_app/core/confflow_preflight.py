@@ -5,12 +5,13 @@ the payload to be accepted. The check happens before any upload, dry-run,
 or nohup so that an incompatible remote never gets a hand on JobDesk's
 workload.
 
-Schema v3 vs v1/v2
+Schema v4 vs v1/v2/v3
 ---------------
 The current contract (see :mod:`.confflow_contract`) requires ConfFlow
-to emit a v3 payload including ``artifacts``, ``commands``, and ``build``.
+to emit a v4 payload including ``artifacts``, ``commands``, ``build``,
+``producer``, and ``executable``.
 Older payloads whose ``--capabilities --json`` output omits
-``schema_version`` 3 are rejected outright — there is no negotiation.
+``schema_version`` 4 are rejected outright — there is no negotiation.
 The parser still tolerates missing optional blocks so the validator can
 report the schema mismatch precisely instead of a malformed-JSON error.
 """
@@ -19,7 +20,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from packaging.version import InvalidVersion, Version
 
@@ -54,6 +55,9 @@ class ConfFlowCapabilities:
     artifacts: ConfFlowArtifactContract | None = None
     commands: dict[str, bool] | None = None
     build: dict[str, object] | None = None
+    producer: dict[str, object] | None = field(default=None, compare=False)
+    executable: dict[str, object] | None = field(default=None, compare=False)
+    raw_payload: dict[str, object] | None = field(default=None, compare=False, repr=False)
 
 
 def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
@@ -92,6 +96,8 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
     artifacts = _parse_artifacts(payload.get("artifacts"))
     commands = _parse_commands(payload.get("commands"))
     build = _parse_build(payload.get("build"))
+    producer = _parse_producer(payload.get("producer"))
+    executable = _parse_executable(payload.get("executable"))
 
     return ConfFlowCapabilities(
         schema_version=schema_version,
@@ -102,6 +108,9 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         artifacts=artifacts,
         commands=commands,
         build=build,
+        producer=producer,
+        executable=executable,
+        raw_payload=payload,
     )
 
 
@@ -130,6 +139,46 @@ def _parse_build(raw: object) -> dict[str, object] | None:
     if dirty is not None and type(dirty) is not bool:
         raise ValueError("ConfFlow capability build.dirty must be boolean or null")
     return {"commit": commit, "dirty": dirty}
+
+
+def _parse_producer(raw: object) -> dict[str, object] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("ConfFlow capability producer must be an object")
+    package = raw.get("package")
+    version = raw.get("version")
+    build = raw.get("build")
+    wheel = raw.get("wheel")
+    if not isinstance(package, str) or not package:
+        raise ValueError("ConfFlow capability producer.package must be a non-empty string")
+    if not isinstance(version, str) or not version:
+        raise ValueError("ConfFlow capability producer.version must be a non-empty string")
+    if not isinstance(build, dict) or not isinstance(wheel, dict):
+        raise ValueError("ConfFlow capability producer build and wheel must be objects")
+    commit = build.get("commit")
+    dirty = build.get("dirty")
+    if commit is not None and not isinstance(commit, str):
+        raise ValueError("ConfFlow capability producer.build.commit must be a string or null")
+    if dirty is not None and type(dirty) is not bool:
+        raise ValueError("ConfFlow capability producer.build.dirty must be boolean or null")
+    for name in ("filename", "sha256"):
+        value = wheel.get(name)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"ConfFlow capability producer.wheel.{name} must be a string or null")
+    return {"package": package, "version": version, "build": {"commit": commit, "dirty": dirty}, "wheel": dict(wheel)}
+
+
+def _parse_executable(raw: object) -> dict[str, object] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("ConfFlow capability executable must be an object")
+    for name in ("path", "sha256", "python"):
+        value = raw.get(name)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"ConfFlow capability executable.{name} must be a string or null")
+    return dict(raw)
 
 
 def _parse_artifacts(raw: object) -> ConfFlowArtifactContract | None:
@@ -171,6 +220,16 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
             "unsupported ConfFlow capability schema: "
             f"expected {CAPABILITY_SCHEMA_VERSION}, got {capabilities.schema_version}"
         )
+    if capabilities.raw_payload is not None:
+        if capabilities.producer is None:
+            raise ValueError("ConfFlow capability schema requires a producer block")
+        if capabilities.executable is None:
+            raise ValueError("ConfFlow capability schema requires an executable block")
+        if capabilities.producer.get("package") != "confflow":
+            raise ValueError("ConfFlow capability producer.package must be 'confflow'")
+        producer_version = capabilities.producer.get("version")
+        if producer_version != capabilities.version:
+            raise ValueError("ConfFlow capability producer.version must match version")
     version = _parse_version(capabilities.version)
     core = version.release
     prerelease = version.is_prerelease

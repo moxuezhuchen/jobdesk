@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
+from jobdesk_app.core.atomic_write import atomic_write_text
 from jobdesk_app.core.run import RunPlan, RunSpec, build_run_plan
 
 # Explicit re-export for tests that monkeypatch run_service.JobSubmitter
@@ -127,6 +129,34 @@ class RunService:
         self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None, max_cores: int | None = None
     ):
         return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources, max_cores)
+
+    def persist_confflow_provenance(
+        self,
+        run_id: str,
+        capability: dict,
+        *,
+        resolved_executable: str,
+        resolved_realpath: str = "",
+    ) -> None:
+        """Persist accepted producer identity in SQLite and the run directory."""
+        record = self.load_run(run_id)
+        self.repository.record_run_provenance(
+            run_id,
+            capability,
+            resolved_executable=resolved_executable,
+            resolved_realpath=resolved_realpath,
+        )
+        manifest = {
+            "content_schema": "confflow.provenance.v1",
+            "run_id": run_id,
+            "resolved_executable": resolved_executable,
+            "resolved_realpath": resolved_realpath,
+            "capability": capability,
+        }
+        atomic_write_text(
+            record.run_dir / "provenance.json",
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        )
 
     def recover_submit_operations(self, run_id: str | None = None) -> int:
         return _submit.recover_submit_operations(self, run_id)

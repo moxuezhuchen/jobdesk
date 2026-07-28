@@ -46,6 +46,70 @@ def test_load_summary_result_ok_accepts_forward_compatible_keys(tmp_path):
     assert parsed.summary is not None
     assert parsed.summary.final_conformers == 1
 
+
+def test_load_summary_result_accepts_versioned_artifact_wrapper(tmp_path):
+    path = tmp_path / "run_summary.json"
+    path.write_text(
+        json.dumps(
+            {
+                "content_schema": "run_summary.v1",
+                "producer": {"version": "1.4.3"},
+                "payload": {
+                    "initial_conformers": 4,
+                    "final_conformers": 2,
+                    "total_duration_seconds": 1.25,
+                    "step_status_counts": {"completed": 1},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    parsed = load_summary_result(path)
+
+    assert parsed.state is ParseState.OK
+    assert parsed.summary is not None
+    assert parsed.summary.final_conformers == 2
+
+
+def test_load_summary_result_preserves_multi_terminal_outputs(tmp_path):
+    path = tmp_path / "run_summary.json"
+    path.write_text(
+        json.dumps(
+            {
+                "initial_conformers": 3,
+                "final_conformers": 2,
+                "total_duration_seconds": 4.0,
+                "step_status_counts": {"completed": 3},
+                "final_output": None,
+                "final_outputs": ["left/search.xyz", "right/search.xyz"],
+                "terminal_outputs": {
+                    "left": ["left/search.xyz"],
+                    "right": ["right/search.xyz"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    parsed = load_summary_result(path)
+
+    assert parsed.state is ParseState.OK
+    assert parsed.summary is not None
+    assert parsed.summary.final_output is None
+    assert parsed.summary.final_outputs == ("left/search.xyz", "right/search.xyz")
+    assert parsed.summary.terminal_outputs == {
+        "left": ("left/search.xyz",),
+        "right": ("right/search.xyz",),
+    }
+
+
+def test_load_summary_result_rejects_unknown_versioned_schema(tmp_path):
+    path = tmp_path / "run_summary.json"
+    path.write_text(json.dumps({"content_schema": "run_summary.v2", "payload": {}}), encoding="utf-8")
+
+    assert load_summary_result(path).state is ParseState.MALFORMED
+
 def test_load_summary_result_missing_is_explicit(tmp_path):
     parsed = load_summary_result(tmp_path / "missing.json")
     assert parsed.state is ParseState.MISSING
@@ -85,6 +149,23 @@ def test_load_step_progress_completed_and_running(tmp_path):
     rendered = format_step_progress(progress)
     assert "confgen" in rendered
     assert "opt" in rendered
+
+
+def test_load_step_progress_accepts_versioned_artifact_wrapper(tmp_path):
+    path = tmp_path / "workflow_stats.json"
+    path.write_text(
+        json.dumps(
+            {
+                "content_schema": "workflow_stats.v1",
+                "payload": {"steps": [{"name": "opt", "status": "completed"}]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_step_progress(path)
+
+    assert progress.completed == ("opt",)
 
 
 def test_load_step_progress_missing_file_returns_empty(tmp_path):

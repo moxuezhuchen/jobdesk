@@ -9,6 +9,7 @@ import yaml
 from ..app_paths import get_app_data_dir
 from ..core.atomic_write import atomic_write_text
 from ..core.confflow_contract import (
+    OUTPUT_MANIFEST_FILE,
     RUN_SUMMARY_FILE,
     WORKFLOW_STATE_FILE,
     WORKFLOW_STATS_FILE,
@@ -24,7 +25,7 @@ _BUILTIN_PROFILES: dict[str, dict[str, str]] = {
     "ConfFlow": {
         "input_extensions": ".xyz",
         "command_template": "confflow {name}",
-        "download_patterns": (f"*.txt,*min.xyz,*/{RUN_SUMMARY_FILE},*/{WORKFLOW_STATS_FILE},*/{WORKFLOW_STATE_FILE}"),
+        "download_patterns": (f"*.txt,*min.xyz,*/{RUN_SUMMARY_FILE},*/{WORKFLOW_STATS_FILE},*/{WORKFLOW_STATE_FILE},*/{OUTPUT_MANIFEST_FILE}"),
     },
 }
 

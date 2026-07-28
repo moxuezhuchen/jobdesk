@@ -48,6 +48,7 @@ from ._paths import (
 from ._paths import (
     _reject_reparse_chain as _reject_reparse_chain,
 )
+from ._provenance import load_run_provenance, record_run_provenance
 from ._runs import (
     create_run as _create_run,
 )
@@ -80,6 +81,7 @@ from ._schema import (
     _migrate_v2_to_v3,
     _migrate_v3_to_v4,
     _migrate_v4_to_v5,
+    _migrate_v5_to_v6,
 )
 from ._submit import (
     acquire_submit_recovery,
@@ -147,6 +149,7 @@ class RunRepository:
                 "workspace_roots",
                 "delete_operation_workspaces",
                 "submit_activity_log",
+                "run_provenance",
             }
             if not required.issubset(tables):
                 return False
@@ -204,6 +207,9 @@ class RunRepository:
                 current_version = 4
             if current_version == 4:
                 _migrate_v4_to_v5(connection)
+                current_version = 5
+            if current_version == 5:
+                _migrate_v5_to_v6(connection)
             _import_legacy_runs(connection, self.runs_dir)
 
     def schema_version(self) -> int:
@@ -215,6 +221,27 @@ class RunRepository:
 
     def current_schema_version(self) -> int:
         return self.schema_version()
+
+    def record_run_provenance(
+        self,
+        run_id: str,
+        capability: dict,
+        *,
+        resolved_executable: str,
+        resolved_realpath: str = "",
+    ) -> None:
+        with self._connection() as connection:
+            record_run_provenance(
+                connection,
+                run_id,
+                capability,
+                resolved_executable=resolved_executable,
+                resolved_realpath=resolved_realpath,
+            )
+
+    def load_run_provenance(self, run_id: str) -> dict | None:
+        with self._connection() as connection:
+            return load_run_provenance(connection, run_id)
 
     def list_workspace_roots(self) -> list[Path]:
         with self._connection() as connection:
@@ -351,6 +378,7 @@ class RunRepository:
         resources: dict[str, object],
         env_init_scripts: list[str],
         per_task: bool,
+        remote_staging_root: str | None = None,
         owner_id: str | None = None,
         lease_seconds: float = 60.0,
     ) -> tuple[list[TaskRecord], list[OperationRecord]]:
@@ -362,6 +390,7 @@ class RunRepository:
                 resources=resources,
                 env_init_scripts=env_init_scripts,
                 per_task=per_task,
+                remote_staging_root=remote_staging_root,
                 owner_id=owner_id,
                 lease_seconds=lease_seconds,
             )

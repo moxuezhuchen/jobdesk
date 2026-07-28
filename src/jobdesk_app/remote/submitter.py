@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from ..core.confflow_preflight import ConfFlowCapabilities
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
@@ -118,6 +119,7 @@ class JobSubmitter:
         self._max_cores = max_cores
         self._task_update_callback = task_update_callback
         self._remote_started_callback = remote_started_callback
+        self.accepted_capabilities: ConfFlowCapabilities | None = None
 
     # ---- task selection -------------------------------------------------------
 
@@ -535,12 +537,18 @@ class JobSubmitter:
         workflow_tasks = [task for task in tasks if _is_confflow_task(task)]
         if not workflow_tasks:
             return True
+        executable_values = {task.confflow_executable.strip() for task in workflow_tasks}
+        if len(executable_values) != 1:
+            result.errors.append("ConfFlow tasks in one submission must use one executable")
+            return False
         try:
             capabilities = probe_confflow_capabilities(
                 self._ssh,
                 env_init_scripts=self._env_init_scripts,
                 require_dag=any(task.workflow_kind == "dag" for task in workflow_tasks),
+                confflow_executable=executable_values.pop(),
             )
+            self.accepted_capabilities = capabilities
             build = capabilities.build or {}
             if build.get("dirty") is True or not build.get("commit"):
                 result.warnings.append("producer build is dirty or provenance unknown")

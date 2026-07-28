@@ -46,6 +46,7 @@ __all__ = [
     "RUN_SUMMARY_FILE",
     "WORKFLOW_STATS_FILE",
     "WORKFLOW_STATE_FILE",
+    "OUTPUT_MANIFEST_FILE",
     "CAPABILITY_SCHEMA_VERSION",
     "MIN_VERSION",
     "MAX_EXCLUSIVE",
@@ -72,7 +73,7 @@ def work_dir_name(stem: str) -> str:
 
 @dataclass(frozen=True)
 class ConfFlowArtifactContract:
-    """JobDesk's expected shape of the ``artifacts`` block in the v3 payload.
+    """JobDesk's expected shape of the ``artifacts`` block in the v4 payload.
 
     The five fields must round-trip exactly to the producer-side
     constants in ``confflow.contract``. Comparison is field-by-field
@@ -86,7 +87,7 @@ class ConfFlowArtifactContract:
     min_xyz: str | None = None
 
 
-CAPABILITY_SCHEMA_VERSION: int = 3
+CAPABILITY_SCHEMA_VERSION: int = 4
 
 # The three producer-side artifact names are mirrored here as module
 # constants so JobDesk code can reference them by name without going
@@ -95,6 +96,7 @@ CAPABILITY_SCHEMA_VERSION: int = 3
 RUN_SUMMARY_FILE: str = "run_summary.json"
 WORKFLOW_STATS_FILE: str = "workflow_stats.json"
 WORKFLOW_STATE_FILE: str = ".workflow_state.json"
+OUTPUT_MANIFEST_FILE: str = "output_manifest.json"
 RUN_REPORT_FILE: str = "{basename}.txt"
 RUN_MIN_XYZ_TEMPLATE: str = "{basename}min.xyz"
 REQUIRED_COMMANDS: tuple[str, ...] = ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")

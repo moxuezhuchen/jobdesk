@@ -956,7 +956,7 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     )
     capability_json = json.dumps(
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "version": "1.4.3",
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
             "artifacts": {
@@ -968,6 +968,13 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
             },
             "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
             "build": {"commit": "abc1234", "dirty": False},
+            "producer": {
+                "package": "confflow",
+                "version": "1.4.3",
+                "build": {"commit": "abc1234", "dirty": False},
+                "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"},
+            },
+            "executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"},
         }
     )
     ssh = MagicMock()
@@ -988,6 +995,41 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.uploaded
     assert service.repository.list_operations()[0].phase == "completed"
     assert not any("nohup setsid" in call.args[0] for call in ssh.run.call_args_list)
+
+
+def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/submission",
+            command_template="confflow {name} -c workflow.yaml",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/source/water.xyz")],
+            supporting_sources=[RunSource("/remote/submission/workflow.yaml")],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="run-provenance",
+    )
+    capability = {
+        "schema_version": 4,
+        "version": "1.4.3",
+        "producer": {"package": "confflow", "version": "1.4.3"},
+        "executable": {"path": "/opt/confflow/bin/confflow"},
+    }
+
+    service.persist_confflow_provenance(
+        record.run_id,
+        capability,
+        resolved_executable="/opt/confflow/bin/confflow",
+        resolved_realpath="/opt/confflow/bin/confflow-1.4.3",
+    )
+
+    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow/bin/confflow-1.4.3"
+    manifest = json.loads((record.run_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert manifest["content_schema"] == "confflow.provenance.v1"
+    assert manifest["capability"] == capability
 
 
 def test_submit_exception_recovers_owned_remote_started_operation(tmp_path, runs_dir, monkeypatch):

@@ -71,6 +71,7 @@ _MANIFEST_COLUMNS: list[str] = [
     "analyzed_at",
     "error_message",
     "resource_budget",
+    "confflow_executable",
 ]
 
 
@@ -148,6 +149,7 @@ class TaskRecord(BaseModel):
     # optional TSV ``resource_budget`` column.  Legacy TSV manifests
     # without that column continue to load with ``None``.
     resource_budget: ResourceBudget | None = None
+    confflow_executable: str = ""
 
 
 class Manifest:
@@ -232,6 +234,7 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         _fmt_dt(task.analyzed_at),
         task.error_message or "",
         json.dumps(asdict(task.resource_budget), ensure_ascii=False) if task.resource_budget else "",
+        task.confflow_executable,
     ]
 
 
@@ -353,4 +356,5 @@ def _row_to_task(
         analyzed_at=_parse_dt(values.get("analyzed_at", "")),
         error_message=values.get("error_message") or None,
         resource_budget=_parse_resource_budget(values.get("resource_budget", ""), manifest_path, row_number),
+        confflow_executable=values.get("confflow_executable", ""),
     )

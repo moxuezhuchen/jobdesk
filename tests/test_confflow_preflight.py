@@ -35,6 +35,13 @@ def _payload(**overrides) -> str:
         },
         "commands": {name: True for name in REQUIRED_COMMANDS},
         "build": {"commit": "abc1234", "dirty": False},
+        "producer": {
+            "package": "confflow",
+            "version": ".".join(map(str, MIN_VERSION)),
+            "build": {"commit": "abc1234", "dirty": False},
+            "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"},
+        },
+        "executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"},
     }
     value.update(overrides)
     return json.dumps(value)
@@ -113,14 +120,14 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(3, "1.4.3", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.3", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "requires an artifacts block",
         ),
         # Schema==2 but artifacts payload has a wrong filename.
         (
             ConfFlowCapabilities(
-                3,
+                4,
                 "1.4.3",
                 True,
                 True,
@@ -136,41 +143,41 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but version is older than MIN_VERSION.
         (
-            ConfFlowCapabilities(3, "1.4.2", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.2", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "1.4.3",
         ),
         # Schema==2 but version is 1.4.2 prerelease → rejected.
         (
-            ConfFlowCapabilities(3, "1.4.3-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.3-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "1.4.3",
         ),
         # Schema==2 but version is >= MAX_EXCLUSIVE.
         (
-            ConfFlowCapabilities(3, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "1.4.3",
         ),
         # Schema==2 but version is malformed.
         (
-            ConfFlowCapabilities(3, "1.04.3", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.04.3", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "semantic version",
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(3, "1.4.3", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.3", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(3, "1.4.3", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.3", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(3, "1.4.3", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.3", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             True,
             "dag",
         ),

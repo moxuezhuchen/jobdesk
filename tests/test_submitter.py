@@ -116,7 +116,7 @@ def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHRes
         exit_code=0,
         stdout=json.dumps(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "version": "1.4.3",
                 "capabilities": {
                     "workflow_state": True,
@@ -132,6 +132,13 @@ def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHRes
                 },
                 "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
                 "build": build if build is not None else {"commit": "abc1234", "dirty": False},
+                "producer": {
+                    "package": "confflow",
+                    "version": "1.4.3",
+                    "build": build if build is not None else {"commit": "abc1234", "dirty": False},
+                    "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"},
+                },
+                "executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"},
             }
         ),
         stderr="",

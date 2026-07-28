@@ -65,6 +65,7 @@ def _tasks_from_plan(plan: RunPlan) -> list[TaskRecord]:
             resume_requested=task.resume_requested,
             status=TaskStatus.uploaded,
             resource_budget=task.resource_budget,
+            confflow_executable=task.confflow_executable,
         )
         for task in plan.tasks
     ]

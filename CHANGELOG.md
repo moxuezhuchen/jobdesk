@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-The current schema is **schema v5**. Schema v4 databases auto-upgrade on first open.
+The current schema is **schema v6**. Schema v5 databases auto-upgrade on first open.
 
 ### Fixed
 - `test_architecture_boundaries.py::test_schema_documentation_describes_v2_to_v5_migration_chain`: renamed from the v4-suffix legacy name; the test and all three target documents already referenced v5 correctly.
@@ -27,6 +27,7 @@ The current schema is **schema v5**. Schema v4 databases auto-upgrade on first o
 
 ### Added (Phase 15C — activity log persistence)
 - `services.run_repository.append_activity()` / `list_recent_activity()`: new repository methods backed by the new `submit_activity_log` SQLite table (schema v5).
+- Schema v6 adds the `run_provenance` table for accepted ConfFlow capability, executable, build, and wheel identity.
 - `SubmitPage` activity log now persists to the repository on every `_log()` call and reloads the last 50 entries on startup, so activity survives application restarts.
 
 ## [0.5.0] — 2026-07-08

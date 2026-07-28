@@ -79,6 +79,36 @@ def test_resource_budget_sqlite_round_trip(tmp_path: Path) -> None:
 
     assert repository.load_tasks("run-1")[0].resource_budget == budget
 
+
+def test_run_provenance_round_trip_and_schema_v6(tmp_path: Path) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    repository.create_run(_record(repository.runs_dir), [_task("a")])
+    capability = {
+        "schema_version": 4,
+        "version": "1.4.3",
+        "build": {"commit": "abc123", "dirty": False},
+        "producer": {"version": "1.4.3", "build_commit": "abc123", "wheel_sha256": "deadbeef"},
+    }
+
+    repository.record_run_provenance(
+        "run-1",
+        capability,
+        resolved_executable="/opt/venv/bin/confflow",
+        resolved_realpath="/opt/venv/bin/confflow-1.4.3",
+    )
+
+    assert repository.schema_version() == 6
+    assert repository.load_run_provenance("run-1") == {
+        "capability": capability,
+        "resolved_executable": "/opt/venv/bin/confflow",
+        "resolved_realpath": "/opt/venv/bin/confflow-1.4.3",
+        "producer_version": "1.4.3",
+        "producer_build_commit": "abc123",
+        "producer_dirty": False,
+        "wheel_sha256": "deadbeef",
+        "recorded_at": repository.load_run_provenance("run-1")["recorded_at"],
+    }
+
 def test_replace_tasks_rejects_batch_id_mismatch_without_changing_existing_rows(
     tmp_path: Path,
 ) -> None:
@@ -261,9 +291,9 @@ def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
-    assert version == "5"
-    assert repository.schema_version() == 5
-    assert repository.current_schema_version() == 5
+    assert version == "6"
+    assert repository.schema_version() == 6
+    assert repository.current_schema_version() == 6
     assert journal_mode.lower() == "wal"
     assert {"workspace_roots", "delete_operation_workspaces"}.issubset(tables)
 
@@ -280,7 +310,7 @@ def test_v3_migration_adds_nullable_submit_lease_columns(tmp_path: Path) -> None
 
     with sqlite3.connect(upgraded.database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
-    assert upgraded.schema_version() == 5
+    assert upgraded.schema_version() == 6
     assert {"owner_id", "lease_expires_at"} <= columns
 
 
@@ -424,7 +454,7 @@ def test_reopening_ready_repository_skips_write_initialization(tmp_path: Path, m
 
     reopened = RunRepository(runs_dir)
 
-    assert reopened.schema_version() == 5
+    assert reopened.schema_version() == 6
     initialize.assert_not_called()
 
 
@@ -438,7 +468,7 @@ def test_upgrades_v1_database_without_changing_task_state(tmp_path: Path) -> Non
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 5
+    assert upgraded.current_schema_version() == 6
     assert upgraded.load_tasks("run-1")[0].status == TaskStatus.running
     with sqlite3.connect(upgraded.database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
@@ -485,7 +515,7 @@ def test_upgrades_v2_registry_only_from_live_absolute_run_workspaces(
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 5
+    assert upgraded.current_schema_version() == 6
     assert upgraded.list_workspace_roots() == [trusted.resolve()]
     assert upgraded.delete_operation_workspace("missing") is None
 
@@ -782,13 +812,85 @@ def test_claim_submit_creates_operation_and_tasks_in_one_transaction(tmp_path: P
     assert repository.load_tasks("run-1")[0].status == TaskStatus.submitting
     assert len(operations) == 1
     assert operations[0].phase == "claimed"
-    assert operations[0].payload == {
-        "task_ids": ["a"],
-        "scheduler_type": "nohup",
-        "resources": {"cpus": 4},
-        "env_init_scripts": ["/etc/profile"],
-        "results": {},
+    payload = operations[0].payload
+    assert payload["task_ids"] == ["a"]
+    assert payload["scheduler_type"] == "nohup"
+    assert payload["resources"] == {"cpus": 4}
+    assert payload["env_init_scripts"] == ["/etc/profile"]
+    assert payload["results"] == {}
+    assert payload["submit_schema"] == "jobdesk.submit.v1"
+    assert payload["idempotency_key"].startswith("sha256:")
+    assert payload["remote_staging_root"] == ""
+    assert payload["compensation"] == {
+        "cleanup_scope": "jobdesk_owned_staging_root",
+        "remote_staging_root": "",
+        "cleanup_status": "not_attempted",
     }
+
+
+def test_claim_submit_records_stable_key_and_owned_staging_root(tmp_path: Path) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
+
+    _, first = repository.claim_submit_tasks(
+        "run-1",
+        scheduler_type="nohup",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        remote_staging_root="/remote/project/.jobdesk_runs/run-1",
+    )
+
+    payload = first[0].payload
+    assert payload["remote_staging_root"] == "/remote/project/.jobdesk_runs/run-1"
+    assert payload["idempotency_key"].startswith("sha256:")
+    assert payload["compensation"] == {
+        "cleanup_scope": "jobdesk_owned_staging_root",
+        "remote_staging_root": "/remote/project/.jobdesk_runs/run-1",
+        "cleanup_status": "not_attempted",
+    }
+
+
+def test_claim_submit_rejects_cleanup_root_outside_jobdesk_staging_boundary(tmp_path: Path) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
+
+    with pytest.raises(ValueError, match="JobDesk-owned run staging"):
+        repository.claim_submit_tasks(
+            "run-1",
+            scheduler_type="nohup",
+            resources={},
+            env_init_scripts=[],
+            per_task=False,
+            remote_staging_root="/remote/project/not-jobdesk-owned",
+        )
+
+    assert repository.load_tasks("run-1")[0].status == TaskStatus.uploaded
+    assert repository.list_operations() == []
+
+
+def test_recovery_rejects_corrupt_compensation_root_without_task_transition(tmp_path: Path) -> None:
+    repository = RunRepository(tmp_path / "runs")
+    repository.create_run(_record(repository.runs_dir), [_task("a", TaskStatus.uploaded)])
+    _, operations = repository.claim_submit_tasks(
+        "run-1",
+        scheduler_type="nohup",
+        resources={},
+        env_init_scripts=[],
+        per_task=False,
+        remote_staging_root="/remote/project/.jobdesk_runs/run-1",
+    )
+    operation = operations[0]
+    assert repository.start_submit_operation(operation.operation_id)
+    payload = dict(repository.list_operations()[0].payload)
+    payload["remote_staging_root"] = "/remote/project/not-jobdesk-owned"
+    assert repository.advance_operation(operation.operation_id, "remote_started", "remote_started", payload=payload)
+
+    assert not repository.recover_submit_operation(operation.operation_id)
+    persisted = repository.list_operations()[0]
+    assert persisted.phase == "remote_started"
+    assert persisted.last_error == "submit compensation metadata is invalid"
+    assert repository.load_tasks("run-1")[0].status == TaskStatus.submitting
 
 
 def test_recover_legacy_orphan_submit_marks_uncertain_and_journals_decision(

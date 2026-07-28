@@ -93,6 +93,10 @@ class ServerConfig(BaseModel):
     wsl_distro: str | None = Field(default=None, description="连接前自动唤醒的 WSL 发行版名称")
     env_init_scripts: list[str] = Field(default_factory=list, description="执行任务前 source 的额外初始化脚本路径")
     scheduler: "SchedulerConfig" = Field(default_factory=lambda: SchedulerConfig(), description="作业调度器配置")
+    confflow_executable: str = Field(
+        default="",
+        description="Optional absolute ConfFlow executable path. Empty uses confflow resolved from PATH.",
+    )
     trust_on_first_use: bool = Field(
         default=False, description="Trust and store an unknown SSH host key on first connection"
     )
