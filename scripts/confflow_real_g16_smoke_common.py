@@ -387,7 +387,8 @@ assert isinstance(install, dict) and install.get('status') == 'verified', data
 executable = data.get('executable')
 assert isinstance(executable, dict), data
 assert executable.get('path') == {CONFFLOW_EXE!r}, data
-assert executable.get('realpath') == {CONFFLOW_EXE!r}, data
+if 'realpath' in executable:
+    assert executable.get('realpath') == {CONFFLOW_EXE!r}, data
 assert executable.get('python') == {CONFFLOW_PYTHON!r}, data
 assert isinstance(executable.get('sha256'), str) and re.fullmatch(r'[0-9a-fA-F]{{64}}', executable['sha256']), data
 """

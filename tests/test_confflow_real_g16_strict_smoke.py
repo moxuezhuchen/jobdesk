@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,6 @@ def _capability() -> dict[str, object]:
         "install_provenance": {"status": "verified"},
         "executable": {
             "path": smoke.CONFFLOW_EXE,
-            "realpath": smoke.CONFFLOW_EXE,
             "sha256": "a" * 64,
             "python": smoke.CONFFLOW_PYTHON,
         },
@@ -210,6 +210,36 @@ def test_capability_rejects_unapproved_identity(label: str, mutate) -> None:
 def test_preflight_rejects_wrong_fourth_line() -> None:
     with pytest.raises(smoke.SmokeValidationError, match="preflight"):
         smoke.validate_preflight_lines("2\n0\n0\n/opt/g16/bsd/other.profile\n")
+
+
+def _run_capability_probe_script(tmp_path: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    capability_path = tmp_path / "capability.json"
+    _write_json(capability_path, payload)
+    return subprocess.run(
+        [sys.executable, "-c", smoke.capability_probe_script(), str(capability_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_capability_probe_accepts_live_shape_without_realpath(tmp_path: Path) -> None:
+    result = _run_capability_probe_script(tmp_path, _capability())
+    assert result.returncode == 0, result.stderr
+
+
+def test_capability_probe_accepts_correct_optional_realpath(tmp_path: Path) -> None:
+    payload = _capability()
+    payload["executable"]["realpath"] = smoke.CONFFLOW_EXE  # type: ignore[index]
+    result = _run_capability_probe_script(tmp_path, payload)
+    assert result.returncode == 0, result.stderr
+
+
+def test_capability_probe_rejects_wrong_optional_realpath(tmp_path: Path) -> None:
+    payload = _capability()
+    payload["executable"]["realpath"] = "/opt/confflow-wrong/bin/confflow"  # type: ignore[index]
+    result = _run_capability_probe_script(tmp_path, payload)
+    assert result.returncode != 0
 
 
 def test_nonzero_rc_two_is_always_rejected() -> None:
