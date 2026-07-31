@@ -276,6 +276,71 @@ def test_nonzero_rc_two_is_always_rejected() -> None:
         smoke.validate_process_returncode(2, stage="ConfFlow")
 
 
+def test_cleanup_rc_two_with_empty_output_reports_full_diagnostics(monkeypatch) -> None:
+    target = "/tmp/jobdesk-confflow-g16.ABC123"
+    monkeypatch.setattr(
+        smoke.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 2, "", ""),
+    )
+
+    with pytest.raises(smoke.SmokeValidationError) as error:
+        smoke.cleanup_remote(target)
+
+    message = str(error.value)
+    assert "rc=2" in message
+    assert f"target={target!r}" in message
+    assert "stdout=''" in message
+    assert "stderr=''" in message
+
+
+def test_cleanup_rm_failure_reports_stderr(monkeypatch) -> None:
+    target = "/tmp/jobdesk-confflow-g16.ABC123"
+    monkeypatch.setattr(
+        smoke.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args, 1, "", "rm: cannot remove target"
+        ),
+    )
+
+    with pytest.raises(smoke.SmokeValidationError, match="cannot remove target") as error:
+        smoke.cleanup_remote(target)
+
+    assert "rc=1" in str(error.value)
+    assert f"target={target!r}" in str(error.value)
+
+
+def test_cleanup_success_script_verifies_delete_postcondition(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    def run(args, **kwargs):
+        calls.append(tuple(args))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    smoke.cleanup_remote("/tmp/jobdesk-confflow-g16.ABC123")
+
+    assert len(calls) == 1
+    script = calls[0][-1]
+    assert isinstance(script, str)
+    assert 'test ! -e "$p"' in script
+
+
+def test_cleanup_rejects_unsafe_path_without_subprocess(monkeypatch) -> None:
+    called = False
+
+    def run(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("unsafe cleanup must not spawn a subprocess")
+
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    with pytest.raises(smoke.SmokeValidationError, match="unsafe remote cleanup"):
+        smoke.cleanup_remote("/tmp/not-harness-owned")
+    assert not called
+
+
 def test_failed_workflow_state_is_rejected(tmp_path: Path) -> None:
     _write_workflow(tmp_path)
     state_path = tmp_path / "methane_confflow_work" / ".workflow_state.json"

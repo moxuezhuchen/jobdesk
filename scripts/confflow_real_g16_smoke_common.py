@@ -567,7 +567,7 @@ def cleanup_remote(remote_tmp: str) -> None:
         "set -eu; p=$(readlink -f -- "
         + _quote(remote_tmp)
         + "); case \"$p\" in /tmp/jobdesk-confflow-g16.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;; *) exit 2 ;; esac; "
-        + "[ -d \"$p\" ]; rm -rf -- \"$p\""
+        + "[ -d \"$p\" ]; rm -rf -- \"$p\"; test ! -e \"$p\""
     )
     proc = subprocess.run(
         [WIN_WSL, "-d", WSL_DISTRO, "--", "bash", "-c", script],
@@ -578,4 +578,8 @@ def cleanup_remote(remote_tmp: str) -> None:
         check=False,
     )
     if proc.returncode != 0:
-        raise SmokeValidationError(f"safe WSL smoke cleanup failed: {proc.stderr or proc.stdout}")
+        raise SmokeValidationError(
+            "safe WSL smoke cleanup failed: "
+            f"rc={proc.returncode}; target={remote_tmp!r}; "
+            f"stdout={proc.stdout!r}; stderr={proc.stderr!r}"
+        )
