@@ -108,6 +108,15 @@ def test_new_architecture_modules_require_typed_definitions() -> None:
     } <= strict_modules
 
 
+def test_confflow_application_facade_does_not_import_gui_or_remote_implementations() -> None:
+    """The new facade may coordinate services but must not own transport or GUI code."""
+    path = _SRC_ROOT / "application" / "confflow_client.py"
+    imports = [imported for _path, imported in _imports_under("application") if _path == path]
+
+    forbidden = ("jobdesk_app.gui", "PySide6", "jobdesk_app.remote")
+    assert not [imported for imported in imports if imported.startswith(forbidden)]
+
+
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
     path = _SRC_ROOT / "services" / "run_service" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -180,3 +189,12 @@ def test_gui_does_not_import_paramiko_directly() -> None:
         if imported == "paramiko" or imported.startswith("paramiko."):
             failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
     assert failures == [], f"GUI must not import paramiko directly; use SessionPool: {failures}"
+
+
+def test_gui_does_not_import_remote_implementations_directly() -> None:
+    failures = [
+        f"{path.relative_to(_SRC_ROOT)} -> {imported}"
+        for path, imported in _imports_under("gui")
+        if imported.startswith("jobdesk_app.remote")
+    ]
+    assert failures == [], f"GUI must use application clients instead of remote implementations: {failures}"

@@ -6,17 +6,16 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
+from ..application.confflow_client import ConfFlowClientError, SubmitRequest
 from ..config.servers import load_servers
 from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
-from ..remote.confflow_probe import (
-    ConfFlowCapabilityPreflightError,
-)
 from ..services.gui_settings import GuiSettingsStore
 from ..services.method_presets import MethodPresetStore
 from ..services.run_coordinator import RunCoordinator
 from ..services.run_service import RunService
 from ..services.session_pool import SessionPool
+from ..services.ssh_confflow_client import SSHConfFlowClient
 from .dialogs.submit_dialog import SubmitDialog
 from .i18n import tr
 from .layouts.shell import AppShell
@@ -355,16 +354,13 @@ class MainWindow(QMainWindow):
                 session_pool=self._session_pool,
             )
             try:
-                _upload_prepared_batch(batch, payload, service, coordinator)
-            except ConfFlowCapabilityPreflightError as exc:
+                _upload_prepared_batch(batch, payload, service, SSHConfFlowClient(coordinator, payload.server_id))
+            except ConfFlowClientError as exc:
                 batch.errors.append(str(exc))
                 return batch
-            outcomes = []
-            for spec in batch.specs:
-                if submit:
-                    outcomes.append(coordinator.create_and_submit(spec, local_dir=str(workspace)))
-                else:
-                    outcomes.append(coordinator.create_run(spec, local_dir=str(workspace)))
+            outcomes = _create_and_maybe_submit_specs(
+                coordinator, SSHConfFlowClient(coordinator, payload.server_id), batch.specs, workspace, submit=submit
+            )
             # Bundle into a single RunOperationOutcome-shaped payload.
             from ..services.run_coordinator import RunOperationOutcome
 
@@ -556,16 +552,14 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def _upload_prepared_batch(batch, payload, service, coordinator) -> None:
+def _upload_prepared_batch(batch, payload, service, client) -> None:
     """Preflight and upload a prepared batch without creating a run."""
     workflow_specs = [
         spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
     ]
     if workflow_specs:
-        coordinator.probe_capabilities(
-            payload.server_id,
-            require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
-        )
+        client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
+
     for local_path, remote_target in zip(
         batch.local_paths,
         batch.upload_targets,
@@ -579,6 +573,19 @@ def _upload_prepared_batch(batch, payload, service, coordinator) -> None:
             raise RuntimeError("Prepared workflow batch has no remote YAML target")
         records = service.upload_path(batch.yaml_local_path, yaml_target)
         _raise(records, yaml_target)
+
+
+def _create_and_maybe_submit_specs(coordinator, client, specs, workspace: Path, *, submit: bool):
+    """Create durable records locally, then submit each successful record once via the client."""
+    outcomes = []
+    for spec in specs:
+        created = coordinator.create_run(spec, local_dir=str(workspace))
+        outcomes.append(created)
+        if not submit or created.errors or not created.records:
+            continue
+        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
+        outcomes.append(submitted)
+    return outcomes
 
 
 def _raise(records, target):

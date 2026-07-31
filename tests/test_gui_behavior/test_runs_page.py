@@ -67,14 +67,20 @@ class TestRunsPage:
     def test_refresh_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
         coordinator = MagicMock()
         expected = SimpleNamespace(errors=[])
-        coordinator.refresh_and_download.return_value = expected
         runs_page._coordinator_factory = MagicMock(return_value=coordinator)
-        record = SimpleNamespace(run_id="run-1", local_dir=str(tmp_path))
+        client = MagicMock()
+        handle = MagicMock()
+        client.attach.return_value = handle
+        client.refresh_outcome.return_value = expected
+        runs_page._client_factory = MagicMock(return_value=client)
+        record = SimpleNamespace(run_id="run-1", server_id="srv", local_dir=str(tmp_path))
 
         outcome = runs_page._execute_refresh_use_case(record, ["*.out"], download=True)
 
         assert outcome is expected
-        coordinator.refresh_and_download.assert_called_once_with("run-1", ["*.out"])
+        runs_page._client_factory.assert_called_once_with(coordinator, "srv")
+        client.attach.assert_called_once_with("run-1")
+        client.refresh_outcome.assert_called_once_with(handle, ["*.out"], download=True)
 
     def test_progress_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
         coordinator = MagicMock()
@@ -2712,23 +2718,25 @@ class TestRunsPage:
 
         coordinator_factory.return_value.submit.assert_called_once_with("run-1")
 
-    def test_cancel_worker_delegates_session_ownership_to_coordinator(self, runs_page):
+    def test_cancel_worker_delegates_to_client_handle(self, runs_page):
         from PySide6.QtWidgets import QMessageBox
 
-        record = MagicMock(run_id="run-1", local_dir="")
-        outcome = SimpleNamespace(changed_count=1, errors=[])
+        record = SimpleNamespace(run_id="run-1", server_id="srv", local_dir="")
+        client = MagicMock()
+        handle = MagicMock()
+        client.attach.return_value = handle
 
         with (
             patch.object(runs_page, "_selected_record", return_value=record),
             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
-            patch.object(runs_page, "_coordinator_for") as coordinator_factory,
+            patch.object(runs_page, "_client_for", return_value=client),
             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
         ):
-            coordinator_factory.return_value.cancel.return_value = outcome
             runs_page._stop_run()
             start_worker.call_args.kwargs["target"](MagicMock())
 
-        coordinator_factory.return_value.cancel.assert_called_once_with("run-1")
+        client.attach.assert_called_once_with("run-1")
+        handle.cancel.assert_called_once_with()
 
     def test_submit_cancel_worker_overlap_keeps_single_tracked_mutation(self, runs_page):
         from PySide6.QtWidgets import QMessageBox
