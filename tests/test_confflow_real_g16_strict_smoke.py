@@ -312,19 +312,23 @@ def test_cleanup_rm_failure_reports_stderr(monkeypatch) -> None:
 
 
 def test_cleanup_success_script_verifies_delete_postcondition(monkeypatch) -> None:
-    calls: list[tuple[object, ...]] = []
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def run(args, **kwargs):
-        calls.append(tuple(args))
+        calls.append((tuple(args), kwargs))
         return subprocess.CompletedProcess(args, 0, "", "")
 
     monkeypatch.setattr(smoke.subprocess, "run", run)
     smoke.cleanup_remote("/tmp/jobdesk-confflow-g16.ABC123")
 
     assert len(calls) == 1
-    script = calls[0][-1]
+    argv, kwargs = calls[0]
+    assert argv == (smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash", "-s", "--")
+    assert "-c" not in argv
+    script = kwargs["input"]
     assert isinstance(script, str)
     assert 'test ! -e "$p"' in script
+    assert "$p" not in argv
 
 
 def test_cleanup_rejects_unsafe_path_without_subprocess(monkeypatch) -> None:

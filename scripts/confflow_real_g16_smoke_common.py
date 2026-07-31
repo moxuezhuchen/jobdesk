@@ -570,7 +570,8 @@ def cleanup_remote(remote_tmp: str) -> None:
         + "[ -d \"$p\" ]; rm -rf -- \"$p\"; test ! -e \"$p\""
     )
     proc = subprocess.run(
-        [WIN_WSL, "-d", WSL_DISTRO, "--", "bash", "-c", script],
+        [WIN_WSL, "-d", WSL_DISTRO, "--", "bash", "-s", "--"],
+        input=script,
         capture_output=True,
         text=True,
         encoding="utf-8",
