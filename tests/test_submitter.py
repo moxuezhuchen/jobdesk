@@ -115,7 +115,7 @@ def _capability_result(
     wheel_sha256: str | None = None,
     executable_path: str = "/opt/confflow-1.4.5-prod-venv/bin/confflow",
     executable_sha256: str = "a" * 64,
-    executable_python: str = "/opt/confflow-1.4.5-prod-venv/bin/python",
+    executable_python: str = "/opt/confflow-1.4.5-prod-venv/bin/python3.12",
 ) -> SSHResult:
     from jobdesk_app.core.confflow_contract import (
         EXPECTED_ARTIFACTS,
@@ -214,7 +214,8 @@ def test_preflight_accepts_clean_verified_producer_without_warning():
         ({"install_status": "invalid"}, "install provenance is not verified"),
         ({"wheel_sha256": "b" * 64}, "wheel digest"),
         ({"executable_sha256": "bad"}, "executable digest"),
-        ({"executable_python": "/usr/bin/python3"}, "controlled virtual environment"),
+        ({"executable_python": "/usr/bin/python3"}, "controlled Python 3.12"),
+        ({"executable_python": "/opt/confflow-1.4.5-prod-venv/bin/python"}, "controlled Python 3.12"),
     ],
 )
 def test_preflight_rejects_unapproved_production_producer(kwargs, message):

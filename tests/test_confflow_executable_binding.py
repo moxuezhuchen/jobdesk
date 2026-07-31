@@ -72,7 +72,7 @@ def test_coordinator_persists_server_configured_executable_on_task(tmp_path) -> 
 
 def test_identity_probe_and_runner_guard_bind_path_digest_and_stat_snapshot() -> None:
     path = "/opt/confflow-1.4.5-prod-venv/bin/confflow"
-    python_executable = "/opt/confflow-1.4.5-prod-venv/bin/python"
+    python_executable = "/opt/confflow-1.4.5-prod-venv/bin/python3.12"
     identity = parse_executable_identity_probe(
         f"{path}\n123|456|7|8\n" + "a" * 64 + "\n",
         path=path,

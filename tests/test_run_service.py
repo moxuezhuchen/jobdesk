@@ -985,7 +985,7 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
             "executable": {
                 "path": "/opt/confflow-1.4.5-prod-venv/bin/confflow",
                 "sha256": "a" * 64,
-                "python": "/opt/confflow-1.4.5-prod-venv/bin/python",
+                "python": "/opt/confflow-1.4.5-prod-venv/bin/python3.12",
             },
         }
     )

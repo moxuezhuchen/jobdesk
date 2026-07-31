@@ -343,14 +343,14 @@ def validate_confflow_production_capability(
         raise ValueError("ConfFlow executable does not match the configured production path")
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-fA-F]{64}", digest) is None:
         raise ValueError("ConfFlow executable digest is missing or malformed")
-    expected_python = f"{path.rsplit('/', 1)[0]}/python"
+    expected_python = f"{path.rsplit('/', 1)[0]}/python3.12"
     if (
         not isinstance(python_executable, str)
         or not python_executable.startswith("/")
         or any(char in python_executable for char in "\x00\r\n")
         or python_executable != expected_python
     ):
-        raise ValueError("ConfFlow executable Python path does not match the controlled virtual environment")
+        raise ValueError("ConfFlow executable Python path does not match the controlled Python 3.12 virtual environment")
 
     identity: dict[str, object] = {
         "path": path,
