@@ -53,7 +53,7 @@ def test_load_summary_result_accepts_versioned_artifact_wrapper(tmp_path):
         json.dumps(
             {
                 "content_schema": "confflow.run_summary.v1",
-                "producer": {"version": "1.4.5"},
+                "producer": {"version": "1.4.6"},
                 "payload": {
                     "initial_conformers": 4,
                     "final_conformers": 2,

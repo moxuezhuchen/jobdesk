@@ -121,7 +121,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(4, "1.4.5", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "requires an artifacts block",
         ),
@@ -129,7 +129,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         (
             ConfFlowCapabilities(
                 4,
-                "1.4.5",
+                "1.4.6",
                 True,
                 True,
                 True,
@@ -147,19 +147,19 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         (
             ConfFlowCapabilities(4, "1.4.4", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.5",
+            "1.4.6",
         ),
         # Schema==2 but version is 1.4.2 prerelease → rejected.
         (
-            ConfFlowCapabilities(4, "1.4.5-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.5",
+            "1.4.6",
         ),
         # Schema==2 but version is >= MAX_EXCLUSIVE.
         (
             ConfFlowCapabilities(4, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.5",
+            "1.4.6",
         ),
         # Schema==2 but version is malformed.
         (
@@ -169,17 +169,17 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(4, "1.4.5", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.5", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.5", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             True,
             "dag",
         ),
@@ -222,9 +222,9 @@ def test_validator_accepts_prerelease_above_minimum(version):
     )
 
 
-@pytest.mark.parametrize("version", ("1.4.5rc1", "1.4.5-rc.1"))
+@pytest.mark.parametrize("version", ("1.4.6rc1", "1.4.6-rc.1"))
 def test_validator_rejects_prerelease_at_minimum(version):
-    with pytest.raises(ValueError, match="1.4.5"):
+    with pytest.raises(ValueError, match="1.4.6"):
         validate_confflow_capabilities(
             ConfFlowCapabilities(
                 CAPABILITY_SCHEMA_VERSION,

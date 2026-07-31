@@ -29,25 +29,25 @@ jobs:
           pip install -e ".[dev]"
           pip install "rdkit>=2023.9"
 
-      - name: Check out ConfFlow v1.4.5
+      - name: Check out ConfFlow v1.4.6
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v1.4.5
+          ref: v1.4.6
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v1.4.5 wheel
+      - name: Install released ConfFlow v1.4.6 wheel
         run: |
-          gh release download v1.4.5 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.4.5-py3-none-any.whl" --dir .ci/confflow-dist
-          wheel=$(ls .ci/confflow-dist/confflow-1.4.5-*.whl | head -n1)
+          gh release download v1.4.6 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.4.6-py3-none-any.whl" --dir .ci/confflow-dist
+          wheel=$(ls .ci/confflow-dist/confflow-1.4.6-*.whl | head -n1)
           if [ -z "$wheel" ]; then
-            echo "ConfFlow v1.4.5 release wheel was not downloaded."
+            echo "ConfFlow v1.4.6 release wheel was not downloaded."
             exit 1
           fi
-          test "$(sha256sum "$wheel" | awk '{print $1}')" = "7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5"
           python -m pip install --no-deps "$wheel"
-          python -c "import confflow; assert confflow.__version__ == '1.4.5'; print(confflow.__version__)"
+          python -c "import confflow; assert confflow.__version__ == '1.4.6'; print(confflow.__version__)"
 
       - name: Run optional local tests
         run: python -m pytest tests/test_viewer.py tests/test_remote_status.py -q --basetemp /tmp/jobdesk_pytest_optional

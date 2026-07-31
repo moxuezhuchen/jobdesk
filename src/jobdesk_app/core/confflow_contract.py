@@ -21,12 +21,12 @@ must be a *mirror* of these tuples; never a free-floating literal.
 
 Reference build artefact
 ------------------------
-The ConfFlow v1.4.5 wheel released from the clean tagged producer commit
+The ConfFlow v1.4.6 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-1.4.5-py3-none-any.whl
-    sha256: 7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188
-    commit: ae27a6486385889735348e96f0cff11a22e1be95
+    confflow-1.4.6-py3-none-any.whl
+    sha256: 7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5
+    commit: 4e9e74a8991338aec0f393182073c8c087b4fa63
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -127,12 +127,12 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # Structured version source of truth. Any change here must be mirrored
 # into pyproject.toml's confflow pin, CI's checkout ref + wheel glob,
 # docs, and the package's expected reference build.
-MIN_VERSION: tuple[int, int, int] = (1, 4, 5)
+MIN_VERSION: tuple[int, int, int] = (1, 4, 6)
 MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
-REFERENCE_VERSION: str = "1.4.5"
-REFERENCE_BUILD_COMMIT: str = "ae27a6486385889735348e96f0cff11a22e1be95"
-REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.5-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188"
+REFERENCE_VERSION: str = "1.4.6"
+REFERENCE_BUILD_COMMIT: str = "4e9e74a8991338aec0f393182073c8c087b4fa63"
+REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.6-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5"
 
 
 def _format_version_tuple(version: tuple[int, int, int]) -> str:
@@ -140,7 +140,7 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 
     Trailing ``.0`` segments are stripped *except* the trailing one,
     so ``(2, 0, 0)`` renders as ``2.0`` (PEP 440 normal form) and
-    ``(1, 4, 5)`` renders as ``1.4.5``. We never render a single
+    ``(1, 4, 6)`` renders as ``1.4.6``. We never render a single
     major-only version because it would collapse e.g. ``(1, 4, 0)``
     into ``1`` which PEP 440 parses as ``1.0.0`` and round-trips
     silently.
@@ -154,6 +154,6 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 def version_spec() -> str:
     """Return the human-readable PEP 440 spec derived from MIN/MAX.
 
-    Example: ``version_spec() == ">=1.4.5,<2.0"``.
+    Example: ``version_spec() == ">=1.4.6,<2.0"``.
     """
     return f">={_format_version_tuple(MIN_VERSION)},<{_format_version_tuple(MAX_EXCLUSIVE)}"

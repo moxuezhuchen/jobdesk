@@ -983,16 +983,16 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
                 "install_provenance": {"status": "verified"},
             },
             "executable": {
-                "path": "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+                "path": "/opt/confflow-1.4.6-prod-venv/bin/confflow",
                 "sha256": "a" * 64,
-                "python": "/opt/confflow-1.4.5-prod-venv/bin/python3.12",
+                "python": "/opt/confflow-1.4.6-prod-venv/bin/python3.12",
             },
         }
     )
     ssh = MagicMock()
     ssh.run.side_effect = [
         SSHResult("capabilities", 0, capability_json, "", 0.01),
-        SSHResult("identity", 0, "/opt/confflow-1.4.5-prod-venv/bin/confflow\n123|456|7|8\n" + "a" * 64 + "\n", "", 0.01),
+        SSHResult("identity", 0, "/opt/confflow-1.4.6-prod-venv/bin/confflow\n123|456|7|8\n" + "a" * 64 + "\n", "", 0.01),
         SSHResult("chmod", 0, "", "", 0.01),
         SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
     ]
@@ -1036,10 +1036,10 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
         record.run_id,
         capability,
         resolved_executable="/opt/confflow/bin/confflow",
-        resolved_realpath="/opt/confflow-1.4.5-prod-venv/bin/confflow",
+        resolved_realpath="/opt/confflow-1.4.6-prod-venv/bin/confflow",
         executable_identity={
             "path": "/opt/confflow/bin/confflow",
-            "realpath": "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+            "realpath": "/opt/confflow-1.4.6-prod-venv/bin/confflow",
             "sha256": "a" * 64,
             "size": 123,
             "mtime_ns": 456000000000,
@@ -1048,7 +1048,7 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
         },
     )
 
-    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow-1.4.5-prod-venv/bin/confflow"
+    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow-1.4.6-prod-venv/bin/confflow"
     manifest = json.loads((record.run_dir / "provenance.json").read_text(encoding="utf-8"))
     assert manifest["content_schema"] == "confflow.provenance.v1"
     assert manifest["capability"] == capability

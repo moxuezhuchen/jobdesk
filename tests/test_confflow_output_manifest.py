@@ -1,4 +1,4 @@
-"""Safety coverage for ConfFlow v1.4.5 output-manifest downloads."""
+"""Safety coverage for ConfFlow v1.4.6 output-manifest downloads."""
 
 from __future__ import annotations
 
@@ -96,6 +96,18 @@ def test_parse_output_manifest_requires_schema_and_safe_unique_relative_paths(tm
         parse_output_manifest({"content_schema": "confflow.output_manifest.v1", "terminals": {"a": ["a.xyz"], "b": ["a.xyz"]}})
     with pytest.raises(OutputManifestError, match="unsupported output manifest schema"):
         parse_output_manifest({"content_schema": "confflow.output_manifest.v2", "terminals": {}})
+
+
+def test_parse_output_manifest_accepts_146_producer_relative_terminal_path() -> None:
+    """The 1.4.6 hotfix publishes terminal artifacts relative to the work dir."""
+    parsed = parse_output_manifest(
+        {
+            "content_schema": "confflow.output_manifest.v1",
+            "terminals": {"g16_opt": ["g16_opt/output.xyz"]},
+        }
+    )
+
+    assert parsed.terminals == {"g16_opt": ("g16_opt/output.xyz",)}
 
 
 def test_workflow_download_uses_only_safe_manifest_declared_outputs(tmp_path: Path, runs_dir: Path) -> None:

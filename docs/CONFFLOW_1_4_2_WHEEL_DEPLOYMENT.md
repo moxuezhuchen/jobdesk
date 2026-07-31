@@ -1,4 +1,11 @@
-> **Current release:** ConfFlow 1.4.5 is the certified producer for this JobDesk branch. The filename is retained for deployment-history compatibility.
+> **Current release:** ConfFlow 1.4.6 is the certified producer for this JobDesk branch. The filename is retained for deployment-history compatibility.
+
+> **Current 1.4.6 contract:** use `confflow>=1.4.6,<2.0` and the released
+> `confflow-1.4.6-py3-none-any.whl` whose SHA-256 is
+> `7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`.
+> The older 1.4.5 command examples below are retained only as deployment
+> history; substitute the current approved wheel and preserve the controlled
+> dependency lock/wheelhouse procedure.
 
 # ConfFlow 1.4.5 Wheel 构建与部署指南
 
@@ -13,9 +20,9 @@ JobDesk 的 `chem` extra 要求 `confflow>=1.4.5,<2.0`。公共 PyPI 上名为
 在不访问网络、不安装 WSL 包的前提下，使用现有构建工具：
 
 ```bash
-wheel=confflow-1.4.5-py3-none-any.whl
+wheel=confflow-1.4.6-py3-none-any.whl
 sha256sum "$wheel"
-# expected: 7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188
+# expected: 7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5
 ```
 
 ## Windows 验证安装
@@ -23,7 +30,7 @@ sha256sum "$wheel"
 ```powershell
 C:\dft\tool\verify-venv\Scripts\python.exe -m pip install `
   --no-index --no-deps --force-reinstall `
-  \\wsl.localhost\Ubuntu-24.04\opt\confflow-1.4.5-release\confflow-1.4.5-py3-none-any.whl
+  \\wsl.localhost\Ubuntu-24.04\tmp\confflow-1.4.6-release-download-verify2\confflow-1.4.6-py3-none-any.whl
 ```
 
 验证版本、来源和 capability handshake：
@@ -62,7 +69,7 @@ Linux 计算节点也必须安装同一份 1.4.5 release wheel，并先安装受
 
 ```bash
 python3 -m pip install --no-index --find-links /path/to/wheelhouse --require-hashes -r /path/to/confflow-1.4.5-py312-linux-x86_64.lock
-python3 -m pip install --no-deps /path/to/confflow-1.4.5-py3-none-any.whl
+python3 -m pip install --no-deps /path/to/confflow-1.4.6-py3-none-any.whl
 python3 -m pip check
 confflow --version
 confflow --capabilities --json

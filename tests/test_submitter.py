@@ -113,9 +113,9 @@ def _capability_result(
     install_status: str = "verified",
     wheel_filename: str | None = None,
     wheel_sha256: str | None = None,
-    executable_path: str = "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+    executable_path: str = "/opt/confflow-1.4.6-prod-venv/bin/confflow",
     executable_sha256: str = "a" * 64,
-    executable_python: str = "/opt/confflow-1.4.5-prod-venv/bin/python3.12",
+    executable_python: str = "/opt/confflow-1.4.6-prod-venv/bin/python3.12",
 ) -> SSHResult:
     from jobdesk_app.core.confflow_contract import (
         EXPECTED_ARTIFACTS,
@@ -169,7 +169,7 @@ def _capability_result(
 
 def _identity_result(
     *,
-    path: str = "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+    path: str = "/opt/confflow-1.4.6-prod-venv/bin/confflow",
     sha256: str = "a" * 64,
     size: int = 123,
     mtime_seconds: int = 456,
@@ -215,7 +215,7 @@ def test_preflight_accepts_clean_verified_producer_without_warning():
         ({"wheel_sha256": "b" * 64}, "wheel digest"),
         ({"executable_sha256": "bad"}, "executable digest"),
         ({"executable_python": "/usr/bin/python3"}, "controlled Python 3.12"),
-        ({"executable_python": "/opt/confflow-1.4.5-prod-venv/bin/python"}, "controlled Python 3.12"),
+        ({"executable_python": "/opt/confflow-1.4.6-prod-venv/bin/python"}, "controlled Python 3.12"),
     ],
 )
 def test_preflight_rejects_unapproved_production_producer(kwargs, message):
