@@ -71,10 +71,10 @@ class TestConftestBasetemp:
         _run_configure(config, monkeypatch, env_val="")
         assert config.option.basetemp == "C:\\explicit\\path"
 
-    def test_subprocess_no_basetemp_smoke(self):
+    def test_subprocess_no_basetemp_smoke(self, tmp_path):
         """A real pytest subprocess allocates tmp_path outside the repo."""
         repo = Path(__file__).resolve().parent.parent
-        test_file = Path(__file__).with_name(f"_test_basetemp_smoke_{uuid.uuid4().hex}.py")
+        test_file = tmp_path / f"_test_basetemp_smoke_{uuid.uuid4().hex}.py"
         test_file.write_text(
             "import tempfile\n"
             "from pathlib import Path\n\n"
@@ -91,6 +91,8 @@ class TestConftestBasetemp:
         env = dict(__import__("os").environ)
         env.pop("JOBDESK_TEST_BASETEMP", None)
         env["QT_QPA_PLATFORM"] = "offscreen"
+        existing_plugins = env.get("PYTEST_PLUGINS", "")
+        env["PYTEST_PLUGINS"] = ",".join(filter(None, (existing_plugins, "conftest")))
         try:
             r = subprocess.run(
                 [sys.executable, "-m", "pytest", str(test_file), "-q", "-p", "no:cacheprovider"],
