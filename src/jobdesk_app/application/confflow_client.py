@@ -9,14 +9,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
-
-if TYPE_CHECKING:
-    from jobdesk_app.core.manifest import TaskRecord
-    from jobdesk_app.services.run_coordinator import RunCoordinator
-    from jobdesk_app.services.run_repository import RunRecord
 
 
 class ConfFlowClientError(RuntimeError):
@@ -202,134 +197,8 @@ class ConfFlowClient(Protocol):
     def submit(self, request: SubmitRequest) -> RemoteRunHandle: ...
 
 
-class LegacyConfFlowClient:
-    """Adapter for the pre-control-protocol JobDesk SSH lifecycle."""
-
-    def __init__(self, coordinator: RunCoordinator, server_id: str) -> None:
-        self._coordinator = coordinator
-        self._server_id = server_id
-
-    def probe(self, *, require_dag: bool = False) -> ConfFlowCapabilities:
-        return self._coordinator.probe_capabilities(self._server_id, require_dag=require_dag)
-
-    def probe_capabilities(self, server_id: str, *, require_dag: bool = False) -> ConfFlowCapabilities:
-        """Compatibility alias for callers that still select a server per probe."""
-        return self._coordinator.probe_capabilities(server_id, require_dag=require_dag)
-
-    def attach(self, run_id: str) -> LegacyRemoteRunHandle:
-        # Loading is deliberate: a handle is only valid for a durable run.
-        record = self._coordinator.service.load_run(run_id)
-        if record.server_id != self._server_id:
-            raise ConfFlowClientError(f"run {run_id!r} belongs to server {record.server_id!r}, not {self._server_id!r}")
-        reference = _reference_for(record, self._coordinator.service.repository.load_run_provenance(run_id))
-        return LegacyRemoteRunHandle(self._coordinator, reference)
-
-    def restore_handle(self, value: dict[str, object]) -> LegacyRemoteRunHandle:
-        """Reattach serialized data after validating its durable identity snapshot."""
-        saved = RemoteRunReference.from_dict(value)
-        if saved.server_id != self._server_id:
-            raise ConfFlowClientError(f"serialized handle belongs to server {saved.server_id!r}")
-        handle = self.attach(saved.run_id)
-        if handle.to_dict() != saved.to_dict():
-            raise ConfFlowClientError("serialized handle identity no longer matches durable provenance")
-        return handle
-
-    def submit(self, request: SubmitRequest) -> LegacyRemoteRunHandle:
-        outcome = self._coordinator.submit(request.run_id, resource_overrides=request.resource_overrides)
-        if outcome.errors:
-            raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.attach(request.run_id)
-
-
-class LegacyRemoteRunHandle:
-    """Reattachable handle that borrows coordinator resources per operation."""
-
-    def __init__(self, coordinator: RunCoordinator, reference: RemoteRunReference) -> None:
-        self._coordinator = coordinator
-        self._reference = reference
-
-    @property
-    def run_id(self) -> str:
-        return self._reference.run_id
-
-    def to_dict(self) -> dict[str, object]:
-        return self._reference.to_dict()
-
-    def status(self) -> RemoteRunSnapshot:
-        record = self._coordinator.service.load_run(self.run_id)
-        tasks = self._coordinator.service.repository.load_tasks(self.run_id)
-        return _snapshot(record, tasks)
-
-    def snapshot(self) -> RemoteRunSnapshot:
-        """Convenience alias retained for callers written before the facade contract."""
-        return self.status()
-
-    def events(self, *, after: str | None = None) -> EventPage:
-        del after
-        raise UnsupportedRemoteRunOperation("events")
-
-    def cancel(self) -> RemoteRunSnapshot:
-        outcome = self._coordinator.cancel(self.run_id)
-        if outcome.errors:
-            raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.status()
-
-    def artifacts(self) -> ArtifactManifest:
-        tasks = self._coordinator.service.repository.load_tasks(self.run_id)
-        return ArtifactManifest(
-            run_id=self.run_id,
-            entries=tuple(ArtifactEntry(task_id=task.task_id, remote_paths=tuple(task.remote_result_paths)) for task in tasks),
-        )
-
-    def download(self, patterns: list[str]) -> RemoteRunSnapshot:
-        outcome = self._coordinator.download(self.run_id, patterns)
-        if outcome.errors:
-            raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.snapshot()
-
-    def resume(self, *, checkpoint: str | None = None) -> RemoteRunSnapshot:
-        del checkpoint
-        raise UnsupportedRemoteRunOperation("resume")
-
-
-def _snapshot(record: RunRecord, tasks: list[TaskRecord]) -> RemoteRunSnapshot:
-    workflow_kind = record.workflow_kind.value if record.workflow_kind is not None else None
-    return RemoteRunSnapshot(
-        run_id=record.run_id,
-        server_id=record.server_id,
-        remote_dir=record.remote_dir,
-        workflow_kind=workflow_kind,
-        status_summary=dict(record.status_summary),
-        tasks=tuple(
-            TaskSnapshot(
-                task_id=task.task_id,
-                status=task.status.value,
-                remote_job_dir=task.remote_job_dir,
-                remote_workflow_dir=task.remote_workflow_dir,
-                remote_state_path=task.remote_state_path,
-                remote_result_paths=tuple(task.remote_result_paths),
-                remote_job_id=task.remote_job_id,
-                error_message=task.error_message,
-            )
-            for task in tasks
-        ),
-    )
-
-
 def _required_string(value: dict[str, object], key: str) -> str:
     result = value.get(key)
     if not isinstance(result, str) or not result:
         raise ValueError(f"{key} must be a non-empty string")
     return result
-
-
-def _reference_for(record: RunRecord, provenance: dict[str, object] | None) -> RemoteRunReference:
-    identity = dict(provenance or {})
-    capability = identity.get("capability")
-    protocol = "confflow.capabilities.v4" if isinstance(capability, dict) and capability.get("schema_version") == 4 else None
-    return RemoteRunReference(
-        server_id=record.server_id,
-        run_id=record.run_id,
-        accepted_protocol=protocol,
-        identity_snapshot=identity,
-    )

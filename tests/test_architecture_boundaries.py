@@ -7,8 +7,6 @@ import configparser
 import re
 from pathlib import Path
 
-import pytest
-
 from jobdesk_app.services.run_repository import SCHEMA_VERSION
 
 _SRC_ROOT = Path(__file__).parents[1] / "src" / "jobdesk_app"
@@ -119,13 +117,6 @@ def test_confflow_application_facade_does_not_import_gui_or_remote_implementatio
     assert not [imported for imported in imports if imported.startswith(forbidden)]
 
 
-@pytest.mark.xfail(strict=True, reason="Phase B moves the existing GUI capability probe behind ConfFlowClient")
-def test_phase_b_wiring_debt_gui_still_has_direct_remote_import() -> None:
-    """Debt record only: this xfail is not a Phase A acceptance condition."""
-    imports = _imports_under("gui")
-    assert not [imported for _path, imported in imports if imported.startswith("jobdesk_app.remote")]
-
-
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
     path = _SRC_ROOT / "services" / "run_service" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -198,3 +189,12 @@ def test_gui_does_not_import_paramiko_directly() -> None:
         if imported == "paramiko" or imported.startswith("paramiko."):
             failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
     assert failures == [], f"GUI must not import paramiko directly; use SessionPool: {failures}"
+
+
+def test_gui_does_not_import_remote_implementations_directly() -> None:
+    failures = [
+        f"{path.relative_to(_SRC_ROOT)} -> {imported}"
+        for path, imported in _imports_under("gui")
+        if imported.startswith("jobdesk_app.remote")
+    ]
+    assert failures == [], f"GUI must use application clients instead of remote implementations: {failures}"

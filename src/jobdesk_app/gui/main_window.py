@@ -6,17 +6,16 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
+from ..application.confflow_client import ConfFlowClientError
 from ..config.servers import load_servers
 from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
-from ..remote.confflow_probe import (
-    ConfFlowCapabilityPreflightError,
-)
 from ..services.gui_settings import GuiSettingsStore
 from ..services.method_presets import MethodPresetStore
 from ..services.run_coordinator import RunCoordinator
 from ..services.run_service import RunService
 from ..services.session_pool import SessionPool
+from ..services.ssh_confflow_client import SSHConfFlowClient
 from .dialogs.submit_dialog import SubmitDialog
 from .i18n import tr
 from .layouts.shell import AppShell
@@ -355,8 +354,8 @@ class MainWindow(QMainWindow):
                 session_pool=self._session_pool,
             )
             try:
-                _upload_prepared_batch(batch, payload, service, coordinator)
-            except ConfFlowCapabilityPreflightError as exc:
+                _upload_prepared_batch(batch, payload, service, SSHConfFlowClient(coordinator, payload.server_id))
+            except ConfFlowClientError as exc:
                 batch.errors.append(str(exc))
                 return batch
             outcomes = []
@@ -556,16 +555,13 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def _upload_prepared_batch(batch, payload, service, coordinator) -> None:
+def _upload_prepared_batch(batch, payload, service, client) -> None:
     """Preflight and upload a prepared batch without creating a run."""
     workflow_specs = [
         spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
     ]
     if workflow_specs:
-        coordinator.probe_capabilities(
-            payload.server_id,
-            require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
-        )
+        client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
     for local_path, remote_target in zip(
         batch.local_paths,
         batch.upload_targets,

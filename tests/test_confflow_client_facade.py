@@ -13,7 +13,6 @@ from jobdesk_app.application.confflow_client import (
     ConfFlowClient,
     ConfFlowClientError,
     EventPage,
-    LegacyConfFlowClient,
     RemoteRunHandle,
     RemoteRunReference,
     RemoteRunSnapshot,
@@ -23,6 +22,7 @@ from jobdesk_app.application.confflow_client import (
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.services.run_service import RunService
+from jobdesk_app.services.ssh_confflow_client import LegacyConfFlowClient
 
 
 @dataclass

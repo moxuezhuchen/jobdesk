@@ -41,6 +41,7 @@ from ...services.gui_settings import GuiSettingsStore
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_service import RunRecord, RunService
 from ...services.session_pool import SessionPool
+from ...services.ssh_confflow_client import SSHConfFlowClient
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..design.tokens import Colors, Metrics, Radius
@@ -182,6 +183,7 @@ class RunsResultsPage(QWidget):
         log_cb: Callable[[str], None] | None,
         status_cb: Callable[[str], None] | None,
         coordinator_factory: Callable[..., RunCoordinator] | None = None,
+        client_factory: Callable[[RunCoordinator, str], SSHConfFlowClient] | None = None,
         session_pool: SessionPool | None = None,
     ) -> None:
         super().__init__()
@@ -194,6 +196,7 @@ class RunsResultsPage(QWidget):
         # not block the UI thread.
         self._status_cb = self._wrap_status_cb(status_cb)
         self._coordinator_factory = coordinator_factory
+        self._client_factory = client_factory
         self._owns_session_pool = session_pool is None
         self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
         self._language = GuiSettingsStore().load().language
@@ -1229,14 +1232,18 @@ class RunsResultsPage(QWidget):
         )
 
     def _execute_refresh_use_case(self, record, patterns: list[str], *, download: bool):
-        coordinator = self._coordinator_for(self._result_workspace(record))
-        if download:
-            return coordinator.refresh_and_download(record.run_id, patterns)
-        return coordinator.refresh(record.run_id)
+        client = self._client_for(record)
+        return client.refresh_outcome(client.attach(record.run_id), patterns, download=download)
 
     def _execute_download_use_case(self, record, patterns: list[str]):
+        client = self._client_for(record)
+        return client.download_outcome(client.attach(record.run_id), patterns)
+
+    def _client_for(self, record: RunRecord) -> SSHConfFlowClient:
         coordinator = self._coordinator_for(self._result_workspace(record))
-        return coordinator.download(record.run_id, patterns)
+        if self._client_factory is not None:
+            return self._client_factory(coordinator, record.server_id)
+        return SSHConfFlowClient(coordinator, record.server_id)
 
     def _execute_progress_use_case(self, record):
         coordinator = self._coordinator_for(self._result_workspace(record))
@@ -2394,8 +2401,8 @@ class RunsResultsPage(QWidget):
         self._stop_feedback.pending(tr("Stopping...", self._language))
 
         def _run(_ctx: WorkerContext):
-            outcome = self._coordinator_for(self._result_workspace(record)).cancel(record.run_id)
-            return outcome.changed_count, outcome.errors
+            self._client_for(record).attach(record.run_id).cancel()
+            return 1, []
 
         try:
             start_context_worker(
