@@ -15,7 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from ..core.confflow_preflight import ConfFlowCapabilities
+from ..core.confflow_executable import (
+    ConfFlowExecutableIdentity,
+    build_executable_identity_guard,
+    build_executable_identity_probe,
+    identity_matches,
+    parse_executable_identity_probe,
+)
+from ..core.confflow_preflight import ConfFlowCapabilities, validate_confflow_production_capability
 from ..core.lifecycle import TaskStatus
 from ..core.manifest import TaskRecord
 from ..core.submit import SubmitMode, SubmitPlan, SubmitResult
@@ -120,6 +127,7 @@ class JobSubmitter:
         self._task_update_callback = task_update_callback
         self._remote_started_callback = remote_started_callback
         self.accepted_capabilities: ConfFlowCapabilities | None = None
+        self.accepted_executable_identity: ConfFlowExecutableIdentity | None = None
 
     # ---- task selection -------------------------------------------------------
 
@@ -147,7 +155,11 @@ class JobSubmitter:
     # ---- script generation ----------------------------------------------------
 
     @staticmethod
-    def generate_task_runner(task: TaskRecord, env_init_scripts: list[str] | None = None) -> str:
+    def generate_task_runner(
+        task: TaskRecord,
+        env_init_scripts: list[str] | None = None,
+        executable_identity: ConfFlowExecutableIdentity | None = None,
+    ) -> str:
         """Generate .jobdesk_run.sh content for a single task.
 
         Sources the user's shell environment before running the command
@@ -174,6 +186,7 @@ class JobSubmitter:
             "set +e",
             "echo 'running' > .jobdesk_status",
             f'printf "%s\\n" "RUNNING {task_id}" >> ../_batch/events.log',
+            *(build_executable_identity_guard(executable_identity, task_id) if executable_identity is not None else []),
             "(",
             f"  {rendered}",
             ") > .jobdesk_submit.log 2>&1",
@@ -390,7 +403,12 @@ class JobSubmitter:
             runner_contents: dict[str, str] = {}
             launch_contents: dict[str, str] = {}
             for t in tasks:
-                runner_contents[t.task_id] = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
+                identity = self.accepted_executable_identity if _is_confflow_task(t) else None
+                runner_contents[t.task_id] = self.generate_task_runner(
+                    t,
+                    env_init_scripts=self._env_init_scripts,
+                    executable_identity=identity,
+                )
                 launch_contents[t.task_id] = self.generate_launch_script(t.task_id, t.remote_job_dir)
             tasks_tsv_content = self.generate_tasks_tsv(tasks, self._remote_batch_dir, self._control_subdir)
             batch_control_content = self.generate_batch_control(
@@ -481,7 +499,12 @@ class JobSubmitter:
             all_tasks = self._all_tasks()
             for t in tasks:
                 self._sftp.mkdir_p(t.remote_job_dir)
-                runner = self.generate_task_runner(t, env_init_scripts=self._env_init_scripts)
+                identity = self.accepted_executable_identity if _is_confflow_task(t) else None
+                runner = self.generate_task_runner(
+                    t,
+                    env_init_scripts=self._env_init_scripts,
+                    executable_identity=identity,
+                )
                 runner_remote = f"{t.remote_job_dir}/.jobdesk_run.sh"
                 sched_script = self.generate_scheduler_script(t, runner_remote)
                 sched_remote = f"{t.remote_job_dir}/.jobdesk_submit.sh"
@@ -542,17 +565,20 @@ class JobSubmitter:
             result.errors.append("ConfFlow tasks in one submission must use one executable")
             return False
         try:
+            configured_executable = executable_values.pop()
             capabilities = probe_confflow_capabilities(
                 self._ssh,
                 env_init_scripts=self._env_init_scripts,
                 require_dag=any(task.workflow_kind == "dag" for task in workflow_tasks),
-                confflow_executable=executable_values.pop(),
+                confflow_executable=configured_executable,
+            )
+            validate_confflow_production_capability(
+                capabilities,
+                expected_executable=configured_executable or None,
             )
             self.accepted_capabilities = capabilities
-            build = capabilities.build or {}
-            if build.get("dirty") is True or not build.get("commit"):
-                result.warnings.append("producer build is dirty or provenance unknown")
-        except ConfFlowCapabilityPreflightError as exc:
+            self.accepted_executable_identity = self._probe_executable_identity(capabilities)
+        except (ConfFlowCapabilityPreflightError, ValueError) as exc:
             result.errors.append(str(exc))
             return False
         return True
@@ -571,7 +597,56 @@ class JobSubmitter:
                 detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
                 result.errors.append(f"task {task.task_id}: ConfFlow dry-run failed: {detail}")
                 return False
+        if any(_is_confflow_task(task) for task in tasks):
+            try:
+                self._verify_executable_identity()
+            except ValueError as exc:
+                result.errors.append(f"ConfFlow executable identity preflight failed: {exc}")
+                return False
         return True
+
+    def _probe_executable_identity(self, capabilities: ConfFlowCapabilities) -> ConfFlowExecutableIdentity:
+        """Capture the immutable identity immediately after a capability probe."""
+        executable = capabilities.executable
+        if not isinstance(executable, dict):
+            raise ValueError("ConfFlow capability did not include an executable block")
+        path = executable.get("path")
+        expected_sha256 = executable.get("sha256")
+        python_executable = executable.get("python")
+        if not isinstance(path, str) or not isinstance(expected_sha256, str) or not isinstance(python_executable, str):
+            raise ValueError("ConfFlow capability executable identity is incomplete")
+        response = self._ssh.run(build_executable_identity_probe(path, python_executable), timeout=30)
+        if response.exit_code != 0:
+            detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
+            raise ValueError(f"remote executable identity probe failed: {detail}")
+        identity = parse_executable_identity_probe(
+            response.stdout,
+            path=path,
+            python_executable=python_executable,
+        )
+        if identity.sha256 != expected_sha256.lower():
+            raise ValueError("remote executable digest does not match its capability")
+        declared_realpath = executable.get("realpath")
+        if declared_realpath is not None and identity.realpath != declared_realpath:
+            raise ValueError("remote executable realpath does not match its capability")
+        return identity
+
+    def _verify_executable_identity(self) -> None:
+        """Re-probe immediately before remote start and reject any mutation."""
+        expected = self.accepted_executable_identity
+        if expected is None:
+            raise ValueError("approved ConfFlow executable identity is unavailable")
+        response = self._ssh.run(build_executable_identity_probe(expected.path, expected.python), timeout=30)
+        if response.exit_code != 0:
+            detail = response.stderr.strip() or response.stdout.strip() or f"exit {response.exit_code}"
+            raise ValueError(f"remote executable identity probe failed: {detail}")
+        actual = parse_executable_identity_probe(
+            response.stdout,
+            path=expected.path,
+            python_executable=expected.python,
+        )
+        if not identity_matches(expected, actual):
+            raise ValueError("remote executable changed after capability acceptance")
 
     def resource_budget_warning(self, server_max_cores: int | None) -> str | None:
         """Return a one-line warning when the effective slot count exceeds the

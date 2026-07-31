@@ -17,6 +17,7 @@ import posixpath
 import shlex
 
 from ..core.confflow_contract import (
+    OUTPUT_MANIFEST_FILE,
     RUN_MIN_XYZ_TEMPLATE,
     RUN_REPORT_FILE,
     RUN_SUMMARY_FILE,
@@ -122,6 +123,7 @@ class ConfFlowAdapter:
                 f"{work_dir_token}/{RUN_SUMMARY_FILE}",
                 f"{work_dir_token}/{WORKFLOW_STATS_FILE}",
                 f"{work_dir_token}/{WORKFLOW_STATE_FILE}",
+                f"{work_dir_token}/{OUTPUT_MANIFEST_FILE}",
             ],
             workflow_kind=workflow_kind,
             resource_budget=resource_budget,

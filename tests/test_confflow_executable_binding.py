@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from jobdesk_app.config.schema import ServerConfig
+from jobdesk_app.core.confflow_executable import (
+    build_executable_identity_guard,
+    build_executable_identity_probe,
+    parse_executable_identity_probe,
+)
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind, build_run_plan
 from jobdesk_app.remote.confflow_probe import build_confflow_capability_command
 from jobdesk_app.services.run_coordinator import RunCoordinator
@@ -61,3 +68,33 @@ def test_coordinator_persists_server_configured_executable_on_task(tmp_path) -> 
     task = service.repository.load_tasks("run-1")[0]
     assert task.confflow_executable == "/opt/confflow/bin/confflow"
     assert "/opt/confflow/bin/confflow water.xyz" in task.rendered_command
+
+
+def test_identity_probe_and_runner_guard_bind_path_digest_and_stat_snapshot() -> None:
+    path = "/opt/confflow-1.4.5-prod-venv/bin/confflow"
+    python_executable = "/opt/confflow-1.4.5-prod-venv/bin/python"
+    identity = parse_executable_identity_probe(
+        f"{path}\n123|456|7|8\n" + "a" * 64 + "\n",
+        path=path,
+        python_executable=python_executable,
+    )
+
+    probe = build_executable_identity_probe(path, python_executable)
+    guard = "\n".join(build_executable_identity_guard(identity, "water"))
+
+    assert "readlink -f" in probe
+    assert "sha256sum" in probe
+    assert python_executable in probe
+    assert "123|456|7|8" in guard
+    assert "a" * 64 in guard
+    assert "exit 126" in guard
+
+
+@pytest.mark.parametrize("stdout", ["", "/opt/confflow\n1|2|3\n" + "a" * 64, "/opt/confflow\n1|2|3|4\nnot-a-digest\n"])
+def test_identity_probe_rejects_malformed_remote_data(stdout: str) -> None:
+    with pytest.raises(ValueError, match="identity"):
+        parse_executable_identity_probe(
+            stdout,
+            path="/opt/confflow",
+            python_executable="/opt/confflow-python",
+        )

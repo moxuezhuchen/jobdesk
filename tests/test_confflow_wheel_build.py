@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import re
 import subprocess
@@ -9,7 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.core.confflow_contract import MIN_VERSION
+from jobdesk_app.core.confflow_contract import (
+    REFERENCE_BUILD_COMMIT,
+    REFERENCE_VERSION,
+    REFERENCE_WHEEL_FILENAME,
+    REFERENCE_WHEEL_SHA256,
+)
 
 WHEEL_DIR_VAR = "JOBDESK_CONFFLOW_WHEEL_DIR"
 CHECKOUT_DIR_VAR = "JOBDESK_CONFFLOW_CHECKOUT_DIR"
@@ -57,20 +63,20 @@ def test_wheel_build_provenance() -> None:
     checkout_dir = Path(checkout_dir_value)
     assert wheel_dir.is_dir(), f"Wheel directory does not exist: {wheel_dir}"
     assert checkout_dir.is_dir(), f"Checkout directory does not exist: {checkout_dir}"
-    version = MIN_VERSION
-    assert isinstance(version, tuple), "MIN_VERSION must be a version tuple"
-    version_str = ".".join(str(part) for part in version)
-    wheels = list(wheel_dir.glob(f"confflow-{version_str}-py3-none-any.whl"))
+    wheels = list(wheel_dir.glob(REFERENCE_WHEEL_FILENAME))
     assert len(wheels) == 1, f"Expected one ConfFlow wheel, found {wheels}"
 
     expected_commit = subprocess.check_output(
         ["git", "-C", str(checkout_dir), "rev-parse", "HEAD"], text=True
     ).strip()
+    assert expected_commit == REFERENCE_BUILD_COMMIT
+    assert hashlib.sha256(wheels[0].read_bytes()).hexdigest() == REFERENCE_WHEEL_SHA256
+    assert REFERENCE_VERSION in wheels[0].name
     with zipfile.ZipFile(wheels[0]) as archive:
         build_files = [name for name in archive.namelist() if name == "confflow/__build__.py"]
         assert build_files == ["confflow/__build__.py"]
         commit, dirty = _parse_build_provenance(archive.read(build_files[0]).decode())
 
     assert commit is not None and re.fullmatch(r"[0-9a-f]{40}", commit)
-    assert commit == expected_commit
+    assert commit == REFERENCE_BUILD_COMMIT
     assert dirty is False

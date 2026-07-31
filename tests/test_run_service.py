@@ -9,6 +9,12 @@ from unittest.mock import MagicMock
 import pytest
 
 import jobdesk_app.services.run_service as run_service_module
+from jobdesk_app.core.confflow_contract import (
+    REFERENCE_BUILD_COMMIT,
+    REFERENCE_VERSION,
+    REFERENCE_WHEEL_FILENAME,
+    REFERENCE_WHEEL_SHA256,
+)
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.models import FailureRecord
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
@@ -957,29 +963,36 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     capability_json = json.dumps(
         {
             "schema_version": 4,
-            "version": "1.4.3",
+            "version": REFERENCE_VERSION,
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
             "artifacts": {
                 "run_summary": "run_summary.json",
                 "workflow_stats": "workflow_stats.json",
                 "workflow_state": ".workflow_state.json",
+                "output_manifest": "output_manifest.json",
                 "run_report": "{basename}.txt",
                 "min_xyz": "{basename}min.xyz",
             },
             "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
-            "build": {"commit": "abc1234", "dirty": False},
+            "build": {"commit": REFERENCE_BUILD_COMMIT, "dirty": False},
             "producer": {
                 "package": "confflow",
-                "version": "1.4.3",
-                "build": {"commit": "abc1234", "dirty": False},
-                "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"},
+                "version": REFERENCE_VERSION,
+                "build": {"commit": REFERENCE_BUILD_COMMIT, "dirty": False},
+                "wheel": {"filename": REFERENCE_WHEEL_FILENAME, "sha256": REFERENCE_WHEEL_SHA256},
+                "install_provenance": {"status": "verified"},
             },
-            "executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"},
+            "executable": {
+                "path": "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+                "sha256": "a" * 64,
+                "python": "/opt/confflow-1.4.5-prod-venv/bin/python",
+            },
         }
     )
     ssh = MagicMock()
     ssh.run.side_effect = [
         SSHResult("capabilities", 0, capability_json, "", 0.01),
+        SSHResult("identity", 0, "/opt/confflow-1.4.5-prod-venv/bin/confflow\n123|456|7|8\n" + "a" * 64 + "\n", "", 0.01),
         SSHResult("chmod", 0, "", "", 0.01),
         SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
     ]
@@ -1014,8 +1027,8 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
     )
     capability = {
         "schema_version": 4,
-        "version": "1.4.3",
-        "producer": {"package": "confflow", "version": "1.4.3"},
+        "version": REFERENCE_VERSION,
+        "producer": {"package": "confflow", "version": REFERENCE_VERSION},
         "executable": {"path": "/opt/confflow/bin/confflow"},
     }
 
@@ -1023,13 +1036,23 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
         record.run_id,
         capability,
         resolved_executable="/opt/confflow/bin/confflow",
-        resolved_realpath="/opt/confflow/bin/confflow-1.4.3",
+        resolved_realpath="/opt/confflow-1.4.5-prod-venv/bin/confflow",
+        executable_identity={
+            "path": "/opt/confflow/bin/confflow",
+            "realpath": "/opt/confflow-1.4.5-prod-venv/bin/confflow",
+            "sha256": "a" * 64,
+            "size": 123,
+            "mtime_ns": 456000000000,
+            "device": 7,
+            "inode": 8,
+        },
     )
 
-    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow/bin/confflow-1.4.3"
+    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow-1.4.5-prod-venv/bin/confflow"
     manifest = json.loads((record.run_dir / "provenance.json").read_text(encoding="utf-8"))
     assert manifest["content_schema"] == "confflow.provenance.v1"
     assert manifest["capability"] == capability
+    assert manifest["executable_identity"]["sha256"] == "a" * 64
 
 
 def test_submit_exception_recovers_owned_remote_started_operation(tmp_path, runs_dir, monkeypatch):

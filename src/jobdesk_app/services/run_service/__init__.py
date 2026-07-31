@@ -137,6 +137,7 @@ class RunService:
         *,
         resolved_executable: str,
         resolved_realpath: str = "",
+        executable_identity: dict[str, object] | None = None,
     ) -> None:
         """Persist accepted producer identity in SQLite and the run directory."""
         record = self.load_run(run_id)
@@ -151,6 +152,7 @@ class RunService:
             "run_id": run_id,
             "resolved_executable": resolved_executable,
             "resolved_realpath": resolved_realpath,
+            "executable_identity": executable_identity or {},
             "capability": capability,
         }
         atomic_write_text(

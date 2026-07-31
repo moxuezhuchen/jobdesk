@@ -21,12 +21,12 @@ must be a *mirror* of these tuples; never a free-floating literal.
 
 Reference build artefact
 ------------------------
-The ConfFlow v1.4.3 wheel that this revision of JobDesk (commit
-``5167477`` on main) was integrated against has the following SHA-256::
+The ConfFlow v1.4.5 wheel released from the clean tagged producer commit
+has the following SHA-256::
 
-    confflow-1.4.3-py3-none-any.whl
-    sha256: 415875e294a454ffd6d6a12835f087f33c8b5731cec74cb5e36588036ff7671d
-    commit: 7b37c223d2c07a062ab62965911c3cd8d6641591
+    confflow-1.4.5-py3-none-any.whl
+    sha256: 7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188
+    commit: ae27a6486385889735348e96f0cff11a22e1be95
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -47,9 +47,17 @@ __all__ = [
     "WORKFLOW_STATS_FILE",
     "WORKFLOW_STATE_FILE",
     "OUTPUT_MANIFEST_FILE",
+    "RUN_SUMMARY_SCHEMA",
+    "WORKFLOW_STATS_SCHEMA",
+    "WORKFLOW_STATE_SCHEMA",
+    "OUTPUT_MANIFEST_SCHEMA",
     "CAPABILITY_SCHEMA_VERSION",
     "MIN_VERSION",
     "MAX_EXCLUSIVE",
+    "REFERENCE_VERSION",
+    "REFERENCE_BUILD_COMMIT",
+    "REFERENCE_WHEEL_FILENAME",
+    "REFERENCE_WHEEL_SHA256",
     "version_spec",
     "RUN_REPORT_FILE",
     "RUN_MIN_XYZ_TEMPLATE",
@@ -75,7 +83,7 @@ def work_dir_name(stem: str) -> str:
 class ConfFlowArtifactContract:
     """JobDesk's expected shape of the ``artifacts`` block in the v4 payload.
 
-    The five fields must round-trip exactly to the producer-side
+    The six fields must round-trip exactly to the producer-side
     constants in ``confflow.contract``. Comparison is field-by-field
     structural equality, not name-only.
     """
@@ -83,6 +91,7 @@ class ConfFlowArtifactContract:
     run_summary: str
     workflow_stats: str
     workflow_state: str
+    output_manifest: str
     run_report: str | None = None
     min_xyz: str | None = None
 
@@ -99,12 +108,17 @@ WORKFLOW_STATE_FILE: str = ".workflow_state.json"
 OUTPUT_MANIFEST_FILE: str = "output_manifest.json"
 RUN_REPORT_FILE: str = "{basename}.txt"
 RUN_MIN_XYZ_TEMPLATE: str = "{basename}min.xyz"
+RUN_SUMMARY_SCHEMA: str = "confflow.run_summary.v1"
+WORKFLOW_STATS_SCHEMA: str = "confflow.workflow_stats.v1"
+WORKFLOW_STATE_SCHEMA: str = "confflow.workflow_state.v1"
+OUTPUT_MANIFEST_SCHEMA: str = "confflow.output_manifest.v1"
 REQUIRED_COMMANDS: tuple[str, ...] = ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")
 
 EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
     run_summary=RUN_SUMMARY_FILE,
     workflow_stats=WORKFLOW_STATS_FILE,
     workflow_state=WORKFLOW_STATE_FILE,
+    output_manifest=OUTPUT_MANIFEST_FILE,
     run_report=RUN_REPORT_FILE,
     min_xyz=RUN_MIN_XYZ_TEMPLATE,
 )
@@ -113,8 +127,12 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # Structured version source of truth. Any change here must be mirrored
 # into pyproject.toml's confflow pin, CI's checkout ref + wheel glob,
 # docs, and the package's expected reference build.
-MIN_VERSION: tuple[int, int, int] = (1, 4, 3)
+MIN_VERSION: tuple[int, int, int] = (1, 4, 5)
 MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
+REFERENCE_VERSION: str = "1.4.5"
+REFERENCE_BUILD_COMMIT: str = "ae27a6486385889735348e96f0cff11a22e1be95"
+REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.5-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "7f2d0a6fd9d77ce31197bb304460cb3443c1abaa4cb920443d66a2eacaccb188"
 
 
 def _format_version_tuple(version: tuple[int, int, int]) -> str:
@@ -122,7 +140,7 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 
     Trailing ``.0`` segments are stripped *except* the trailing one,
     so ``(2, 0, 0)`` renders as ``2.0`` (PEP 440 normal form) and
-    ``(1, 4, 3)`` renders as ``1.4.3``. We never render a single
+    ``(1, 4, 5)`` renders as ``1.4.5``. We never render a single
     major-only version because it would collapse e.g. ``(1, 4, 0)``
     into ``1`` which PEP 440 parses as ``1.0.0`` and round-trips
     silently.
@@ -136,6 +154,6 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 def version_spec() -> str:
     """Return the human-readable PEP 440 spec derived from MIN/MAX.
 
-    Example: ``version_spec() == ">=1.4.3,<2.0"``.
+    Example: ``version_spec() == ">=1.4.5,<2.0"``.
     """
     return f">={_format_version_tuple(MIN_VERSION)},<{_format_version_tuple(MAX_EXCLUSIVE)}"

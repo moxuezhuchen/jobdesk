@@ -52,8 +52,8 @@ def test_load_summary_result_accepts_versioned_artifact_wrapper(tmp_path):
     path.write_text(
         json.dumps(
             {
-                "content_schema": "run_summary.v1",
-                "producer": {"version": "1.4.3"},
+                "content_schema": "confflow.run_summary.v1",
+                "producer": {"version": "1.4.5"},
                 "payload": {
                     "initial_conformers": 4,
                     "final_conformers": 2,
@@ -106,7 +106,7 @@ def test_load_summary_result_preserves_multi_terminal_outputs(tmp_path):
 
 def test_load_summary_result_rejects_unknown_versioned_schema(tmp_path):
     path = tmp_path / "run_summary.json"
-    path.write_text(json.dumps({"content_schema": "run_summary.v2", "payload": {}}), encoding="utf-8")
+    path.write_text(json.dumps({"content_schema": "confflow.run_summary.v2", "payload": {}}), encoding="utf-8")
 
     assert load_summary_result(path).state is ParseState.MALFORMED
 
@@ -156,7 +156,7 @@ def test_load_step_progress_accepts_versioned_artifact_wrapper(tmp_path):
     path.write_text(
         json.dumps(
             {
-                "content_schema": "workflow_stats.v1",
+                "content_schema": "confflow.workflow_stats.v1",
                 "payload": {"steps": [{"name": "opt", "status": "completed"}]},
             }
         ),
