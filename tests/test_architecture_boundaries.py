@@ -7,6 +7,8 @@ import configparser
 import re
 from pathlib import Path
 
+import pytest
+
 from jobdesk_app.services.run_repository import SCHEMA_VERSION
 
 _SRC_ROOT = Path(__file__).parents[1] / "src" / "jobdesk_app"
@@ -106,6 +108,22 @@ def test_new_architecture_modules_require_typed_definitions() -> None:
         "jobdesk_app.services.run_monitor",
         "jobdesk_app.gui.run_monitor_qt",
     } <= strict_modules
+
+
+def test_confflow_application_facade_does_not_import_gui_or_remote_implementations() -> None:
+    """The new facade may coordinate services but must not own transport or GUI code."""
+    path = _SRC_ROOT / "application" / "confflow_client.py"
+    imports = [imported for _path, imported in _imports_under("application") if _path == path]
+
+    forbidden = ("jobdesk_app.gui", "PySide6", "jobdesk_app.remote")
+    assert not [imported for imported in imports if imported.startswith(forbidden)]
+
+
+@pytest.mark.xfail(strict=True, reason="Phase B moves the existing GUI capability probe behind ConfFlowClient")
+def test_phase_b_wiring_debt_gui_still_has_direct_remote_import() -> None:
+    """Debt record only: this xfail is not a Phase A acceptance condition."""
+    imports = _imports_under("gui")
+    assert not [imported for _path, imported in imports if imported.startswith("jobdesk_app.remote")]
 
 
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
