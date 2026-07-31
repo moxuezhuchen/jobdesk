@@ -54,10 +54,19 @@ class SSHConfFlowClient:
         return handle
 
     def submit(self, request: SubmitRequest) -> SSHRemoteRunHandle:
-        outcome = self._coordinator.submit(request.run_id, resource_overrides=request.resource_overrides)
+        handle, outcome = self.submit_with_outcome(request)
         if outcome.errors:
             raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.attach(request.run_id)
+        if handle is None:
+            raise ConfFlowClientError("submit returned no handle")
+        return handle
+
+    def submit_with_outcome(self, request: SubmitRequest) -> tuple[SSHRemoteRunHandle | None, Any]:
+        """Preserve legacy GUI outcome details while submitting exactly once."""
+        outcome = self._coordinator.submit(request.run_id, resource_overrides=request.resource_overrides)
+        if outcome.errors:
+            return None, outcome
+        return self.attach(request.run_id), outcome
 
     def refresh_outcome(self, handle: SSHRemoteRunHandle, patterns: list[str], *, download: bool):
         """Compatibility bridge retaining the existing GUI outcome shape."""

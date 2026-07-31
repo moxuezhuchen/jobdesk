@@ -6,7 +6,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
-from ..application.confflow_client import ConfFlowClientError
+from ..application.confflow_client import ConfFlowClientError, SubmitRequest
 from ..config.servers import load_servers
 from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
@@ -358,12 +358,9 @@ class MainWindow(QMainWindow):
             except ConfFlowClientError as exc:
                 batch.errors.append(str(exc))
                 return batch
-            outcomes = []
-            for spec in batch.specs:
-                if submit:
-                    outcomes.append(coordinator.create_and_submit(spec, local_dir=str(workspace)))
-                else:
-                    outcomes.append(coordinator.create_run(spec, local_dir=str(workspace)))
+            outcomes = _create_and_maybe_submit_specs(
+                coordinator, SSHConfFlowClient(coordinator, payload.server_id), batch.specs, workspace, submit=submit
+            )
             # Bundle into a single RunOperationOutcome-shaped payload.
             from ..services.run_coordinator import RunOperationOutcome
 
@@ -562,6 +559,7 @@ def _upload_prepared_batch(batch, payload, service, client) -> None:
     ]
     if workflow_specs:
         client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
+
     for local_path, remote_target in zip(
         batch.local_paths,
         batch.upload_targets,
@@ -575,6 +573,19 @@ def _upload_prepared_batch(batch, payload, service, client) -> None:
             raise RuntimeError("Prepared workflow batch has no remote YAML target")
         records = service.upload_path(batch.yaml_local_path, yaml_target)
         _raise(records, yaml_target)
+
+
+def _create_and_maybe_submit_specs(coordinator, client, specs, workspace: Path, *, submit: bool):
+    """Create durable records locally, then submit each successful record once via the client."""
+    outcomes = []
+    for spec in specs:
+        created = coordinator.create_run(spec, local_dir=str(workspace))
+        outcomes.append(created)
+        if not submit or created.errors or not created.records:
+            continue
+        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
+        outcomes.append(submitted)
+    return outcomes
 
 
 def _raise(records, target):

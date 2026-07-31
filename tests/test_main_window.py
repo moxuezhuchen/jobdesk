@@ -14,7 +14,7 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from jobdesk_app.gui.main_window import MainWindow  # noqa: E402
+from jobdesk_app.gui.main_window import MainWindow, _create_and_maybe_submit_specs  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -364,3 +364,54 @@ def test_runs_page_language_refresh_remains_explicit(qapp, monkeypatch):
                 pass
             window.close()
             window.deleteLater()
+
+
+def test_create_then_client_submit_keeps_one_remote_submit_and_preserves_outcomes(tmp_path):
+    record = type("Record", (), {"run_id": "run-1"})()
+    created = type("Outcome", (), {"records": [record], "errors": []})()
+    submitted = type("Outcome", (), {"records": [], "errors": [], "submit_results": ["result"]})()
+
+    class Coordinator:
+        def __init__(self):
+            self.created = 0
+
+        def create_run(self, spec, *, local_dir):
+            del spec, local_dir
+            self.created += 1
+            return created
+
+    class Client:
+        def __init__(self):
+            self.requests = []
+
+        def submit_with_outcome(self, request):
+            self.requests.append(request)
+            return object(), submitted
+
+    coordinator = Coordinator()
+    client = Client()
+    outcomes = _create_and_maybe_submit_specs(coordinator, client, [object()], tmp_path, submit=True)
+
+    assert coordinator.created == 1
+    assert [request.run_id for request in client.requests] == ["run-1"]
+    assert outcomes == [created, submitted]
+
+
+def test_create_failure_or_submit_false_never_calls_client_submit(tmp_path):
+    failed = type("Outcome", (), {"records": [], "errors": ["cannot create"]})()
+    created = type("Outcome", (), {"records": [type("Record", (), {"run_id": "run-1"})()], "errors": []})()
+
+    class Coordinator:
+        def __init__(self, outcome):
+            self.outcome = outcome
+
+        def create_run(self, spec, *, local_dir):
+            del spec, local_dir
+            return self.outcome
+
+    class Client:
+        def submit_with_outcome(self, request):
+            raise AssertionError(f"unexpected submit for {request.run_id}")
+
+    assert _create_and_maybe_submit_specs(Coordinator(failed), Client(), [object()], tmp_path, submit=True) == [failed]
+    assert _create_and_maybe_submit_specs(Coordinator(created), Client(), [object()], tmp_path, submit=False) == [created]

@@ -140,7 +140,8 @@ def test_legacy_client_delegates_submit_and_download_to_coordinator(tmp_path) ->
 
         def submit(self, run_id: str, *, resource_overrides: dict[str, object] | None):
             self.submissions.append((run_id, resource_overrides))
-            return type("Outcome", (), {"errors": []})()
+            result = type("Submit", (), {"warnings": ["resource advisory"]})()
+            return type("Outcome", (), {"errors": [], "submit_results": [result]})()
 
         def download(self, run_id: str, patterns: list[str]):
             self.downloads.append((run_id, patterns))
@@ -154,14 +155,35 @@ def test_legacy_client_delegates_submit_and_download_to_coordinator(tmp_path) ->
             return type("Outcome", (), {"errors": []})()
 
     coordinator = Coordinator()
-    handle = LegacyConfFlowClient(coordinator, "server").submit(SubmitRequest("run-1", {"cores": 2}))
+    client = LegacyConfFlowClient(coordinator, "server")
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1", {"cores": 2}))
 
     assert coordinator.submissions == [("run-1", {"cores": 2})]
+    assert handle is not None
+    assert outcome.submit_results[0].warnings == ["resource advisory"]
     assert LegacyConfFlowClient(coordinator, "server").probe(require_dag=True) == ("server", True)
     assert handle.cancel().run_id == "run-1"
     assert coordinator.cancellations == ["run-1"]
     handle.download(["*.json"])
     assert coordinator.downloads == [("run-1", ["*.json"])]
+
+
+def test_submit_with_outcome_preserves_errors_without_attaching(tmp_path) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_spec(), run_id="run-1")
+
+    class Coordinator:
+        def __init__(self) -> None:
+            self.service = service
+
+        def submit(self, run_id: str, *, resource_overrides: dict[str, object] | None):
+            del run_id, resource_overrides
+            return type("Outcome", (), {"errors": ["remote rejected"]})()
+
+    handle, outcome = LegacyConfFlowClient(Coordinator(), "server").submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    assert outcome.errors == ["remote rejected"]
 
 
 def test_legacy_client_restores_only_matching_serialized_identity(tmp_path) -> None:
