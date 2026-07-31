@@ -470,7 +470,7 @@ PY
 __IDENTITY_PROBE__
 PY
 
-echo "[smoke] starting ConfFlow ($__LABEL__)"
+printf '[smoke] starting ConfFlow (%s)\n' __LABEL_SHELL__
 set +e
 PYTHONPATH='' "$CONFFLOW_EXE" methane.xyz -c confflow.yaml -w methane_confflow_work --resume --verbose 2>&1 | tee confflow.log
 CONFFLOW_RC=${PIPESTATUS[0]}
@@ -488,7 +488,7 @@ exit "$CONFFLOW_RC"
 '''
     return (
         template.replace("__WORKFLOW_YAML__", workflow_yaml.rstrip())
-        .replace("__LABEL__", label)
+        .replace("__LABEL_SHELL__", shlex.quote(label))
         .replace("__CAPABILITY_VALIDATOR__", capability_probe_script().rstrip())
         .replace("__IDENTITY_PROBE__", identity_probe_script().rstrip())
     )

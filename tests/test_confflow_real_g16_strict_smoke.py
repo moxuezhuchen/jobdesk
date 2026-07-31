@@ -242,6 +242,35 @@ def test_capability_probe_rejects_wrong_optional_realpath(tmp_path: Path) -> Non
     assert result.returncode != 0
 
 
+def test_harness_label_with_spaces_is_shell_literal_under_nounset() -> None:
+    """A human label must not become a shell variable during template expansion."""
+
+    harness = smoke.build_inner_harness(workflow_yaml="steps: []", label="methane opt")
+    label_line = next(line for line in harness.splitlines() if "starting ConfFlow" in line)
+    assert "$methane" not in label_line
+    assert label_line == "printf '[smoke] starting ConfFlow (%s)\\n' 'methane opt'"
+
+    syntax = subprocess.run(
+        [smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash", "-n"],
+        input=harness.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    wsl_output = (syntax.stdout + syntax.stderr).decode("utf-8", errors="replace").replace("\x00", "")
+    if "E_ACCESSDENIED" in wsl_output:
+        pytest.skip("WSL Bash is unavailable in this test environment")
+    assert syntax.returncode == 0, wsl_output
+
+    result = subprocess.run(
+        [smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash", "-u", "-s"],
+        input=label_line.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert result.stdout.decode("utf-8", errors="replace") == "[smoke] starting ConfFlow (methane opt)\n"
+
+
 def test_nonzero_rc_two_is_always_rejected() -> None:
     with pytest.raises(smoke.SmokeValidationError, match="2"):
         smoke.validate_process_returncode(2, stage="ConfFlow")
