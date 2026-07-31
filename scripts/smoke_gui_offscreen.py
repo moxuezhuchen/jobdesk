@@ -43,8 +43,9 @@ another):
     7.  print a clear pass/fail summary and exit non-zero if any step
         failed.
 
-The script is read-only against the source tree, does not commit, and
-does not call into WSL.
+The script is read-only against the source tree when
+``JOBDESK_SMOKE_OUTPUT_DIR`` is set, does not commit, and does not call
+into WSL.
 """
 from __future__ import annotations
 
@@ -464,7 +465,10 @@ def step_dialog_graph_summary(dialog) -> dict:
 
 def step_dialog_snapshot(dialog) -> str:
     """Grab the dialog editor into a PNG."""
-    out_path = os.path.join(_REPO_ROOT, "tmp60f7j8ix", "smoke_gui_offscreen_builder_dialog.png")
+    output_dir = os.environ.get("JOBDESK_SMOKE_OUTPUT_DIR")
+    if not output_dir:
+        output_dir = os.path.join(_REPO_ROOT, "tmp60f7j8ix")
+    out_path = os.path.join(output_dir, "smoke_gui_offscreen_builder_dialog.png")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     editor_pixmap = dialog.editor.grab()

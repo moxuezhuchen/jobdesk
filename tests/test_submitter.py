@@ -106,10 +106,26 @@ def _make_workflow_task(*, dag: bool = False, resume: bool = False) -> TaskRecor
     return task
 
 
-def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHResult:
+def _capability_result(
+    *,
+    dag: bool = True,
+    build: dict | None = None,
+    install_status: str = "verified",
+    wheel_filename: str | None = None,
+    wheel_sha256: str | None = None,
+    executable_path: str = "/opt/confflow-1.4.6-prod-venv/bin/confflow",
+    executable_sha256: str = "a" * 64,
+    executable_python: str = "/opt/confflow-1.4.6-prod-venv/bin/python3.12",
+) -> SSHResult:
     from jobdesk_app.core.confflow_contract import (
         EXPECTED_ARTIFACTS,
+        REFERENCE_BUILD_COMMIT,
+        REFERENCE_VERSION,
+        REFERENCE_WHEEL_FILENAME,
+        REFERENCE_WHEEL_SHA256,
     )
+
+    build = build if build is not None else {"commit": REFERENCE_BUILD_COMMIT, "dirty": False}
 
     return SSHResult(
         command="confflow --capabilities --json",
@@ -117,7 +133,7 @@ def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHRes
         stdout=json.dumps(
             {
                 "schema_version": 4,
-                "version": "1.4.3",
+                "version": REFERENCE_VERSION,
                 "capabilities": {
                     "workflow_state": True,
                     "resume": True,
@@ -127,18 +143,23 @@ def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHRes
                     "run_summary": EXPECTED_ARTIFACTS.run_summary,
                     "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
                     "workflow_state": EXPECTED_ARTIFACTS.workflow_state,
+                    "output_manifest": EXPECTED_ARTIFACTS.output_manifest,
                     "run_report": EXPECTED_ARTIFACTS.run_report,
                     "min_xyz": EXPECTED_ARTIFACTS.min_xyz,
                 },
                 "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
-                "build": build if build is not None else {"commit": "abc1234", "dirty": False},
+                "build": build,
                 "producer": {
                     "package": "confflow",
-                    "version": "1.4.3",
-                    "build": build if build is not None else {"commit": "abc1234", "dirty": False},
-                    "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"},
+                    "version": REFERENCE_VERSION,
+                    "build": build,
+                    "wheel": {
+                        "filename": wheel_filename or REFERENCE_WHEEL_FILENAME,
+                        "sha256": wheel_sha256 or REFERENCE_WHEEL_SHA256,
+                    },
+                    "install_provenance": {"status": install_status},
                 },
-                "executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"},
+                "executable": {"path": executable_path, "sha256": executable_sha256, "python": executable_python},
             }
         ),
         stderr="",
@@ -146,25 +167,78 @@ def _capability_result(*, dag: bool = True, build: dict | None = None) -> SSHRes
     )
 
 
+def _identity_result(
+    *,
+    path: str = "/opt/confflow-1.4.6-prod-venv/bin/confflow",
+    sha256: str = "a" * 64,
+    size: int = 123,
+    mtime_seconds: int = 456,
+    device: int = 7,
+    inode: int = 8,
+) -> SSHResult:
+    return SSHResult(
+        command="identity",
+        exit_code=0,
+        stdout=f"{path}\n{size}|{mtime_seconds}|{device}|{inode}\n{sha256}\n",
+        stderr="",
+        duration_seconds=0.01,
+    )
 
-def test_preflight_warns_for_dirty_or_unknown_producer_build():
+
+
+def test_preflight_rejects_dirty_or_unknown_producer_build():
     task = _make_workflow_task()
     ssh = MagicMock()
     ssh.run.return_value = _capability_result(build={"commit": None, "dirty": True})
     submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
     result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
-    assert submitter._preflight_capabilities([task], result) is True
-    assert result.warnings == ["producer build is dirty or provenance unknown"]
+    assert submitter._preflight_capabilities([task], result) is False
+    assert result.errors == ["ConfFlow production build commit does not match the approved release"]
 
 
-def test_preflight_accepts_clean_producer_build_without_warning():
+def test_preflight_accepts_clean_verified_producer_without_warning():
     task = _make_workflow_task()
     ssh = MagicMock()
-    ssh.run.return_value = _capability_result(build={"commit": "abc1234", "dirty": False})
+    ssh.run.side_effect = [_capability_result(), _identity_result()]
     submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
     result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
     assert submitter._preflight_capabilities([task], result) is True
     assert result.warnings == []
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"build": {"commit": None, "dirty": None}}, "build commit"),
+        ({"build": {"commit": "wrong", "dirty": False}}, "build commit"),
+        ({"install_status": "invalid"}, "install provenance is not verified"),
+        ({"wheel_sha256": "b" * 64}, "wheel digest"),
+        ({"executable_sha256": "bad"}, "executable digest"),
+        ({"executable_python": "/usr/bin/python3"}, "controlled Python 3.12"),
+        ({"executable_python": "/opt/confflow-1.4.6-prod-venv/bin/python"}, "controlled Python 3.12"),
+    ],
+)
+def test_preflight_rejects_unapproved_production_producer(kwargs, message):
+    task = _make_workflow_task()
+    ssh = MagicMock()
+    ssh.run.return_value = _capability_result(**kwargs)
+    submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
+    result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
+
+    assert submitter._preflight_capabilities([task], result) is False
+    assert message in result.errors[0]
+
+
+def test_preflight_rejects_capability_from_another_configured_executable():
+    task = _make_workflow_task()
+    task.confflow_executable = "/opt/approved/confflow"
+    ssh = MagicMock()
+    ssh.run.return_value = _capability_result()
+    submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
+    result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
+
+    assert submitter._preflight_capabilities([task], result) is False
+    assert "does not match the configured production path" in result.errors[0]
 # ---- task selection ----------------------------------------------------
 
 
@@ -403,6 +477,9 @@ class TestSubmit:
             if "--capabilities --json" in command:
                 events.append("capabilities")
                 return _capability_result()
+            if "readlink -f" in command:
+                events.append("identity")
+                return _identity_result()
             if command.startswith("chmod +x"):
                 events.append("chmod")
                 return SSHResult(command, 0, "", "", 0.01)
@@ -432,9 +509,10 @@ class TestSubmit:
         assert result.errors == []
         assert events[0] == "capabilities"
         assert max(i for i, event in enumerate(events) if event.startswith("upload:")) < events.index("dry-run")
-        assert events.index("dry-run") < events.index("remote-started") < events.index("nohup")
+        assert events.index("dry-run") < max(i for i, event in enumerate(events) if event == "identity") < events.index("remote-started") < events.index("nohup")
         assert len(runner_text) == 1
         assert "--resume" not in runner_text[0]
+        assert "immutable ConfFlow executable identity guard" in runner_text[0]
 
     def test_capability_failure_cannot_upload_or_notify_remote_started(self):
         task = _make_workflow_task()
@@ -465,6 +543,7 @@ class TestSubmit:
         ssh = MagicMock()
         ssh.run.side_effect = [
             _capability_result(),
+            _identity_result(),
             SSHResult("chmod", 0, "", "", 0.01),
             SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
         ]
@@ -515,6 +594,8 @@ class TestSubmit:
             commands.append(command)
             if "--capabilities --json" in command:
                 return _capability_result()
+            if "readlink -f" in command:
+                return _identity_result()
             if command.startswith("chmod +x"):
                 return SSHResult(command, 0, "", "", 0.01)
             if "--dry-run" in command:
@@ -553,6 +634,97 @@ class TestSubmit:
         assert "/remote/submission" in dry_run
         assert runner_text[0].count("--resume") == 1
         assert "/remote/submission" in runner_text[0]
+
+    @pytest.mark.parametrize(("resume", "use_scheduler"), [(False, False), (True, False), (False, True), (True, True)])
+    def test_executable_identity_guard_covers_normal_resume_nohup_and_scheduler(self, resume, use_scheduler):
+        task = _make_workflow_task(resume=resume)
+        runner_text: list[str] = []
+        scheduler = SlurmAdapter() if use_scheduler else None
+        if scheduler is not None:
+            scheduler.submit = MagicMock(return_value="123")
+
+        def run(command, **_kwargs):
+            if "--capabilities --json" in command:
+                return _capability_result()
+            if "readlink -f" in command:
+                return _identity_result()
+            if command.startswith("chmod +x") or "--dry-run" in command:
+                return SSHResult(command, 0, "", "", 0.01)
+            if "nohup setsid" in command:
+                return SSHResult(command, 0, "4321", "", 0.01)
+            raise AssertionError(f"unexpected SSH command: {command}")
+
+        sftp = FakeSFTPWrapper()
+
+        def upload(local_path, remote_path, **_kwargs):
+            if str(remote_path).endswith("/.jobdesk_run.sh"):
+                runner_text.append(Path(local_path).read_text(encoding="utf-8"))
+            return TransferRecord(
+                direction=TransferDirection.upload,
+                local_path=str(local_path),
+                remote_path=str(remote_path),
+                status=TransferStatusEnum.transferred,
+            )
+
+        sftp.upload_file.side_effect = upload
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=SimpleNamespace(run=run),
+            sftp=sftp,
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+            scheduler=scheduler,
+        )
+
+        result = submitter.submit_batch()
+
+        assert result.errors == []
+        assert len(runner_text) == 1
+        assert "immutable ConfFlow executable identity guard" in runner_text[0]
+        assert "readlink -f" in runner_text[0]
+        assert "sha256sum" in runner_text[0]
+        assert runner_text[0].count("--resume") == (1 if resume else 0)
+        if scheduler is None:
+            assert result.updated_tasks[0].scheduler_type == "nohup"
+        else:
+            scheduler.submit.assert_called_once()
+            assert result.updated_tasks[0].scheduler_type == "slurm"
+
+    def test_identity_mutation_after_dry_run_prevents_remote_start(self):
+        task = _make_workflow_task()
+        remote_started = MagicMock()
+        scheduler = SlurmAdapter()
+        scheduler.submit = MagicMock(return_value="123")
+        identity_calls = 0
+
+        def run(command, **_kwargs):
+            nonlocal identity_calls
+            if "--capabilities --json" in command:
+                return _capability_result()
+            if "readlink -f" in command:
+                identity_calls += 1
+                return _identity_result(inode=8 if identity_calls == 1 else 9)
+            if command.startswith("chmod +x") or "--dry-run" in command:
+                return SSHResult(command, 0, "", "", 0.01)
+            raise AssertionError(f"unexpected SSH command: {command}")
+
+        submitter = JobSubmitter(
+            tasks=[task],
+            ssh=SimpleNamespace(run=run),
+            sftp=FakeSFTPWrapper(),
+            max_parallel=1,
+            remote_batch_dir="/remote/run",
+            batch_id="run",
+            scheduler=scheduler,
+            remote_started_callback=remote_started,
+        )
+
+        result = submitter.submit_batch()
+
+        assert result.errors == ["ConfFlow executable identity preflight failed: remote executable changed after capability acceptance"]
+        remote_started.assert_not_called()
+        scheduler.submit.assert_not_called()
 
     def test_submit_updates_manifest_to_submitted(self):
         tasks = [_make_task("t1", TaskStatus.uploaded, "/remote/b1/t1")]

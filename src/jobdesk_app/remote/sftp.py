@@ -94,6 +94,18 @@ class SFTPClientWrapper:
                 return None
             raise
 
+    def lstat(self, remote_path: str) -> Any | None:
+        """Return remote link metadata without following a symlink target."""
+        _validate_remote_path(remote_path)
+        try:
+            return self._sftp.lstat(remote_path)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if _is_missing_remote_path_error(exc):
+                return None
+            raise
+
     def mkdir_p(self, remote_dir: str) -> None:
         """递归创建远程目录。"""
         _validate_remote_path(remote_dir)

@@ -6,7 +6,7 @@ The single source of truth for the ConfFlow version window that JobDesk
 accepts is the structured tuple in
 :mod:`jobdesk_app.core.confflow_contract`:
 
-* ``MIN_VERSION = (1, 4, 3)``
+* ``MIN_VERSION = (1, 4, 6)``
 * ``MAX_EXCLUSIVE = (2, 0, 0)``
 
 Every other surface — ``pyproject.toml``, the GitHub Actions workflow
@@ -41,43 +41,55 @@ def _read(path: str) -> str:
 
 def test_structured_source_of_truth():
     """Lock the structured tuple so the rest of the suite mirrors it."""
-    assert MIN_VERSION == (1, 4, 3)
+    assert MIN_VERSION == (1, 4, 6)
     assert MAX_EXCLUSIVE == (2, 0, 0)
-    assert version_spec() == ">=1.4.3,<2.0"
+    assert version_spec() == ">=1.4.6,<2.0"
 
 
 def test_pyproject_pin_matches_spec():
     """``pyproject.toml`` ``confflow`` pin must be the version spec."""
     content = _read("pyproject.toml")
-    expected = "confflow>=1.4.3,<2.0"
+    expected = "confflow>=1.4.6,<2.0"
     assert expected in content, f"pyproject.toml must contain {expected!r}"
 
 
 def test_ci_yaml_uses_version_in_all_four_slots():
-    """CI must reference ``1.4.3`` in all four slots (ref × 2, glob × 2)."""
+    """CI must reference the v1.4.6 tag and released wheel in all four slots."""
     content = _read(".github/workflows/ci.yml")
     assert "1.4.1" not in content, "ci.yml must not contain any 1.4.1 reference"
-    assert content.count("ref: v1.4.3") == 2
-    assert content.count("confflow-1.4.3-*.whl") == 2
-    assert content.count("confflow.__version__ == '1.4.3'") == 2
+    assert content.count("ref: v1.4.6") == 2
+    assert content.count("confflow-1.4.6-*.whl") == 2
+    assert content.count("confflow.__version__ == '1.4.6'") == 2
+    assert content.count("7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5") == 2
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
     """PowerShell wheel glob must match the version literal in the assert."""
     content = _read(".github/workflows/ci.yml")
-    assert content.count("confflow-1.4.3-*.whl") == 2
-    assert content.count("confflow.__version__ == '1.4.3'") == 2
+    assert content.count("confflow-1.4.6-*.whl") == 2
+    assert content.count("confflow.__version__ == '1.4.6'") == 2
+
+
+def test_optional_coverage_uses_the_same_released_wheel():
+    """The optional Linux job must not silently exercise an older producer."""
+    content = _read(".github/workflows/optional-coverage.yml")
+    assert content.count("ref: v1.4.6") == 1
+    assert content.count("gh release download v1.4.6") == 1
+    assert content.count("confflow-1.4.6-*.whl") == 1
+    assert "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5" in content
+    assert "confflow.__version__ == '1.4.6'" in content
 
 
 def test_readme_states_version_spec():
     """README must state the version spec and the v4 schema."""
     content = _read("README.md")
-    assert "confflow>=1.4.3,<2.0" in content
+    assert "confflow>=1.4.6,<2.0" in content
     assert "1.4.1" not in content
     assert "schema_version=4" in content
     assert "run_summary.json" in content
     assert "workflow_stats.json" in content
     assert ".workflow_state.json" in content
+    assert "output_manifest.json" in content
     assert "{basename}.txt" in content
     assert "{basename}min.xyz" in content
     assert "CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md" in content
@@ -86,12 +98,11 @@ def test_readme_states_version_spec():
 def test_deployment_doc_mirrors_version_and_capability_contract():
     """The deployment guide must mirror the structured version contract."""
     content = _read("docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md")
-    assert "confflow>=1.4.3,<2.0" in content
-    assert content.count("confflow-1.4.3-py3-none-any.whl") == 3
+    assert "confflow-1.4.6-py3-none-any.whl" in content
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content
-    for filename in ("run_summary.json", "workflow_stats.json", ".workflow_state.json", "{basename}.txt", "{basename}min.xyz"):
+    for filename in ("run_summary.json", "workflow_stats.json", ".workflow_state.json", "output_manifest.json", "{basename}.txt", "{basename}min.xyz"):
         assert filename in content
 
 
@@ -100,8 +111,8 @@ def test_preflight_module_has_no_bare_version_literal():
     structured tuple, not from a string literal.
     """
     content = _read("src/jobdesk_app/core/confflow_preflight.py")
-    assert "1.4.3" not in content, (
-        "confflow_preflight.py must not contain the bare literal '1.4.3'; "
+    assert "1.4.6" not in content, (
+        "confflow_preflight.py must not contain the bare literal '1.4.6'; "
         "it must source the spec from MIN_VERSION/MAX_EXCLUSIVE."
     )
     assert "2.0.0" not in content, (
@@ -127,7 +138,7 @@ def test_validator_error_message_uses_version_spec():
         '"capabilities": {"workflow_state": true, "resume": true, "dag": true}, '
         '"artifacts": {"run_summary": "run_summary.json", '
         '"workflow_stats": "workflow_stats.json", '
-        '"workflow_state": ".workflow_state.json", "run_report": "{basename}.txt", "min_xyz": "{basename}min.xyz"}, ' +
+        '"workflow_state": ".workflow_state.json", "output_manifest": "output_manifest.json", "run_report": "{basename}.txt", "min_xyz": "{basename}min.xyz"}, ' +
         '"commands": {"bash": true, "nohup": true, "setsid": true, "xargs": true, "sha256sum": true, "mktemp": true, "base64": true}, "build": {"commit": "abc1234", "dirty": false}, '
         '"producer": {"package": "confflow", "version": "1.4.1", "build": {"commit": "abc1234", "dirty": false}, "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"}}, '
         '"executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"}}'
@@ -147,6 +158,7 @@ def test_artifact_contract_value_is_pinned():
         run_summary="run_summary.json",
         workflow_stats="workflow_stats.json",
         workflow_state=".workflow_state.json",
+        output_manifest="output_manifest.json",
         run_report="{basename}.txt",
         min_xyz="{basename}min.xyz",
     )

@@ -89,6 +89,9 @@ class FakeSFTPClient:
             return self._attrs[remote_path]
         raise FileNotFoundError(remote_path)
 
+    def lstat(self, remote_path: str):
+        return self.stat(remote_path)
+
     def mkdir(self, remote_path: str):
         self._attrs[remote_path] = FakeStat(is_dir=True)
 
@@ -200,6 +203,11 @@ class TestSFTPPathErrorClassification:
         sftp = SFTPClientWrapper(StatErrorClient(FileNotFoundError("missing")))
 
         assert sftp.stat("/missing") is None
+
+    def test_lstat_missing_path_returns_none(self):
+        sftp = SFTPClientWrapper(FakeSFTPClient())
+
+        assert sftp.lstat("/missing") is None
 
     def test_stat_connection_oserror_propagates(self):
         sftp = SFTPClientWrapper(StatErrorClient(OSError("Socket is closed")))

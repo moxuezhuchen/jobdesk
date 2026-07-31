@@ -116,16 +116,19 @@ def submit_run(
             raw_capability = getattr(accepted, "raw_payload", None)
             if accepted is not None and isinstance(raw_capability, dict):
                 executable_data = accepted.executable if isinstance(accepted.executable, dict) else {}
+                accepted_identity = getattr(submitter, "accepted_executable_identity", None)
+                identity_data = accepted_identity.as_dict() if accepted_identity is not None else {}
                 resolved = executable_data.get("path") or next(
                     (task.confflow_executable for task in tasks if task.confflow_executable),
                     "confflow",
                 )
-                realpath = executable_data.get("realpath") or resolved
+                realpath = identity_data.get("realpath") or executable_data.get("realpath") or resolved
                 service.persist_confflow_provenance(
                     run_id,
                     raw_capability,
                     resolved_executable=str(resolved),
                     resolved_realpath=str(realpath),
+                    executable_identity=identity_data,
                 )
     except Exception as exc:
         primary_error = exc

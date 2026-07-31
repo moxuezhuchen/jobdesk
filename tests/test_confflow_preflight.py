@@ -30,6 +30,7 @@ def _payload(**overrides) -> str:
             "run_summary": EXPECTED_ARTIFACTS.run_summary,
             "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
             "workflow_state": EXPECTED_ARTIFACTS.workflow_state,
+            "output_manifest": EXPECTED_ARTIFACTS.output_manifest,
             "run_report": EXPECTED_ARTIFACTS.run_report,
             "min_xyz": EXPECTED_ARTIFACTS.min_xyz,
         },
@@ -120,7 +121,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(4, "1.4.3", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "requires an artifacts block",
         ),
@@ -128,7 +129,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         (
             ConfFlowCapabilities(
                 4,
-                "1.4.3",
+                "1.4.6",
                 True,
                 True,
                 True,
@@ -136,6 +137,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
                     run_summary="WRONG",  # type: ignore[arg-type]
                     workflow_stats=EXPECTED_ARTIFACTS.workflow_stats,
                     workflow_state=EXPECTED_ARTIFACTS.workflow_state,
+                    output_manifest=EXPECTED_ARTIFACTS.output_manifest,
                 ),
             ),
             False,
@@ -143,21 +145,21 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but version is older than MIN_VERSION.
         (
-            ConfFlowCapabilities(4, "1.4.2", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.4", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.3",
+            "1.4.6",
         ),
         # Schema==2 but version is 1.4.2 prerelease → rejected.
         (
-            ConfFlowCapabilities(4, "1.4.3-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.3",
+            "1.4.6",
         ),
         # Schema==2 but version is >= MAX_EXCLUSIVE.
         (
             ConfFlowCapabilities(4, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.3",
+            "1.4.6",
         ),
         # Schema==2 but version is malformed.
         (
@@ -167,17 +169,17 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(4, "1.4.3", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.3", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.3", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "1.4.6", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             True,
             "dag",
         ),
@@ -220,9 +222,9 @@ def test_validator_accepts_prerelease_above_minimum(version):
     )
 
 
-@pytest.mark.parametrize("version", ("1.4.3rc1", "1.4.3-rc.1"))
+@pytest.mark.parametrize("version", ("1.4.6rc1", "1.4.6-rc.1"))
 def test_validator_rejects_prerelease_at_minimum(version):
-    with pytest.raises(ValueError, match="1.4.3"):
+    with pytest.raises(ValueError, match="1.4.6"):
         validate_confflow_capabilities(
             ConfFlowCapabilities(
                 CAPABILITY_SCHEMA_VERSION,
@@ -238,8 +240,8 @@ def test_validator_rejects_prerelease_at_minimum(version):
 
 
 
-@pytest.mark.parametrize("missing_name", ("run_summary", "workflow_stats", "workflow_state", "run_report", "min_xyz"))
-def test_validator_rejects_missing_v3_artifacts(missing_name):
+@pytest.mark.parametrize("missing_name", ("run_summary", "workflow_stats", "workflow_state", "output_manifest", "run_report", "min_xyz"))
+def test_validator_rejects_missing_v4_artifacts(missing_name):
     payload = json.loads(_payload())
     del payload["artifacts"][missing_name]
     capabilities = parse_confflow_capabilities(json.dumps(payload))

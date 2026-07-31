@@ -182,3 +182,4 @@ def test_confflow_download_patterns_include_workflow_state_json():
 
     assert "workflow_stats.json" in patterns
     assert ".workflow_state.json" in patterns
+    assert "output_manifest.json" in patterns

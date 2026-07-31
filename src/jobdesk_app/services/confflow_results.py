@@ -7,6 +7,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
+from jobdesk_app.core.confflow_contract import (
+    RUN_SUMMARY_SCHEMA,
+    WORKFLOW_STATE_SCHEMA,
+    WORKFLOW_STATS_SCHEMA,
+)
+
 # Status values that indicate the run has reached a terminal state
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "skipped"})
 
@@ -121,7 +127,7 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
-    raw = _artifact_payload(raw, "run_summary.v1")
+    raw = _artifact_payload(raw, RUN_SUMMARY_SCHEMA)
     if raw is None:
         return ParseResult(state=ParseState.MALFORMED, summary=None)
     required = ("initial_conformers", "final_conformers", "total_duration_seconds", "step_status_counts")
@@ -212,7 +218,7 @@ def _load_step_progress_inner(path: Path) -> ConfFlowStepProgress:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ConfFlowStepProgress()
-    raw = _artifact_payload(raw, "workflow_stats.v1")
+    raw = _artifact_payload(raw, WORKFLOW_STATS_SCHEMA)
     steps = raw.get("steps") if isinstance(raw, dict) else None
     if not isinstance(steps, list):
         return ConfFlowStepProgress(
@@ -266,7 +272,7 @@ def load_step_progress_result(path: Path) -> ParseResult[ConfFlowStepProgress]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
-    raw = _artifact_payload(raw, "workflow_stats.v1")
+    raw = _artifact_payload(raw, WORKFLOW_STATS_SCHEMA)
     if raw is None:
         return ParseResult(state=ParseState.MALFORMED, summary=ConfFlowStepProgress())
     steps = raw.get("steps")
@@ -359,7 +365,7 @@ def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
     except (OSError, json.JSONDecodeError):
         return ConfFlowStepProgress()
 
-    raw = _artifact_payload(raw, "workflow_state.v1")
+    raw = _artifact_payload(raw, WORKFLOW_STATE_SCHEMA)
     if raw is None:
         return ConfFlowStepProgress()
 

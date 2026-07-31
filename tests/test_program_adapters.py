@@ -26,6 +26,7 @@ def test_confflow_adapter_builds_one_run_task_with_config_and_summary_outputs():
         "{basename}_confflow_work/run_summary.json",
         "{basename}_confflow_work/workflow_stats.json",
         "{basename}_confflow_work/.workflow_state.json",
+        "{basename}_confflow_work/output_manifest.json",
     ]
 
 
@@ -51,8 +52,8 @@ def test_confflow_adapter_batch_multiple_xyz_shared_yaml():
     for task in plan.tasks:
         assert "confflow.yaml" in task.command
         assert task.supporting_paths == ["/tmp/jobdesk/confflow.yaml"]
-        assert len(task.remote_result_files) == 5
-        assert task.remote_result_files[-1].endswith("_confflow_work/.workflow_state.json")
+        assert len(task.remote_result_files) == 6
+        assert task.remote_result_files[-1].endswith("_confflow_work/output_manifest.json")
 
     # Verify per-molecule outputs
     assert "mol1_confflow_work/run_summary.json" in plan.tasks[0].remote_result_files[2]
@@ -107,13 +108,15 @@ def test_same_basename_inputs_get_distinct_staged_work_and_checkpoint_paths():
     assert 'staged="$workspace/"same.xyz' in plan.tasks[0].command
     assert 'staged="$workspace/"same_2.xyz' in plan.tasks[1].command
     assert set(plan.tasks[0].remote_result_files).isdisjoint(plan.tasks[1].remote_result_files)
-    assert plan.tasks[0].remote_result_files[-2:] == [
+    assert plan.tasks[0].remote_result_files[-3:] == [
         "same_confflow_work/workflow_stats.json",
         "same_confflow_work/.workflow_state.json",
+        "same_confflow_work/output_manifest.json",
     ]
-    assert plan.tasks[1].remote_result_files[-2:] == [
+    assert plan.tasks[1].remote_result_files[-3:] == [
         "same_2_confflow_work/workflow_stats.json",
         "same_2_confflow_work/.workflow_state.json",
+        "same_2_confflow_work/output_manifest.json",
     ]
 
 
