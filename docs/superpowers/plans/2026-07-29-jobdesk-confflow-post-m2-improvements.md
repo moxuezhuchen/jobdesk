@@ -62,6 +62,63 @@ skipped, 12 deselected`), Ruff/diff/compile checks, and real WSL SSH/SFTP
 probe, upload, idempotent prepare, persisted handle, execute, reconnect,
 cursor events, status, cancel, resume, artifacts, and manifest download.
 
+### Route B Phase E mainline merge-ready record (2026-08-01)
+
+Phase E is **mainline merge-ready** on the integration branch
+`codex/control-backend-release`, subject to the explicit authorization boundary
+below. This record is preparation only: it does not merge JobDesk `main`, does
+not start the compatibility period, and does not start Phase F.
+
+- Phase E source HEAD integrated exactly: `16c55097a49e57d2e54bf26ea1c7a71809a7cd5b`
+- Integration merge commit: `6bb4793` (full ancestry retains the exact source
+  commit); confirmed merge base is live `origin/main`
+  `fe54fe2151be3e6ee80b71a9136d560453a1955d`
+- Confirmed Phase E fix/regression commit: `f7c9f1d`
+- Planned JobDesk main commit at the authorization boundary:
+  `fe54fe2151be3e6ee80b71a9136d560453a1955d`
+- Stable producer compatibility baseline: released ConfFlow `v1.4.6`
+- Control/next producer acceptance pin:
+  `1d25594cb15404c984f1dd2bf618f152d486f49d`
+- Local legacy compatibility result: legacy facade, CLI, GUI, and service
+  regression coverage is included in the green non-integration suite; no
+  legacy real worker/compute run was started in this phase
+- Real control result: SSH/SFTP against WSL `wsl` with the pinned producer
+  passed capability negotiation, prepare, execute, reconnect/events, status,
+  checkpoint-bound resume, producer-validated synthetic artifact manifest,
+  digest/size-verified download, and cancel. The lifecycle fixture used
+  producer callbacks only; `compute_executed=false`, `g16_touched=false`.
+- Final local evidence for this integration candidate: Phase E targeted
+  `160 passed`; non-integration suite `1835 passed, 25 skipped, 6 deselected`;
+  Ruff, GUI offscreen smoke, build, and diff check passed. The four changed
+  service files pass isolated MyPy. Full `python -m mypy src` remains an
+  environment-only limitation because the installed Python 3.13
+  `rdkit-stubs` package contains invalid syntax; the no-site-packages project
+  check with missing-import/misc suppression is green.
+
+#### Compatibility-cycle prerequisites (not started)
+
+- `cycle_started`: **false**; `cycle_start_date`: **not assigned**. A date may
+  be filled only after this branch is actually merged to JobDesk `main` and a
+  compatible release is published.
+- Required before starting the cycle: merge authorization, mainline CI green,
+  stable `v1.4.6` and next-producer parity evidence, the legacy/control
+  acceptance record above, and a published consumer release with backend choice
+  fixed per run.
+- Required metrics for the one published cycle: runs by backend, explicit
+  unsupported-protocol fallback count and reason, protocol/reconnect/cursor
+  failures, duplicate/idempotency conflicts, resume/cancel outcomes, artifact
+  integrity failures, and legacy usage remaining at cycle close.
+- Earliest Phase F objective: only after one completed published compatibility
+  cycle with those metrics, plus real control acceptance for the supported
+  launcher paths and rollback evidence, may the project decide whether to
+  remove legacy state-file compatibility or retain/deprecate the optional
+  agent. Phase F is not authorized by this record.
+- Rollback: keep the legacy backend available at the run boundary; if the
+  published control path regresses, stop automatic control selection, preserve
+  producer revisions and JobDesk provenance, and revert the consumer release
+  to the last compatible release. Do not delete the legacy path, producer
+  state, tags, or release refs during rollback.
+
 **Status:** Revised draft — Route B unified control architecture selected; implementation remains phase-gated
 
 **Baseline:** JobDesk `44719e9`; ConfFlow `10e457d`
