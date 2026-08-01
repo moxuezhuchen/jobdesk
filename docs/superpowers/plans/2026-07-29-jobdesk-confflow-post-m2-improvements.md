@@ -55,6 +55,13 @@ artifact manifest generation. The four user modifications in `/opt/ConfFlow`
 were preserved, no Gaussian installation files were touched, and no real g16
 calculation, `main` update, tag change, or release publication was performed.
 
+Phase E implementation is committed on
+`codex/control-backend-cutover` at `6235c74` (full commit recorded in the
+branch history). The gate covered the full local suite (`1844 passed, 35
+skipped, 12 deselected`), Ruff/diff/compile checks, and real WSL SSH/SFTP
+probe, upload, idempotent prepare, persisted handle, execute, reconnect,
+cursor events, status, cancel, resume, artifacts, and manifest download.
+
 **Status:** Revised draft — Route B unified control architecture selected; implementation remains phase-gated
 
 **Baseline:** JobDesk `44719e9`; ConfFlow `10e457d`
