@@ -129,6 +129,14 @@ not start the compatibility period, and does not start Phase F.
   deselected`). The remaining blocker is therefore a CI-only failure whose
   assertion/log body is unavailable to the current unauthenticated GitHub
   API/browser session; no further code change is inferred or made.
+- Final observed PR #3 run for HEAD `be33ede`: lint, build, and PyInstaller
+  succeeded; type-check failed in the external ConfFlow wheel download/install
+  step before MyPy; and `test (3.11)`, `test (3.12)`, and `test (3.13)` failed
+  in `Test with coverage`. The PR is open and ready-for-review with
+  `mergeable=true` and `mergeable_state=unstable`; no reviews or review
+  comments are present. Branch-protection required-check details could not be
+  read through the unauthenticated API (HTTP 401), so no required-check policy
+  is inferred.
 
 #### Compatibility-cycle prerequisites (not started)
 
