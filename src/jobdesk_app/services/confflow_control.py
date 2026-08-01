@@ -40,6 +40,7 @@ _ERROR_CODES = frozenset(
     }
 )
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+_CURSOR_RE = re.compile(r"^r[0-9]{20}$")
 _PATH_RE = re.compile(r"^(?!/)(?!.*//)(?!.*(?:^|/)\.(?:/|$))(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
 
 
@@ -186,7 +187,7 @@ def parse_events_response(operation: str, stdout: str, *, exit_code: int = 0, st
         raise ControlProtocolError(operation, code, message, retryable=retryable)
     snapshot = _snapshot(response, operation)
     next_cursor = response.get("next_cursor")
-    if next_cursor is not None and (not isinstance(next_cursor, str) or not next_cursor):
+    if next_cursor is not None and (not isinstance(next_cursor, str) or _CURSOR_RE.fullmatch(next_cursor) is None):
         raise ControlProtocolError(operation, "invalid_request", "next_cursor is malformed")
     raw_events = response.get("events")
     if not isinstance(raw_events, list):
@@ -202,11 +203,11 @@ def parse_events_response(operation: str, stdout: str, *, exit_code: int = 0, st
         event_type = raw.get("type")
         if (
             not isinstance(cursor, str)
-            or not cursor
+            or _CURSOR_RE.fullmatch(cursor) is None
             or cursor in seen_cursors
             or type(revision) is not int
             or revision < 0
-            or revision < previous_revision
+            or revision <= previous_revision
             or not isinstance(event_type, str)
             or not event_type
         ):
@@ -316,6 +317,10 @@ def is_terminal_state(state: str) -> bool:
     return state in _TERMINAL_STATES
 
 
+def is_valid_cursor(cursor: str) -> bool:
+    return _CURSOR_RE.fullmatch(cursor) is not None
+
+
 __all__ = [
     "CONTROL_BACKEND",
     "ControlArtifact",
@@ -330,6 +335,7 @@ __all__ = [
     "PROTOCOL_SCHEMA",
     "build_prepare_request",
     "is_terminal_state",
+    "is_valid_cursor",
     "parse_artifacts_response",
     "parse_capabilities",
     "parse_events_response",

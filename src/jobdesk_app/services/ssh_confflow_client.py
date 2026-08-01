@@ -48,6 +48,7 @@ from jobdesk_app.services.confflow_control import (
     ControlUnsupported,
     build_prepare_request,
     is_terminal_state,
+    is_valid_cursor,
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_coordinator import RunCoordinator, RunOperationOutcome
@@ -136,7 +137,9 @@ class SSHConfFlowClient:
             and record.workflow_kind.value in {"confflow", "dag"}
         ):
             try:
-                self.probe(require_dag=record.workflow_kind and record.workflow_kind.value == "dag")
+                self.probe(
+                    require_dag=record.workflow_kind is not None and record.workflow_kind.value == "dag"
+                )
             except ConfFlowClientError as exc:
                 return None, SubmitResult(request.run_id, 0, record.remote_dir, errors=[str(exc)])
         backend = state.get("backend") if state is not None else self._selected_backend or LEGACY_BACKEND
@@ -385,7 +388,10 @@ class SSHConfFlowClient:
         state = load_state(service, snapshot.run_id)
         if state is None:
             raise ConfFlowClientError(f"run {snapshot.run_id} has no durable control state")
-        current_revision = int(state.get("revision", -1))
+        raw_revision = state.get("revision", -1)
+        if type(raw_revision) is not int or raw_revision < -1:
+            raise ConfFlowClientError(f"run {snapshot.run_id} has invalid durable control revision")
+        current_revision = raw_revision
         current_state = str(state.get("state", "prepared"))
         effective = _monotonic_snapshot(
             snapshot,
@@ -450,11 +456,9 @@ class SSHConfFlowClient:
             return [
                 task.model_copy(
                     update={
-                        "status": TaskStatus.submitted,
                         "submitted_at": task.submitted_at or now,
                         "scheduler_type": "control",
                         "remote_job_id": f"control:{run_id}",
-                        "error_message": None,
                     },
                     deep=True,
                 )
@@ -697,14 +701,15 @@ def _capability_from_state(state: dict[str, object]) -> ConfFlowCapabilities | N
 
 
 def _state_identity(state: dict[str, object] | None) -> dict[str, object]:
-    if not state or not isinstance(state.get("producer_identity"), dict):
+    identity = state.get("producer_identity") if state else None
+    if not isinstance(identity, dict):
         return {}
-    return deepcopy(state["producer_identity"])
+    return deepcopy(identity)
 
 
 def _control_expected_identity(identity: dict[str, object]) -> dict[str, object]:
     digest = identity.get("sha256")
-    if not isinstance(digest, str) or len(digest) != 64:
+    if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdefABCDEF" for char in digest):
         raise ConfFlowClientError("control producer identity has no SHA-256")
     expected: dict[str, object] = {"sha256": digest.lower()}
     realpath = identity.get("realpath")
@@ -809,6 +814,8 @@ def _canonical_json(value: object) -> bytes:
 def _monotonic_snapshot(snapshot: ControlSnapshot, *, current_revision: int, current_state: str) -> ControlSnapshot:
     if snapshot.revision < current_revision:
         return ControlSnapshot(snapshot.run_id, current_revision, current_state)
+    if snapshot.revision == current_revision and snapshot.state != current_state:
+        return ControlSnapshot(snapshot.run_id, current_revision, current_state)
     if is_terminal_state(current_state) and not is_terminal_state(snapshot.state):
         return ControlSnapshot(snapshot.run_id, snapshot.revision, current_state)
     return snapshot
@@ -831,6 +838,8 @@ def _is_local_terminal(status: TaskStatus) -> bool:
 
 
 def _validate_event_page_cursor(page: ControlEventPage, cursor: str | None) -> None:
+    if cursor is not None and not is_valid_cursor(cursor):
+        raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
     previous = -1
     for event in page.events:
         if event.revision <= previous:
@@ -843,7 +852,7 @@ def _validate_event_page_cursor(page: ControlEventPage, cursor: str | None) -> N
 
 
 def _cursor_revision(cursor: str) -> int:
-    if len(cursor) != 21 or not cursor.startswith("r") or not cursor[1:].isdigit():
+    if not is_valid_cursor(cursor):
         raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
     return int(cursor[1:])
 
@@ -868,13 +877,15 @@ def _download_control_artifacts(service, run_id: str, artifacts: tuple[ControlAr
     failures: list[tuple[str, str]] = []
     for artifact in selected:
         try:
+            _assert_safe_relative_artifact_path(artifact.path)
             work_dir = _work_dir_for_artifact(tasks, artifact.terminal)
             local_root = download_base / Path(work_dir).name
             remote_path = posixpath.join(work_dir.rstrip("/"), artifact.path)
             _assert_remote_not_symlink(sftp, work_dir, artifact.path)
-            local_path = (local_root / Path(*PurePosixPath(artifact.path).parts)).resolve()
-            if not local_path.is_relative_to(local_root.resolve()):
+            local_path = local_root / Path(*PurePosixPath(artifact.path).parts)
+            if not local_path.is_relative_to(local_root):
                 raise ValueError(f"artifact path escapes local results root: {artifact.path}")
+            _assert_local_not_symlink(local_path)
             if local_path in claimed:
                 raise ValueError(f"artifact target conflict: {artifact.path}")
             claimed.add(local_path)
@@ -915,8 +926,7 @@ def _work_dir_for_artifact(tasks: Iterable[Any], terminal: str) -> str:
         task.remote_workflow_dir
         for task in tasks
         if isinstance(task.remote_workflow_dir, str)
-        and task.remote_workflow_dir.startswith("/")
-        and "\\" not in task.remote_workflow_dir
+        and _is_safe_absolute_remote_path(task.remote_workflow_dir)
         and (task.task_id == terminal or PurePosixPath(task.remote_workflow_dir).name == terminal)
     ]
     if not candidates:
@@ -924,8 +934,7 @@ def _work_dir_for_artifact(tasks: Iterable[Any], terminal: str) -> str:
             task.remote_workflow_dir
             for task in tasks
             if isinstance(task.remote_workflow_dir, str)
-            and task.remote_workflow_dir.startswith("/")
-            and "\\" not in task.remote_workflow_dir
+            and _is_safe_absolute_remote_path(task.remote_workflow_dir)
         ]
         if len(all_work_dirs) == 1:
             return all_work_dirs[0]
@@ -956,6 +965,34 @@ def _assert_remote_not_symlink(sftp, work_dir: str, relative_path: str) -> None:
         mode = getattr(metadata, "st_mode", None)
         if type(mode) is not int or stat.S_ISLNK(mode):
             raise ValueError(f"remote artifact path is a symlink or has invalid metadata: {current}")
+
+
+def _assert_safe_relative_artifact_path(path: str) -> None:
+    if (
+        not isinstance(path, str)
+        or not path
+        or path.startswith("/")
+        or "\\" in path
+        or posixpath.normpath(path) != path
+        or any(part in {"", ".", ".."} for part in PurePosixPath(path).parts)
+    ):
+        raise ValueError(f"artifact path is unsafe: {path}")
+
+
+def _is_safe_absolute_remote_path(path: str) -> bool:
+    return (
+        isinstance(path, str)
+        and path.startswith("/")
+        and "\\" not in path
+        and posixpath.normpath(path) == path
+        and all(part not in {"", ".", ".."} for part in PurePosixPath(path).parts[1:])
+    )
+
+
+def _assert_local_not_symlink(path: Path) -> None:
+    for component in (*reversed(path.parents), path):
+        if component.is_symlink():
+            raise ValueError(f"local artifact target is a symlink: {component}")
 
 
 def _sha256_file(path: Path) -> str:

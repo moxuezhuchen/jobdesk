@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from jobdesk_app.application.confflow_client import SubmitRequest
+from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
 from jobdesk_app.services.confflow_control import (
@@ -23,6 +24,7 @@ from jobdesk_app.services.confflow_control import (
     build_prepare_request,
     parse_artifacts_response,
     parse_capabilities,
+    parse_events_response,
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
@@ -60,6 +62,33 @@ def test_control_parsers_fail_closed_on_unsupported_or_malformed_wire_data() -> 
         parse_capabilities(_response("capabilities", supported_protocols=["confflow.control.v2"]))
     with pytest.raises(ControlProtocolError, match="exactly one JSON response"):
         parse_capabilities("{}\n{}\n")
+    with pytest.raises(ControlProtocolError, match="cursor is malformed"):
+        parse_events_response(
+            "events",
+            _response(
+                "events",
+                run_id="run-1",
+                revision=1,
+                state="running",
+                events=[{"cursor": "bad", "revision": 1, "type": "running"}],
+                next_cursor="bad",
+            ),
+        )
+    with pytest.raises(ControlProtocolError, match="out of order"):
+        parse_events_response(
+            "events",
+            _response(
+                "events",
+                run_id="run-1",
+                revision=2,
+                state="running",
+                events=[
+                    {"cursor": "r00000000000000000001", "revision": 1, "type": "running"},
+                    {"cursor": "r00000000000000000002", "revision": 1, "type": "running"},
+                ],
+                next_cursor="r00000000000000000002",
+            ),
+        )
 
 
 def test_artifact_parser_rejects_traversal_and_nonterminal_manifest() -> None:
@@ -94,13 +123,14 @@ class FakeControlTransport:
     event_page: ControlEventPage | None = None
     prepared: list[dict[str, object]] = field(default_factory=list)
     cancelled: list[str] = field(default_factory=list)
+    execute_snapshot: ControlSnapshot | None = None
 
     def prepare(self, request: dict[str, object]) -> ControlSnapshot:
         self.prepared.append(request)
         return ControlSnapshot(str(request["run_id"]), 1, "prepared")
 
     def execute(self, run_id: str) -> ControlSnapshot:
-        return ControlSnapshot(run_id, 2, "queued")
+        return self.execute_snapshot or ControlSnapshot(run_id, 2, "queued")
 
     def status(self, run_id: str) -> ControlSnapshot:
         return self.status_snapshots.pop(0)
@@ -188,6 +218,29 @@ def test_control_handle_persists_cursor_and_prevents_terminal_regression(tmp_pat
     assert second.revision == 6
 
 
+def test_control_status_does_not_change_state_at_the_same_revision(tmp_path) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_control_spec(), run_id="run-1")
+    _seed_control_state(service, "run-1")
+    transport = FakeControlTransport(
+        status_snapshots=[
+            ControlSnapshot("run-1", 1, "running"),
+            ControlSnapshot("run-1", 1, "queued"),
+        ]
+    )
+    coordinator = type("Coordinator", (), {"service": service})()
+    client = SSHConfFlowClient(
+        coordinator,
+        "server",
+        control_transport_factory=lambda run_id, locator: transport,
+        backend_mode="control",
+    )
+    handle = client.attach("run-1")
+
+    assert handle.status().producer_state == "running"
+    assert handle.status().producer_state == "running"
+
+
 def test_control_submit_uses_stable_idempotency_and_persists_backend(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     service.create_run(_control_spec(), run_id="run-1")
@@ -212,6 +265,27 @@ def test_control_submit_uses_stable_idempotency_and_persists_backend(tmp_path, m
     assert saved["backend"] == "control"
     assert saved["request_digest"] == transport.prepared[0]["request_digest"]
     assert service.repository.load_tasks("run-1")[0].scheduler_type == "control"
+
+
+def test_control_submit_preserves_terminal_projection_from_execute(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_control_spec(), run_id="run-1")
+    _seed_control_state(service, "run-1")
+    transport = FakeControlTransport(execute_snapshot=ControlSnapshot("run-1", 2, "completed"))
+    coordinator = type("Coordinator", (), {"service": service})()
+    client = SSHConfFlowClient(
+        coordinator,
+        "server",
+        control_transport_factory=lambda run_id, locator: transport,
+        backend_mode="control",
+    )
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is not None
+    assert not outcome.errors
+    assert service.repository.load_tasks("run-1")[0].status == TaskStatus.remote_completed
 
 
 def test_control_download_uses_manifest_paths_and_matching_task_directory(tmp_path) -> None:
