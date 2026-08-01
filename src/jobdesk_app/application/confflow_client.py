@@ -75,6 +75,9 @@ class RemoteRunSnapshot:
     workflow_kind: str | None
     status_summary: dict[str, object]
     tasks: tuple[TaskSnapshot, ...]
+    revision: int | None = None
+    backend: str = "legacy"
+    producer_state: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "status_summary", deepcopy(self.status_summary))
@@ -98,17 +101,23 @@ class RemoteRunReference:
     run_id: str
     accepted_protocol: str | None
     identity_snapshot: dict[str, object]
+    backend: str = "legacy"
+    state_locator: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "identity_snapshot", deepcopy(self.identity_snapshot))
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        data: dict[str, object] = {
             "server_id": self.server_id,
             "run_id": self.run_id,
             "accepted_protocol": self.accepted_protocol,
             "identity_snapshot": deepcopy(self.identity_snapshot),
         }
+        if self.backend != "legacy" or self.state_locator is not None:
+            data["backend"] = self.backend
+            data["state_locator"] = self.state_locator
+        return data
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> RemoteRunReference:
@@ -118,11 +127,19 @@ class RemoteRunReference:
             raise ValueError("accepted_protocol must be a string or null")
         if not isinstance(identity, dict):
             raise ValueError("identity_snapshot must be an object")
+        backend = value.get("backend", "legacy")
+        if not isinstance(backend, str) or backend not in {"legacy", "control"}:
+            raise ValueError("backend must be 'legacy' or 'control'")
+        state_locator = value.get("state_locator")
+        if state_locator is not None and (not isinstance(state_locator, str) or not state_locator):
+            raise ValueError("state_locator must be a non-empty string or null")
         return cls(
             server_id=_required_string(value, "server_id"),
             run_id=_required_string(value, "run_id"),
             accepted_protocol=protocol,
             identity_snapshot=deepcopy(identity),
+            backend=backend,
+            state_locator=state_locator,
         )
 
 

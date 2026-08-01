@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29
 
-## Execution status (2026-07-31)
+## Execution status (2026-08-01)
 
 The release-closure track in sections 3, 4, and 8.1 is **complete**, with the
 original 1.4.4/1.4.5 candidates superseded by the final ConfFlow 1.4.6 hotfix
@@ -29,12 +29,138 @@ track in sections 5 and 8.2 complete.
 - Existing user modifications in `/opt/ConfFlow` and the JobDesk main
   worktree were preserved
 
-Route B status: Phase A (JobDesk compatibility facade) and Phase B (frozen
-control-protocol RFC/schema) are complete on isolated, pushed branches. Phase C
-is in progress: the first `ExecutionService` draft was rejected at independent
-review, and is being redesigned around an atomic aggregate repository, durable
-idempotent launch/cancel intents, executable-identity verification, and
-token-bound lifecycle callbacks. Phases D through F have not yet been accepted.
+Route B status: Phase A (JobDesk compatibility facade), Phase B (frozen
+control-protocol RFC/schema), Phase C (`ExecutionService` convergence), and
+Phase D (thin `control --json` adapter) are complete on isolated, pushed
+branches. Phase E (JobDesk control backend cutover) is implemented and passed
+the local full gate plus the real WSL protocol/facade chain on an isolated
+producer worktree at the pinned Phase D commit. The WSL acceptance used the
+producer lifecycle callback and a synthetic non-computational artifact for
+manifest download; no real worker or g16 calculation was run. Phase F has not
+been accepted.
+
+Phase C implementation and independent review were completed and pushed to
+`origin/codex/execution-service-convergence` at
+`64eaf696318f92ac78790cf645e0bffa91949608` (commits `5390f7f` and `64eaf69`).
+Phase D was completed and independently accepted at
+`1d25594cb15404c984f1dd2bf618f152d486f49d`, pushed to
+`origin/codex/control-json-adapter`; the remote HEAD was verified equal to the
+local HEAD. The isolated producer environment was refreshed from `.[dev]` for
+the Phase D schema and protocol gate.
+
+Phase D boundary and preservation record: the adapter calls the Phase C
+`ExecutionService` public methods only; it does not own state transitions,
+SQLite/repository access, revisions, events, cancellation/resume policy, or
+artifact manifest generation. The four user modifications in `/opt/ConfFlow`
+were preserved, no Gaussian installation files were touched, and no real g16
+calculation, `main` update, tag change, or release publication was performed.
+
+Phase E implementation is committed on
+`codex/control-backend-cutover` at `6235c74` (full commit recorded in the
+branch history). The gate covered the full local suite (`1844 passed, 35
+skipped, 12 deselected`), Ruff/diff/compile checks, and real WSL SSH/SFTP
+probe, upload, idempotent prepare, persisted handle, execute, reconnect,
+cursor events, status, cancel, resume, artifacts, and manifest download.
+
+### Route B Phase E mainline merge-ready record (2026-08-01)
+
+Phase E is **mainline merge-ready** on the integration branch
+`codex/control-backend-release`, subject to the explicit authorization boundary
+below. This record is preparation only: it does not merge JobDesk `main`, does
+not start the compatibility period, and does not start Phase F.
+
+- Phase E source HEAD integrated exactly: `16c55097a49e57d2e54bf26ea1c7a71809a7cd5b`
+- Integration merge commit: `6bb4793` (full ancestry retains the exact source
+  commit); confirmed merge base is live `origin/main`
+  `fe54fe2151be3e6ee80b71a9136d560453a1955d`
+- Confirmed Phase E fix/regression commit: `f7c9f1d`
+- Planned JobDesk main commit at the authorization boundary:
+  `fe54fe2151be3e6ee80b71a9136d560453a1955d`
+- Stable producer compatibility baseline: released ConfFlow `v1.4.6`
+- Control/next producer acceptance pin:
+  `1d25594cb15404c984f1dd2bf618f152d486f49d`
+- Local legacy compatibility result: legacy facade, CLI, GUI, and service
+  regression coverage is included in the green non-integration suite; no
+  legacy real worker/compute run was started in this phase
+- Real control result: SSH/SFTP against WSL `wsl` with the pinned producer
+  passed capability negotiation, prepare, execute, reconnect/events, status,
+  checkpoint-bound resume, producer-validated synthetic artifact manifest,
+  digest/size-verified download, and cancel. The lifecycle fixture used
+  producer callbacks only; `compute_executed=false`, `g16_touched=false`.
+- Final local evidence for this integration candidate: Phase E targeted
+  `160 passed`; non-integration suite `1835 passed, 25 skipped, 6 deselected`;
+  Ruff, GUI offscreen smoke, build, and diff check passed. The CI-mirror
+  one-shot environment used Python `3.13.14`, MyPy `2.3.0`, editable JobDesk
+  `.[dev]`, and the independently SHA-256-verified ConfFlow `v1.4.6` wheel
+  (`7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`). The
+  exact `python -m mypy src` command passed with no issues in `160` source
+  files. The four changed service files also pass isolated MyPy.
+- Optional chemistry-runtime diagnostic: installing the declared `rdkit` extra
+  makes the upstream RDKit wheel install a `rdkit-stubs` directory whose
+  `Chem/rdMolDescriptors.pyi:10` contains invalid syntax. With the same
+  Python/MyPy versions this reproduces identically on live `origin/main` and
+  this candidate, before project files are checked; `pip check` is otherwise
+  clean. This is an upstream optional-stub defect, not a Phase E type error,
+  and the mandatory CI type-check environment intentionally does not install
+  that optional RDKit distribution.
+- PR #3 online Gate at candidate HEAD
+  `a1188805db1dd9c4d3f85b7fdc07205ee5175397`: `lint`, `type-check`, `build`,
+  and `pyinstaller` succeeded; `test (3.11)`, `test (3.12)`, and `test
+  (3.13)` failed specifically at their `Test with coverage` step. The
+  candidate reproduced the CI test command locally with the forced
+  ConfFlow differential and passed `1851 passed, 30 skipped, 12 deselected`.
+  GitHub's public API exposes only exit-code annotations for those failures;
+  the log body requires authentication, so no failure detail is inferred.
+  The PR remains ready-for-review with `mergeable=true` but
+  `mergeable_state=unstable`; no reviews or review comments are present.
+- Confirmed CI blocker and minimal fix: the failing coverage command selected
+  `tests/integration` for collection even though the marker deselected those
+  tests; the no-deps ConfFlow wheel then raised `ModuleNotFoundError: rich`
+  during collection. Commit `25c6166` adds `--ignore=tests/integration` to the
+  non-integration coverage command. In the same no-deps environment, the
+  exact corrected command passed `1832 passed, 28 skipped, 6 deselected` with
+  XML coverage output. The fix is CI-only and does not alter the control
+  backend or the real WSL acceptance chain.
+- After pushing `25c6166` and the separate record commit `8a6131f`, remote
+  lint, type-check, build, and PyInstaller succeeded, but all three remote
+  coverage jobs still failed after normal test-duration execution. The same
+  corrected no-deps command passed on live `origin/main` (`1824 passed, 28
+  skipped, 6 deselected`) and on this candidate (`1832 passed, 28 skipped, 6
+  deselected`). The remaining blocker is therefore a CI-only failure whose
+  assertion/log body is unavailable to the current unauthenticated GitHub
+  API/browser session; no further code change is inferred or made.
+- Final observed PR #3 run for HEAD `be33ede`: lint, build, and PyInstaller
+  succeeded; type-check failed in the external ConfFlow wheel download/install
+  step before MyPy; and `test (3.11)`, `test (3.12)`, and `test (3.13)` failed
+  in `Test with coverage`. The PR is open and ready-for-review with
+  `mergeable=true` and `mergeable_state=unstable`; no reviews or review
+  comments are present. Branch-protection required-check details could not be
+  read through the unauthenticated API (HTTP 401), so no required-check policy
+  is inferred.
+
+#### Compatibility-cycle prerequisites (not started)
+
+- `cycle_started`: **false**; `cycle_start_date`: **not assigned**. A date may
+  be filled only after this branch is actually merged to JobDesk `main` and a
+  compatible release is published.
+- Required before starting the cycle: merge authorization, mainline CI green,
+  stable `v1.4.6` and next-producer parity evidence, the legacy/control
+  acceptance record above, and a published consumer release with backend choice
+  fixed per run.
+- Required metrics for the one published cycle: runs by backend, explicit
+  unsupported-protocol fallback count and reason, protocol/reconnect/cursor
+  failures, duplicate/idempotency conflicts, resume/cancel outcomes, artifact
+  integrity failures, and legacy usage remaining at cycle close.
+- Earliest Phase F objective: only after one completed published compatibility
+  cycle with those metrics, plus real control acceptance for the supported
+  launcher paths and rollback evidence, may the project decide whether to
+  remove legacy state-file compatibility or retain/deprecate the optional
+  agent. Phase F is not authorized by this record.
+- Rollback: keep the legacy backend available at the run boundary; if the
+  published control path regresses, stop automatic control selection, preserve
+  producer revisions and JobDesk provenance, and revert the consumer release
+  to the last compatible release. Do not delete the legacy path, producer
+  state, tags, or release refs during rollback.
 
 **Status:** Revised draft — Route B unified control architecture selected; implementation remains phase-gated
 
@@ -682,16 +808,16 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 
 以下项目属于后续独立轨道，不阻塞 8.1：
 
-- [ ] GUI 不再 import `remote.*`；architecture test 固定依赖方向
-- [ ] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
-- [ ] façade 先通过 legacy backend 回归，未改变现有远端行为
-- [ ] producer 发布版本化 `control --json` schema bundle 和 one-shot CLI
-- [ ] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
-- [ ] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义
-- [ ] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel
+- [x] GUI 不再 import `remote.*`；architecture test 固定依赖方向
+- [x] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
+- [x] façade 先通过 legacy backend 回归，未改变现有远端行为
+- [x] producer 发布版本化 `control --json` schema bundle 和 one-shot CLI（Phase D；commit `1d25594cb15404c984f1dd2bf618f152d486f49d`，remote `origin/codex/control-json-adapter`）
+- [x] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
+- [x] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义（Phase C/D 已验证）
+- [x] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel（Phase E；WSL 使用 pinned Phase D producer；artifact 为非计算 synthetic lifecycle fixture，未运行 g16）
 - [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
-- [ ] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
+- [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
 
 ---
 

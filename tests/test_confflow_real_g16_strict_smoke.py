@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -182,6 +184,22 @@ def _write_workflow(result_root: Path, *, checkpoint: bool = False) -> None:
         )
 
 
+def _bash_argv() -> list[str]:
+    """Return a local Bash command for pure shell-script validation."""
+
+    if sys.platform == "win32":
+        for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(variable)
+            if root:
+                candidate = Path(root) / "Git" / "bin" / "bash.exe"
+                if candidate.is_file():
+                    return [str(candidate)]
+    bash = shutil.which("bash")
+    if bash:
+        return [bash]
+    return [smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash"]
+
+
 @pytest.mark.parametrize(
     ("label", "mutate"),
     [
@@ -242,6 +260,18 @@ def test_capability_probe_rejects_wrong_optional_realpath(tmp_path: Path) -> Non
     assert result.returncode != 0
 
 
+def test_bash_argv_prefers_native_windows_bash(monkeypatch, tmp_path: Path) -> None:
+    git_bash = tmp_path / "Git" / "bin" / "bash.exe"
+    git_bash.parent.mkdir(parents=True)
+    git_bash.write_text("", encoding="utf-8")
+    for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    assert _bash_argv() == [str(git_bash)]
+
+
 def test_harness_label_with_spaces_is_shell_literal_under_nounset() -> None:
     """A human label must not become a shell variable during template expansion."""
 
@@ -250,8 +280,9 @@ def test_harness_label_with_spaces_is_shell_literal_under_nounset() -> None:
     assert "$methane" not in label_line
     assert label_line == "printf '[smoke] starting ConfFlow (%s)\\n' 'methane opt'"
 
+    bash = _bash_argv()
     syntax = subprocess.run(
-        [smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash", "-n"],
+        [*bash, "-n"],
         input=harness.encode("utf-8"),
         capture_output=True,
         check=False,
@@ -262,7 +293,7 @@ def test_harness_label_with_spaces_is_shell_literal_under_nounset() -> None:
     assert syntax.returncode == 0, wsl_output
 
     result = subprocess.run(
-        [smoke.WIN_WSL, "-d", smoke.WSL_DISTRO, "--", "bash", "-u", "-s"],
+        [*bash, "-u", "-s"],
         input=label_line.encode("utf-8"),
         capture_output=True,
         check=False,
