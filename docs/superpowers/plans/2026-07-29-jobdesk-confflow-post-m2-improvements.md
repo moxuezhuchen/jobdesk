@@ -113,6 +113,14 @@ not start the compatibility period, and does not start Phase F.
   the log body requires authentication, so no failure detail is inferred.
   The PR remains ready-for-review with `mergeable=true` but
   `mergeable_state=unstable`; no reviews or review comments are present.
+- Confirmed CI blocker and minimal fix: the failing coverage command selected
+  `tests/integration` for collection even though the marker deselected those
+  tests; the no-deps ConfFlow wheel then raised `ModuleNotFoundError: rich`
+  during collection. Commit `25c6166` adds `--ignore=tests/integration` to the
+  non-integration coverage command. In the same no-deps environment, the
+  exact corrected command passed `1832 passed, 28 skipped, 6 deselected` with
+  XML coverage output. The fix is CI-only and does not alter the control
+  backend or the real WSL acceptance chain; the new remote Gate is pending.
 
 #### Compatibility-cycle prerequisites (not started)
 
