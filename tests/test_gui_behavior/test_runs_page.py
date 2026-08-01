@@ -2707,16 +2707,23 @@ class TestRunsPage:
 
     def test_submit_worker_delegates_session_ownership_to_coordinator(self, runs_page):
         outcome = SimpleNamespace(errors=[], submit_results=[MagicMock()])
+        record = SimpleNamespace(server_id="srv")
+        client = MagicMock()
+        client.submit_with_outcome.return_value = (MagicMock(), outcome)
+        client_factory = MagicMock(return_value=client)
 
         with (
             patch.object(runs_page, "_coordinator_for") as coordinator_factory,
+            patch.object(runs_page, "_client_factory", client_factory),
             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
         ):
-            coordinator_factory.return_value.submit.return_value = outcome
+            coordinator_factory.return_value.service.load_run.return_value = record
             runs_page._submit_record("run-1")
             start_worker.call_args.kwargs["target"](MagicMock())
 
-        coordinator_factory.return_value.submit.assert_called_once_with("run-1")
+        coordinator_factory.return_value.service.load_run.assert_called_once_with("run-1")
+        client_factory.assert_called_once_with(coordinator_factory.return_value, "srv")
+        client.submit_with_outcome.assert_called_once()
 
     def test_cancel_worker_delegates_to_client_handle(self, runs_page):
         from PySide6.QtWidgets import QMessageBox
