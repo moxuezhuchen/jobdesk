@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .application.confflow_client import SubmitRequest
 from .config.servers import load_servers
 from .core.file_transfer import OverwritePolicy
 from .core.run import RunMode, RunSource, RunSpec
@@ -14,6 +15,7 @@ from .services.file_transfer_service import FileTransferService
 from .services.job_id_overrides import JobIdOverridesError, parse_job_id_overrides
 from .services.run_coordinator import RunCoordinator
 from .services.run_service import RunService
+from .services.ssh_confflow_client import SSHConfFlowClient
 from .services.ssh_session import ConnectedSFTP, create_sftp_client, create_ssh_client
 
 
@@ -200,9 +202,9 @@ def _cmd_run_submit(args) -> int:
                 file=sys.stderr,
             )
             return 2
-    outcome = _run_coordinator(args, args.workspace).submit(
-        args.run_id,
-        resource_overrides=overrides or None,
+    client, _record = _run_client(args, args.workspace)
+    _handle, outcome = client.submit_with_outcome(
+        SubmitRequest(args.run_id, resource_overrides=overrides or None)
     )
     if not outcome.submit_results:
         for error in outcome.errors:
@@ -221,7 +223,8 @@ def _cmd_run_submit(args) -> int:
 
 
 def _cmd_run_refresh(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).refresh(args.run_id)
+    client, _record = _run_client(args, args.workspace)
+    outcome = client.refresh_outcome(client.attach(args.run_id), [], download=False)
     if outcome.refresh_result is None:
         for error in outcome.errors:
             print(f"  ERROR: {error}")
@@ -233,7 +236,8 @@ def _cmd_run_refresh(args) -> int:
 
 def _cmd_run_download(args) -> int:
     patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
-    outcome = _run_coordinator(args, args.workspace).download(args.run_id, patterns)
+    client, _record = _run_client(args, args.workspace)
+    outcome = client.download_outcome(client.attach(args.run_id), patterns)
     if outcome.errors and not outcome.failures:
         for error in outcome.errors:
             print(f"  ERROR: {error}")
@@ -246,7 +250,8 @@ def _cmd_run_download(args) -> int:
 
 
 def _cmd_run_cancel(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).cancel(args.run_id)
+    client, _record = _run_client(args, args.workspace)
+    outcome = client.cancel_outcome(client.attach(args.run_id))
     changed = outcome.changed_count
     errors = outcome.errors
     print(f"cancelled {changed} task(s)")
@@ -407,6 +412,12 @@ def _run_coordinator(args, workspace: Path) -> RunCoordinator:
         ssh_factory=create_ssh_client,
         sftp_factory=create_sftp_client,
     )
+
+
+def _run_client(args, workspace: Path) -> tuple[SSHConfFlowClient, object]:
+    coordinator = _run_coordinator(args, workspace)
+    record = coordinator.service.load_run(args.run_id)
+    return SSHConfFlowClient(coordinator, record.server_id), record
 
 
 def _get_server_by_id(args, server_id: str):

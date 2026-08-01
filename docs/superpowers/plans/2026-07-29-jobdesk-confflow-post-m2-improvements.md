@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29
 
-## Execution status (2026-07-31)
+## Execution status (2026-08-01)
 
 The release-closure track in sections 3, 4, and 8.1 is **complete**, with the
 original 1.4.4/1.4.5 candidates superseded by the final ConfFlow 1.4.6 hotfix
@@ -29,12 +29,31 @@ track in sections 5 and 8.2 complete.
 - Existing user modifications in `/opt/ConfFlow` and the JobDesk main
   worktree were preserved
 
-Route B status: Phase A (JobDesk compatibility facade) and Phase B (frozen
-control-protocol RFC/schema) are complete on isolated, pushed branches. Phase C
-is in progress: the first `ExecutionService` draft was rejected at independent
-review, and is being redesigned around an atomic aggregate repository, durable
-idempotent launch/cancel intents, executable-identity verification, and
-token-bound lifecycle callbacks. Phases D through F have not yet been accepted.
+Route B status: Phase A (JobDesk compatibility facade), Phase B (frozen
+control-protocol RFC/schema), Phase C (`ExecutionService` convergence), and
+Phase D (thin `control --json` adapter) are complete on isolated, pushed
+branches. Phase E (JobDesk control backend cutover) is implemented and passed
+the local full gate plus the real WSL protocol/facade chain on an isolated
+producer worktree at the pinned Phase D commit. The WSL acceptance used the
+producer lifecycle callback and a synthetic non-computational artifact for
+manifest download; no real worker or g16 calculation was run. Phase F has not
+been accepted.
+
+Phase C implementation and independent review were completed and pushed to
+`origin/codex/execution-service-convergence` at
+`64eaf696318f92ac78790cf645e0bffa91949608` (commits `5390f7f` and `64eaf69`).
+Phase D was completed and independently accepted at
+`1d25594cb15404c984f1dd2bf618f152d486f49d`, pushed to
+`origin/codex/control-json-adapter`; the remote HEAD was verified equal to the
+local HEAD. The isolated producer environment was refreshed from `.[dev]` for
+the Phase D schema and protocol gate.
+
+Phase D boundary and preservation record: the adapter calls the Phase C
+`ExecutionService` public methods only; it does not own state transitions,
+SQLite/repository access, revisions, events, cancellation/resume policy, or
+artifact manifest generation. The four user modifications in `/opt/ConfFlow`
+were preserved, no Gaussian installation files were touched, and no real g16
+calculation, `main` update, tag change, or release publication was performed.
 
 **Status:** Revised draft — Route B unified control architecture selected; implementation remains phase-gated
 
@@ -682,16 +701,16 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 
 以下项目属于后续独立轨道，不阻塞 8.1：
 
-- [ ] GUI 不再 import `remote.*`；architecture test 固定依赖方向
-- [ ] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
-- [ ] façade 先通过 legacy backend 回归，未改变现有远端行为
-- [ ] producer 发布版本化 `control --json` schema bundle 和 one-shot CLI
-- [ ] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
-- [ ] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义
-- [ ] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel
+- [x] GUI 不再 import `remote.*`；architecture test 固定依赖方向
+- [x] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
+- [x] façade 先通过 legacy backend 回归，未改变现有远端行为
+- [x] producer 发布版本化 `control --json` schema bundle 和 one-shot CLI（Phase D；commit `1d25594cb15404c984f1dd2bf618f152d486f49d`，remote `origin/codex/control-json-adapter`）
+- [x] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
+- [x] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义（Phase C/D 已验证）
+- [x] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel（Phase E；WSL 使用 pinned Phase D producer；artifact 为非计算 synthetic lifecycle fixture，未运行 g16）
 - [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
-- [ ] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
+- [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
 
 ---
 

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from ...core.parsers import GaussianResult, OrcaResult
 
+from ...application.confflow_client import SubmitRequest
 from ...config.servers import load_servers
 from ...core.confflow_contract import (
     RUN_SUMMARY_FILE,
@@ -37,6 +38,8 @@ from ...core.confflow_contract import (
     WORKFLOW_STATS_FILE,
 )
 from ...core.run import WorkflowKind, remote_run_dir
+from ...services.confflow_control import CONTROL_BACKEND
+from ...services.confflow_control_state import load_state
 from ...services.gui_settings import GuiSettingsStore
 from ...services.run_coordinator import RunCoordinator
 from ...services.run_service import RunRecord, RunService
@@ -526,6 +529,12 @@ class RunsResultsPage(QWidget):
                     or record.status_summary.get("running", 0) > 0
                     or record.status_summary.get("submitted", 0) > 0
                 ):
+                    durable_backend = load_state(service, record.run_id)
+                    if durable_backend is not None and durable_backend.get("backend") == CONTROL_BACKEND:
+                        # Control runs are polled through RemoteRunHandle.events()
+                        # by the facade refresh path; never mix them with the
+                        # legacy events.log tailer.
+                        continue
                     srv = cfg.servers.get(record.server_id)
                     if srv:
                         batch_dir = remote_run_dir(record.remote_dir, record.run_id)
@@ -1233,11 +1242,17 @@ class RunsResultsPage(QWidget):
 
     def _execute_refresh_use_case(self, record, patterns: list[str], *, download: bool):
         client = self._client_for(record)
-        return client.refresh_outcome(client.attach(record.run_id), patterns, download=download)
+        handle = client.attach(record.run_id)
+        if handle.to_dict().get("backend") == CONTROL_BACKEND:
+            patterns = []
+        return client.refresh_outcome(handle, patterns, download=download)
 
     def _execute_download_use_case(self, record, patterns: list[str]):
         client = self._client_for(record)
-        return client.download_outcome(client.attach(record.run_id), patterns)
+        handle = client.attach(record.run_id)
+        if handle.to_dict().get("backend") == CONTROL_BACKEND:
+            patterns = []
+        return client.download_outcome(handle, patterns)
 
     def _client_for(self, record: RunRecord) -> SSHConfFlowClient:
         coordinator = self._coordinator_for(self._result_workspace(record))
@@ -2580,7 +2595,13 @@ class RunsResultsPage(QWidget):
         workspace = self._workspace()
 
         def _run(_ctx: WorkerContext):
-            outcome = self._coordinator_for(workspace).submit(run_id)
+            coordinator = self._coordinator_for(workspace)
+            record = coordinator.service.load_run(run_id)
+            if self._client_factory is not None:
+                client = self._client_factory(coordinator, record.server_id)
+            else:
+                client = SSHConfFlowClient(coordinator, record.server_id)
+            _handle, outcome = client.submit_with_outcome(SubmitRequest(run_id))
             if outcome.errors or not outcome.submit_results:
                 raise RuntimeError("; ".join(outcome.errors) or "submit returned no result")
             return outcome.submit_results[0]
