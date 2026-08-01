@@ -149,6 +149,7 @@ def _looks_like_unsupported_capability(stderr: str, stdout: str) -> bool:
             "invalid choice",
             "unrecognized arguments",
             "unknown command",
+            "--json requires --capabilities",
         )
     )
 

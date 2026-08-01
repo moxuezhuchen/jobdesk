@@ -29,6 +29,7 @@ from jobdesk_app.services.confflow_control import (
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient, _download_control_artifacts
+from jobdesk_app.services.ssh_confflow_control import SSHControlTransport
 
 
 def _response(operation: str, **fields: object) -> str:
@@ -89,6 +90,27 @@ def test_control_parsers_fail_closed_on_unsupported_or_malformed_wire_data() -> 
                 next_cursor="r00000000000000000002",
             ),
         )
+
+
+def test_stable_cli_without_control_protocol_selects_legacy_fallback() -> None:
+    """The stable CLI diagnostic must be classified as unsupported control."""
+
+    class StableCli:
+        def run(self, command: str, timeout: int):
+            del command, timeout
+            return SimpleNamespace(
+                exit_code=2,
+                stdout="",
+                stderr="confflow: error: --json requires --capabilities",
+            )
+
+    with pytest.raises(ControlUnsupported):
+        SSHControlTransport(
+            StableCli(),
+            None,
+            executable="confflow",
+            state_root="/tmp/jobdesk-control",
+        ).capabilities()
 
 
 def test_artifact_parser_rejects_traversal_and_nonterminal_manifest() -> None:
