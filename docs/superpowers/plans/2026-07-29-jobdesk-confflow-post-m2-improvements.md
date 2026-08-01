@@ -89,11 +89,30 @@ not start the compatibility period, and does not start Phase F.
   producer callbacks only; `compute_executed=false`, `g16_touched=false`.
 - Final local evidence for this integration candidate: Phase E targeted
   `160 passed`; non-integration suite `1835 passed, 25 skipped, 6 deselected`;
-  Ruff, GUI offscreen smoke, build, and diff check passed. The four changed
-  service files pass isolated MyPy. Full `python -m mypy src` remains an
-  environment-only limitation because the installed Python 3.13
-  `rdkit-stubs` package contains invalid syntax; the no-site-packages project
-  check with missing-import/misc suppression is green.
+  Ruff, GUI offscreen smoke, build, and diff check passed. The CI-mirror
+  one-shot environment used Python `3.13.14`, MyPy `2.3.0`, editable JobDesk
+  `.[dev]`, and the independently SHA-256-verified ConfFlow `v1.4.6` wheel
+  (`7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`). The
+  exact `python -m mypy src` command passed with no issues in `160` source
+  files. The four changed service files also pass isolated MyPy.
+- Optional chemistry-runtime diagnostic: installing the declared `rdkit` extra
+  makes the upstream RDKit wheel install a `rdkit-stubs` directory whose
+  `Chem/rdMolDescriptors.pyi:10` contains invalid syntax. With the same
+  Python/MyPy versions this reproduces identically on live `origin/main` and
+  this candidate, before project files are checked; `pip check` is otherwise
+  clean. This is an upstream optional-stub defect, not a Phase E type error,
+  and the mandatory CI type-check environment intentionally does not install
+  that optional RDKit distribution.
+- PR #3 online Gate at candidate HEAD
+  `a1188805db1dd9c4d3f85b7fdc07205ee5175397`: `lint`, `type-check`, `build`,
+  and `pyinstaller` succeeded; `test (3.11)`, `test (3.12)`, and `test
+  (3.13)` failed specifically at their `Test with coverage` step. The
+  candidate reproduced the CI test command locally with the forced
+  ConfFlow differential and passed `1851 passed, 30 skipped, 12 deselected`.
+  GitHub's public API exposes only exit-code annotations for those failures;
+  the log body requires authentication, so no failure detail is inferred.
+  The PR remains ready-for-review with `mergeable=true` but
+  `mergeable_state=unstable`; no reviews or review comments are present.
 
 #### Compatibility-cycle prerequisites (not started)
 
