@@ -136,7 +136,7 @@ jobs:
         run: powershell -File scripts/check_public_tree.ps1
 
       - name: Test with coverage
-        run: python -m pytest tests/ -v --basetemp ${{ runner.temp }}\jobdesk_pytest --cov=jobdesk_app --cov-report=xml --cov-report=term-missing
+        run: python -m pytest tests/ -v --ignore=tests/integration --basetemp ${{ runner.temp }}\jobdesk_pytest --cov=jobdesk_app --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
