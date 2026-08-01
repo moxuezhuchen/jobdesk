@@ -120,7 +120,15 @@ not start the compatibility period, and does not start Phase F.
   non-integration coverage command. In the same no-deps environment, the
   exact corrected command passed `1832 passed, 28 skipped, 6 deselected` with
   XML coverage output. The fix is CI-only and does not alter the control
-  backend or the real WSL acceptance chain; the new remote Gate is pending.
+  backend or the real WSL acceptance chain.
+- After pushing `25c6166` and the separate record commit `8a6131f`, remote
+  lint, type-check, build, and PyInstaller succeeded, but all three remote
+  coverage jobs still failed after normal test-duration execution. The same
+  corrected no-deps command passed on live `origin/main` (`1824 passed, 28
+  skipped, 6 deselected`) and on this candidate (`1832 passed, 28 skipped, 6
+  deselected`). The remaining blocker is therefore a CI-only failure whose
+  assertion/log body is unavailable to the current unauthenticated GitHub
+  API/browser session; no further code change is inferred or made.
 
 #### Compatibility-cycle prerequisites (not started)
 
