@@ -35,6 +35,7 @@ from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError, build_confflow_preflight_shell
+from jobdesk_app.remote.scheduler import ResourceSpec, SchedulerAdapter, make_adapter
 from jobdesk_app.services.confflow_control import (
     CONTROL_BACKEND,
     LEGACY_BACKEND,
@@ -52,7 +53,12 @@ from jobdesk_app.services.confflow_control import (
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_coordinator import RunCoordinator, RunOperationOutcome
-from jobdesk_app.services.ssh_confflow_control import SSHControlTransport, resolve_control_state_root
+from jobdesk_app.services.ssh_confflow_control import (
+    SSHControlTransport,
+    build_control_execute_command,
+    build_control_launcher_script,
+    resolve_control_state_root,
+)
 
 
 class SSHConfFlowClient:
@@ -65,12 +71,14 @@ class SSHConfFlowClient:
         *,
         control_transport_factory: Callable[[str, str], ControlTransport] | None = None,
         control_capability_factory: Callable[[], str] | None = None,
+        scheduler_factory: Callable[[str], SchedulerAdapter] | None = None,
         backend_mode: str | None = None,
     ) -> None:
         self._coordinator = coordinator
         self._server_id = server_id
         self._control_transport_factory = control_transport_factory
         self._control_capability_factory = control_capability_factory
+        self._scheduler_factory = scheduler_factory or make_adapter
         self._selected_backend: str | None = None
         self._selected_state_locator: str | None = None
         self._selected_capability: ConfFlowCapabilities | None = None
@@ -104,6 +112,7 @@ class SSHConfFlowClient:
             )
         state = load_state(self._coordinator.service, run_id)
         if state is not None and state.get("backend") == CONTROL_BACKEND:
+            state = self._reconcile_control_dispatch(record, state)
             return SSHControlRunHandle(self, _reference_for(record, self._provenance(run_id), state))
         return SSHRemoteRunHandle(
             self._coordinator,
@@ -189,6 +198,24 @@ class SSHConfFlowClient:
 
     def _submit_control(self, request: SubmitRequest, record: Any, state: dict[str, object] | None):
         try:
+            if state is not None:
+                state = self._reconcile_control_dispatch(record, state)
+                dispatch_state = state.get("dispatch_state")
+                if dispatch_state == "submitted":
+                    return self.attach(request.run_id), RunOperationOutcome(
+                        records=[self._coordinator.service.load_run(request.run_id)],
+                        submit_results=[
+                            SubmitResult(
+                                batch_id=request.run_id,
+                                submitted_task_count=0,
+                                remote_batch_dir=record.remote_dir,
+                            )
+                        ],
+                    )
+                if dispatch_state == "dispatching":
+                    raise ConfFlowClientError(
+                        "control launcher dispatch is unresolved; refusing duplicate submission"
+                    )
             tasks = self._coordinator.service.repository.load_tasks(request.run_id)
             capability = self._selected_capability
             if capability is None and state is not None:
@@ -232,6 +259,8 @@ class SSHConfFlowClient:
                 save_state(self._coordinator.service, request.run_id, state)
 
             with self._control_session(request.run_id, state_locator, need_sftp=True) as (transport, sftp, ssh):
+                if sftp is None:
+                    raise ConfFlowClientError("control launcher submission requires an SFTP session")
                 if sftp is not None:
                     _upload_input_manifest(sftp, record.remote_dir, input_manifest_bytes)
                 prepared = transport.prepare(request_frame)
@@ -247,26 +276,79 @@ class SSHConfFlowClient:
                     input_path=posixpath.join(record.remote_dir, ".jobdesk-control", "input-manifest.json"),
                 )
                 save_state(self._coordinator.service, request.run_id, durable)
-                executed = transport.execute(request.run_id)
-                durable = _control_state(
-                    request.run_id,
-                    state_locator=state_locator,
-                    capability=capability,
-                    producer_identity=producer_identity,
-                    request_frame=request_frame,
-                    snapshot=executed,
-                    previous=durable,
-                    workflow_path=workflow_path,
-                    input_path=str(durable["input_manifest_path"]),
+                self._apply_control_snapshot(prepared)
+
+                scheduler_type, resources, env_init_scripts = self._launcher_scheduler_details(
+                    record, request.resource_overrides
                 )
-                save_state(self._coordinator.service, request.run_id, durable)
-            self._apply_control_snapshot(executed)
-            self._mark_control_submitted(request.run_id)
+                launcher_dir = posixpath.join(record.remote_dir.rstrip("/"), ".jobdesk-control", "launcher")
+                script_path = posixpath.join(launcher_dir, f"{request.run_id}.sh")
+                metadata_path = posixpath.join(launcher_dir, f"{request.run_id}.json")
+                log_path = posixpath.join(launcher_dir, ".jobdesk_submit.log")
+                command = build_control_execute_command(
+                    self._launcher_executable(record, state, tasks), state_locator, request.run_id
+                )
+                script = build_control_launcher_script(
+                    executable=self._launcher_executable(record, state, tasks),
+                    state_root=state_locator,
+                    run_id=request.run_id,
+                    metadata_path=metadata_path,
+                    scheduler_type=scheduler_type,
+                    resources=resources,
+                    env_init_scripts=env_init_scripts,
+                )
+                sftp.mkdir_p(launcher_dir)
+                with tempfile.TemporaryDirectory(prefix="jobdesk-control-launcher-") as temp_dir:
+                    local_script = Path(temp_dir) / f"{request.run_id}.sh"
+                    script_bytes = script.encode("utf-8")
+                    local_script.write_bytes(script_bytes)
+                    sftp.upload_file(local_script, script_path, overwrite=True)
+                launcher = {
+                    "content_schema": "jobdesk.confflow.launcher.v1",
+                    "run_id": request.run_id,
+                    "scheduler_type": scheduler_type,
+                    "script_path": script_path,
+                    "metadata_path": metadata_path,
+                    "log_path": log_path,
+                    "state_root": state_locator,
+                    "command": command,
+                    "script_sha256": hashlib.sha256(script_bytes).hexdigest(),
+                    "script_size": len(script_bytes),
+                }
+                dispatching = deepcopy(durable)
+                dispatching.update(
+                    {
+                        "dispatch_state": "dispatching",
+                        "scheduler_type": scheduler_type,
+                        "launcher": launcher,
+                    }
+                )
+                save_state(self._coordinator.service, request.run_id, dispatching)
+
+                scheduler = self._scheduler_factory(scheduler_type)
+                scheduler_job_id = scheduler.submit(ssh, script_path, resources)
+                if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
+                    raise ConfFlowClientError("scheduler adapter returned an empty control launcher job id")
+                submitted = deepcopy(dispatching)
+                submitted.update(
+                    {
+                        "dispatch_state": "submitted",
+                        "scheduler_job_id": scheduler_job_id,
+                    }
+                )
+                submitted_launcher = dict(launcher)
+                submitted_launcher["scheduler_job_id"] = scheduler_job_id
+                submitted["launcher"] = submitted_launcher
+                save_state(self._coordinator.service, request.run_id, submitted)
+            self._mark_control_submitted(request.run_id, scheduler_type, scheduler_job_id)
             result = SubmitResult(
                 batch_id=request.run_id,
                 submitted_task_count=len(tasks),
                 remote_batch_dir=record.remote_dir,
-                control_nohup_log_path="",
+                control_log_path=log_path,
+                control_nohup_log_path=log_path if scheduler_type == "nohup" else "",
+                control_script_path=script_path,
+                nohup_command=command if scheduler_type == "nohup" else "",
                 updated_task_ids=[task.task_id for task in tasks],
             )
             return self.attach(request.run_id), RunOperationOutcome(
@@ -319,7 +401,8 @@ class SSHConfFlowClient:
     @contextmanager
     def _control_session(self, run_id: str, state_locator: str, *, need_sftp: bool):
         if self._control_transport_factory is not None:
-            yield self._control_transport_factory(run_id, state_locator), None, None
+            transport = self._control_transport_factory(run_id, state_locator)
+            yield transport, getattr(transport, "sftp", None), getattr(transport, "ssh", None)
             return
         server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001
         executable = str(getattr(server, "confflow_executable", "") or "")
@@ -448,7 +531,7 @@ class SSHConfFlowClient:
             producer_state=producer_snapshot.state,
         )
 
-    def _mark_control_submitted(self, run_id: str) -> None:
+    def _mark_control_submitted(self, run_id: str, scheduler_type: str, scheduler_job_id: str) -> None:
         service = self._coordinator.service
         now = datetime.now()
 
@@ -457,8 +540,8 @@ class SSHConfFlowClient:
                 task.model_copy(
                     update={
                         "submitted_at": task.submitted_at or now,
-                        "scheduler_type": "control",
-                        "remote_job_id": f"control:{run_id}",
+                        "scheduler_type": scheduler_type,
+                        "remote_job_id": scheduler_job_id,
                     },
                     deep=True,
                 )
@@ -466,6 +549,124 @@ class SSHConfFlowClient:
             ]
 
         service.repository.mutate_tasks(run_id, mutation)
+
+    def _launcher_scheduler_details(self, record: Any, overrides: dict[str, object] | None):
+        raw_resources = dict(getattr(record, "resources", {}) or {})
+        scheduler_type = str(getattr(record, "scheduler_type", "nohup") or "nohup").lower()
+        env_init_scripts = list(getattr(record, "env_init_scripts", []) or [])
+        server = None
+        try:
+            server = self._coordinator._server_lookup(record.server_id)  # noqa: SLF001
+        except AttributeError:
+            pass
+        if server is not None:
+            scheduler_config = getattr(server, "scheduler", None)
+            if not raw_resources:
+                scheduler_type = str(getattr(scheduler_config, "type", scheduler_type) or scheduler_type).lower()
+            if not env_init_scripts:
+                env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
+            if not raw_resources:
+                raw_resources = {
+                    "cpus": getattr(scheduler_config, "default_cpus", 1),
+                    "memory_mb": getattr(scheduler_config, "default_memory_mb", 2048),
+                    "walltime_minutes": getattr(scheduler_config, "default_walltime_minutes", 1440),
+                    "partition": getattr(scheduler_config, "default_partition", ""),
+                    "account": getattr(scheduler_config, "default_account", ""),
+                    "gpus": getattr(scheduler_config, "default_gpus", 0),
+                    "extra_directives": list(getattr(scheduler_config, "extra_directives", []) or []),
+                }
+        if overrides:
+            raw_resources.update(overrides)
+        scheduler_type = _canonical_scheduler_type(scheduler_type)
+        resources = ResourceSpec.from_dict(raw_resources)
+        record.scheduler_type = scheduler_type
+        record.resources = {
+            "cpus": resources.cpus,
+            "memory_mb": resources.memory_mb,
+            "walltime_minutes": resources.walltime_minutes,
+            "partition": resources.partition,
+            "account": resources.account,
+            "gpus": resources.gpus,
+            "extra_directives": list(resources.extra_directives),
+        }
+        record.env_init_scripts = env_init_scripts
+        self._coordinator.service.repository.update_run(record)
+        return scheduler_type, resources, env_init_scripts
+
+    def _launcher_executable(self, record: Any, state: dict[str, object], tasks: Iterable[Any]) -> str:
+        try:
+            server = self._coordinator._server_lookup(record.server_id)  # noqa: SLF001
+        except AttributeError:
+            server = None
+        if server is not None:
+            configured = str(getattr(server, "confflow_executable", "") or "")
+            if configured:
+                return configured
+        capability = state.get("capability")
+        if isinstance(capability, dict):
+            executable = capability.get("executable")
+            if isinstance(executable, dict):
+                path = executable.get("path")
+                if isinstance(path, str) and path:
+                    return path
+        for task in tasks:
+            executable = getattr(task, "confflow_executable", "")
+            if isinstance(executable, str) and executable:
+                return executable
+        return "confflow"
+
+    def _reconcile_control_dispatch(self, record: Any, state: dict[str, object]) -> dict[str, object]:
+        if state.get("backend") != CONTROL_BACKEND or state.get("dispatch_state") != "dispatching":
+            return state
+        launcher = state.get("launcher")
+        if not isinstance(launcher, dict):
+            raise ConfFlowClientError("control launcher dispatch has no durable launcher provenance")
+        metadata_path = launcher.get("metadata_path")
+        if not isinstance(metadata_path, str) or not metadata_path.startswith("/"):
+            raise ConfFlowClientError("control launcher dispatch has an invalid metadata locator")
+        state_locator = _state_locator(state)
+        if not state_locator:
+            raise ConfFlowClientError("control launcher dispatch has no producer state locator")
+        with self._control_session(record.run_id, state_locator, need_sftp=True) as (_transport, sftp, _ssh):
+            if sftp is None:
+                return state
+            try:
+                if hasattr(sftp, "stat") and sftp.stat(metadata_path) is None:
+                    return state
+                raw = sftp.read_file_bytes(metadata_path, max_bytes=65536)
+            except (FileNotFoundError, KeyError):
+                return state
+        try:
+            marker = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ConfFlowClientError("control launcher metadata is malformed JSON") from exc
+        if not isinstance(marker, dict):
+            raise ConfFlowClientError("control launcher metadata must be a JSON object")
+        if marker.get("content_schema") != "jobdesk.confflow.launcher.v1":
+            raise ConfFlowClientError("control launcher metadata has an unsupported schema")
+        if marker.get("run_id") != record.run_id:
+            raise ConfFlowClientError("control launcher metadata run_id does not match durable state")
+        if marker.get("state_root") != state_locator:
+            raise ConfFlowClientError("control launcher metadata state root does not match durable state")
+        if marker.get("command") != launcher.get("command"):
+            raise ConfFlowClientError("control launcher metadata command does not match durable provenance")
+        marker_scheduler = marker.get("scheduler_type")
+        if _canonical_scheduler_type(str(marker_scheduler or "")) != _canonical_scheduler_type(
+            str(state.get("scheduler_type", "nohup"))
+        ):
+            raise ConfFlowClientError("control launcher metadata scheduler type does not match durable state")
+        scheduler_job_id = marker.get("scheduler_job_id") or marker.get("pid")
+        if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
+            raise ConfFlowClientError("control launcher metadata has no scheduler job id or pid")
+        updated = deepcopy(state)
+        updated["dispatch_state"] = "submitted"
+        updated["scheduler_job_id"] = scheduler_job_id
+        updated_launcher = dict(launcher)
+        updated_launcher["scheduler_job_id"] = scheduler_job_id
+        updated["launcher"] = updated_launcher
+        save_state(self._coordinator.service, record.run_id, updated)
+        self._mark_control_submitted(record.run_id, _canonical_scheduler_type(str(marker_scheduler)), scheduler_job_id)
+        return updated
 
 
 class SSHControlRunHandle:
@@ -735,6 +936,17 @@ def _state_key(state: dict[str, object] | None, run_id: str) -> str:
 def _optional_string(state: dict[str, object] | None, key: str) -> str | None:
     value = state.get(key) if state else None
     return value if isinstance(value, str) and value else None
+
+
+def _canonical_scheduler_type(value: str) -> str:
+    normalized = (value or "nohup").lower()
+    if normalized in {"slurm", "sbatch"}:
+        return "slurm"
+    if normalized in {"pbs", "torque", "qsub"}:
+        return "pbs"
+    if normalized == "nohup":
+        return "nohup"
+    raise ValueError(f"Unknown scheduler type: {value}")
 
 
 def _capability_payload(capabilities: ConfFlowCapabilities | None) -> dict[str, object] | None:
