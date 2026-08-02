@@ -3,7 +3,9 @@
 ## 周期边界与不可变 provenance
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`
-- JobDesk `main`：`9904cbaae078344bb35162f3ddee354b1acd040c`
+- `cycle_start_jobdesk_main`：`9904cbaae078344bb35162f3ddee354b1acd040c`
+- `current_audit_jobdesk_main`：`ad5c6263ff02690f20e8f25b92303b533b13e284`
+- `current_audit_confflow_main`：`0c7d804b297a2c3205741996ebfc1f12d070942b`
 - ConfFlow 发布：`v1.5.0`
   - annotated tag object：`5333d4854aa9d430221f3e16f5c36461010a2b3e`
   - peeled commit：`0fff6439a4614ec155959b1d0d3781fc5342d736`
@@ -43,20 +45,40 @@ JobDesk `main` 的正式 wheel 验收结果：
 
 正式发布 artifacts 已发布并远端验证；`v1.4.6` 环境保留，`v1.4.6` tag 未修改。
 
-## 兼容周期观察指标
+## 样本边界
+
+本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
+
+- 当前只有 synthetic/non-compute control lifecycle 与 stable `v1.4.6` probe。
+- 当前没有兼容周期内真实 JobDesk `control` 或 `legacy` run 样本；本地历史运行记录不在本周期起始时间之后，不能作为本周期样本。
+- “暂无可观察样本”不等于“零故障”，不得将缺少样本写成零故障或零 fallback。
+- synthetic/non-compute 结果只证明协议、状态和 artifact 合约在该测试范围内可观察，不代表真实计算成功率。
+
+## 兼容周期观察指标（按 backend 分层）
 
 周期内持续记录并按 backend 分层：
 
-- 各 backend 的 run 数量，以及 unsupported-protocol fallback 次数与 reason code；
-- protocol、attach/reconnect、cursor/revision 失败；
+- `control` / `legacy` 各自的实际 run 数量与 backend 选择结果；
+- unsupported-protocol fallback 数量、reason code，以及 fallback 是否符合 stable `v1.4.6` 预期；
+- unexpected fallback，特别是已选择 `control` 的 run 是否曾降级到 `legacy`；
+- protocol negotiation、typed error、malformed JSON、unknown major 的 fail-closed 结果；
+- attach/reconnect、cursor replay、revision 单调性与 terminal non-regression；
 - duplicate/idempotency conflict；
-- resume/cancel 结果；
-- artifact manifest/download integrity 失败；
-- 周期结束时仍在使用 legacy backend 的比例与原因；
-- control typed error、malformed JSON、unknown major 的 fail-closed 计数。
+- cancel/resume 结果、重试次数与失败原因；
+- artifact manifest path/digest/size/content-schema/download integrity failure；
+- agent SQLite 读取或 producer state 双写证据；
+- rollback 到 stable `v1.4.6` 的 legacy 可用性、producer state 隔离与恢复证据。
 
-本周期起始验收基线为：control 与 legacy 双 backend 各有明确、可追溯的选择结果；正式 control synthetic lifecycle 通过；未观察到意外 fallback、SQLite 读写或 artifact integrity failure。生产周期统计以实际 JobDesk 运行数据为准，不把本次 synthetic 验收冒充真实计算成功。
+当前起始基线仅为：`control` synthetic/non-compute lifecycle 选择并保持 `control`，stable `v1.4.6` probe 选择 `legacy`；这两项是可追溯的验收/探针结果，不是兼容周期运行统计。生产周期统计必须来自实际 JobDesk 运行数据，并分别填写 `control` 与 `legacy`；在获得真实样本前，相关栏位应记录为“暂无样本”，不能推导零故障。
+
+## 当前未满足的 Phase F 条件
+
+- 完整兼容发布周期尚未结束。
+- `control` / `legacy` 分层的真实运行、fallback、reconnect、cursor、cancel/resume、artifact integrity 指标尚无样本。
+- 支持 launcher 路径的真实 control acceptance 未完成。
+- complete live rollback/recovery evidence 未完成。
+- agent 保留/弃用决策材料未完成。
 
 ## Phase F 边界
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)，其中所有实际运行步骤均待单独授权。
