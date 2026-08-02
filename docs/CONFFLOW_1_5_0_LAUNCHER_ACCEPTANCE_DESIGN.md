@@ -15,7 +15,7 @@ The proposed acceptance is Route B compatibility observation work only. It is no
 - ConfFlow `v1.5.0` wheel SHA256: `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`
 - Stable rollback `v1.4.6` wheel SHA256: `7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`
 
-The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the [post-M2 plan](superpowers/plans/2026-07-29-jobdesk-confflow-post-m2-improvements.md).
+The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the public post-M2 compatibility plan.
 
 ## Current call chain and the launcher gap
 
