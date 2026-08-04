@@ -30,6 +30,7 @@ package = [
 ]
 dev = [
     "build>=1.2",
+    "jsonschema>=4.23,<5.0",
     "mypy>=1.10",
     # ConfFlow's top-level __init__ transitively imports
     # numpy, so the CI runner needs a numpy wheel. Two constraints
