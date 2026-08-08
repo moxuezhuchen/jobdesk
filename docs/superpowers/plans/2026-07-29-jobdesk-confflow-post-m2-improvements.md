@@ -2,6 +2,28 @@
 
 **Date:** 2026-07-29
 
+## Execution status (2026-08-08 continuation)
+
+The current consumer reference is ConfFlow `v1.5.0`, producer commit
+`0fff6439a4614ec155959b1d0d3781fc5342d736`, wheel SHA-256
+`d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`, with
+stable `v1.4.6` retained only as the exact legacy rollback exception. The
+isolated JobDesk continuation is based on commit `6e048c3` plus the review-fix
+commit recorded in this branch; the ConfFlow contract workflow was green at
+run `31242460044` for PR #50 before the additional local provenance/schema
+parity steps (`cc4a401`, `fd2ea06`), which have not been rerun remotely. The JobDesk
+candidate matrix is implemented locally but has not been published, so its
+remote result is still pending.
+
+Direct v1.5.0 Gaussian/g16 and ORCA probes completed, but they are not JobDesk
+SSH compatibility-period samples. The JobDesk SSH/SFTP acceptance attempt was
+blocked by the WSL listener's `Exceeded MaxStartups`/`rtnl_dumpit` failure, and
+the pinned producer's `control execute` currently returns a queued launch
+intent until an external worker handoff is supplied. Therefore the formal
+decision remains **COMPATIBILITY PERIOD CONTINUES**: keep both backends and
+the v1.4.6 rollback path; do not mark Phase F ready or delete compatibility
+code.
+
 ## Execution status (2026-08-01)
 
 The release-closure track in sections 3, 4, and 8.1 is **complete**, with the
@@ -785,6 +807,11 @@ RFC 必须包含 request/response JSON Schema、状态转换表、error code reg
 ## 8. 验收标准总结
 
 ### 8.1 ConfFlow 1.4.4 release closure
+
+This checklist is the historical 1.4.4/1.4.6 release-closure record. The
+current v1.5.0 consumer reference, v1.4.6 legacy exception, and review status
+are recorded at the top of this plan; the post-M2 control track is tracked in
+§8.2 below.
 
 以下项目全部完成后，才可宣布 M2-4 / 1.4.4 release closure：
 

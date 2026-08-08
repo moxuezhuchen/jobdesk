@@ -31,7 +31,10 @@ from jobdesk_app.core.confflow_executable import (
     build_executable_identity_probe,
     parse_executable_identity_probe,
 )
-from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
+from jobdesk_app.core.confflow_preflight import (
+    ConfFlowCapabilities,
+    validate_confflow_production_capability,
+)
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError, build_confflow_preflight_shell
@@ -198,6 +201,7 @@ class SSHConfFlowClient:
 
     def _submit_control(self, request: SubmitRequest, record: Any, state: dict[str, object] | None):
         try:
+            retrying_failed_dispatch = False
             if state is not None:
                 state = self._reconcile_control_dispatch(record, state)
                 dispatch_state = state.get("dispatch_state")
@@ -216,6 +220,7 @@ class SSHConfFlowClient:
                     raise ConfFlowClientError(
                         "control launcher dispatch is unresolved; refusing duplicate submission"
                     )
+                retrying_failed_dispatch = dispatch_state == "failed"
             tasks = self._coordinator.service.repository.load_tasks(request.run_id)
             capability = self._selected_capability
             if capability is None and state is not None:
@@ -224,6 +229,22 @@ class SSHConfFlowClient:
             state_locator = _state_locator(state) or self._selected_state_locator
             if not state_locator:
                 raise ConfFlowClientError("control backend has no durable producer state locator")
+            if retrying_failed_dispatch:
+                # A launcher can fail after the producer has already consumed
+                # the execute intent.  The producer's prepare response is
+                # required to remain ``prepared``, so blindly preparing again
+                # would turn a retry into a protocol error or duplicate work.
+                with self._control_session(request.run_id, state_locator, need_sftp=False) as (
+                    transport,
+                    _sftp,
+                    _ssh,
+                ):
+                    producer_snapshot = transport.status(request.run_id)
+                if producer_snapshot.state != "prepared":
+                    raise ConfFlowClientError(
+                        "control launcher failed after producer reached "
+                        f"{producer_snapshot.state}; refusing duplicate prepare"
+                    )
             if not producer_identity:
                 if capability is None:
                     raise ConfFlowClientError("control backend has no accepted producer identity")
@@ -365,6 +386,29 @@ class SSHConfFlowClient:
         if self._backend_mode == LEGACY_BACKEND:
             self._selected_backend = LEGACY_BACKEND
             return
+        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        try:
+            validate_confflow_production_capability(
+                capabilities,
+                expected_executable=executable or None,
+            )
+        except ValueError as control_error:
+            if self._backend_mode == CONTROL_BACKEND:
+                raise
+            # Auto mode may still select the compatibility-period legacy
+            # backend, but only after the exact stable v1.4.6 provenance gate
+            # passes. A newer or unverified producer must fail closed.
+            try:
+                validate_confflow_production_capability(
+                    capabilities,
+                    expected_executable=executable or None,
+                    allow_legacy_stable=True,
+                )
+            except ValueError:
+                raise control_error
+            self._selected_backend = LEGACY_BACKEND
+            return
         if self._backend_mode == CONTROL_BACKEND and self._control_capability_factory is not None:
             self._selected_state_locator = self._control_capability_factory()
             self._selected_backend = CONTROL_BACKEND
@@ -373,8 +417,6 @@ class SSHConfFlowClient:
             self._selected_backend = CONTROL_BACKEND
             self._selected_state_locator = "/tmp/confflow-control"
             return
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
-        executable = str(getattr(server, "confflow_executable", "") or "")
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
         try:
             with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
@@ -655,14 +697,39 @@ class SSHConfFlowClient:
             str(state.get("scheduler_type", "nohup"))
         ):
             raise ConfFlowClientError("control launcher metadata scheduler type does not match durable state")
+        execution_state = marker.get("execution_state")
+        execute_rc = marker.get("execute_rc")
+        # Markers written by the first launcher implementation predate the
+        # explicit execution fields; retain their successful response-loss
+        # recovery semantics. New markers must prove completion before they
+        # become a submitted dispatch.
+        if execution_state is not None:
+            if not isinstance(execution_state, str) or execution_state not in {"started", "completed", "failed"}:
+                raise ConfFlowClientError("control launcher metadata has an invalid execution state")
+            if execution_state == "started":
+                return state
+            if type(execute_rc) is not int or execute_rc < 0:
+                raise ConfFlowClientError("control launcher metadata has no execution return code")
+            if execution_state == "completed" and execute_rc != 0:
+                raise ConfFlowClientError("control launcher metadata has inconsistent completion status")
+            if execution_state == "failed" and execute_rc == 0:
+                raise ConfFlowClientError("control launcher metadata has inconsistent failure status")
         scheduler_job_id = marker.get("scheduler_job_id") or marker.get("pid")
         if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
             raise ConfFlowClientError("control launcher metadata has no scheduler job id or pid")
         updated = deepcopy(state)
-        updated["dispatch_state"] = "submitted"
-        updated["scheduler_job_id"] = scheduler_job_id
         updated_launcher = dict(launcher)
         updated_launcher["scheduler_job_id"] = scheduler_job_id
+        if execution_state is not None:
+            updated_launcher["execution_state"] = execution_state
+            updated_launcher["execute_rc"] = execute_rc
+        if execution_state == "failed":
+            updated["dispatch_state"] = "failed"
+            updated["launcher"] = updated_launcher
+            save_state(self._coordinator.service, record.run_id, updated)
+            return updated
+        updated["dispatch_state"] = "submitted"
+        updated["scheduler_job_id"] = scheduler_job_id
         updated["launcher"] = updated_launcher
         save_state(self._coordinator.service, record.run_id, updated)
         self._mark_control_submitted(record.run_id, _canonical_scheduler_type(str(marker_scheduler)), scheduler_job_id)
@@ -990,6 +1057,16 @@ def _control_state(
 
 
 def _input_manifest(record: Any, tasks: Iterable[Any]) -> dict[str, object]:
+    """Build JobDesk's launcher journal for the pending worker handoff.
+
+    This is deliberately *not* the producer's
+    ``confflow.control.input-manifest.v1``.  At this boundary JobDesk has only
+    persisted remote names, not the remote byte digests and sizes required by
+    that producer schema; the external worker handoff must construct and
+    verify the producer manifest after staging the files.  The digest of this
+    private journal is retained in the durable JobDesk state so a retry cannot
+    silently change the pending request.
+    """
     return {
         "content_schema": "jobdesk.confflow.input-manifest.v1",
         "run_id": record.run_id,
@@ -1052,21 +1129,18 @@ def _is_local_terminal(status: TaskStatus) -> bool:
 def _validate_event_page_cursor(page: ControlEventPage, cursor: str | None) -> None:
     if cursor is not None and not is_valid_cursor(cursor):
         raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
+    # Cursor values are opaque by contract; only the producer can interpret
+    # them.  The parser already validates strict revision order within this
+    # page, while the producer applies ``after`` when serving the request.
     previous = -1
     for event in page.events:
         if event.revision <= previous:
             raise ControlProtocolError("events", "invalid_request", "event revisions are not strictly increasing")
-        if cursor is not None and event.revision <= _cursor_revision(cursor):
-            raise ControlProtocolError("events", "invalid_request", "event page repeats data before the cursor")
+        if cursor is not None and event.cursor == cursor:
+            raise ControlProtocolError("events", "invalid_request", "event page repeats the requested cursor")
         previous = event.revision
     if page.next_cursor is not None and page.events and page.next_cursor != page.events[-1].cursor:
         raise ControlProtocolError("events", "invalid_request", "next_cursor does not match the final event")
-
-
-def _cursor_revision(cursor: str) -> int:
-    if not is_valid_cursor(cursor):
-        raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
-    return int(cursor[1:])
 
 
 def _artifact_entries(artifacts: Iterable[ControlArtifact]) -> tuple[ArtifactEntry, ...]:

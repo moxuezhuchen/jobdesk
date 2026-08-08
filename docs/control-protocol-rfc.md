@@ -1,89 +1,113 @@
-# ConfFlow Control Protocol RFC
+# ConfFlow control protocol v1 consumer record
 
-- **Status:** Phase B design freeze
+- **Status:** consumer snapshot of the released producer contract
+- **Producer release:** `v1.5.0`
+- **Producer commit:** `0fff6439a4614ec155959b1d0d3781fc5342d736`
+- **Producer wheel:** `confflow-1.5.0-py3-none-any.whl`
+- **Wheel SHA-256:** `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`
 - **Protocol:** `confflow.control.v1`
 - **Schema dialect:** JSON Schema Draft 2020-12
-- **Owner:** ConfFlow producer repository; JobDesk consumes pinned release bundles
 
-## Scope
+JobDesk does not define a second control protocol. The authoritative producer
+bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
+repository vendors the same four JSON documents under
+`confflow/schemas/control/` so the consumer tests and CI can validate requests
+and responses without a checkout of the producer repository. The snapshot is
+checked by `tests/test_control_protocol_schemas.py` using canonical JSON
+digests; changing a schema requires a new pinned producer release and a review
+of the cross-repository contract.
 
-This RFC freezes the JSON shapes for the eight one-shot operations below. It does not add a CLI entry point, implement `ExecutionService`, modify the legacy SSH/file backend, or change current runtime behavior.
+## Bundle
 
-```text
-confflow control capabilities --json
-confflow control prepare --request <request.json> --json
-confflow control execute --run-id <id> --json
-confflow control status --run-id <id> --json
-confflow control events --run-id <id> --after <cursor> --json
-confflow control cancel --run-id <id> --json
-confflow control resume --run-id <id> [--checkpoint <id>] --json
-confflow control artifacts --run-id <id> --json
-```
+- `common.schema.json`: protocol identifiers, state, error, digest, locator,
+  and artifact definitions.
+- `requests.schema.json`: the eight operation request shapes (`capabilities`,
+  `prepare`, `execute`, `status`, `events`, `cancel`, `resume`, and
+  `artifacts`).
+- `responses.schema.json`: the corresponding response envelope with
+  `protocol_schema`, `operation`, `ok`, snapshots, typed errors, event pages,
+  and artifact manifests.
+- `input-manifest.schema.json`: the ordered input file manifest referenced by
+  `prepare`.
 
-The authoritative machine-readable definitions are the eight files in `confflow/schemas/control/`. Examples in this RFC are tested by `tests/test_control_protocol_schemas.py`. JobDesk adds `jsonschema` only to its development extras so fixtures validate Draft 2020-12 documents; it is not a runtime entry point or protocol implementation dependency.
+The producer response envelope uses `state` (not `status`) and advertises
+`supported_protocols` (not an operation list). A `prepare` request carries
+content locators (`workflow_config` and `input_manifest`) plus
+`expected_executable_identity`; the request digest binds the complete semantic
+frame. These names are intentionally mirrored by
+`jobdesk_app.services.confflow_control`.
 
-## Envelope and identity
+The current JobDesk `.jobdesk-control/input-manifest.json` is a private
+launcher journal (`jobdesk.confflow.input-manifest.v1`) because the consumer
+has only persisted remote names at this boundary. It is not the producer
+`confflow.control.input-manifest.v1` document. An external worker handoff must
+stage the files, compute their byte digests/sizes, and construct the producer
+manifest before invoking a real calculation.
 
-Every response has `protocol_schema: confflow.control.v1`, a non-negative integer `revision`, a stable `run_id` where the operation is run-scoped, and an optional typed `error`. Human messages are presentation-only. Clients branch on `error.code`, never on message text.
+## Ownership and launcher boundary
 
-`prepare` accepts a client-generated `run_id`, idempotency key, workflow-config digest, input-manifest digest, and expected executable identity. The request digest is the canonical JSON digest of the complete request excluding transport metadata. The producer persists a durable prepared record without starting a process.
+ConfFlow owns durable run state, revisions, event cursors, idempotency, typed
+errors, and the output manifest. JobDesk owns upload/prepare/launch journaling
+and its local projection. The control command is foreground; `nohup`, Slurm,
+and PBS are launcher concerns in JobDesk and invoke the same producer
+`control execute` operation.
 
-## State ownership and transitions
+`prepared` is a durable producer record, not a running state. `execute` may
+return `queued` when an external worker owns the eventual calculation handoff;
+it must not be interpreted as a completed scientific calculation. JobDesk
+therefore keeps the legacy backend and the v1.4.6 rollback path until a real
+published compatibility cycle and launcher acceptance are complete.
 
-ConfFlow owns `pending`, `running`, `paused`, and terminal state transitions. JobDesk owns submission intent, upload/prepare/launch journal, and a monotonic local projection. A JobDesk projection never writes producer state.
+## State, revision, and recovery rules
 
-| From | Allowed transitions | Owner |
-|---|---|---|
-| `pending` | `running`, `cancelled` | ConfFlow |
-| `running` | `paused`, `completed`, `failed`, `cancelled` | ConfFlow |
-| `paused` | `running`, `cancelled`, `failed` | ConfFlow |
-| `completed` | none | ConfFlow |
-| `failed` | none | ConfFlow |
-| `cancelled` | none | ConfFlow |
+The producer is the sole state owner. Successful response states are
+constrained by the producer schema:
 
-`prepared` is a durable pre-execution record, not a running state. `execute` may transition it to `pending`/`running` according to the producer scheduler adapter, but must not daemonize or select a scheduler.
-
-## Revisions and event cursors
-
-Revisions are monotonically increasing per run and start at zero before the first durable record. Every accepted state mutation increments revision exactly once. Responses carrying an older revision are stale and must not overwrite a newer projection. Terminal revisions never regress.
-
-Event cursors are opaque, producer-issued, and totally ordered within a run. `events(after=x)` returns events strictly after `x`, preserves order, and returns a cursor that can be replayed after reconnect. An unknown cursor is a stable `cursor.invalid` error; replaying a consumed cursor is valid and idempotent.
-
-## Idempotency and recovery
-
-The same idempotency key with the same canonical request digest returns the original handle and revision without creating another run. The same key with a different digest returns `idempotency.conflict` and does not mutate state. If JobDesk persists locally after prepare failure, it retries by idempotency key, reattaches to the original prepared record, and either completes local persistence or cancels the still-prepared run. Prepared records never self-start.
-
-Concurrent execute requests resolve to one accepted transition; subsequent identical requests return the current snapshot. Invalid transitions return `state.invalid_transition`.
-
-## Error registry
-
-| Code | Meaning |
+| operation | allowed successful state |
 |---|---|
-| `request.invalid` | Schema or semantic request validation failed |
-| `run.not_found` | Run identifier is unknown |
-| `run.server_mismatch` | Run belongs to another server identity |
-| `idempotency.conflict` | Key is reused with a different request digest |
-| `state.invalid_transition` | Requested operation is not legal from current state |
-| `cursor.invalid` | Cursor is malformed, unknown, or from another run |
-| `checkpoint.not_found` | Checkpoint is unavailable |
-| `checkpoint.stale` | Checkpoint cannot be resumed from current revision |
-| `artifact.invalid_path` | Manifest contains an unsafe path |
-| `artifact.conflict` | Artifact targets duplicate or conflict |
-| `capability.unsupported` | Requested protocol capability is unavailable |
-| `internal.failure` | Sanitized producer failure; details are not contractual |
+| `prepare` | `prepared` |
+| `execute` | `queued`, `running`, `paused`, `completed`, `failed`, or `cancelled` |
+| `status`, `events` | any declared state |
+| `cancel` | `cancelled` |
+| `resume` | `queued` or `running` |
+| `artifacts` | `completed`, `failed`, or `cancelled` |
 
-## Artifact path safety
+`revision` is a non-negative producer sequence and never moves backward.
+JobDesk may keep a local projection, but it must not write producer state or
+replace a newer snapshot with an older one. Event revisions are strictly
+increasing within a page. Event cursors are opaque strings matching the
+producer cursor grammar; the current implementation happens to emit `r`
+followed by a zero-padded revision, but consumers must not decode that form.
 
-Artifact paths are UTF-8 relative POSIX paths. Reject absolute paths, drive-letter paths, `..`, `.`, empty components, backslashes, duplicate paths, and two entries resolving to the same target. The producer must resolve every path below the run work directory before returning it. Consumers must verify the manifest again before download.
+`prepare` binds `run_id`, `idempotency_key`, the complete request digest, both
+content locators, and the expected executable identity. A retry with the same
+semantic frame is idempotent; a different frame for the same key is an
+`idempotency_conflict`. Once `execute` has consumed the prepared record,
+JobDesk reconciles by `status`/launcher metadata rather than issuing a second
+`prepare`; this keeps a lost launcher response from becoming duplicate work.
+The launcher marker is only a submission proof after it records an explicit
+successful execute exit code.
 
-## Compatibility policy
+The stable error registry is owned by `common.schema.json` and consists of:
+`invalid_request`, `unsupported_protocol`, `unknown_run`,
+`idempotency_conflict`, `invalid_state_transition`, `invalid_checkpoint`,
+`already_running`, `terminal_run`, `executable_identity_mismatch`,
+`artifact_path_invalid`, `artifact_integrity_failed`,
+`repository_unavailable`, and `internal`. Error responses always carry
+`ok: false` and the typed `{code, message, retryable}` object; success
+responses must not include an error object.
 
-A major protocol revision is breaking and requires an explicit migration. A minor revision may add optional fields only; readers must ignore unknown optional fields while writers must not make them required until the next major. Required-field, enum, state-transition, error-code, and path-safety changes are breaking. At least one released consumer migration cycle is retained for a minor revision.
+Artifact `path` values are relative POSIX paths with no empty, `.`, `..`,
+absolute, backslash, or repeated-slash segments. Artifact terminal names are
+single safe identifiers (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`). JobDesk verifies
+the manifest digest, size, path components, symlink status, and local target
+before downloading any selected file.
 
-## Scheduler boundary
+## Compatibility and safety
 
-The control adapter is a foreground process. `nohup`, Slurm, and PBS are launcher concerns owned by JobDesk or a scheduler adapter. They all invoke the same `execute` contract; the producer does not select, wrap, or daemonize the scheduler job.
-
-## Review decisions required before Phase C
-
-Reviewers must record agreement on producer ownership of state/revisions/events/artifacts, scheduler boundaries, the error-code compatibility period, and the dual-repository CI matrix. Phase C remains separately authorized and is not part of this RFC.
+Readers may ignore future optional fields, but required-field, state,
+error-code, identity, and artifact-path changes are breaking contract changes.
+Artifact paths are relative POSIX paths below the producer run directory; both
+producer and consumer validate them before download. Control submission is
+accepted only for the exact v1.5.0 production provenance. The stable v1.4.6
+exception is restricted to the legacy backend's compatibility-period preflight.

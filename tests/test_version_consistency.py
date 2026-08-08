@@ -27,6 +27,7 @@ from jobdesk_app.core import confflow_contract
 from jobdesk_app.core.confflow_contract import (
     MAX_EXCLUSIVE,
     MIN_VERSION,
+    REFERENCE_WHEEL_SHA256,
     ConfFlowArtifactContract,
     version_spec,
 )
@@ -78,6 +79,22 @@ def test_optional_coverage_uses_the_same_released_wheel():
     assert content.count("confflow-1.5.0-*.whl") == 1
     assert "d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc" in content
     assert "confflow.__version__ == '1.5.0'" in content
+
+
+def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
+    """The candidate matrix must not silently drift from its wheel digests."""
+    content = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    assert "version: 1.5.0" in content
+    assert "version: 1.5.1" in content
+    assert f"wheel_sha256: {REFERENCE_WHEEL_SHA256}" in content
+    assert "wheel_sha256: 5b3dc930acbf7df25ef298301c928051116c760658f9de95db0c3a5eff199008" in content
+    assert "EXPECTED_WHEEL_SHA256" in content
+    assert "candidate build provenance is not clean and pinned" in content
+    assert "producer/consumer schema drift" in content
+    assert 'python -m pip install "$wheel"' in content
+    assert 'pip install --no-deps "$wheel"' not in content
+    assert 'python-version: "3.13"' in content
+    assert "validate_confflow_capabilities(capabilities, require_dag=False)" in content
 
 
 def test_readme_states_version_spec():

@@ -25,6 +25,7 @@ from jobdesk_app.services.confflow_control import (
     parse_artifacts_response,
     parse_capabilities,
     parse_events_response,
+    parse_snapshot_response,
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
@@ -72,7 +73,7 @@ def test_control_parsers_fail_closed_on_unsupported_or_malformed_wire_data() -> 
                 revision=1,
                 state="running",
                 events=[{"cursor": "bad", "revision": 1, "type": "running"}],
-                next_cursor="bad",
+                next_cursor="bad/",
             ),
         )
     with pytest.raises(ControlProtocolError, match="out of order"):
@@ -90,6 +91,19 @@ def test_control_parsers_fail_closed_on_unsupported_or_malformed_wire_data() -> 
                 next_cursor="r00000000000000000002",
             ),
         )
+
+    page = parse_events_response(
+        "events",
+        _response(
+            "events",
+            run_id="run-1",
+            revision=2,
+            state="running",
+            events=[{"cursor": "cursor-2", "revision": 2, "type": "running"}],
+            next_cursor="cursor-2",
+        ),
+    )
+    assert page.next_cursor == "cursor-2"
 
 
 def test_stable_cli_without_control_protocol_selects_legacy_fallback() -> None:
@@ -132,11 +146,60 @@ def test_artifact_parser_rejects_traversal_and_nonterminal_manifest() -> None:
     with pytest.raises(ControlProtocolError, match="unsafe fields"):
         parse_artifacts_response("artifacts", response)
 
-    with pytest.raises(ControlProtocolError, match="not terminal"):
+    with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
         parse_artifacts_response(
             "artifacts",
             _response("artifacts", run_id="run-1", revision=1, state="running", artifacts=[]),
         )
+
+
+def test_control_parser_enforces_producer_operation_states_and_run_binding() -> None:
+    with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
+        parse_snapshot_response(
+            "prepare",
+            _response("prepare", run_id="run-1", revision=1, state="running"),
+        )
+    with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
+        parse_snapshot_response(
+            "cancel",
+            _response("cancel", run_id="run-1", revision=1, state="running"),
+        )
+    with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
+        parse_snapshot_response(
+            "resume",
+            _response("resume", run_id="run-1", revision=1, state="completed"),
+        )
+    with pytest.raises(ControlProtocolError, match="does not match requested run"):
+        parse_snapshot_response(
+            "status",
+            _response("status", run_id="run-2", revision=1, state="running"),
+            expected_run_id="run-1",
+        )
+    with pytest.raises(ControlProtocolError, match="snapshot fields are malformed"):
+        parse_snapshot_response(
+            "status",
+            _response("status", run_id="../run", revision=1, state="running"),
+        )
+
+
+def test_artifact_parser_rejects_unsafe_terminal_names() -> None:
+    response = _response(
+        "artifacts",
+        run_id="run-1",
+        revision=4,
+        state="completed",
+        artifacts=[
+            {
+                "terminal": "bad/name",
+                "path": "result.json",
+                "sha256": "a" * 64,
+                "size": 1,
+                "content_schema": "application/json",
+            }
+        ],
+    )
+    with pytest.raises(ControlProtocolError, match="unsafe fields"):
+        parse_artifacts_response("artifacts", response)
 
 
 @dataclass
@@ -261,8 +324,8 @@ def test_control_handle_persists_cursor_and_prevents_terminal_regression(tmp_pat
         ],
         event_page=ControlEventPage(
             ControlSnapshot("run-1", 1, "running"),
-            (ControlEvent("r00000000000000000001", 1, "running"),),
-            "r00000000000000000001",
+            (ControlEvent("cursor-1", 1, "running"),),
+            "cursor-1",
         ),
     )
     coordinator = type("Coordinator", (), {"service": service})()
@@ -275,9 +338,9 @@ def test_control_handle_persists_cursor_and_prevents_terminal_regression(tmp_pat
     handle = client.attach("run-1")
 
     page = handle.events()
-    assert page.next_cursor == "r00000000000000000001"
+    assert page.next_cursor == "cursor-1"
     assert transport.last_after is None
-    assert load_state(service, "run-1")["cursor"] == "r00000000000000000001"
+    assert load_state(service, "run-1")["cursor"] == "cursor-1"
 
     first = handle.status()
     second = handle.status()

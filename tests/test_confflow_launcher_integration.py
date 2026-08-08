@@ -14,7 +14,7 @@ from jobdesk_app.remote.scheduler import ResourceSpec
 from jobdesk_app.services.confflow_control import ControlArtifactManifest, ControlSnapshot
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient
+from jobdesk_app.services.ssh_confflow_client import ConfFlowClientError, SSHConfFlowClient
 
 
 class FakeSFTP:
@@ -170,6 +170,9 @@ def test_control_launcher_script_uses_existing_scheduler_headers(scheduler_type:
     assert "--state-root /tmp/jobdesk-control/state" in script
     assert "--run-id run-1" in script
     assert "/tmp/jobdesk-control/launcher.json" in script
+    assert '"execute_rc":null' in script
+    assert "completed_marker=\"${marker//$old_fragment/$new_fragment}\"" in script
+    assert "sed" not in script
     assert header in script
     assert "gaussian" not in script.lower()
     assert "g16" not in script.lower()
@@ -230,6 +233,46 @@ def test_dispatch_response_loss_reconciles_from_remote_launcher_marker(tmp_path,
     assert saved is not None
     assert saved["dispatch_state"] == "submitted"
     assert saved["scheduler_job_id"] == "12345"
+
+
+def test_failed_launcher_marker_is_not_reconciled_as_submitted(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_spec(), run_id="run-1")
+    _seed_control_state(service, "run-1")
+    sftp = FakeSFTP()
+    transport = FakeControlTransport(sftp)
+    scheduler = FakeScheduler(service=service, sftp=sftp, job_id="54321", lose_response=True)
+    client = _client(service, transport, scheduler)
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert outcome.errors
+    state = load_state(service, "run-1")
+    assert state is not None
+    launcher = state["launcher"]
+    assert isinstance(launcher, dict)
+    marker_path = str(launcher["metadata_path"])
+    marker = json.loads(sftp.files[marker_path].decode("utf-8"))
+    marker["execution_state"] = []
+    sftp.files[marker_path] = json.dumps(marker).encode("utf-8")
+    with pytest.raises(ConfFlowClientError, match="invalid execution state"):
+        client.attach("run-1")
+    marker.update({"execution_state": "failed", "execute_rc": 17})
+    sftp.files[marker_path] = json.dumps(marker).encode("utf-8")
+
+    recovered = client.attach("run-1")
+    assert recovered.run_id == "run-1"
+    failed = load_state(service, "run-1")
+    assert failed is not None
+    assert failed["dispatch_state"] == "failed"
+    assert failed["launcher"]["execute_rc"] == 17
+    assert "scheduler_job_id" not in failed
+
+    retry_handle, retry_outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert retry_handle is None
+    assert any("refusing duplicate prepare" in error for error in retry_outcome.errors)
+    assert len(scheduler.calls) == 1
 
 
 def test_local_provenance_save_failure_reconciles_without_duplicate_dispatch(tmp_path, monkeypatch) -> None:

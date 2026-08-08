@@ -29,7 +29,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # JobDesk's dev extra uses numpy<2 on Python 3.12, while the
+          # producer release requires numpy>=2.2.6. Python 3.13 selects the
+          # compatible numpy>=2.1,<2.4 branch for both repositories.
+          python-version: "3.13"
 
       - name: Install JobDesk test dependencies
         run: |
@@ -50,16 +53,22 @@ jobs:
           wheel="$RUNNER_TEMP/confflow-dist/confflow-${{ matrix.version }}-py3-none-any.whl"
           test -f "$wheel"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = "${{ matrix.wheel_sha256 }}"
-          python -m pip install --no-deps "$wheel"
+          # Install the producer runtime dependencies as well as the exact
+          # wheel; the capability CLI imports the normal workflow modules.
+          python -m pip install "$wheel"
 
       - name: Verify capability contract
         env:
           EXPECTED_VERSION: ${{ matrix.version }}
+          EXPECTED_WHEEL_SHA256: ${{ matrix.wheel_sha256 }}
         run: |
           python - <<'PY'
           import json
           import os
+          import re
           import subprocess
+          import sys
+          from pathlib import Path
 
           from jobdesk_app.core.confflow_preflight import (
               parse_confflow_capabilities,
@@ -67,14 +76,76 @@ jobs:
           )
 
           raw = subprocess.check_output(["confflow", "--capabilities", "--json"], text=True)
+          payload = json.loads(raw)
           capabilities = parse_confflow_capabilities(raw)
           validate_confflow_capabilities(capabilities, require_dag=False)
           expected = os.environ["EXPECTED_VERSION"]
+          expected_wheel_sha = os.environ["EXPECTED_WHEEL_SHA256"]
           if capabilities.version != expected:
               raise AssertionError(
                   f"capability version {capabilities.version!r} != wheel version {expected!r}"
               )
-          print(json.dumps({"version": capabilities.version, "wire_contract": "accepted"}))
+          build = payload.get("build")
+          if (
+              not isinstance(build, dict)
+              or not isinstance(build.get("commit"), str)
+              or re.fullmatch(r"[0-9a-f]{40}", build["commit"]) is None
+              or build.get("dirty") is not False
+          ):
+              raise AssertionError(f"candidate build provenance is not clean and pinned: {build!r}")
+          producer = payload.get("producer")
+          if not isinstance(producer, dict) or producer.get("package") != "confflow":
+              raise AssertionError(f"candidate producer provenance is malformed: {producer!r}")
+          if producer.get("version") != expected or producer.get("build") != build:
+              raise AssertionError(f"candidate producer/build provenance drift: {producer!r}")
+          wheel_provenance = producer.get("wheel")
+          if not isinstance(wheel_provenance, dict):
+              raise AssertionError(f"candidate wheel provenance is malformed: {wheel_provenance!r}")
+          expected_wheel_name = f"confflow-{expected}-py3-none-any.whl"
+          wheel_name = wheel_provenance.get("filename")
+          wheel_sha = wheel_provenance.get("sha256")
+          if wheel_name is not None and wheel_name != expected_wheel_name:
+              raise AssertionError(f"candidate wheel filename drift: {wheel_provenance!r}")
+          if wheel_sha is not None and wheel_sha != expected_wheel_sha:
+              raise AssertionError(f"candidate wheel digest drift: {wheel_provenance!r}")
+          install_provenance = payload.get("install_provenance") or producer.get("install_provenance")
+          if not isinstance(install_provenance, dict):
+              raise AssertionError("candidate install provenance block is missing")
+
+          schema_root = Path(sys.prefix) / "share" / "confflow" / "control_protocol" / "v1"
+          consumer_schema_root = Path("confflow") / "schemas" / "control"
+          required = (
+              "common.schema.json",
+              "requests.schema.json",
+              "responses.schema.json",
+              "input-manifest.schema.json",
+          )
+          for name in required:
+              producer_path = schema_root / name
+              consumer_path = consumer_schema_root / name
+              if not producer_path.is_file() or not consumer_path.is_file():
+                  raise AssertionError(f"schema bundle member is missing: {producer_path} / {consumer_path}")
+              producer_schema = json.loads(producer_path.read_text(encoding="utf-8"))
+              consumer_schema = json.loads(consumer_path.read_text(encoding="utf-8"))
+              producer_canonical = json.dumps(
+                  producer_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              consumer_canonical = json.dumps(
+                  consumer_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              if producer_canonical != consumer_canonical:
+                  raise AssertionError(f"producer/consumer schema drift in {name}")
+          print(
+              json.dumps(
+                  {
+                      "version": capabilities.version,
+                      "build_commit": build["commit"],
+                      "install_provenance": install_provenance.get("status"),
+                      "schema_members": list(required),
+                      "wire_contract": "accepted",
+                  }
+              )
+          )
           PY
 
       - name: Run protocol and facade contract tests
@@ -82,5 +153,6 @@ jobs:
           python -m pytest -q \
             tests/test_confflow_preflight.py \
             tests/test_confflow_results.py \
+            tests/test_control_protocol_schemas.py \
             tests/test_confflow_control_backend.py \
             tests/test_confflow_launcher_integration.py

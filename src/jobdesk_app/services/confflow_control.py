@@ -40,8 +40,24 @@ _ERROR_CODES = frozenset(
     }
 )
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
-_CURSOR_RE = re.compile(r"^r[0-9]{20}$")
+# Keep identifiers aligned with the producer common schema so direct parser
+# callers fail closed even before a transport sends the request.
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+# Cursors are opaque producer tokens.  The current producer emits the
+# revision-shaped ``r`` + 20 digits form, but the frozen schema deliberately
+# permits future stable token formats.
+_CURSOR_RE = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 _PATH_RE = re.compile(r"^(?!/)(?!.*//)(?!.*(?:^|/)\.(?:/|$))(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+_TERMINAL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_OPERATION_STATES = {
+    "prepare": frozenset({"prepared"}),
+    "execute": frozenset({"queued", "running", "paused", "completed", "failed", "cancelled"}),
+    "status": _STATES,
+    "events": _STATES,
+    "cancel": frozenset({"cancelled"}),
+    "resume": frozenset({"queued", "running"}),
+    "artifacts": _TERMINAL_STATES,
+}
 
 
 class ControlProtocolError(RuntimeError):
@@ -172,20 +188,34 @@ def parse_capabilities(stdout: str, *, exit_code: int = 0, stderr: str = "") -> 
     return True
 
 
-def parse_snapshot_response(operation: str, stdout: str, *, exit_code: int = 0, stderr: str = "") -> ControlSnapshot:
+def parse_snapshot_response(
+    operation: str,
+    stdout: str,
+    *,
+    exit_code: int = 0,
+    stderr: str = "",
+    expected_run_id: str | None = None,
+) -> ControlSnapshot:
     response = _decode_response(operation, stdout, exit_code=exit_code, stderr=stderr)
     if not response.get("ok"):
         code, message, retryable = _error_fields(response, operation)
         raise ControlProtocolError(operation, code, message, retryable=retryable)
-    return _snapshot(response, operation)
+    return _snapshot(response, operation, expected_run_id=expected_run_id)
 
 
-def parse_events_response(operation: str, stdout: str, *, exit_code: int = 0, stderr: str = "") -> ControlEventPage:
+def parse_events_response(
+    operation: str,
+    stdout: str,
+    *,
+    exit_code: int = 0,
+    stderr: str = "",
+    expected_run_id: str | None = None,
+) -> ControlEventPage:
     response = _decode_response(operation, stdout, exit_code=exit_code, stderr=stderr)
     if not response.get("ok"):
         code, message, retryable = _error_fields(response, operation)
         raise ControlProtocolError(operation, code, message, retryable=retryable)
-    snapshot = _snapshot(response, operation)
+    snapshot = _snapshot(response, operation, expected_run_id=expected_run_id)
     next_cursor = response.get("next_cursor")
     if next_cursor is not None and (not isinstance(next_cursor, str) or _CURSOR_RE.fullmatch(next_cursor) is None):
         raise ControlProtocolError(operation, "invalid_request", "next_cursor is malformed")
@@ -218,12 +248,19 @@ def parse_events_response(operation: str, stdout: str, *, exit_code: int = 0, st
     return ControlEventPage(snapshot, tuple(events), next_cursor)
 
 
-def parse_artifacts_response(operation: str, stdout: str, *, exit_code: int = 0, stderr: str = "") -> ControlArtifactManifest:
+def parse_artifacts_response(
+    operation: str,
+    stdout: str,
+    *,
+    exit_code: int = 0,
+    stderr: str = "",
+    expected_run_id: str | None = None,
+) -> ControlArtifactManifest:
     response = _decode_response(operation, stdout, exit_code=exit_code, stderr=stderr)
     if not response.get("ok"):
         code, message, retryable = _error_fields(response, operation)
         raise ControlProtocolError(operation, code, message, retryable=retryable)
-    snapshot = _snapshot(response, operation)
+    snapshot = _snapshot(response, operation, expected_run_id=expected_run_id)
     if snapshot.state not in _TERMINAL_STATES:
         raise ControlProtocolError(operation, "invalid_state_transition", "artifacts response is not terminal")
     raw_artifacts = response.get("artifacts")
@@ -243,7 +280,7 @@ def parse_artifacts_response(operation: str, stdout: str, *, exit_code: int = 0,
         )
         if (
             not isinstance(terminal, str)
-            or not terminal
+            or _TERMINAL_RE.fullmatch(terminal) is None
             or not isinstance(path, str)
             or _PATH_RE.fullmatch(path) is None
             or not isinstance(sha256, str)
@@ -297,19 +334,29 @@ def _error_fields(response: Mapping[str, object], operation: str) -> tuple[str, 
     return code, message, retryable
 
 
-def _snapshot(response: Mapping[str, object], operation: str) -> ControlSnapshot:
+def _snapshot(
+    response: Mapping[str, object],
+    operation: str,
+    *,
+    expected_run_id: str | None = None,
+) -> ControlSnapshot:
     run_id = response.get("run_id")
     revision = response.get("revision")
     state = response.get("state")
     if (
         not isinstance(run_id, str)
-        or not run_id
+        or _RUN_ID_RE.fullmatch(run_id) is None
         or type(revision) is not int
         or revision < 0
         or not isinstance(state, str)
         or state not in _STATES
     ):
         raise ControlProtocolError(operation, "invalid_request", "control snapshot fields are malformed")
+    allowed_states = _OPERATION_STATES.get(operation)
+    if allowed_states is not None and state not in allowed_states:
+        raise ControlProtocolError(operation, "invalid_state_transition", "control snapshot state is invalid for operation")
+    if expected_run_id is not None and run_id != expected_run_id:
+        raise ControlProtocolError(operation, "invalid_request", "control response run_id does not match requested run")
     return ControlSnapshot(run_id, revision, state)
 
 

@@ -1,135 +1,178 @@
-"""Golden and rejection fixtures for the frozen Phase B control protocol."""
+"""Parity and fail-closed tests for the pinned producer schema bundle."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 _SCHEMA_ROOT = Path(__file__).parents[1] / "confflow" / "schemas" / "control"
+_SCHEMA_HASHES = {
+    "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
+    "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
+    "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
+    "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+}
 _DIGEST = "a" * 64
+
+
+def _load(name: str) -> dict[str, Any]:
+    value = json.loads((_SCHEMA_ROOT / name).read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
 
 
 @pytest.fixture(scope="module")
 def schemas() -> dict[str, Draft202012Validator]:
+    documents = [_load(name) for name in _SCHEMA_HASHES]
+    registry = Registry().with_resources(
+        (str(document["$id"]), Resource.from_contents(document)) for document in documents
+    )
     return {
-        path.name: Draft202012Validator(json.loads(path.read_text(encoding="utf-8")))
-        for path in sorted(_SCHEMA_ROOT.glob("*.json"))
+        name: Draft202012Validator(document, registry=registry)
+        for name, document in zip(_SCHEMA_HASHES, documents, strict=True)
     }
 
 
-@pytest.fixture(scope="module")
-def golden() -> dict[str, dict[str, object]]:
-    base = {"protocol_schema": "confflow.control.v1", "run_id": "run-1", "revision": 2}
+def _prepare_request() -> dict[str, object]:
     return {
-        "capabilities.response.json": {
-            "protocol_schema": "confflow.control.v1",
-            "supported_operations": ["capabilities", "prepare", "execute", "status", "events", "cancel", "resume", "artifacts"],
-            "capabilities": {"producer_version": "1.5.1", "protocol_major": 1, "protocol_minor": 0},
+        "protocol_schema": "confflow.control.v1",
+        "operation": "prepare",
+        "run_id": "run-1",
+        "idempotency_key": "jobdesk.run-1",
+        "request_digest": _DIGEST,
+        "workflow_config": {"path": "workflow.yaml", "sha256": _DIGEST},
+        "input_manifest": {"path": "input-manifest.json", "sha256": _DIGEST},
+        "expected_executable_identity": {
+            "realpath": "/opt/confflow/bin/python3.12",
+            "sha256": _DIGEST,
+            "device_inode": "8:1234",
         },
-        "prepare.request.json": {
+    }
+
+
+def _snapshot(operation: str, state: str, *, revision: int = 2) -> dict[str, object]:
+    return {
+        "protocol_schema": "confflow.control.v1",
+        "operation": operation,
+        "ok": True,
+        "run_id": "run-1",
+        "revision": revision,
+        "state": state,
+    }
+
+
+def test_snapshot_matches_pinned_v150_producer_bundle() -> None:
+    for name, expected in _SCHEMA_HASHES.items():
+        canonical = json.dumps(
+            _load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        assert hashlib.sha256(canonical).hexdigest() == expected
+
+
+def test_bundle_contains_the_producer_files() -> None:
+    assert {path.name for path in _SCHEMA_ROOT.glob("*.json")} == set(_SCHEMA_HASHES)
+
+
+def test_prepare_request_uses_producer_locator_and_identity_shape(schemas) -> None:
+    request = _prepare_request()
+    assert list(schemas["requests.schema.json"].iter_errors(request)) == []
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
             "protocol_schema": "confflow.control.v1",
-            "run_id": "run-1",
-            "idempotency_key": "key-1",
-            "workflow_config_digest": _DIGEST,
-            "input_manifest_digest": _DIGEST,
-            "expected_executable": {"realpath": "/opt/confflow/bin/confflow", "sha256": _DIGEST},
+            "operation": "capabilities",
+            "ok": True,
+            "supported_protocols": ["confflow.control.v1"],
         },
-        "prepare.response.json": {**base, "status": "prepared", "request_digest": _DIGEST},
-        "execute.response.json": {**base, "status": "running"},
-        "status.response.json": {**base, "status": "paused", "checkpoint": "checkpoint-1"},
-        "events.response.json": {
-            **base,
-            "events": [{"cursor": "cursor-2", "revision": 2, "type": "run.paused", "data": {}}],
+        _snapshot("prepare", "prepared"),
+        _snapshot("execute", "queued"),
+        _snapshot("status", "paused"),
+        {
+            **_snapshot("events", "running"),
+            "events": [{"cursor": "cursor-2", "revision": 2, "type": "run.paused"}],
             "next_cursor": "cursor-2",
         },
-        "cancel.response.json": {**base, "status": "cancelled"},
-        "resume.response.json": {**base, "status": "running", "checkpoint": "checkpoint-1"},
-        "artifacts.response.json": {
-            **base,
-            "artifacts": [{"terminal": "g16", "path": "g16/output.log", "sha256": _DIGEST, "size": 1, "content_schema": "confflow.output.v1"}],
+        _snapshot("cancel", "cancelled"),
+        _snapshot("resume", "running"),
+        {
+            **_snapshot("artifacts", "completed"),
+            "artifacts": [
+                {
+                    "terminal": "g16",
+                    "path": "g16/output.log",
+                    "sha256": _DIGEST,
+                    "size": 1,
+                    "content_schema": "confflow.output.v1",
+                }
+            ],
         },
+    ],
+)
+def test_producer_response_examples_validate(response, schemas) -> None:
+    assert list(schemas["responses.schema.json"].iter_errors(response)) == []
+
+
+def test_old_jobdesk_only_shape_is_rejected(schemas) -> None:
+    stale = {
+        "protocol_schema": "confflow.control.v1",
+        "operation": "capabilities",
+        "ok": True,
+        "supported_operations": ["capabilities", "prepare"],
     }
+    assert list(schemas["responses.schema.json"].iter_errors(stale))
 
 
-def _errors(validator: Draft202012Validator, payload: dict[str, object]) -> list[object]:
-    return list(validator.iter_errors(payload))
+def test_wrong_status_field_is_rejected(schemas) -> None:
+    stale = _snapshot("status", "running")
+    stale["status"] = stale.pop("state")
+    assert list(schemas["responses.schema.json"].iter_errors(stale))
 
 
-def test_all_expected_operation_schemas_are_frozen(schemas: dict[str, Draft202012Validator]) -> None:
-    assert set(schemas) == {
-        "artifacts.response.json",
-        "cancel.response.json",
-        "capabilities.response.json",
-        "events.response.json",
-        "execute.response.json",
-        "prepare.request.json",
-        "prepare.response.json",
-        "resume.response.json",
-        "status.response.json",
+def test_prepare_digest_fields_are_rejected(schemas) -> None:
+    stale = _prepare_request()
+    stale["workflow_config_digest"] = stale.pop("workflow_config")["sha256"]  # type: ignore[index]
+    stale["input_manifest_digest"] = stale.pop("input_manifest")["sha256"]  # type: ignore[index]
+    stale["expected_executable"] = stale.pop("expected_executable_identity")
+    assert list(schemas["requests.schema.json"].iter_errors(stale))
+
+
+def test_artifact_paths_remain_relative_and_safe(schemas) -> None:
+    response = {
+        **_snapshot("artifacts", "completed"),
+        "artifacts": [
+            {
+                "terminal": "g16",
+                "path": "../escape",
+                "sha256": _DIGEST,
+                "size": 1,
+                "content_schema": "confflow.output.v1",
+            }
+        ],
     }
+    assert list(schemas["responses.schema.json"].iter_errors(response))
 
 
-@pytest.mark.parametrize("name", [
-    "capabilities.response.json", "prepare.request.json", "prepare.response.json", "execute.response.json",
-    "status.response.json", "events.response.json", "cancel.response.json", "resume.response.json", "artifacts.response.json",
-])
-def test_golden_fixtures_validate(name: str, schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    assert _errors(schemas[name], golden[name]) == []
+def test_input_manifest_schema_rejects_duplicate_or_unsafe_shape(schemas) -> None:
+    manifest = {
+        "content_schema": "confflow.control.input-manifest.v1",
+        "inputs": [{"ordinal": 0, "path": "../escape", "sha256": _DIGEST, "size": 1}],
+    }
+    assert list(schemas["input-manifest.schema.json"].iter_errors(manifest))
 
 
-@pytest.mark.parametrize("name", ["prepare.request.json", "prepare.response.json", "execute.response.json", "status.response.json", "events.response.json", "cancel.response.json", "resume.response.json", "artifacts.response.json"])
-def test_run_scoped_response_rejects_missing_required_field(name: str, schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    payload = deepcopy(golden[name])
-    payload.pop("run_id")
-    assert _errors(schemas[name], payload)
-
-
-@pytest.mark.parametrize("name", ["prepare.response.json", "execute.response.json", "status.response.json", "events.response.json", "cancel.response.json", "resume.response.json", "artifacts.response.json"])
-def test_responses_reject_wrong_revision_type_and_extra_field(name: str, schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    wrong_type = deepcopy(golden[name])
-    wrong_type["revision"] = "two"
-    assert _errors(schemas[name], wrong_type)
-    extra = deepcopy(golden[name])
-    extra["unexpected"] = True
-    assert _errors(schemas[name], extra)
-
-
-def test_prepare_rejects_wrong_digest_and_extra_identity_field(schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    wrong_digest = deepcopy(golden["prepare.request.json"])
-    wrong_digest["workflow_config_digest"] = "not-a-digest"
-    assert _errors(schemas["prepare.request.json"], wrong_digest)
-    extra_identity = deepcopy(golden["prepare.request.json"])
-    expected = extra_identity["expected_executable"]
-    assert isinstance(expected, dict)
-    expected["path"] = "/untrusted"
-    assert _errors(schemas["prepare.request.json"], extra_identity)
-
-
-@pytest.mark.parametrize("name", ["execute.response.json", "status.response.json", "cancel.response.json", "resume.response.json"])
-def test_state_responses_reject_unknown_status(name: str, schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    payload = deepcopy(golden[name])
-    payload["status"] = "invented"
-    assert _errors(schemas[name], payload)
-
-
-@pytest.mark.parametrize("unsafe_path", ["/etc/passwd", "../escape", "a/../../escape", "C:/escape", "g16\\output.log"])
-def test_artifacts_reject_unsafe_paths(unsafe_path: str, schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    payload = deepcopy(golden["artifacts.response.json"])
-    artifacts = payload["artifacts"]
-    assert isinstance(artifacts, list)
-    artifact = artifacts[0]
-    assert isinstance(artifact, dict)
-    artifact["path"] = unsafe_path
-    assert _errors(schemas["artifacts.response.json"], payload)
-
-
-def test_events_reject_malformed_event(schemas: dict[str, Draft202012Validator], golden: dict[str, dict[str, object]]) -> None:
-    payload = deepcopy(golden["events.response.json"])
-    events = payload["events"]
-    assert isinstance(events, list)
-    events[0] = {"cursor": "cursor-2", "revision": "two", "type": "run.paused"}
-    assert _errors(schemas["events.response.json"], payload)
+def test_schema_negative_copy_is_not_mutated_by_validation(schemas) -> None:
+    response = _snapshot("status", "running")
+    candidate = deepcopy(response)
+    candidate["extra"] = True
+    assert list(schemas["responses.schema.json"].iter_errors(candidate))
+    assert response == _snapshot("status", "running")

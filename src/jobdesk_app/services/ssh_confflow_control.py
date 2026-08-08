@@ -68,7 +68,13 @@ class SSHControlTransport(ControlTransport):
                     self._sftp.remove_file(request_path)
                 except Exception:
                     pass
-        return parse_snapshot_response("prepare", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            "prepare",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def execute(self, run_id: str) -> ControlSnapshot:
         return self._snapshot("execute", run_id)
@@ -82,7 +88,13 @@ class SSHControlTransport(ControlTransport):
             "events",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}{suffix}",
         )
-        return parse_events_response("events", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_events_response(
+            "events",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def cancel(self, run_id: str) -> ControlSnapshot:
         return self._snapshot("cancel", run_id)
@@ -93,21 +105,39 @@ class SSHControlTransport(ControlTransport):
             "resume",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}{suffix}",
         )
-        return parse_snapshot_response("resume", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            "resume",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def artifacts(self, run_id: str) -> ControlArtifactManifest:
         result = self._run(
             "artifacts",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}",
         )
-        return parse_artifacts_response("artifacts", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_artifacts_response(
+            "artifacts",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def _snapshot(self, operation: str, run_id: str) -> ControlSnapshot:
         result = self._run(
             operation,
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}",
         )
-        return parse_snapshot_response(operation, result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            operation,
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def _run(self, operation: str, options: str = ""):
         command = f"{quote_confflow_executable(self._executable)} control {operation} {options} --json".strip()
@@ -150,7 +180,10 @@ def build_control_launcher_script(
     """Build a scheduler script that only dispatches an existing control producer.
 
     The marker is written before the producer command so a lost submit response
-    can be reconciled without submitting the same producer request twice.
+    can be reconciled without submitting the same producer request twice. The
+    command then replaces the in-flight marker with an explicit exit state;
+    reconciliation never treats a still-running or failed launcher as a
+    confirmed submission.
     """
     state_root = _absolute_remote_path(state_root, "state_root")
     metadata_path = _absolute_remote_path(metadata_path, "metadata_path")
@@ -166,6 +199,8 @@ def build_control_launcher_script(
             "pid": "__JOBDESK_PID__",
             "command": command,
             "state_root": state_root,
+            "execution_state": "started",
+            "execute_rc": None,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -192,7 +227,17 @@ def build_control_launcher_script(
             'marker=${marker//__JOBDESK_PID__/$$}',
             f"printf '%s\\n' \"$marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
+            "set +e",
             build_confflow_preflight_shell(command, env_init_scripts),
+            "execute_rc=$?",
+            "set -e",
+            'execution_state="completed"',
+            'if [ "$execute_rc" -ne 0 ]; then execution_state="failed"; fi',
+            "old_fragment='\"execute_rc\":null,\"execution_state\":\"started\"'",
+            "new_fragment='\"execute_rc\":'\"$execute_rc\"',\"execution_state\":\"'\"$execution_state\"'\"'",
+            'completed_marker="${marker//$old_fragment/$new_fragment}"',
+            f"printf '%s\\n' \"$completed_marker\" > {tmp_q}",
+            f"mv -f {tmp_q} {metadata_q}",
             "",
         ]
     )

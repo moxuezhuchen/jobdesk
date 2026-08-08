@@ -8,6 +8,7 @@ exit code is necessary, but never sufficient, for a smoke to pass.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -46,7 +47,13 @@ from jobdesk_app.core.confflow_preflight import (  # noqa: E402
 
 WSL_DISTRO = "Ubuntu-24.04"
 WIN_WSL = "wsl"
-PROD_VENV = "/opt/confflow-1.4.6-prod-venv"
+# This strict M2-4B smoke targets the current pinned v1.5.0 producer. The
+# stable v1.4.6 rollback is a separate legacy compatibility probe and must not
+# be presented as evidence for this current-release harness.
+_DEFAULT_PROD_VENV = "/opt/jobdesk-confflow-control-1.5.0-wsl"
+PROD_VENV = (os.environ.get("JOBDESK_CONFFLOW_PROD_VENV") or _DEFAULT_PROD_VENV).rstrip("/")
+if not PROD_VENV.startswith("/") or any(char in PROD_VENV for char in "\\\x00\r\n"):
+    raise ValueError("JOBDESK_CONFFLOW_PROD_VENV must be an absolute POSIX path")
 CONFFLOW_EXE = f"{PROD_VENV}/bin/confflow"
 CONFFLOW_PYTHON = f"{PROD_VENV}/bin/python3.12"
 G16_PATH = "/opt/g16/g16"
@@ -82,7 +89,7 @@ def validate_preflight_lines(raw: str) -> tuple[str, str, str, str]:
 
 
 def validate_capability_payload(raw: str) -> dict[str, object]:
-    """Validate the exact clean Gate B 1.4.6 capability identity."""
+    """Validate the exact clean Gate B v1.5.0 capability identity."""
 
     try:
         capabilities = parse_confflow_capabilities(raw)
@@ -400,8 +407,8 @@ def build_inner_harness(*, workflow_yaml: str, label: str) -> str:
     template = r'''#!/usr/bin/env bash
 set -euo pipefail
 
-CONFFLOW_EXE=/opt/confflow-1.4.6-prod-venv/bin/confflow
-CONFFLOW_PY=/opt/confflow-1.4.6-prod-venv/bin/python3.12
+CONFFLOW_EXE=__CONFFLOW_EXE__
+CONFFLOW_PY=__CONFFLOW_PY__
 G16=/opt/g16/g16
 L1=/opt/g16/l1.exe
 
@@ -489,6 +496,8 @@ exit "$CONFFLOW_RC"
     return (
         template.replace("__WORKFLOW_YAML__", workflow_yaml.rstrip())
         .replace("__LABEL_SHELL__", shlex.quote(label))
+        .replace("__CONFFLOW_EXE__", shlex.quote(CONFFLOW_EXE))
+        .replace("__CONFFLOW_PY__", shlex.quote(CONFFLOW_PYTHON))
         .replace("__CAPABILITY_VALIDATOR__", capability_probe_script().rstrip())
         .replace("__IDENTITY_PROBE__", identity_probe_script().rstrip())
     )
