@@ -40,9 +40,11 @@ JobDesk **不通过 subprocess 调用本地 ConfFlow**。ConfFlow 的执行路�
 ### External ConfFlow dependency
 
 JobDesk no longer vendors ConfFlow source. The `chem` optional dependency keeps
-`confflow>=1.4.3,<2.0`; install the approved ConfFlow wheel before installing
-JobDesk with `[chem]` in environments where the package is not available from
-an index. (The consumer floor is now 1.4.3 and ships with the v3 capability handshake.)
+`confflow>=1.5,<2.0`; install the approved ConfFlow `v1.5.0` wheel before
+installing JobDesk with `[chem]` in environments where the package is not
+available from an index. Control submission accepts only the exact clean
+`v1.5.0` provenance; stable `v1.4.6` is retained only for the legacy rollback
+path during the compatibility period.
 
 **Python APIs used by JobDesk**:
 - `confflow.core.models` — Pydantic models used for workflow validation
