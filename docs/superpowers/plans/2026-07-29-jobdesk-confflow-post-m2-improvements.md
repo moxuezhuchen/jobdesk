@@ -9,7 +9,7 @@ The current consumer reference is ConfFlow `v1.5.0`, producer commit
 `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`, with
 stable `v1.4.6` retained only as the exact legacy rollback exception. The
 isolated JobDesk continuation is verified at commit
-`ded440aa27358c2e4c45e7a46eec749cf41dab7a`; the
+`b552b51`; the
 ConfFlow contract workflow was green at
 run `31242460044` for PR #50 before the additional local provenance/schema
 parity steps (`cc4a401`, `fd2ea06`), which have not been rerun remotely. The JobDesk
@@ -34,6 +34,15 @@ passed, and `/tmp/jobdesk_phasef_real_legacy146_20260808_a1` was absent after
 bounded cleanup. This closes the live rollback probe, but not the full Phase F
 gate: no real JobDesk control computation/worker handoff, published candidate
 CI, or complete measured compatibility period is established yet.
+
+A separate real JobDesk control launcher acceptance also completed capability
+negotiation, prepare, input-manifest upload, and `nohup` launcher dispatch over
+SSH/SFTP. The producer returned the expected queued state at revision 2 with
+two events; launcher metadata and the producer state root were confined to
+`/tmp/jobdesk_phasef_real_control_20260808_a1/attempt`, which was absent after
+bounded cleanup. This is non-compute evidence only: the pinned producer still
+requires an external worker handoff, so no g16/ORCA process was started and it
+does not count as a real control computation sample.
 
 The earlier SSH attempt remains recorded as a failed, non-counted attempt. The
 pinned producer's `control execute` currently returns a queued launch intent

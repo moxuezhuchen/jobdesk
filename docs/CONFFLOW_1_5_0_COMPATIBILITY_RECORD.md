@@ -46,7 +46,7 @@ JobDesk `main` 的正式 wheel 验收结果：
 
 正式发布 artifacts 已发布并远端验证；`v1.4.6` 环境保留，`v1.4.6` tag 未修改。
 
-## 2026-08-08 execution evidence (not compatibility-period samples)
+## 2026-08-08 pre-restart execution snapshot (historical, superseded below)
 
 The user explicitly authorized real external-program probes. These results are retained as evidence, but they are not counted as JobDesk SSH compatibility-period usage because they did not traverse the complete JobDesk control/legacy submit, reconnect, and download lifecycle:
 
@@ -54,7 +54,7 @@ The user explicitly authorized real external-program probes. These results are r
 - A direct v1.5.0 legacy workflow ran a one-molecule Gaussian 16 methane optimization under the required explicit g16 environment. It completed normally with energy `-40.51838331`; the evidence root was `/tmp/jobdesk_phasef_real_direct_20260808_a1`.
 - A separate ORCA water optimization ran normally under `/opt/orca611/orca`; the evidence root was `/tmp/jobdesk_phasef_real_orca_20260808_a1`.
 - A direct v1.5.0 control protocol probe completed capability negotiation, `prepare`, and `execute`; the producer returned the contractually valid `queued` state in `/tmp/jobdesk_phasef_control_direct_20260808_a4`. This is not a real computation: the pinned `_AgentControlExecutor` intentionally leaves actual launch to an external worker, and no worker handoff is supplied by the current control contract.
-- The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified.
+- The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified. This is retained as pre-restart failure evidence; the current post-restart samples are recorded below.
 
 ## 2026-08-08 Phase F readiness recheck (not entered)
 
@@ -68,16 +68,17 @@ The user explicitly authorized real external-program probes. These results are r
 - The temporary listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1`
   root were stopped and removed. No WSL shutdown, forced kill, `/opt` write,
   producer state write, or user data cleanup was performed.
-- Result: no real JobDesk control/legacy sample was created; the compatibility
-  period remains open and Phase F remains blocked on WSL SSH recovery, worker
-  handoff, publication, and a complete measured compatibility cycle.
+- Result at the time: no real JobDesk control/legacy sample had been created.
+  This historical snapshot is superseded by the post-restart legacy and control
+  launcher evidence below; the compatibility period remains open and Phase F
+  remains blocked on worker handoff, publication, and a complete measured cycle.
 
 ## 样本边界
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
 
-- 当前有 synthetic/non-compute control lifecycle、stable `v1.4.6` probe，以及上面列出的直接 producer/external-program evidence；后者不计入兼容周期样本。
-- 当前没有兼容周期内真实 JobDesk `control` 或 `legacy` run 样本；本地历史运行记录不在本周期起始时间之后，不能作为本周期样本。
+- 当前有一条兼容周期内真实 JobDesk `legacy` 样本（固定 v1.5.0、两任务），以及一条独立 stable `v1.4.6` rollback probe；另有真实 JobDesk `control` launcher 的 queued、非计算 handoff 证据。direct producer/external-program evidence 不计入兼容周期样本。
+- 当前真实 JobDesk `control` 计算样本数为 `0`：pinned producer 的 `control execute` 只返回 queued launch intent，尚无 external worker handoff。真实 JobDesk `legacy` 运行数为 `1`；本地历史运行记录和重启前失败尝试不计入该计数。
 - “暂无可观察样本”不等于“零故障”，不得将缺少样本写成零故障或零 fallback。
 - synthetic/non-compute 结果只证明协议、状态和 artifact 合约在该测试范围内可观察，不代表真实计算成功率。
 
@@ -96,14 +97,14 @@ The user explicitly authorized real external-program probes. These results are r
 - agent SQLite 读取或 producer state 双写证据；
 - rollback 到 stable `v1.4.6` 的 legacy 可用性、producer state 隔离与恢复证据。
 
-当前起始基线仅为：`control` synthetic/non-compute lifecycle 选择并保持 `control`，stable `v1.4.6` probe 选择 `legacy`；这两项是可追溯的验收/探针结果，不是兼容周期运行统计。生产周期统计必须来自实际 JobDesk 运行数据，并分别填写 `control` 与 `legacy`；在获得真实样本前，相关栏位应记录为“暂无样本”，不能推导零故障。
+当前基线为：一条真实 JobDesk `legacy` v1.5.0 两任务样本、一次独立 stable `v1.4.6` rollback probe，以及一条真实 SSH/SFTP `control` launcher queued 非计算验收。生产周期统计仍必须按实际 JobDesk 运行数据分别填写 `control` 与 `legacy`；当前 control 计算样本为 `0`，不代表零故障。完整 reconnect/cursor、idempotency、resume/cancel、artifact-integrity 与 fallback 维度仍未达到完整周期统计要求。
 
 ## 当前未满足的 Phase F 条件
 
 - 完整兼容发布周期尚未结束。
-- `control` / `legacy` 分层的真实运行、fallback、reconnect、cursor、cancel/resume、artifact integrity 指标尚无样本。
-- 支持 launcher 路径的真实 control acceptance 未完成：真实 SSH/SFTP 被 WSL listener/network 故障阻断，且 pinned producer 的 `control execute` 仍需要一个明确的 worker handoff 才能从 queued 意图进入真实计算。
-- complete live rollback/recovery evidence 未完成。
+- `control` / `legacy` 分层的完整兼容周期指标尚未收齐；当前已记录 `legacy_backend_runs=1`、`control_backend_runs=0`（计算样本）、`fallbacks=0`，但不能由单一样本推导零故障。
+- 支持 launcher 路径的真实 SSH/SFTP queued handoff 已完成一次非计算验收；pinned producer 的 `control execute` 仍需要一个明确的 worker handoff 才能从 queued 意图进入真实计算。
+- stable `v1.4.6` live rollback probe 已完成，但完整 rollback/recovery 维度和兼容周期统计仍未完成。
 - agent 保留/弃用决策材料未完成。
 
 ## Phase F 边界
@@ -134,6 +135,32 @@ evidence. This successful legacy sample does not close the compatibility
 period, establish control acceptance, or authorize Phase F: the real control
 worker handoff, stable v1.4.6 rollback/recovery, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
+
+## 2026-08-08 real JobDesk control launcher acceptance (non-compute)
+
+After the same authorized WSL restart, an isolated real JobDesk control path
+completed capability negotiation, prepare, input-manifest upload, launcher
+script upload, and `nohup` dispatch over SSH/SFTP. The launcher metadata was
+read back from durable JobDesk state; a post-dispatch status/events query
+returned producer state `queued`, revision `2`, two events, and cursor
+`r00000000000000000002`.
+
+- capability: v1.5.0, producer commit
+  `0fff6439a4614ec155959b1d0d3781fc5342d736`
+- local evidence root: temporary
+  `C:\tmp\jobdesk_phasef_control_local_20260808_a1` (removed after capture)
+- remote attempt root: `/tmp/jobdesk_phasef_real_control_20260808_a1/attempt`
+  (absent after bounded cleanup)
+- launcher scheduler: `nohup`; scheduler job id: `762`; state root was the
+  attempt-root child `/tmp/jobdesk_phasef_real_control_20260808_a1/attempt/state`
+- launcher command, script path, metadata path, log path, script SHA-256 and
+  size were all recorded in `jobdesk.confflow.launcher.v1` durable state
+
+This is real JobDesk control launcher evidence, but not a real control
+computation sample: the pinned producer intentionally leaves `execute` at a
+queued launch intent until an external worker handoff is supplied. No g16 or
+ORCA process was started, and no `/opt` path or user state was modified. It
+therefore does not close the Phase F control-computation gate.
 
 ## 2026-08-08 stable v1.4.6 rollback probe (current evidence)
 
