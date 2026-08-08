@@ -879,11 +879,14 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 
 The remaining real-acceptance gate is intentionally open. The 2026-08-08 direct
 v1.5.0 g16 and ORCA probes completed, but they were not JobDesk SSH lifecycle
-samples. The JobDesk SSH/SFTP attempt was blocked by the WSL SSH listener's
-`Exceeded MaxStartups`/`rtnl_dumpit` failure, and the pinned producer's
-`control execute` returns a queued launch intent until an external worker
-handoff is supplied. Keep both backends and the v1.4.6 rollback path; do not
-mark Phase F ready or delete compatibility code from these probes.
+samples. A pre-restart JobDesk SSH/SFTP attempt was blocked by the WSL SSH
+listener's `Exceeded MaxStartups`/`rtnl_dumpit` failure; after the authorized
+restart, one real v1.5.0 legacy batch, one stable v1.4.6 rollback probe, and a
+real control launcher handoff reaching queued were captured separately. The
+pinned producer's `control execute` still returns a queued launch intent until
+an external worker handoff is supplied, so there is no real control-computation
+sample. Keep both backends and the v1.4.6 rollback path; do not mark Phase F
+ready or delete compatibility code from these probes.
 
 ---
 
