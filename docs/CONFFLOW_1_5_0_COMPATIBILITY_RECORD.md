@@ -109,3 +109,28 @@ The user explicitly authorized real external-program probes. These results are r
 ## Phase F 边界
 
 Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)，其中所有实际运行步骤均待单独授权。
+
+## 2026-08-08 JobDesk legacy-backend real sample (current evidence)
+
+After the authorized WSL restart, the real JobDesk legacy backend completed one
+isolated batch run (`confflow-batch`) containing water and methane. SSH upload,
+detached execution, refresh-to-completion, output-manifest validation, fixed
+metadata download, and local `run_summary.json` parsing all passed. Both
+summaries were `confflow.run_summary.v1` with `final_conformers=1`; both
+manifests were `confflow.output_manifest.v1` with the `quick_opt` terminal.
+This current section supersedes the earlier pre-restart snapshot above that
+reported no real JobDesk sample.
+
+- local evidence root: `C:\tmp\jobdesk_pytest_real_legacy_20260808_b1`
+- remote attempt root: `/tmp/jobdesk_phasef_real_legacy_20260808_b1`
+- cleanup: the exact remote root was absent after the test's bounded cleanup
+- compatibility counters for this sample: `legacy_backend_runs=1`,
+  `legacy_tasks=2`, `control_backend_runs=0`, `fallbacks=0`, task failures `0`
+- producer: pinned v1.5.0; this is not the separate stable v1.4.6 rollback
+  probe required by the Phase F gate
+
+The previous failed JobDesk attempt remains retained as non-counted failure
+evidence. This successful legacy sample does not close the compatibility
+period, establish control acceptance, or authorize Phase F: the real control
+worker handoff, stable v1.4.6 rollback/recovery, remote candidate CI, and one
+complete published compatibility cycle with measured metrics are still open.

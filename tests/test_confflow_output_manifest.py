@@ -1,4 +1,4 @@
-"""Safety coverage for ConfFlow v1.4.6 output-manifest downloads."""
+"""Safety coverage for ConfFlow output-manifest downloads."""
 
 from __future__ import annotations
 
@@ -126,6 +126,69 @@ def test_workflow_download_uses_only_safe_manifest_declared_outputs(tmp_path: Pa
     result_root = tmp_path / "results" / run_id / "water_confflow_work"
     assert (result_root / "output_manifest.json").exists()
     assert (result_root / "final" / "output.xyz").exists()
+    assert service.repository.load_tasks(run_id)[0].status == TaskStatus.downloaded
+
+
+def test_workflow_download_fetches_declared_contract_metadata(tmp_path: Path, runs_dir: Path) -> None:
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    record = service.create_run(
+        RunSpec(
+            server_id="wsl",
+            remote_dir="/remote/project",
+            command_template="confflow {name} -c workflow.yaml -w {basename}_confflow_work",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/project/water.xyz")],
+            result_templates=[
+                "{basename}.txt",
+                "{basename}min.xyz",
+                "{basename}_confflow_work/run_summary.json",
+                "{basename}_confflow_work/workflow_stats.json",
+                "{basename}_confflow_work/.workflow_state.json",
+                "{basename}_confflow_work/output_manifest.json",
+            ],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="metadata-run",
+    )
+    tasks = service.repository.load_tasks(record.run_id)
+    tasks[0].status = TaskStatus.remote_completed
+    replace_tasks_for_test(service.repository, record.run_id, tasks)
+    sftp = _ManifestSFTP(_manifest(["step_01/output.xyz"]))
+
+    records, failures = service.download_completed(record.run_id, sftp, [])
+
+    assert failures == []
+    assert len(records) == 7  # manifest + terminal output + five fixed metadata files
+    assert sftp.requested == [
+        "/remote/project/water_confflow_work/output_manifest.json",
+        "/remote/project/water_confflow_work/step_01/output.xyz",
+        "/remote/project/water.txt",
+        "/remote/project/watermin.xyz",
+        "/remote/project/water_confflow_work/run_summary.json",
+        "/remote/project/water_confflow_work/workflow_stats.json",
+        "/remote/project/water_confflow_work/.workflow_state.json",
+    ]
+    result_root = tmp_path / "results" / record.run_id
+    assert (result_root / "water_confflow_work" / "run_summary.json").exists()
+    assert (result_root / "water.txt").exists()
+    assert service.repository.load_tasks(record.run_id)[0].status == TaskStatus.downloaded
+
+
+def test_workflow_download_infers_required_metadata_for_old_records(tmp_path: Path, runs_dir: Path) -> None:
+    service, run_id = _workflow_service(tmp_path, runs_dir)
+    sftp = _ManifestSFTP(_manifest(["step_01/output.xyz"]))
+
+    records, failures = service.download_completed(run_id, sftp, ["*/run_summary.json"])
+
+    assert failures == []
+    assert len(records) == 2  # manifest plus the inferred required summary
+    assert sftp.requested == [
+        "/remote/project/water_confflow_work/output_manifest.json",
+        "/remote/project/water_confflow_work/run_summary.json",
+    ]
+    result_root = tmp_path / "results" / run_id / "water_confflow_work"
+    assert (result_root / "run_summary.json").exists()
     assert service.repository.load_tasks(run_id)[0].status == TaskStatus.downloaded
 
 

@@ -17,18 +17,26 @@ candidate matrix is implemented locally but has not been published, so its
 remote result is still pending.
 
 Direct v1.5.0 Gaussian/g16 and ORCA probes completed, but they are not JobDesk
-SSH compatibility-period samples. The JobDesk SSH/SFTP acceptance attempt was
-blocked by the WSL listener's `Exceeded MaxStartups`/`rtnl_dumpit` failure, and
-the pinned producer's `control execute` currently returns a queued launch
-intent until an external worker handoff is supplied. Therefore the formal
-decision remains **COMPATIBILITY PERIOD CONTINUES**: keep both backends and
-the v1.4.6 rollback path; do not mark Phase F ready or delete compatibility
-code. A 2026-08-08 elevated readiness recheck found the Ubuntu-24.04
-`ssh.service` stuck in `deactivating`/`sshd -t` with `rtnl_dumpit`; an isolated
-10022 sshd listener reproduced the same child-process stall. The temporary
+SSH compatibility-period samples. After the authorized WSL restart, a real
+JobDesk legacy-backend batch (`confflow-batch`, water plus methane) completed
+through SSH upload, detached execution, refresh, manifest-driven download, and
+summary parsing. Both summaries had `confflow.run_summary.v1` and
+`final_conformers=1`; the exact local evidence is under
+`C:\tmp\jobdesk_pytest_real_legacy_20260808_b1`, and the remote root
+`/tmp/jobdesk_phasef_real_legacy_20260808_b1` was absent after the bounded
+cleanup. This counts as one real legacy-backend sample, but it uses the pinned
+v1.5.0 producer and is not the separate stable v1.4.6 rollback probe.
+
+The earlier SSH attempt remains recorded as a failed, non-counted attempt. The
+pinned producer's `control execute` currently returns a queued launch intent
+until an external worker handoff is supplied. Therefore the formal decision
+remains **COMPATIBILITY PERIOD CONTINUES**: keep both backends and the v1.4.6
+rollback path; do not mark Phase F ready or delete compatibility code. The
+2026-08-08 readiness recheck found the Ubuntu-24.04 `ssh.service` stuck in
+`deactivating`/`sshd -t` with `rtnl_dumpit`; an isolated 10022 sshd listener
+reproduced the same child-process stall before the restart. The temporary
 listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1` root were stopped
-and removed; the system sshd and WSL distribution were not force-killed or
-shut down.
+and removed; no `/opt` files or user state were modified.
 
 ## Execution status (2026-08-01)
 

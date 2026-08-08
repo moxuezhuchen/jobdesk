@@ -7,7 +7,13 @@ import posixpath
 import stat
 from pathlib import Path, PurePosixPath
 
-from jobdesk_app.core.confflow_contract import OUTPUT_MANIFEST_FILE
+from jobdesk_app.core.confflow_contract import (
+    OUTPUT_MANIFEST_FILE,
+    RUN_SUMMARY_FILE,
+    WORK_DIR_SUFFIX,
+    WORKFLOW_STATE_FILE,
+    WORKFLOW_STATS_FILE,
+)
 from jobdesk_app.core.confflow_output_manifest import load_output_manifest
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.transfer import TransferRecord, TransferStatus
@@ -78,6 +84,7 @@ def _download_completed_locked(
             download_base.mkdir(parents=True, exist_ok=True)
             work_dir = task.remote_work_dir or task.remote_job_dir
             uses_output_manifest = _requires_output_manifest(task)
+            metadata_outputs: list[str] = []
             if uses_output_manifest:
                 work_dir, requested_outputs, manifest_record = _load_manifest_outputs(
                     task,
@@ -88,6 +95,7 @@ def _download_completed_locked(
                 )
                 recs.append(manifest_record)
                 local_root = _manifest_download_root(download_base, work_dir)
+                metadata_outputs = _workflow_metadata_outputs(task, work_dir, patterns)
             else:
                 requested_outputs = _declared_outputs(task, patterns)
                 local_root = download_base
@@ -111,8 +119,24 @@ def _download_completed_locked(
                         download_errors.append(f"{relative_output}: {rec.reason}")
                 except Exception as exc:
                     download_errors.append(f"{relative_output}: {exc}")
+            if metadata_outputs:
+                metadata_root = _workflow_remote_base(task, work_dir)
+                for relative_output in metadata_outputs:
+                    safe_path = _safe_declared_result_path(relative_output)
+                    remote_file = f"{metadata_root.rstrip('/')}/{safe_path.as_posix()}"
+                    _assert_remote_manifest_path_not_symlink(sftp, metadata_root, safe_path)
+                    local_file = download_base.joinpath(*safe_path.parts)
+                    if not local_file.resolve().is_relative_to(download_base):
+                        raise ValueError(f"declared result path escapes local dir: {relative_output}")
+                    try:
+                        rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
+                        recs.append(rec)
+                        if rec.status == TransferStatus.failed:
+                            download_errors.append(f"{relative_output}: {rec.reason}")
+                    except Exception as exc:
+                        download_errors.append(f"{relative_output}: {exc}")
             successful = sum(1 for r in recs if r.status in (TransferStatus.transferred, TransferStatus.skipped))
-            task_ok = not download_errors and successful == len(recs) and bool(requested_outputs)
+            task_ok = not download_errors and successful == len(recs) and bool(requested_outputs or metadata_outputs)
             if download_errors:
                 failures.append((task.task_id, "; ".join(download_errors)))
             elif not task_ok:
@@ -197,9 +221,55 @@ def _load_manifest_outputs(
         raise ValueError(f"output manifest download failed: {manifest_record.reason}")
     manifest = load_output_manifest(local_manifest, work_dir=local_root)
     outputs = [path for path in manifest.paths if _matches_requested_patterns(path, patterns)]
-    if not outputs:
-        raise ValueError("output manifest has no outputs matching the requested patterns")
     return work_dir, outputs, manifest_record
+
+
+def _workflow_metadata_outputs(task, work_dir: str, patterns: list[str]) -> list[str]:
+    """Return only fixed ConfFlow metadata paths declared by the task plan.
+
+    The producer manifest owns terminal scientific outputs, while the
+    capability contract owns these fixed workflow/result files.  Current
+    plans persist all six names; older workflow records may not have persisted
+    ``remote_result_files``, so the three required progress/result JSON files
+    are inferred in that case.  Arbitrary paths are never introduced by this
+    compatibility bridge.
+    """
+    declared = getattr(task, "remote_result_files", ())
+    work_name = PurePosixPath(work_dir).name
+    if not work_name.endswith(WORK_DIR_SUFFIX):
+        return []
+    stem = work_name[: -len(WORK_DIR_SUFFIX)]
+    allowed = {
+        f"{work_name}/{RUN_SUMMARY_FILE}",
+        f"{work_name}/{WORKFLOW_STATS_FILE}",
+        f"{work_name}/{WORKFLOW_STATE_FILE}",
+        f"{work_name}/{OUTPUT_MANIFEST_FILE}",
+        f"{stem}.txt",
+        f"{stem}min.xyz",
+    }
+    result: list[str] = []
+    for value in declared:
+        if not isinstance(value, str):
+            continue
+        safe = _safe_declared_result_path(value)
+        normalized = safe.as_posix()
+        if normalized not in allowed or normalized.endswith(f"/{OUTPUT_MANIFEST_FILE}"):
+            continue
+        result.append(normalized)
+    if not result:
+        result = [
+            f"{work_name}/{RUN_SUMMARY_FILE}",
+            f"{work_name}/{WORKFLOW_STATS_FILE}",
+            f"{work_name}/{WORKFLOW_STATE_FILE}",
+        ]
+    result = [path for path in result if _matches_requested_patterns(path, patterns)]
+    return list(dict.fromkeys(result))
+
+
+def _workflow_remote_base(task, work_dir: str) -> str:
+    """Resolve the absolute remote base containing a workflow directory."""
+    candidate = getattr(task, "remote_work_dir", "") or PurePosixPath(work_dir).parent.as_posix()
+    return _safe_remote_workflow_dir(candidate)
 
 
 def _matches_requested_patterns(path: str, patterns: list[str]) -> bool:
