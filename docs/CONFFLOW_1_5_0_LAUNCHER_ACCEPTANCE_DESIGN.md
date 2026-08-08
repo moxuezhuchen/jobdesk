@@ -1,10 +1,10 @@
 # ConfFlow 1.5.0 launcher-path control acceptance design
 
-> Status: design only. This document is not an acceptance record. No step in this document has been run in this task; every remote execution step is **待单独授权**.
+> Status: design plus execution evidence (2026-08-08). This document is not a passing acceptance record. The SSH/SFTP acceptance remains incomplete and the evidence below is deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
 
 ## Scope and provenance
 
-The proposed acceptance is Route B compatibility observation work only. It is non-compute and must not start a real worker, scheduler workload, Gaussian, or g16. It does not authorize Phase F.
+The proposed launcher acceptance is Route B compatibility observation work. The design itself does not authorize a worker, scheduler workload, Gaussian, g16, ORCA, or Phase F. The 2026-08-08 direct g16/ORCA probes were run only after explicit user authorization and are recorded as separate evidence; they are not JobDesk SSH compatibility-period samples.
 
 - Cycle start UTC: `2026-08-01T15:57:13Z`
 - `cycle_start_jobdesk_main`: `9904cbaae078344bb35162f3ddee354b1acd040c`
@@ -17,7 +17,7 @@ The proposed acceptance is Route B compatibility observation work only. It is no
 
 The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the public post-M2 compatibility plan.
 
-## Current call chain and the launcher gap
+## Current call chain, launcher handoff, and remaining worker gap
 
 The current JobDesk symbols trace the control path as follows:
 
@@ -32,7 +32,9 @@ SSHConfFlowClient.probe / submit_with_outcome / attach
 
 The JobDesk side is implemented by [`SSHConfFlowClient`](../src/jobdesk_app/services/ssh_confflow_client.py), [`SSHControlTransport`](../src/jobdesk_app/services/ssh_confflow_control.py), and durable control state in [`confflow_control_state.py`](../src/jobdesk_app/services/confflow_control_state.py). The producer-side v1.5.0 symbols to revalidate against the pinned, non-editable wheel before execution are `confflow.control`, `confflow.application.execution.service.ExecutionService`, and its workflow adapter. The existing legacy launchers are [`SchedulerAdapter`](../src/jobdesk_app/remote/scheduler.py), including `NohupAdapter`, `SlurmAdapter`, and `PBSAdapter`, and the legacy submit boundary is [`submitter.py`](../src/jobdesk_app/remote/submitter.py).
 
-There is a design-level blocker in the current audited JobDesk code: `_submit_control` currently calls `SSHControlTransport.execute()` directly after `prepare`, and its `SubmitResult.control_nohup_log_path` is empty. It does not currently hand `control execute` to `NohupAdapter`, Slurm, or PBS. Therefore “supported launcher path” is defined below as a required handoff contract, not as an already accepted behavior. Actual acceptance must stop before execution until the exact launcher handoff is available and separately authorized; this docs task makes no code change.
+The launcher handoff is now implemented in `_submit_control`: it writes a per-run launcher script and metadata, selects the configured `SchedulerAdapter` (`NohupAdapter`, Slurm, or PBS), submits the script, and persists the scheduler job id plus the nohup log path. The handoff is covered by fake-adapter regression tests, but it has not yet passed a real SSH/SFTP run because the WSL SSH listener is currently wedged in the kernel networking path (`rtnl_dumpit`, `Exceeded MaxStartups`).
+
+There is a separate producer-side execution gap. ConfFlow v1.5.0 `control execute` claims the prepared run and returns `queued`; `_AgentControlExecutor.ensure_launched` intentionally leaves actual launch to an external worker. The current JobDesk launcher invokes that command, but no supported worker/agent handoff is supplied by the pinned producer contract. Therefore a direct control probe can prove prepare/execute state transitions, but cannot be called a real control-to-g16/ORCA computation acceptance. A worker handoff is a new design/release scope, not a reason to bypass the control contract or fall back silently to legacy.
 
 ## Precise acceptance definition
 
@@ -44,7 +46,7 @@ There is a design-level blocker in the current audited JobDesk code: `_submit_co
 4. ConfFlow owns durable execution state, events, revisions, terminal transitions, and the artifact manifest. JobDesk owns the client-side durable handle and projects the producer state; neither side reads or writes agent SQLite for this acceptance.
 5. The run remains `control` from negotiation through terminal state. An explicit control run must fail closed on an unsupported or malformed response; it must not silently become `legacy`.
 
-The current code proves the transport operations and durable-handle surfaces, but not item 3. That missing handoff is a blocker for claiming launcher-path acceptance.
+The current code proves the transport operations and durable-handle surfaces, and fake tests prove item 3's local construction. Real launcher-path acceptance remains blocked by the unavailable SSH service and the producer worker handoff described above.
 
 ## Minimum non-compute workflow
 
@@ -86,7 +88,7 @@ The following safety checks are mandatory:
 
 ## Executable acceptance sequence
 
-Every step below remains **待单独授权**. The result must be recorded separately for `control` and `legacy`; the current compatibility record has no real cycle-period run sample.
+The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture. Results must be recorded separately for `control` and `legacy`; the current compatibility record still has no real JobDesk cycle-period run sample.
 
 ### 0. Preflight gate
 
@@ -98,7 +100,7 @@ Run capability negotiation and assert protocol major, producer provenance, and e
 
 ### 2. Launcher handoff
 
-Submit the plain foreground `control execute` command through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that `execute` was launched by the supported adapter rather than by a direct SSH foreground call. With the current audited code, this step is blocked until the missing handoff is available.
+Submit the plain foreground `control execute` command through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that `execute` was launched by the supported adapter rather than by a direct SSH foreground call. Local construction is implemented; this step is still blocked for real acceptance until SSH/SFTP is healthy and a worker handoff is explicitly supported by the pinned producer.
 
 ### 3. Detach, reconnect, and durable recovery
 
@@ -118,7 +120,7 @@ Read the producer manifest through `SSHControlRunHandle.artifacts`. For every de
 
 ### 7. Stable rollback probe
 
-After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. It is not authorized in this task.
+After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. The user has authorized this class of probe, but the 2026-08-08 SSH failure prevented the live JobDesk rollback run; the direct legacy g16 evidence used v1.5.0 and therefore does not satisfy this gate.
 
 ### 8. Cleanup and evidence retention
 
@@ -170,4 +172,4 @@ Before any real execution, the user must separately authorize all of the followi
 - live stable `v1.4.6` legacy rollback/recovery probe;
 - retention or cleanup of remote failure evidence.
 
-Real worker, scheduler workload, Gaussian, g16, `/opt/g16` changes, producer code changes, release/tag/wheel changes, and Phase F remain outside this design and require separate authorization. This document does not claim that launcher acceptance, rollback evidence, or Phase F readiness is complete.
+Real worker, scheduler workload, `/opt/g16` changes, producer code changes, release/tag/wheel changes, and Phase F remain outside this design and require separate authorization. The user separately authorized the 2026-08-08 direct g16/ORCA probes; those probes do not claim that launcher acceptance, rollback evidence, or Phase F readiness is complete.

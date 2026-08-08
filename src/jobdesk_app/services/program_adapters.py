@@ -42,6 +42,7 @@ class ConfFlowAdapter:
         max_parallel: int = 1,
         resume: bool = False,
         resource_budget: "ResourceBudget | None" = None,
+        confflow_executable: str = "",
     ) -> RunSpec:
         return cls._build(
             WorkflowKind.confflow,
@@ -52,6 +53,7 @@ class ConfFlowAdapter:
             max_parallel=max_parallel,
             resume=resume,
             resource_budget=resource_budget,
+            confflow_executable=confflow_executable,
         )
 
     @classmethod
@@ -64,6 +66,7 @@ class ConfFlowAdapter:
         max_parallel: int = 1,
         resume: bool = False,
         resource_budget: "ResourceBudget | None" = None,
+        confflow_executable: str = "",
     ) -> RunSpec:
         """Build a DAG-flavoured ConfFlow run.
 
@@ -83,6 +86,7 @@ class ConfFlowAdapter:
             max_parallel=max_parallel,
             resume=resume,
             resource_budget=resource_budget,
+            confflow_executable=confflow_executable,
         )
 
     @staticmethod
@@ -96,6 +100,7 @@ class ConfFlowAdapter:
         max_parallel: int = 1,
         resume: bool = False,
         resource_budget: "ResourceBudget | None" = None,
+        confflow_executable: str = "",
     ) -> RunSpec:
         if isinstance(xyz_paths, str):
             xyz_paths = [xyz_paths]
@@ -127,6 +132,7 @@ class ConfFlowAdapter:
             ],
             workflow_kind=workflow_kind,
             resource_budget=resource_budget,
+            confflow_executable=confflow_executable,
         )
 
 

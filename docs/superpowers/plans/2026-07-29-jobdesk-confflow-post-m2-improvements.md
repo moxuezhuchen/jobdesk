@@ -815,9 +815,17 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [x] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
 - [x] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义（Phase C/D 已验证）
 - [x] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel（Phase E；WSL 使用 pinned Phase D producer；artifact 为非计算 synthetic lifecycle fixture，未运行 g16）
-- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer
+- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer（ConfFlow PR #50 `730decf` green；JobDesk matrix workflow 已在本隔离分支提交并固定 stable/next wheel digest，但 JobDesk feature branch 尚未发布，故第二方向尚未取得远端 CI 结果）
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
 - [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
+
+The remaining real-acceptance gate is intentionally open. The 2026-08-08 direct
+v1.5.0 g16 and ORCA probes completed, but they were not JobDesk SSH lifecycle
+samples. The JobDesk SSH/SFTP attempt was blocked by the WSL SSH listener's
+`Exceeded MaxStartups`/`rtnl_dumpit` failure, and the pinned producer's
+`control execute` returns a queued launch intent until an external worker
+handoff is supplied. Keep both backends and the v1.4.6 rollback path; do not
+mark Phase F ready or delete compatibility code from these probes.
 
 ---
 

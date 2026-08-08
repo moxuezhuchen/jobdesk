@@ -41,15 +41,26 @@ JobDesk `main` 的正式 wheel 验收结果：
 - malformed JSON 与 unknown protocol major 不静默 fallback。
 - 未读取 agent SQLite，未发生 producer state 双写。
 - 使用真实 stable `v1.4.6` wheel 的 probe 明确选择 `legacy`，且 `control` protocol 不支持；未提交计算任务。
+- JobDesk 的远端 capability probe 保留了这一 stable legacy 例外；只有 legacy submitter 可以接受 `v1.4.6` 的固定 commit/wheel provenance，control submit 仍只接受当前 `v1.5.0` reference。
 - 全程未运行真实 worker、Gaussian 或 g16；仅使用 synthetic/non-compute lifecycle 与真实 SSH 通道。
 
 正式发布 artifacts 已发布并远端验证；`v1.4.6` 环境保留，`v1.4.6` tag 未修改。
+
+## 2026-08-08 execution evidence (not compatibility-period samples)
+
+The user explicitly authorized real external-program probes. These results are retained as evidence, but they are not counted as JobDesk SSH compatibility-period usage because they did not traverse the complete JobDesk control/legacy submit, reconnect, and download lifecycle:
+
+- Pinned non-editable ConfFlow v1.5.0 capability negotiation passed with the recorded release commit and wheel digest.
+- A direct v1.5.0 legacy workflow ran a one-molecule Gaussian 16 methane optimization under the required explicit g16 environment. It completed normally with energy `-40.51838331`; the evidence root was `/tmp/jobdesk_phasef_real_direct_20260808_a1`.
+- A separate ORCA water optimization ran normally under `/opt/orca611/orca`; the evidence root was `/tmp/jobdesk_phasef_real_orca_20260808_a1`.
+- A direct v1.5.0 control protocol probe completed capability negotiation, `prepare`, and `execute`; the producer returned the contractually valid `queued` state in `/tmp/jobdesk_phasef_control_direct_20260808_a4`. This is not a real computation: the pinned `_AgentControlExecutor` intentionally leaves actual launch to an external worker, and no worker handoff is supplied by the current control contract.
+- The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified.
 
 ## 样本边界
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
 
-- 当前只有 synthetic/non-compute control lifecycle 与 stable `v1.4.6` probe。
+- 当前有 synthetic/non-compute control lifecycle、stable `v1.4.6` probe，以及上面列出的直接 producer/external-program evidence；后者不计入兼容周期样本。
 - 当前没有兼容周期内真实 JobDesk `control` 或 `legacy` run 样本；本地历史运行记录不在本周期起始时间之后，不能作为本周期样本。
 - “暂无可观察样本”不等于“零故障”，不得将缺少样本写成零故障或零 fallback。
 - synthetic/non-compute 结果只证明协议、状态和 artifact 合约在该测试范围内可观察，不代表真实计算成功率。
@@ -75,7 +86,7 @@ JobDesk `main` 的正式 wheel 验收结果：
 
 - 完整兼容发布周期尚未结束。
 - `control` / `legacy` 分层的真实运行、fallback、reconnect、cursor、cancel/resume、artifact integrity 指标尚无样本。
-- 支持 launcher 路径的真实 control acceptance 未完成。
+- 支持 launcher 路径的真实 control acceptance 未完成：真实 SSH/SFTP 被 WSL listener/network 故障阻断，且 pinned producer 的 `control execute` 仍需要一个明确的 worker handoff 才能从 queued 意图进入真实计算。
 - complete live rollback/recovery evidence 未完成。
 - agent 保留/弃用决策材料未完成。
 
