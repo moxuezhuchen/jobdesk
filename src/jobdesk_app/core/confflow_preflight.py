@@ -57,6 +57,9 @@ class ConfFlowCapabilities:
     workflow_state: bool
     resume: bool
     dag: bool
+    # Optional producer-candidate capability. Stable v1.5.0 omits this field;
+    # absence must remain a false value so stable negotiation is unchanged.
+    control_worker: bool = False
     # `None` is allowed by the parser so v1 payloads can be diagnosed as
     # "unsupported schema" rather than as malformed JSON. The validator
     # demands a not-None value when schema_version == CAPABILITY_SCHEMA_VERSION.
@@ -100,6 +103,9 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         if type(value) is not bool:
             raise ValueError(f"ConfFlow capability {name} must be boolean")
         parsed[name] = value
+    control_worker = capability_values.get("control_worker", False)
+    if type(control_worker) is not bool:
+        raise ValueError("ConfFlow capability control_worker must be boolean")
 
     artifacts = _parse_artifacts(payload.get("artifacts"))
     commands = _parse_commands(payload.get("commands"))
@@ -113,6 +119,7 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         workflow_state=parsed["workflow_state"],
         resume=parsed["resume"],
         dag=parsed["dag"],
+        control_worker=control_worker,
         artifacts=artifacts,
         commands=commands,
         build=build,

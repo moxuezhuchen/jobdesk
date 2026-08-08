@@ -185,3 +185,28 @@ has no real JobDesk control computation, because the pinned v1.5.0 producer's
 Phase F remains blocked on real control computation/worker handoff, published
 candidate CI, and one complete published compatibility cycle with measured
 control/legacy usage and fallback metrics.
+
+## 2026-08-08 producer candidate worker handoff (not a compatibility sample)
+
+An isolated ConfFlow candidate now supplies the missing producer-owned worker
+boundary. Commit `e91a7416e3c36f217d8ac683ca7c3194e31ac347` produced the clean
+candidate wheel `confflow-1.5.1-py3-none-any.whl` with SHA-256
+`d336563d7086117ed3400965216dcc21647efdd404c70ceeaf0ea799939f87af`.
+The candidate adds `worker-handoff.schema.json`, the `control_worker`
+capability, and `confflow-control-worker`, which consumes the existing queued
+producer token through `ExecutionService` and never calls `prepare` again.
+
+After the mandatory g16 probe, the candidate worker ran one isolated real
+methane Gaussian 16 optimization in Ubuntu-24.04 WSL. It completed in 4.1
+seconds with energy `-40.5183833`; producer revisions were
+`prepared -> queued -> running -> checkpointed -> completed`, and the output
+manifest artifact digest was verified. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-e91a741-evidence.json`.
+
+This candidate is unpublished and is not pinned by the stable JobDesk consumer;
+the run therefore does not increment compatibility counters. Current counters
+remain `control_backend_runs=0` and `legacy_backend_runs=1`. A real JobDesk
+control computation still requires a published producer/consumer pin, the
+candidate dual-repository CI, and a complete measured compatibility cycle.
+Phase F remains **not ready** and the formal decision remains
+**COMPATIBILITY PERIOD CONTINUES**.

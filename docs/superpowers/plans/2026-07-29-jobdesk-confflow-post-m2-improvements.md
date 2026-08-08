@@ -68,6 +68,35 @@ reproduced the same child-process stall before the restart. The temporary
 listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1` root were stopped
 and removed; no `/opt` files or user state were modified.
 
+## 2026-08-08 producer candidate worker-handoff (candidate-only evidence)
+
+The producer-side worker gap was implemented in an isolated, unpublished
+ConfFlow candidate. Candidate commit `e91a7416e3c36f217d8ac683ca7c3194e31ac347`
+builds `confflow-1.5.1-py3-none-any.whl` with SHA-256
+`d336563d7086117ed3400965216dcc21647efdd404c70ceeaf0ea799939f87af` and a
+clean build (`DIRTY=False`). It adds the producer-owned
+`worker-handoff.schema.json`, the `control_worker` capability flag, and the
+`confflow-control-worker` entrypoint. The worker consumes the existing queued
+launch token through `ExecutionService`; it does not call `prepare`, enqueue
+the legacy agent, or create a second state authority.
+
+After the mandatory g16 identity probe, one isolated Ubuntu-24.04 WSL run used
+that candidate wheel to execute a real methane Gaussian 16 optimization. The
+run completed in 4.1 seconds with energy `-40.5183833`; producer revisions
+advanced `prepared -> queued -> running -> checkpointed -> completed`, and the
+producer artifact manifest and SHA-256 were verified. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-e91a741-evidence.json`, with copied work
+and state under the matching `C:\tmp\jobdesk-control-worker-real-e91a741-*`
+roots. No `/opt` file was modified.
+
+This is producer candidate evidence, not a JobDesk compatibility-period sample:
+the candidate is not published or pinned by the stable JobDesk consumer, the
+JobDesk launcher has not been switched to the candidate worker entrypoint, and
+the remote dual-repository CI has not run for this commit. The compatibility
+decision therefore remains **COMPATIBILITY PERIOD CONTINUES**; Phase F still
+requires a published producer/consumer candidate, remote CI, a real JobDesk
+control computation sample, and one complete measured published cycle.
+
 ## Execution status (2026-08-01)
 
 The release-closure track in sections 3, 4, and 8.1 is **complete**, with the

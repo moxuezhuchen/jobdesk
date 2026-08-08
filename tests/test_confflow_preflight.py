@@ -71,6 +71,23 @@ def test_parse_and_validate_supported_capabilities():
     validate_confflow_capabilities(capabilities, require_dag=True)
 
 
+def test_parser_reads_optional_control_worker_capability():
+    payload = json.loads(_payload())
+    payload["capabilities"]["control_worker"] = True
+
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+
+    assert capabilities.control_worker is True
+
+
+def test_parser_rejects_non_boolean_control_worker_capability():
+    payload = json.loads(_payload())
+    payload["capabilities"]["control_worker"] = "yes"
+
+    with pytest.raises(ValueError, match="control_worker must be boolean"):
+        parse_confflow_capabilities(json.dumps(payload))
+
+
 def test_legacy_stable_is_allowed_only_for_legacy_provenance_path():
     payload = json.loads(_payload())
     payload["version"] = LEGACY_REFERENCE_VERSION

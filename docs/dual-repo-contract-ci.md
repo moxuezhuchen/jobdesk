@@ -70,4 +70,7 @@ contract suite reported `88 passed`. The local Windows run used command-presence
 stubs for the Unix-only capability fields and is not a substitute for Ubuntu
 Actions. The JobDesk candidate matrix has not been published, so it still has
 no remote CI result. Real WSL, launcher, and Gaussian/ORCA acceptance remain
-separate gates.
+separate gates. The unpublished producer candidate `e91a741` additionally
+contains a worker-handoff schema and real direct g16 evidence; that candidate
+schema is intentionally outside the pinned v1.5.0 four-file matrix until the
+producer release and consumer pin advance together.

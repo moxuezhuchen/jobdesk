@@ -44,6 +44,12 @@ has only persisted remote names at this boundary. It is not the producer
 stage the files, compute their byte digests/sizes, and construct the producer
 manifest before invoking a real calculation.
 
+The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
+unpublished ConfFlow worker candidate. It is not part of the pinned v1.5.0
+bundle above and must not be sent to a stable v1.5.0 producer. Once a producer
+release publishes this handoff contract, the consumer pin, workflow, and
+dual-repository CI must be updated together.
+
 ## Ownership and launcher boundary
 
 ConfFlow owns durable run state, revisions, event cursors, idempotency, typed

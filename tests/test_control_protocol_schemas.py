@@ -1,4 +1,4 @@
-"""Parity and fail-closed tests for the pinned producer schema bundle."""
+"""Parity tests for the pinned bundle plus the unpublished worker snapshot."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ _SCHEMA_HASHES = {
     "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
     "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
     "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+    "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
 }
 _DIGEST = "a" * 64
 
@@ -168,6 +169,25 @@ def test_input_manifest_schema_rejects_duplicate_or_unsafe_shape(schemas) -> Non
         "inputs": [{"ordinal": 0, "path": "../escape", "sha256": _DIGEST, "size": 1}],
     }
     assert list(schemas["input-manifest.schema.json"].iter_errors(manifest))
+
+
+def test_worker_handoff_schema_binds_one_absolute_task(schemas) -> None:
+    handoff = {
+        "content_schema": "confflow.control.worker-handoff.v1",
+        "run_id": "run-1",
+        "workflow_config": {"path": "/tmp/run-1/workflow.yaml", "sha256": _DIGEST},
+        "tasks": [
+            {
+                "task_id": "methane",
+                "input_xyz": "/tmp/run-1/methane.xyz",
+                "work_dir": "/tmp/run-1/methane_work",
+                "sha256": _DIGEST,
+            }
+        ],
+    }
+    assert list(schemas["worker-handoff.schema.json"].iter_errors(handoff)) == []
+    handoff["tasks"] = [handoff["tasks"][0], handoff["tasks"][0]]  # type: ignore[list-item]
+    assert list(schemas["worker-handoff.schema.json"].iter_errors(handoff))
 
 
 def test_schema_negative_copy_is_not_mutated_by_validation(schemas) -> None:
