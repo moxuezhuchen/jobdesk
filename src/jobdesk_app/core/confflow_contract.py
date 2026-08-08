@@ -23,12 +23,12 @@ v1.4.6 rollback release; that exception is never used for control submission.
 
 Reference build artefact
 ------------------------
-The ConfFlow v1.5.0 wheel released from the clean tagged producer commit
+The ConfFlow v1.5.3 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-1.5.0-py3-none-any.whl
-    sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc
-    commit: 0fff6439a4614ec155959b1d0d3781fc5342d736
+    confflow-1.5.3-py3-none-any.whl
+    sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
+    commit: f37759954da2818d777ec4d06f81bd53aeafe6e3
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -135,13 +135,13 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # docs, and the package's expected reference build.
 MIN_VERSION: tuple[int, int, int] = (1, 5, 0)
 MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
-REFERENCE_VERSION: str = "1.5.0"
-REFERENCE_BUILD_COMMIT: str = "0fff6439a4614ec155959b1d0d3781fc5342d736"
-REFERENCE_WHEEL_FILENAME: str = "confflow-1.5.0-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc"
+REFERENCE_VERSION: str = "1.5.3"
+REFERENCE_BUILD_COMMIT: str = "f37759954da2818d777ec4d06f81bd53aeafe6e3"
+REFERENCE_WHEEL_FILENAME: str = "confflow-1.5.3-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6"
 
 # The last released legacy producer remains an explicit rollback target during
-# the v1.5.0 compatibility period. It is accepted only by the legacy submit
+# the v1.5.3 compatibility period. It is accepted only by the legacy submit
 # preflight; control-mode production still requires the exact reference above.
 LEGACY_REFERENCE_VERSION: str = "1.4.6"
 LEGACY_REFERENCE_BUILD_COMMIT: str = "4e9e74a8991338aec0f393182073c8c087b4fa63"

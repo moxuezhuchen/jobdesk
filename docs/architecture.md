@@ -6,7 +6,7 @@ The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
 Workflow method presets are supplied by `jobdesk_app.services.method_presets`,
 while the editable local `WorkflowSpec` and the remote `confflow` CLI form a
 two-part contract. JobDesk accepts ConfFlow in the compatibility window
-`>=1.5,<2.0`; control submission is pinned to the exact clean `v1.5.0`
+`>=1.5,<2.0`; control submission is pinned to the exact clean `v1.5.3`
 provenance, while stable `v1.4.6` remains the legacy rollback exception during
 the compatibility period. This is a capability window, not an exact shared
 model pin.

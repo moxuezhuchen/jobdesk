@@ -167,9 +167,29 @@ def build_control_execute_command(executable: str | None, state_root: str, run_i
     )
 
 
+def build_control_worker_command(
+    worker_executable: str | None,
+    state_root: str,
+    run_id: str,
+    handoff_path: str,
+) -> str:
+    """Build the producer-owned external worker handoff command."""
+    state_root = _absolute_remote_path(state_root, "state_root")
+    handoff_path = _absolute_remote_path(handoff_path, "handoff_path")
+    run_id = _safe_launcher_run_id(run_id)
+    return (
+        f"{quote_confflow_executable(worker_executable)}"
+        f" --state-root {shlex.quote(state_root)}"
+        f" --run-id {shlex.quote(run_id)}"
+        f" --handoff {shlex.quote(handoff_path)} --json"
+    )
+
+
 def build_control_launcher_script(
     *,
     executable: str | None,
+    worker_executable: str | None,
+    handoff_path: str,
     state_root: str,
     run_id: str,
     metadata_path: str,
@@ -177,19 +197,21 @@ def build_control_launcher_script(
     resources: ResourceSpec,
     env_init_scripts: Iterable[str] = (),
 ) -> str:
-    """Build a scheduler script that only dispatches an existing control producer.
+    """Build a scheduler script for execute followed by the producer worker.
 
     The marker is written before the producer command so a lost submit response
     can be reconciled without submitting the same producer request twice. The
-    command then replaces the in-flight marker with an explicit exit state;
-    reconciliation never treats a still-running or failed launcher as a
-    confirmed submission.
+    producer worker is launched through ``setsid`` so its lease records a
+    dedicated process session, which is required for crash recovery.
     """
     state_root = _absolute_remote_path(state_root, "state_root")
+    handoff_path = _absolute_remote_path(handoff_path, "handoff_path")
     metadata_path = _absolute_remote_path(metadata_path, "metadata_path")
     run_id = _safe_launcher_run_id(run_id)
     scheduler = (scheduler_type or "nohup").lower()
-    command = build_control_execute_command(executable, state_root, run_id)
+    execute_command = build_control_execute_command(executable, state_root, run_id)
+    worker_command = build_control_worker_command(worker_executable, state_root, run_id, handoff_path)
+    command = f"{execute_command} && setsid --wait {worker_command}"
     marker = json.dumps(
         {
             "content_schema": "jobdesk.confflow.launcher.v1",
@@ -201,6 +223,8 @@ def build_control_launcher_script(
             "state_root": state_root,
             "execution_state": "started",
             "execute_rc": None,
+            "worker_rc": None,
+            "worker_started": False,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -228,14 +252,34 @@ def build_control_launcher_script(
             f"printf '%s\\n' \"$marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
             "set +e",
-            build_confflow_preflight_shell(command, env_init_scripts),
+            build_confflow_preflight_shell(execute_command, env_init_scripts),
             "execute_rc=$?",
             "set -e",
-            'execution_state="completed"',
-            'if [ "$execute_rc" -ne 0 ]; then execution_state="failed"; fi',
+            'worker_rc=""',
+            'if [ "$execute_rc" -eq 0 ]; then',
+            '  old_worker_fragment=\'"worker_rc":null,"worker_started":false\'',
+            '  new_worker_fragment=\'"worker_rc":null,"worker_started":true\'',
+            '  started_marker="${marker//$old_worker_fragment/$new_worker_fragment}"',
+            f"  printf '%s\\n' \"$started_marker\" > {tmp_q}",
+            f"  mv -f {tmp_q} {metadata_q}",
+            '  marker="$started_marker"',
+            "  set +e",
+            build_confflow_preflight_shell(f"setsid --wait {worker_command}", env_init_scripts),
+            "  worker_rc=$?",
+            "  set -e",
+            '  execution_state="completed"',
+            'else',
+            '  worker_rc=""',
+            '  execution_state="failed"',
+            'fi',
             "old_fragment='\"execute_rc\":null,\"execution_state\":\"started\"'",
             "new_fragment='\"execute_rc\":'\"$execute_rc\"',\"execution_state\":\"'\"$execution_state\"'\"'",
             'completed_marker="${marker//$old_fragment/$new_fragment}"',
+            'if [ "$execute_rc" -eq 0 ]; then',
+            "  old_worker_rc='\"worker_rc\":null'",
+            "  new_worker_rc='\"worker_rc\":'\"$worker_rc\"''",
+            '  completed_marker="${completed_marker//$old_worker_rc/$new_worker_rc}"',
+            'fi',
             f"printf '%s\\n' \"$completed_marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
             "",
@@ -292,6 +336,7 @@ def _safe_launcher_run_id(run_id: str) -> str:
 __all__ = [
     "SSHControlTransport",
     "build_control_execute_command",
+    "build_control_worker_command",
     "build_control_launcher_script",
     "resolve_control_state_root",
 ]

@@ -29,7 +29,14 @@ from jobdesk_app.services.confflow_control import (
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient, _download_control_artifacts
+from jobdesk_app.services.ssh_confflow_client import (
+    SSHConfFlowClient,
+    _canonical_json,
+    _download_control_artifacts,
+    _state_worker_executable,
+    _upload_control_worker_handoff,
+    _worker_handoff,
+)
 from jobdesk_app.services.ssh_confflow_control import (
     SSHControlTransport,
     build_control_execute_command,
@@ -41,6 +48,15 @@ def _response(operation: str, **fields: object) -> str:
         {"protocol_schema": "confflow.control.v1", "operation": operation, "ok": True, **fields},
         separators=(",", ":"),
     )
+
+
+def test_state_worker_executable_accepts_missing_durable_state() -> None:
+    assert _state_worker_executable(None) is None
+    assert _state_worker_executable({}) is None
+    assert _state_worker_executable({"worker_executable": "/opt/confflow/bin/worker"}) == (
+        "/opt/confflow/bin/worker"
+    )
+    assert _state_worker_executable({"worker_executable": 1}) is None
 
 
 def test_prepare_digest_matches_phase_d_golden_frame() -> None:
@@ -160,6 +176,101 @@ def test_control_launcher_accepts_producer_safe_dotted_run_id() -> None:
         "confflow", "/tmp/jobdesk-control", "run.2026-08"
     )
     assert "--run-id run.2026-08" in command
+
+
+def test_worker_handoff_digest_uses_canonical_envelope_bytes() -> None:
+    handoff = _worker_handoff(
+        run_id="run-1",
+        workflow_path="/attempt/input/workflow.yaml",
+        workflow_digest="b" * 64,
+        input_path="/attempt/input/methane.xyz",
+        input_digest="c" * 64,
+        work_dir="/attempt/results/methane_confflow_work",
+        task_id="methane",
+    )
+
+    expected = (
+        b'{"content_schema":"confflow.control.worker-handoff.v1","run_id":"run-1","tasks":[{"input_xyz":"/attempt/input/methane.xyz","sha256":"'
+        + b"c" * 64
+        + b'","task_id":"methane","work_dir":"/attempt/results/methane_confflow_work"}],"workflow_config":{"path":"/attempt/input/workflow.yaml","sha256":"'
+        + b"b" * 64
+        + b'"}}'
+    )
+    assert _canonical_json(handoff) == expected
+    assert handoff["workflow_config"] == {
+        "path": "/attempt/input/workflow.yaml",
+        "sha256": "b" * 64,
+    }
+    assert handoff["tasks"][0]["sha256"] == "c" * 64
+
+
+class _WorkerSourceSFTP:
+    def __init__(self, sources: dict[str, Path]) -> None:
+        self.sources = sources
+        self.files: dict[str, bytes] = {}
+
+    def mkdir_p(self, remote_dir: str) -> None:
+        del remote_dir
+
+    def lstat(self, remote_path: str):
+        if remote_path in self.sources:
+            return self.sources[remote_path].lstat()
+        if remote_path in self.files:
+            return SimpleNamespace(st_mode=stat.S_IFREG | 0o600)
+        return None
+
+    def download_file(self, remote_path: str, local_path: Path, **kwargs):
+        del kwargs
+        local_path.write_bytes(self.sources[remote_path].read_bytes())
+        return SimpleNamespace(status="transferred", reason="ok")
+
+    def upload_file(self, local_path: Path, remote_path: str, **kwargs):
+        del kwargs
+        self.files[remote_path] = local_path.read_bytes()
+        return SimpleNamespace(status="transferred", reason="ok")
+
+
+def test_worker_handoff_stages_only_regular_digest_matched_sources(tmp_path) -> None:
+    workflow = tmp_path / "workflow.yaml"
+    input_xyz = tmp_path / "methane.xyz"
+    workflow.write_text("steps: []\n", encoding="utf-8")
+    input_xyz.write_text("1\n\nH 0 0 0\n", encoding="utf-8")
+    attempt_root = "/attempt"
+    workflow_target = f"{attempt_root}/input/workflow.yaml"
+    input_target = f"{attempt_root}/input/methane.xyz"
+    handoff_target = f"{attempt_root}/input/worker-handoff.json"
+    handoff = _worker_handoff(
+        run_id="run-1",
+        workflow_path=workflow_target,
+        workflow_digest=hashlib.sha256(workflow.read_bytes()).hexdigest(),
+        input_path=input_target,
+        input_digest=hashlib.sha256(input_xyz.read_bytes()).hexdigest(),
+        work_dir=f"{attempt_root}/results/methane_confflow_work",
+        task_id="methane",
+    )
+    sftp = _WorkerSourceSFTP({"/source/workflow.yaml": workflow, "/source/methane.xyz": input_xyz})
+    ssh = SimpleNamespace(
+        run=lambda command, timeout: SimpleNamespace(exit_code=0, stdout="", stderr="")
+    )
+
+    _upload_control_worker_handoff(
+        sftp,
+        ssh,
+        worker_handoff=handoff,
+        handoff_path=handoff_target,
+        attempt_root=attempt_root,
+        workflow_path=workflow_target,
+        input_path=input_target,
+        remote_workflow_path="/source/workflow.yaml",
+        remote_input_path="/source/methane.xyz",
+        workflow_digest=handoff["workflow_config"]["sha256"],
+        input_digest=handoff["tasks"][0]["sha256"],
+        handoff_bytes=_canonical_json(handoff),
+    )
+
+    assert sftp.files[workflow_target] == workflow.read_bytes()
+    assert sftp.files[input_target] == input_xyz.read_bytes()
+    assert json.loads(sftp.files[handoff_target]) == handoff
 
 
 def test_control_prepare_rejects_non_string_request_component() -> None:
@@ -342,6 +453,23 @@ def _control_spec() -> RunSpec:
 
 
 def _seed_control_state(service: RunService, run_id: str, *, revision: int = 0, state: str = "prepared") -> None:
+    attempt_root = "/home/test/.local/state/confflow/jobdesk-run-1"
+    handoff = {
+        "content_schema": "confflow.control.worker-handoff.v1",
+        "run_id": run_id,
+        "workflow_config": {
+            "path": f"{attempt_root}/input/workflow.yaml",
+            "sha256": "b" * 64,
+        },
+        "tasks": [
+            {
+                "task_id": "methane",
+                "input_xyz": f"{attempt_root}/input/methane.xyz",
+                "work_dir": f"{attempt_root}/results/methane_confflow_work",
+                "sha256": "c" * 64,
+            }
+        ],
+    }
     save_state(
         service,
         run_id,
@@ -353,6 +481,12 @@ def _seed_control_state(service: RunService, run_id: str, *, revision: int = 0, 
             "state_locator": "/home/test/.local/state/confflow/control",
             "idempotency_key": f"jobdesk.{run_id}",
             "producer_identity": {"sha256": "d" * 64},
+            "capability": {"capabilities": {"control_worker": True}},
+            "input_manifest_path": f"{attempt_root}/input/worker-handoff.json",
+            "worker_attempt_root": attempt_root,
+            "worker_work_dir": f"{attempt_root}/results/methane_confflow_work",
+            "worker_executable": "/opt/confflow/bin/confflow-control-worker",
+            "worker_handoff": handoff,
             "revision": revision,
             "state": state,
         },

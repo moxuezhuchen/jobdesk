@@ -136,6 +136,16 @@ period, establish control acceptance, or authorize Phase F: the real control
 worker handoff, full rollback/recovery metrics, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
 
+## 2026-08-09 current authoritative sample summary
+
+The earlier zero-control-count snapshot is superseded by the released
+v1.5.3 sample recorded below. The current formal counters are
+`control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
+synthetic, and historical evidence remains excluded. The compatibility period
+continues because the sample's in-memory response traces were not persisted
+after a post-attempt cleanup timeout and a complete measured published cycle
+has not yet been collected. Phase F remains not ready.
+
 ## 2026-08-08 real JobDesk control launcher acceptance (non-compute)
 
 After the same authorized WSL restart, an isolated real JobDesk control path
@@ -185,6 +195,110 @@ has no real JobDesk control computation, because the pinned v1.5.0 producer's
 Phase F remains blocked on real control computation/worker handoff, published
 candidate CI, and one complete published compatibility cycle with measured
 control/legacy usage and fallback metrics.
+
+## 2026-08-09 ConfFlow v1.5.3 producer release (published)
+
+The producer-owned worker handoff is now published as ConfFlow `v1.5.3`.
+The normal merge commit is `f37759954da2818d777ec4d06f81bd53aeafe6e3`,
+with parents `147ebfef884e0339b1ece00164e86f1d8202bf60` and the reviewed
+candidate `9fdeb7742c77cb2cf7bfebf63f4f4c8595d2f648`. The immutable annotated
+tag `v1.5.3` peels to that merge commit. The formal GitHub Release wheel is
+`confflow-1.5.3-py3-none-any.whl` with SHA-256
+`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
+Downloaded `SHA256SUMS` verified all seven release assets;
+`provenance.json` and `attestation.json` bind the wheel to repository
+`moxuezhuchen/ConfFlow`, tag `v1.5.3`, and peeled commit `f377599`.
+The exact release inputs are recorded by dependency-lock SHA-256
+`a389b56baeaf75d3567175fd0c7c6282423df04ddf42469160fc8b476a1cd376` and
+wheelhouse-manifest SHA-256
+`ab3a940525f0230dda58e8087dab2e33c29bee6183940f72aee66c4c999adc7c`.
+
+Remote CI passed at runs `31271946187` (full ConfFlow matrix),
+`31271946186` (coverage), and `31271946207` (JobDesk Consumer Contract).
+The release workflow `31272089279` completed successfully and published the
+seven release assets. The connector returned 403 for PR metadata/merge
+write operations; after the exact HEAD, checks, and independent review were
+revalidated, the user-authorized normal `--no-ff` merge was created in an
+isolated worktree and pushed. The SSH push reported a protected-ref PR-rule
+bypass; this is recorded as provenance, not described as a connector merge.
+
+The final exact production venv verified the release wheel, tag, attestation,
+clean build commit, dependency lock, and wheelhouse manifest provenance.
+This publication was followed by one real released-v1.5.3 JobDesk control
+computation; the sample and its evidence are recorded below. The old v1.5.2
+publication and the `9a5f213`/1.5.1 worker wheel remain historical or
+candidate-only evidence and are not stable samples.
+
+## 2026-08-09 released v1.5.3 real JobDesk control sample
+
+The isolated JobDesk consumer used the immutable ConfFlow `v1.5.3` release,
+peeled commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, and wheel SHA-256
+`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`. The
+formal runtime was installed from the release wheel with verified attestation,
+clean build provenance, dependency-lock SHA-256
+`a389b56baeaf75d3567175fd0c7c6282423df04ddf42469160fc8b476a1cd376`, and
+wheelhouse-manifest SHA-256
+`ab3a940525f0230dda58e8087dab2e33c29bee6183940f72aee66c4c999adc7c`.
+
+One real JobDesk control computation (`control-g16-v153-20260809-a3`) ran on
+server `814new` through the supported `nohup` launcher and the released
+`confflow-control-worker`; it was not candidate-only, synthetic, or historical.
+The durable JobDesk control state recorded ConfFlow 1.5.3, schema 4, producer
+commit `f377599`, `control_worker=true`, revision 6, and terminal
+`completed`. Launcher metadata recorded `execute_rc=0`, `worker_started=true`,
+and `worker_rc=0`; the producer log recorded the JSON states `queued` and
+`completed`. The first submit dispatched one task, the idempotent resubmit
+assertion observed `submitted_task_count=0`, and the reconnect/events/status,
+terminal cancel/resume, artifact-manifest, and download stages advanced
+without a harness error. A downloaded `output.xyz` was retained with SHA-256
+`80dc8335046084e993161be1f631a1995cd6715512d5d74fa0e6e8888393c6f2`.
+
+- local evidence: `C:\tmp\jobdesk-control-release-v153-20260809-a3\evidence.json`
+- remote attempt root: `/tmp/jobdesk-control-release-v153-20260809-a3`
+- cleanup: the exact attempt root was absent after capture; the separately
+  created runtime root `/tmp/jobdesk-confflow-v153-release-f377599-20260809-a1`
+  was then removed by an exact path-bound cleanup
+- counters after this sample: `control_backend_runs=1`,
+  `legacy_backend_runs=1`, run-scoped fallback `0`
+
+The harness timed out only while deleting the large temporary runtime after
+the attempt root had already been removed. The retained evidence therefore
+marks the in-memory event trace, cancel/resume responses, and raw artifact
+manifest as not persisted; it does not reconstruct those values. This is a
+real control computation sample, but the evidence bundle is not a complete
+compatibility-cycle record. A complete published cycle still requires durable
+reconnect/event/cancel/resume/artifact metrics, fallback and idempotency
+metrics across the release period, and the remaining rollback/closeout
+measurements. Phase F remains **not ready** and the formal decision remains
+**COMPATIBILITY PERIOD CONTINUES**.
+
+## 2026-08-09 ConfFlow v1.5.2 producer release (historical, superseded)
+
+The producer-owned worker handoff is now published as ConfFlow `v1.5.2`.
+PR #50 was merged at `0043f02bab65ebcfde72fdd2ef27a98371e9d6c1`, whose two
+parents are the prior `main` commit `6ab11ddfc5066f70ecc981eafb8d19aa6e5b8785`
+and reviewed worker candidate `b8988728d58b3141745cd6b7fb4aa64dffd5f468`.
+The immutable annotated tag `v1.5.2` peels to the merge commit. The formal
+GitHub Release wheel is
+`confflow-1.5.2-py3-none-any.whl` with SHA-256
+`4ed977c0454fef8856c4c5604e1c6237918e76ba3b6afe338ae8783de74398d4`.
+Downloaded `SHA256SUMS` verified all seven release assets;
+`provenance.json` and `attestation.json` bind the wheel to repository
+`moxuezhuchen/ConfFlow`, tag `v1.5.2`, and peeled commit `0043f02`.
+
+Remote CI passed at runs `31268370897` (coverage, Python 3.10--3.13,
+Black, Ruff, and mypy) and `31268370905` (producer candidate against
+JobDesk main). The connector did not have PR-write scope and returned 403;
+the exact candidate HEAD, checks, and independent review were revalidated
+before the user-authorized normal `--no-ff` merge. The SSH push reported a
+protected-ref PR-rule bypass; this is recorded as provenance, not described
+as a connector merge.
+
+The JobDesk isolated consumer now pins the formal v1.5.2 commit and wheel
+digest in its pending release commit. This publication does not itself add a
+compatibility-period run: no released-v1.5.2 JobDesk control computation has
+yet completed. The old `9a5f213`/1.5.1 worker wheel and its direct g16 run
+remain candidate-only evidence and are not stable samples.
 
 ## 2026-08-08 producer candidate worker handoff (not a compatibility sample)
 

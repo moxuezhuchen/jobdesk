@@ -17,11 +17,13 @@ jobs:
       matrix:
         include:
           - label: stable
+            version: 1.5.3
+            wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
+            control_worker: true
+          - label: historical-v1.5.0
             version: 1.5.0
             wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc
-          - label: next
-            version: 1.5.1
-            wheel_sha256: 5b3dc930acbf7df25ef298301c928051116c760658f9de95db0c3a5eff199008
+            control_worker: false
     steps:
       - name: Check out JobDesk
         uses: actions/checkout@v4
@@ -61,6 +63,7 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ matrix.version }}
           EXPECTED_WHEEL_SHA256: ${{ matrix.wheel_sha256 }}
+          EXPECTED_CONTROL_WORKER: ${{ matrix.control_worker }}
         run: |
           python - <<'PY'
           import json
@@ -92,25 +95,35 @@ jobs:
               or re.fullmatch(r"[0-9a-f]{40}", build["commit"]) is None
               or build.get("dirty") is not False
           ):
-              raise AssertionError(f"candidate build provenance is not clean and pinned: {build!r}")
+              raise AssertionError(f"pinned build provenance is not clean: {build!r}")
           producer = payload.get("producer")
           if not isinstance(producer, dict) or producer.get("package") != "confflow":
-              raise AssertionError(f"candidate producer provenance is malformed: {producer!r}")
+              raise AssertionError(f"pinned producer provenance is malformed: {producer!r}")
           if producer.get("version") != expected or producer.get("build") != build:
-              raise AssertionError(f"candidate producer/build provenance drift: {producer!r}")
+              raise AssertionError(f"pinned producer/build provenance drift: {producer!r}")
           wheel_provenance = producer.get("wheel")
           if not isinstance(wheel_provenance, dict):
-              raise AssertionError(f"candidate wheel provenance is malformed: {wheel_provenance!r}")
+              raise AssertionError(f"pinned wheel provenance is malformed: {wheel_provenance!r}")
           expected_wheel_name = f"confflow-{expected}-py3-none-any.whl"
           wheel_name = wheel_provenance.get("filename")
           wheel_sha = wheel_provenance.get("sha256")
           if wheel_name is not None and wheel_name != expected_wheel_name:
-              raise AssertionError(f"candidate wheel filename drift: {wheel_provenance!r}")
+              raise AssertionError(f"pinned wheel filename drift: {wheel_provenance!r}")
           if wheel_sha is not None and wheel_sha != expected_wheel_sha:
-              raise AssertionError(f"candidate wheel digest drift: {wheel_provenance!r}")
+              raise AssertionError(f"pinned wheel digest drift: {wheel_provenance!r}")
           install_provenance = payload.get("install_provenance") or producer.get("install_provenance")
           if not isinstance(install_provenance, dict):
-              raise AssertionError("candidate install provenance block is missing")
+              raise AssertionError("pinned install provenance block is missing")
+
+          actual_control_worker = (
+              payload.get("capabilities", {}).get("control_worker") is True
+          )
+          expected_control_worker = os.environ["EXPECTED_CONTROL_WORKER"].lower() == "true"
+          if actual_control_worker != expected_control_worker:
+              raise AssertionError(
+                  f"control_worker capability {actual_control_worker!r} != "
+                  f"matrix expectation {expected_control_worker!r}"
+              )
 
           schema_root = Path(sys.prefix) / "share" / "confflow" / "control_protocol" / "v1"
           consumer_schema_root = Path("confflow") / "schemas" / "control"

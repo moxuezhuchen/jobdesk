@@ -1,10 +1,10 @@
 # ConfFlow control protocol v1 consumer record
 
 - **Status:** consumer snapshot of the released producer contract
-- **Producer release:** `v1.5.0`
-- **Producer commit:** `0fff6439a4614ec155959b1d0d3781fc5342d736`
-- **Producer wheel:** `confflow-1.5.0-py3-none-any.whl`
-- **Wheel SHA-256:** `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`
+- **Producer release:** `v1.5.3`
+- **Producer commit:** `f37759954da2818d777ec4d06f81bd53aeafe6e3`
+- **Producer wheel:** `confflow-1.5.3-py3-none-any.whl`
+- **Wheel SHA-256:** `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`
 - **Protocol:** `confflow.control.v1`
 - **Schema dialect:** JSON Schema Draft 2020-12
 
@@ -43,17 +43,18 @@ has only persisted remote names at this boundary. It is not the producer
 `confflow.control.input-manifest.v1` document. An external worker handoff must
 stage the files, compute their byte digests/sizes, and construct the producer
 manifest before invoking a real calculation.
-The unpublished candidate also publishes fixed `{stem}.txt` and
+The released worker handoff also publishes fixed `{stem}.txt` and
 `{stem}min.xyz` sidecars beside the task work directory. A future JobDesk
 adapter must retain the established `<stem>_confflow_work` work-directory
 name so the existing metadata bridge can map those sidecars; this naming rule
-is not part of the stable v1.5.0 producer bundle.
+is part of the v1.5.3 producer extension and remains outside the four-file
+protocol snapshot.
 
 The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
-unpublished ConfFlow worker candidate. It is not part of the pinned v1.5.0
-bundle above and must not be sent to a stable v1.5.0 producer. Once a producer
-release publishes this handoff contract, the consumer pin, workflow, and
-dual-repository CI must be updated together.
+released ConfFlow worker extension. It is part of the pinned v1.5.3 release
+and is sent only after the producer capability advertises `control_worker`.
+The handoff envelope is one-task (`maxItems=1`); JobDesk rejects larger
+batches rather than truncating them.
 
 ## Ownership and launcher boundary
 
@@ -120,5 +121,5 @@ Readers may ignore future optional fields, but required-field, state,
 error-code, identity, and artifact-path changes are breaking contract changes.
 Artifact paths are relative POSIX paths below the producer run directory; both
 producer and consumer validate them before download. Control submission is
-accepted only for the exact v1.5.0 production provenance. The stable v1.4.6
+accepted only for the exact v1.5.3 production provenance. The stable v1.4.6
 exception is restricted to the legacy backend's compatibility-period preflight.

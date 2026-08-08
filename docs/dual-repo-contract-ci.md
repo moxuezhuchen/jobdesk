@@ -58,19 +58,15 @@ commit, wheel digest, or schema digest is inconsistent.
 5. The matrix runs without WSL or Gaussian dependencies; real SSH/WSL
    acceptance remains a separate integration gate.
 
-## Current execution boundary (2026-08-08)
+## Current execution boundary (2026-08-09)
 
-The ConfFlow candidate workflow has a green run for PR #50 after installing the
-Qt runtime libraries. The vendored JobDesk control-schema snapshot is checked
-against the canonical v1.5.0 producer bundle locally, and both workflow files
-now contain the candidate capability/schema-parity step. On 2026-08-08, the
-isolated local matrix also ran the exact stable v1.5.0 and next v1.5.1 wheels
-under Python 3.13: each capability/build/schema gate passed and each pinned
-contract suite reported `88 passed`. The local Windows run used command-presence
-stubs for the Unix-only capability fields and is not a substitute for Ubuntu
-Actions. The JobDesk candidate matrix has not been published, so it still has
-no remote CI result. Real WSL, launcher, and Gaussian/ORCA acceptance remain
-separate gates. The unpublished producer candidate `9a5f213` additionally
-contains a worker-handoff schema and real direct g16 evidence; that candidate
-schema is intentionally outside the pinned v1.5.0 four-file matrix until the
-producer release and consumer pin advance together.
+The producer candidate was followed by the corrected v1.5.3 release. Main is
+now at the normal merge commit `f377599`, tag `v1.5.3` is immutable, and the
+formal release wheel digest is
+`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
+The JobDesk compatibility matrix now labels v1.5.3 as `stable` and keeps the
+old v1.5.0 wheel only as `historical-v1.5.0`; the old 1.5.1 candidate digest
+is not referenced. The JobDesk consumer pin and the worker-handoff schema
+snapshot are being advanced together. Real WSL launcher/control computation,
+reconnect/cancel/resume/artifact integrity, and the complete compatibility
+cycle remain separate gates; no candidate-only or historical run is counted.

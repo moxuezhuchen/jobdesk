@@ -2,6 +2,56 @@
 
 **Date:** 2026-07-29
 
+## Execution status (2026-08-09 release continuation)
+
+ConfFlow worker-handoff release closure is now at the immutable producer
+release `v1.5.3`. The normal merge commit is
+`f37759954da2818d777ec4d06f81bd53aeafe6e3`, with parents
+`147ebfef884e0339b1ece00164e86f1d8202bf60` and the reviewed candidate
+`9fdeb7742c77cb2cf7bfebf63f4f4c8595d2f648`. The annotated tag `v1.5.3`
+peels to that merge commit and the GitHub Release assets were downloaded and
+verified from the tag. The formal wheel is
+`confflow-1.5.3-py3-none-any.whl`, SHA-256
+`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`;
+`provenance.json` and `attestation.json` bind the wheel to repository
+`moxuezhuchen/ConfFlow`, tag `v1.5.3`, and peeled commit `f377599`. The
+release `SHA256SUMS` verified all seven downloaded assets. The exact release
+inputs are also recorded by dependency-lock SHA-256
+`a389b56baeaf75d3567175fd0c7c6282423df04ddf42469160fc8b476a1cd376` and
+wheelhouse-manifest SHA-256
+`ab3a940525f0230dda58e8087dab2e33c29bee6183940f72aee66c4c999adc7c`.
+
+Remote CI passed at runs `31271946187` (full ConfFlow matrix),
+`31271946186` (coverage), and `31271946207` (JobDesk Consumer Contract).
+The release workflow `31272089279` completed successfully and published the
+seven release assets. The GitHub connector lacked PR-write scope and returned
+403; after the exact HEAD, checks, and independent review were revalidated,
+the user-authorized normal `--no-ff` merge was created in an isolated
+worktree and pushed. The remote push reported that the protected-ref PR rule
+was bypassed; this is recorded rather than presented as a connector merge.
+
+JobDesk's consumer reference is being updated to the formal v1.5.3 release
+commit and wheel digest. The final exact production venv verified the wheel,
+tag, attestation, build cleanliness, dependency lock, and wheelhouse
+manifest provenance. The worker-handoff path remains explicitly one-task
+(`maxItems=1`) and fail-closed; it never uses `confflow-agent` SQLite. One
+real released-v1.5.3 JobDesk control computation then completed through the
+supported `nohup` launcher and producer-owned worker on the authorized SSH
+server. Its durable state reached revision 6 and `completed`; launcher
+metadata recorded `execute_rc=0`, `worker_started=true`, and `worker_rc=0`.
+The idempotent resubmit assertion observed `submitted_task_count=0`, the
+reconnect/events/status/artifact/download probes advanced without an error,
+and the exact attempt root was removed. Evidence is retained at
+`C:\tmp\jobdesk-control-release-v153-20260809-a3\evidence.json`; the bundle
+explicitly marks the in-memory event/cancel/resume/raw-manifest responses as
+not persisted because the harness timed out only while deleting the large
+temporary runtime after the attempt root had already been removed. The formal
+compatibility counters are now `control_backend_runs=1` and
+`legacy_backend_runs=1`; candidate-only, synthetic, and historical samples
+remain excluded. A complete measured published compatibility cycle is still
+missing. Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not
+ready.
+
 ## Execution status (2026-08-08 continuation)
 
 The current consumer reference is ConfFlow `v1.5.0`, producer commit

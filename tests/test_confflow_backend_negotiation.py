@@ -36,12 +36,18 @@ def _capability(
     commit: str,
     wheel_filename: str,
     wheel_sha256: str,
+    control_worker: bool = False,
     executable: str = "/opt/confflow/bin/confflow",
 ):
     payload = {
         "schema_version": CAPABILITY_SCHEMA_VERSION,
         "version": version,
-        "capabilities": {"workflow_state": True, "resume": True, "dag": True},
+        "capabilities": {
+            "workflow_state": True,
+            "resume": True,
+            "dag": True,
+            "control_worker": control_worker,
+        },
         "artifacts": {
             "run_summary": EXPECTED_ARTIFACTS.run_summary,
             "workflow_stats": EXPECTED_ARTIFACTS.workflow_stats,
@@ -76,6 +82,7 @@ def _current_capability():
         commit=REFERENCE_BUILD_COMMIT,
         wheel_filename=REFERENCE_WHEEL_FILENAME,
         wheel_sha256=REFERENCE_WHEEL_SHA256,
+        control_worker=True,
     )
 
 
