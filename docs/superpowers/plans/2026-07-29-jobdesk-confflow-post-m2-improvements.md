@@ -8,8 +8,8 @@ The current consumer reference is ConfFlow `v1.5.0`, producer commit
 `0fff6439a4614ec155959b1d0d3781fc5342d736`, wheel SHA-256
 `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`, with
 stable `v1.4.6` retained only as the exact legacy rollback exception. The
-isolated JobDesk continuation is verified at the final-review `HEAD` of this
-branch; the
+isolated JobDesk continuation is verified at commit
+`ded440aa27358c2e4c45e7a46eec749cf41dab7a`; the
 ConfFlow contract workflow was green at
 run `31242460044` for PR #50 before the additional local provenance/schema
 parity steps (`cc4a401`, `fd2ea06`), which have not been rerun remotely. The JobDesk
