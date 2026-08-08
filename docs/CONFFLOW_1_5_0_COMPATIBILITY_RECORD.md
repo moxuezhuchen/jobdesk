@@ -246,7 +246,8 @@ wheelhouse-manifest SHA-256
 `ab3a940525f0230dda58e8087dab2e33c29bee6183940f72aee66c4c999adc7c`.
 
 One real JobDesk control computation (`control-g16-v153-20260809-a3`) ran on
-server `814new` through the supported `nohup` launcher and the released
+the approved remote test environment through the supported `nohup` launcher
+and the released
 `confflow-control-worker`; it was not candidate-only, synthetic, or historical.
 The durable JobDesk control state recorded ConfFlow 1.5.3, schema 4, producer
 commit `f377599`, `control_worker=true`, revision 6, and terminal

@@ -12,6 +12,8 @@ jobs:
   producer-matrix:
     name: JobDesk with ConfFlow ${{ matrix.label }}
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +37,11 @@ jobs:
           # producer release requires numpy>=2.2.6. Python 3.13 selects the
           # compatible numpy>=2.1,<2.4 branch for both repositories.
           python-version: "3.13"
+
+      - name: Install Linux Qt runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1
 
       - name: Install JobDesk test dependencies
         run: |
