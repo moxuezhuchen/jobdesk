@@ -27,6 +27,14 @@ summary parsing. Both summaries had `confflow.run_summary.v1` and
 cleanup. This counts as one real legacy-backend sample, but it uses the pinned
 v1.5.0 producer and is not the separate stable v1.4.6 rollback probe.
 
+A separate isolated stable v1.4.6 rollback probe then completed the same
+two-molecule JobDesk legacy path with the exact rollback executable
+`/opt/confflow-1.4.6-prod-venv/bin/confflow`; both summaries and manifests
+passed, and `/tmp/jobdesk_phasef_real_legacy146_20260808_a1` was absent after
+bounded cleanup. This closes the live rollback probe, but not the full Phase F
+gate: no real JobDesk control computation/worker handoff, published candidate
+CI, or complete measured compatibility period is established yet.
+
 The earlier SSH attempt remains recorded as a failed, non-counted attempt. The
 pinned producer's `control execute` currently returns a queued launch intent
 until an external worker handoff is supplied. Therefore the formal decision

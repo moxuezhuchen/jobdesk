@@ -134,3 +134,20 @@ evidence. This successful legacy sample does not close the compatibility
 period, establish control acceptance, or authorize Phase F: the real control
 worker handoff, stable v1.4.6 rollback/recovery, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
+
+## 2026-08-08 stable v1.4.6 rollback probe (current evidence)
+
+A separate temporary server profile pinned the exact stable rollback executable
+`/opt/confflow-1.4.6-prod-venv/bin/confflow`. The same two-molecule JobDesk
+legacy path completed over SSH/SFTP; both `run_summary.json` and
+`output_manifest.json` files passed validation and the exact remote root
+`/tmp/jobdesk_phasef_real_legacy146_20260808_a1` was absent after bounded
+cleanup. The local evidence root is
+`C:\tmp\jobdesk_pytest_real_legacy146_20260808_a1`.
+
+This closes the live stable rollback probe, but the compatibility period still
+has no real JobDesk control computation, because the pinned v1.5.0 producer's
+`control execute` remains a queued intent without an external worker handoff.
+Phase F remains blocked on that control acceptance, published candidate CI,
+and one complete published compatibility cycle with measured control/legacy
+usage and fallback metrics.
