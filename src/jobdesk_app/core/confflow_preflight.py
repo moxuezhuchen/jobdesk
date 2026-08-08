@@ -57,9 +57,6 @@ class ConfFlowCapabilities:
     workflow_state: bool
     resume: bool
     dag: bool
-    # Optional producer-candidate capability. The pinned stable release omits
-    # this field; absence must remain false so stable negotiation is unchanged.
-    control_worker: bool = False
     # `None` is allowed by the parser so v1 payloads can be diagnosed as
     # "unsupported schema" rather than as malformed JSON. The validator
     # demands a not-None value when schema_version == CAPABILITY_SCHEMA_VERSION.
@@ -69,6 +66,9 @@ class ConfFlowCapabilities:
     producer: dict[str, object] | None = field(default=None, compare=False)
     executable: dict[str, object] | None = field(default=None, compare=False)
     raw_payload: dict[str, object] | None = field(default=None, compare=False, repr=False)
+    # Optional producer-candidate capability. The pinned stable release omits
+    # this field; absence must remain false so stable negotiation is unchanged.
+    control_worker: bool = False
 
 
 def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:

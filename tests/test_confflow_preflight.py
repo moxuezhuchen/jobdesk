@@ -88,6 +88,13 @@ def test_parser_rejects_non_boolean_control_worker_capability():
         parse_confflow_capabilities(json.dumps(payload))
 
 
+def test_capability_positional_artifact_argument_remains_compatible():
+    capabilities = ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, True, EXPECTED_ARTIFACTS)
+
+    assert capabilities.artifacts == EXPECTED_ARTIFACTS
+    assert capabilities.control_worker is False
+
+
 def test_legacy_stable_is_allowed_only_for_legacy_provenance_path():
     payload = json.loads(_payload())
     payload["version"] = LEGACY_REFERENCE_VERSION

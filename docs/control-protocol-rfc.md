@@ -43,6 +43,11 @@ has only persisted remote names at this boundary. It is not the producer
 `confflow.control.input-manifest.v1` document. An external worker handoff must
 stage the files, compute their byte digests/sizes, and construct the producer
 manifest before invoking a real calculation.
+The unpublished candidate also publishes fixed `{stem}.txt` and
+`{stem}min.xyz` sidecars beside the task work directory. A future JobDesk
+adapter must retain the established `<stem>_confflow_work` work-directory
+name so the existing metadata bridge can map those sidecars; this naming rule
+is not part of the stable v1.5.0 producer bundle.
 
 The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
 unpublished ConfFlow worker candidate. It is not part of the pinned v1.5.0

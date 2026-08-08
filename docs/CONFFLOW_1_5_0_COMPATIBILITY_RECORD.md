@@ -189,19 +189,26 @@ control/legacy usage and fallback metrics.
 ## 2026-08-08 producer candidate worker handoff (not a compatibility sample)
 
 An isolated ConfFlow candidate now supplies the missing producer-owned worker
-boundary. Commit `e91a7416e3c36f217d8ac683ca7c3194e31ac347` produced the clean
-candidate wheel `confflow-1.5.1-py3-none-any.whl` with SHA-256
-`d336563d7086117ed3400965216dcc21647efdd404c70ceeaf0ea799939f87af`.
+boundary. The current candidate commit is
+`2849dd45e734fe5f4d2fd8a505707edaf7c5c31d`; its clean
+`confflow-1.5.1-py3-none-any.whl` has SHA-256
+`aee52eb4e366d8c8863f948bbf92068f78b1290a5c31773f3d43728ba55325c7`.
 The candidate adds `worker-handoff.schema.json`, the `control_worker`
 capability, and `confflow-control-worker`, which consumes the existing queued
 producer token through `ExecutionService` and never calls `prepare` again.
+It also locks the exact canonical handoff digest profile, owner-private
+staging, dedicated-session recovery, and fixed sidecar publication before the
+terminal completed transition.
 
-After the mandatory g16 probe, the candidate worker ran one isolated real
-methane Gaussian 16 optimization in Ubuntu-24.04 WSL. It completed in 4.1
-seconds with energy `-40.5183833`; producer revisions were
-`prepared -> queued -> running -> checkpointed -> completed`, and the output
-manifest artifact digest was verified. Evidence is retained at
-`C:\tmp\jobdesk-control-worker-real-e91a741-evidence.json`.
+After the mandatory g16 probe, the exact candidate wheel ran one isolated real
+methane Gaussian 16 optimization in Ubuntu-24.04 WSL. It completed in 4.837
+seconds; producer revisions were `prepared -> queued -> running ->
+checkpointed -> completed`. Evidence includes the output manifest,
+`methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16 identity,
+handoff digest, and file SHA-256 values at
+`C:\tmp\jobdesk-control-worker-real-2849dd4-evidence.json`. The exact remote
+attempt root `/tmp/jobdesk-control-worker-real-2849dd4` was absent after
+bounded cleanup.
 
 This candidate is unpublished and is not pinned by the stable JobDesk consumer;
 the run therefore does not increment compatibility counters. Current counters

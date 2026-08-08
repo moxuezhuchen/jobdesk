@@ -13,13 +13,16 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 _SCHEMA_ROOT = Path(__file__).parents[1] / "confflow" / "schemas" / "control"
-_SCHEMA_HASHES = {
+_PINNED_SCHEMA_HASHES = {
     "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
     "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
     "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
     "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+}
+_CANDIDATE_SCHEMA_HASHES = {
     "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
 }
+_SCHEMA_HASHES = {**_PINNED_SCHEMA_HASHES, **_CANDIDATE_SCHEMA_HASHES}
 _DIGEST = "a" * 64
 
 
@@ -69,16 +72,24 @@ def _snapshot(operation: str, state: str, *, revision: int = 2) -> dict[str, obj
     }
 
 
-def test_snapshot_matches_pinned_v150_producer_bundle() -> None:
-    for name, expected in _SCHEMA_HASHES.items():
+def test_snapshot_matches_pinned_producer_bundle() -> None:
+    for name, expected in _PINNED_SCHEMA_HASHES.items():
         canonical = json.dumps(
             _load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
         assert hashlib.sha256(canonical).hexdigest() == expected
 
 
-def test_bundle_contains_the_producer_files() -> None:
+def test_bundle_contains_pinned_and_explicit_candidate_snapshot_files() -> None:
     assert {path.name for path in _SCHEMA_ROOT.glob("*.json")} == set(_SCHEMA_HASHES)
+
+
+def test_candidate_worker_snapshot_has_expected_digest() -> None:
+    name, expected = next(iter(_CANDIDATE_SCHEMA_HASHES.items()))
+    canonical = json.dumps(_load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    assert hashlib.sha256(canonical).hexdigest() == expected
 
 
 def test_prepare_request_uses_producer_locator_and_identity_shape(schemas) -> None:

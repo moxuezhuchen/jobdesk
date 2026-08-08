@@ -71,23 +71,27 @@ and removed; no `/opt` files or user state were modified.
 ## 2026-08-08 producer candidate worker-handoff (candidate-only evidence)
 
 The producer-side worker gap was implemented in an isolated, unpublished
-ConfFlow candidate. Candidate commit `e91a7416e3c36f217d8ac683ca7c3194e31ac347`
-builds `confflow-1.5.1-py3-none-any.whl` with SHA-256
-`d336563d7086117ed3400965216dcc21647efdd404c70ceeaf0ea799939f87af` and a
-clean build (`DIRTY=False`). It adds the producer-owned
+ConfFlow candidate. The current candidate commit is
+`2849dd45e734fe5f4d2fd8a505707edaf7c5c31d`; its clean
+`confflow-1.5.1-py3-none-any.whl` has SHA-256
+`aee52eb4e366d8c8863f948bbf92068f78b1290a5c31773f3d43728ba55325c7` and
+`DIRTY=False` build provenance. It adds the producer-owned
 `worker-handoff.schema.json`, the `control_worker` capability flag, and the
 `confflow-control-worker` entrypoint. The worker consumes the existing queued
 launch token through `ExecutionService`; it does not call `prepare`, enqueue
-the legacy agent, or create a second state authority.
+the legacy agent, or create a second state authority. The candidate contract
+also locks the UTF-8 canonical handoff digest profile, owner-private staging,
+dedicated-session recovery, and required fixed sidecars before `completed`.
 
-After the mandatory g16 identity probe, one isolated Ubuntu-24.04 WSL run used
-that candidate wheel to execute a real methane Gaussian 16 optimization. The
-run completed in 4.1 seconds with energy `-40.5183833`; producer revisions
-advanced `prepared -> queued -> running -> checkpointed -> completed`, and the
-producer artifact manifest and SHA-256 were verified. Evidence is retained at
-`C:\tmp\jobdesk-control-worker-real-e91a741-evidence.json`, with copied work
-and state under the matching `C:\tmp\jobdesk-control-worker-real-e91a741-*`
-roots. No `/opt` file was modified.
+After the mandatory four-line g16 probe, one isolated Ubuntu-24.04 WSL run used
+that exact wheel to execute a real methane Gaussian 16 optimization. The run
+completed in 4.837 seconds; producer revisions advanced
+`prepared -> queued -> running -> checkpointed -> completed`, and the output
+manifest, `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16
+identity, and file SHA-256 values were captured. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-2849dd4-evidence.json`; the exact remote
+attempt root `/tmp/jobdesk-control-worker-real-2849dd4` was absent after
+bounded cleanup. No `/opt` file was modified.
 
 This is producer candidate evidence, not a JobDesk compatibility-period sample:
 the candidate is not published or pinned by the stable JobDesk consumer, the
