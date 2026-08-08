@@ -133,7 +133,7 @@ reported no real JobDesk sample.
 The previous failed JobDesk attempt remains retained as non-counted failure
 evidence. This successful legacy sample does not close the compatibility
 period, establish control acceptance, or authorize Phase F: the real control
-worker handoff, stable v1.4.6 rollback/recovery, remote candidate CI, and one
+worker handoff, full rollback/recovery metrics, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
 
 ## 2026-08-08 real JobDesk control launcher acceptance (non-compute)
@@ -175,6 +175,6 @@ cleanup. The local evidence root is
 This closes the live stable rollback probe, but the compatibility period still
 has no real JobDesk control computation, because the pinned v1.5.0 producer's
 `control execute` remains a queued intent without an external worker handoff.
-Phase F remains blocked on that control acceptance, published candidate CI,
-and one complete published compatibility cycle with measured control/legacy
-usage and fallback metrics.
+Phase F remains blocked on real control computation/worker handoff, published
+candidate CI, and one complete published compatibility cycle with measured
+control/legacy usage and fallback metrics.
