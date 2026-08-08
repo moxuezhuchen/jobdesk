@@ -30,7 +30,10 @@ from jobdesk_app.services.confflow_control import (
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient, _download_control_artifacts
-from jobdesk_app.services.ssh_confflow_control import SSHControlTransport
+from jobdesk_app.services.ssh_confflow_control import (
+    SSHControlTransport,
+    build_control_execute_command,
+)
 
 
 def _response(operation: str, **fields: object) -> str:
@@ -125,6 +128,38 @@ def test_stable_cli_without_control_protocol_selects_legacy_fallback() -> None:
             executable="confflow",
             state_root="/tmp/jobdesk-control",
         ).capabilities()
+
+
+@pytest.mark.parametrize(
+    ("run_id", "idempotency_key"),
+    [
+        ("../escape", "jobdesk.run-1"),
+        ("run-1", "jobdesk/escape"),
+        ("run-1", ".."),
+    ],
+)
+def test_control_prepare_rejects_request_path_components_before_sftp(
+    run_id: str, idempotency_key: str
+) -> None:
+    class NoWriteSFTP:
+        def mkdir_p(self, remote_dir: str) -> None:  # pragma: no cover - defensive
+            raise AssertionError(f"unexpected remote mkdir: {remote_dir}")
+
+    transport = SSHControlTransport(
+        None,
+        NoWriteSFTP(),
+        executable="confflow",
+        state_root="/tmp/jobdesk-control",
+    )
+    with pytest.raises(ValueError, match="request identifier pattern"):
+        transport.prepare({"run_id": run_id, "idempotency_key": idempotency_key})
+
+
+def test_control_launcher_accepts_producer_safe_dotted_run_id() -> None:
+    command = build_control_execute_command(
+        "confflow", "/tmp/jobdesk-control", "run.2026-08"
+    )
+    assert "--run-id run.2026-08" in command
 
 
 def test_artifact_parser_rejects_traversal_and_nonterminal_manifest() -> None:

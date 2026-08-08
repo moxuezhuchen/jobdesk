@@ -50,8 +50,8 @@ class SSHControlTransport(ControlTransport):
         return parse_capabilities(result.stdout, exit_code=result.exit_code, stderr=result.stderr)
 
     def prepare(self, request: dict[str, object]) -> ControlSnapshot:
-        run_id = _required_string(request, "run_id")
-        key = _required_string(request, "idempotency_key")
+        run_id = _safe_request_component(_required_string(request, "run_id"), "run_id")
+        key = _safe_request_component(_required_string(request, "idempotency_key"), "idempotency_key")
         request_path = posixpath.join(self.state_root, "jobdesk-requests", f"{run_id}-{key}.json")
         self._sftp.mkdir_p(posixpath.dirname(request_path))
         with tempfile.TemporaryDirectory(prefix="jobdesk-control-") as temp_dir:
@@ -257,6 +257,18 @@ def _required_string(value: dict[str, object], key: str) -> str:
     return result
 
 
+def _safe_request_component(value: str, label: str) -> str:
+    """Keep producer request identifiers inside the isolated request directory."""
+    if (
+        not value
+        or len(value) > 128
+        or not value[0].isalnum()
+        or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for char in value)
+    ):
+        raise ValueError(f"{label} must match the producer request identifier pattern")
+    return value
+
+
 def _looks_like_unsupported_capability(stderr: str, stdout: str) -> bool:
     diagnostic = f"{stderr}\n{stdout}".lower()
     return any(
@@ -273,9 +285,7 @@ def _looks_like_unsupported_capability(stderr: str, stdout: str) -> bool:
 
 
 def _safe_launcher_run_id(run_id: str) -> str:
-    if not isinstance(run_id, str) or not run_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in run_id):
-        raise ValueError("run_id must contain only letters, numbers, underscores, and hyphens")
-    return run_id
+    return _safe_request_component(run_id, "run_id")
 
 
 __all__ = [

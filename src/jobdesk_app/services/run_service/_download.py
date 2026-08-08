@@ -107,6 +107,7 @@ def _download_completed_locked(
                 local_file = local_root.joinpath(*safe_path.parts)
                 if not local_file.resolve().is_relative_to(local_root):
                     raise ValueError(f"declared result path escapes local dir: {relative_output}")
+                _assert_local_download_target_not_symlink(local_file, local_root)
                 if uses_output_manifest:
                     canonical_local_file = local_file.resolve()
                     if canonical_local_file in claimed_manifest_targets:
@@ -128,6 +129,7 @@ def _download_completed_locked(
                     local_file = download_base.joinpath(*safe_path.parts)
                     if not local_file.resolve().is_relative_to(download_base):
                         raise ValueError(f"declared result path escapes local dir: {relative_output}")
+                    _assert_local_download_target_not_symlink(local_file, download_base)
                     try:
                         rec = sftp.download_file(remote_file, local_file, overwrite=True, skip_if_same_size=False)
                         recs.append(rec)
@@ -206,6 +208,7 @@ def _load_manifest_outputs(
     _assert_remote_manifest_path_not_symlink(sftp, work_dir, safe_manifest)
     local_root = _manifest_download_root(download_base, work_dir)
     local_manifest = local_root.joinpath(*safe_manifest.parts)
+    _assert_local_download_target_not_symlink(local_manifest, local_root)
     canonical_manifest = local_manifest.resolve()
     if canonical_manifest in claimed_targets:
         raise ValueError("output manifest conflicts with another task target")
@@ -321,3 +324,18 @@ def _assert_remote_manifest_path_not_symlink(sftp, work_dir: str, relative_path:
             raise ValueError(f"remote manifest path has no mode: {current}")
         if stat.S_ISLNK(mode):
             raise ValueError(f"remote manifest path is a symlink: {current}")
+
+
+def _assert_local_download_target_not_symlink(path: Path, root: Path) -> None:
+    """Reject pre-existing local links before an overwrite-capable download."""
+    try:
+        relative = path.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"local download target escapes result root: {path}") from error
+    current = root
+    for part in relative.parts:
+        if current.is_symlink():
+            raise ValueError(f"local download target is a symlink: {current}")
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"local download target is a symlink: {current}")

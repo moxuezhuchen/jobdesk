@@ -218,6 +218,28 @@ def test_workflow_download_rejects_remote_symlink_target(tmp_path: Path, runs_di
     assert service.repository.load_tasks(run_id)[0].status == TaskStatus.remote_completed
 
 
+def test_workflow_download_rejects_preexisting_local_symlink_target(tmp_path: Path, runs_dir: Path) -> None:
+    service, run_id = _workflow_service(tmp_path, runs_dir)
+    local_root = tmp_path / "results" / run_id / "water_confflow_work"
+    local_root.mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep", encoding="utf-8")
+    link = local_root / "output_manifest.json"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    sftp = _ManifestSFTP(_manifest(["final/output.xyz"]))
+    records, failures = service.download_completed(run_id, sftp, ["*.xyz"])
+
+    assert records == []
+    assert failures == [("water", f"local download target is a symlink: {link}")]
+    assert sftp.requested == []
+    assert outside.read_text(encoding="utf-8") == "keep"
+    assert service.repository.load_tasks(run_id)[0].status == TaskStatus.remote_completed
+
+
 def test_workflow_download_rejects_unsafe_remote_workflow_directory(tmp_path: Path, runs_dir: Path) -> None:
     service, run_id = _workflow_service(tmp_path, runs_dir)
     tasks = service.repository.load_tasks(run_id)

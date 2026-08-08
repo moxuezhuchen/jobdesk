@@ -190,9 +190,9 @@ control/legacy usage and fallback metrics.
 
 An isolated ConfFlow candidate now supplies the missing producer-owned worker
 boundary. The current candidate commit is
-`30c5aaa`; its clean
+`9a5f213`; its clean
 `confflow-1.5.1-py3-none-any.whl` has SHA-256
-`a5fe67c0f2a982a631bd341a2794f2fab3f5d8a222ea450427631a6db67da3f2`.
+`7c3bdfda3489fccdbd5b096d0ef170fddcd3988dc1f513740da39bdb782a634e`.
 The candidate adds `worker-handoff.schema.json`, the `control_worker`
 capability, and `confflow-control-worker`, which consumes the existing queued
 producer token through `ExecutionService` and never calls `prepare` again.
@@ -201,13 +201,15 @@ staging, dedicated-session recovery, and fixed sidecar publication before the
 terminal completed transition.
 
 After the mandatory g16 probe, the exact candidate wheel ran one isolated real
-methane Gaussian 16 optimization in Ubuntu-24.04 WSL. It completed in 4.837
+methane Gaussian 16 optimization in Ubuntu-24.04 WSL through the
+`confflow-control-worker` console entrypoint. It completed in 10.149
 seconds; producer revisions were `prepared -> queued -> running ->
 checkpointed -> completed`. Evidence includes the output manifest,
 `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16 identity,
-handoff digest, and file SHA-256 values at
-`C:\tmp\jobdesk-control-worker-real-30c5aaa-evidence.json`. The exact remote
-attempt root `/tmp/jobdesk-control-worker-real-30c5aaa` was absent after
+handoff digest, and file SHA-256 values. The worker returned exactly one
+machine-readable JSON line with exit code 0. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-9a5f213-evidence.json`. The exact remote
+attempt root `/tmp/jobdesk-control-worker-real-9a5f213` was absent after
 bounded cleanup.
 
 This candidate is unpublished and is not pinned by the stable JobDesk consumer;

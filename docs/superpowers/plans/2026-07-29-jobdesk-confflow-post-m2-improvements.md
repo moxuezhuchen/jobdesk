@@ -72,9 +72,9 @@ and removed; no `/opt` files or user state were modified.
 
 The producer-side worker gap was implemented in an isolated, unpublished
 ConfFlow candidate. The current candidate commit is
-`30c5aaa`; its clean
+`9a5f213`; its clean
 `confflow-1.5.1-py3-none-any.whl` has SHA-256
-`a5fe67c0f2a982a631bd341a2794f2fab3f5d8a222ea450427631a6db67da3f2` and
+`7c3bdfda3489fccdbd5b096d0ef170fddcd3988dc1f513740da39bdb782a634e` and
 `DIRTY=False` build provenance. It adds the producer-owned
 `worker-handoff.schema.json`, the `control_worker` capability flag, and the
 `confflow-control-worker` entrypoint. The worker consumes the existing queued
@@ -84,13 +84,15 @@ also locks the UTF-8 canonical handoff digest profile, owner-private staging,
 dedicated-session recovery, and required fixed sidecars before `completed`.
 
 After the mandatory four-line g16 probe, one isolated Ubuntu-24.04 WSL run used
-that exact wheel to execute a real methane Gaussian 16 optimization. The run
-completed in 4.837 seconds; producer revisions advanced
+that exact wheel and the `confflow-control-worker` console entrypoint to execute
+a real methane Gaussian 16 optimization. The run completed in 10.149 seconds;
+producer revisions advanced
 `prepared -> queued -> running -> checkpointed -> completed`, and the output
 manifest, `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16
-identity, and file SHA-256 values were captured. Evidence is retained at
-`C:\tmp\jobdesk-control-worker-real-30c5aaa-evidence.json`; the exact remote
-attempt root `/tmp/jobdesk-control-worker-real-30c5aaa` was absent after
+identity, and file SHA-256 values were captured. The worker returned exactly one
+machine-readable JSON line with exit code 0. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-9a5f213-evidence.json`; the exact remote
+attempt root `/tmp/jobdesk-control-worker-real-9a5f213` was absent after
 bounded cleanup. No `/opt` file was modified.
 
 This is producer candidate evidence, not a JobDesk compatibility-period sample:
