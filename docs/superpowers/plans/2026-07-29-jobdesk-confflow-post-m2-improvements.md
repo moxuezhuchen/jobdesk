@@ -1065,7 +1065,7 @@ python scripts/smoke_gui_offscreen.py
 git diff --check
 ```
 
-跨仓测试必须安装本轮最终 ConfFlow 1.4.4 wheel，不得误用旧 editable install 或 public PyPI 上的同名无关包。
+跨仓测试必须安装本轮最终 ConfFlow v1.5.3 wheel，不得误用旧 editable install 或 public PyPI 上的同名无关包。
 
 ### 跨仓 contract-parity gate
 
@@ -1075,7 +1075,7 @@ git diff --check
 
 1. ConfFlow `contract.py` 的六个 artifact 字段与 JobDesk `ConfFlowArtifactContract` 逐字段一致
 2. ConfFlow 四个内容 schema 常量与 JobDesk 常量逐字符串一致
-3. JobDesk `.github/workflows/ci.yml` 的两处 producer checkout 及 `.github/workflows/optional-coverage.yml` 的 producer checkout 都使用精确 `v1.4.4`，相应 wheel glob/version assertion 同步；各 checkout HEAD 等于远端 `v1.4.4^{}`
+3. JobDesk `.github/workflows/ci.yml` 的两处 producer checkout 及 `.github/workflows/optional-coverage.yml` 的 producer checkout 都使用精确 `v1.5.3`，相应 wheel glob/version assertion 同步；各 checkout HEAD 等于远端 `v1.5.3^{}`
 4. 最终 wheel 中 `__build__.COMMIT` 等于该 peeled commit，wheel digest 等于 `SHA256SUMS` 和 attestation subject digest
 5. 该 wheel 安装后的真实 `confflow --capabilities --json` 能被 JobDesk producer/artifacts/executable parsers 和 production validator 接受
 6. test 输出记录 exact tag、peeled commit、wheel filename/digest 和 executable path，便于发布审计

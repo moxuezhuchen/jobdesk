@@ -73,7 +73,12 @@ The user explicitly authorized real external-program probes. These results are r
   launcher evidence below; the compatibility period remains open and Phase F
   remains blocked on worker handoff, publication, and a complete measured cycle.
 
-## 样本边界
+## 样本边界（历史快照；已由 2026-08-09 样本覆盖）
+
+> The zero-control baseline in this historical section is retained for
+> provenance only. It is superseded by the authoritative 2026-08-09 summary
+> and the released-v1.5.3 control sample below; current formal counters are
+> `control_backend_runs=1` and `legacy_backend_runs=1`.
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
 
@@ -97,19 +102,19 @@ The user explicitly authorized real external-program probes. These results are r
 - agent SQLite 读取或 producer state 双写证据；
 - rollback 到 stable `v1.4.6` 的 legacy 可用性、producer state 隔离与恢复证据。
 
-当前基线为：一条真实 JobDesk `legacy` v1.5.0 两任务样本、一次独立 stable `v1.4.6` rollback probe，以及一条真实 SSH/SFTP `control` launcher queued 非计算验收。生产周期统计仍必须按实际 JobDesk 运行数据分别填写 `control` 与 `legacy`；当前 control 计算样本为 `0`，不代表零故障。完整 reconnect/cursor、idempotency、resume/cancel、artifact-integrity 与 fallback 维度仍未达到完整周期统计要求。
+当前基线为：一条真实 JobDesk `legacy` v1.5.0 两任务样本、一次独立 stable `v1.4.6` rollback probe，以及一条正式 ConfFlow v1.5.3 的真实 JobDesk `control` 计算样本。生产周期统计仍必须按实际 JobDesk 运行数据分别填写 `control` 与 `legacy`；当前正式计数为 `control_backend_runs=1`、`legacy_backend_runs=1`，不代表零故障。该 control 样本的 in-memory reconnect/events/cancel/resume/raw-manifest 响应未持久化，完整发布周期指标仍未收齐。
 
 ## 当前未满足的 Phase F 条件
 
 - 完整兼容发布周期尚未结束。
-- `control` / `legacy` 分层的完整兼容周期指标尚未收齐；当前已记录 `legacy_backend_runs=1`、`control_backend_runs=0`（计算样本）、`fallbacks=0`，但不能由单一样本推导零故障。
-- 支持 launcher 路径的真实 SSH/SFTP queued handoff 已完成一次非计算验收；pinned producer 的 `control execute` 仍需要一个明确的 worker handoff 才能从 queued 意图进入真实计算。
+- `control` / `legacy` 分层的完整兼容周期指标尚未收齐；当前已记录 `legacy_backend_runs=1`、`control_backend_runs=1`（真实计算样本）、run-scoped `fallbacks=0`，但不能由单一样本推导零故障。
+- 支持 launcher 路径的真实 SSH/SFTP v1.5.3 control computation 已完成一次；a3 evidence 明确标记 in-memory response trace 未持久化，因此仍需完整周期内的 reconnect/events/cancel/resume/artifact、fallback 和 idempotency 指标。
 - stable `v1.4.6` live rollback probe 已完成，但完整 rollback/recovery 维度和兼容周期统计仍未完成。
 - agent 保留/弃用决策材料未完成。
 
 ## Phase F 边界
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；其中已授权并完成的 queued/non-compute handoff 与 rollback probe，不替代仍待单独授权的 worker handoff、真实 control computation 及完整周期验收。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；a3 是已完成但 response-trace 不完整的真实 control 样本，不替代完整周期验收。
 
 ## 2026-08-08 JobDesk legacy-backend real sample (current evidence)
 
