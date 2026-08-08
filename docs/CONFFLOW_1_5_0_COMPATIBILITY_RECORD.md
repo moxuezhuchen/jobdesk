@@ -56,6 +56,22 @@ The user explicitly authorized real external-program probes. These results are r
 - A direct v1.5.0 control protocol probe completed capability negotiation, `prepare`, and `execute`; the producer returned the contractually valid `queued` state in `/tmp/jobdesk_phasef_control_direct_20260808_a4`. This is not a real computation: the pinned `_AgentControlExecutor` intentionally leaves actual launch to an external worker, and no worker handoff is supplied by the current control contract.
 - The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified.
 
+## 2026-08-08 Phase F readiness recheck (not entered)
+
+- An elevated read-only WSL probe confirmed `Ubuntu-24.04` was running, but the
+  system `ssh.service` remained stuck in `deactivating`/`sshd -t`; its control
+  process and connection children were waiting in `rtnl_dumpit`.
+- A service restart was attempted within the authorized acceptance scope but
+  timed out in the same `rtnl_dumpit` path. A separate sshd listener on the
+  exact temporary port `10022` reproduced the child-process stall, so this is
+  not a JobDesk port-22 or launcher configuration defect.
+- The temporary listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1`
+  root were stopped and removed. No WSL shutdown, forced kill, `/opt` write,
+  producer state write, or user data cleanup was performed.
+- Result: no real JobDesk control/legacy sample was created; the compatibility
+  period remains open and Phase F remains blocked on WSL SSH recovery, worker
+  handoff, publication, and a complete measured compatibility cycle.
+
 ## 样本边界
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：

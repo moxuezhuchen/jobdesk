@@ -23,7 +23,12 @@ the pinned producer's `control execute` currently returns a queued launch
 intent until an external worker handoff is supplied. Therefore the formal
 decision remains **COMPATIBILITY PERIOD CONTINUES**: keep both backends and
 the v1.4.6 rollback path; do not mark Phase F ready or delete compatibility
-code.
+code. A 2026-08-08 elevated readiness recheck found the Ubuntu-24.04
+`ssh.service` stuck in `deactivating`/`sshd -t` with `rtnl_dumpit`; an isolated
+10022 sshd listener reproduced the same child-process stall. The temporary
+listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1` root were stopped
+and removed; the system sshd and WSL distribution were not force-killed or
+shut down.
 
 ## Execution status (2026-08-01)
 
