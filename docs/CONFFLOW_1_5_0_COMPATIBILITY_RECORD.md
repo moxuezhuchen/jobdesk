@@ -190,9 +190,9 @@ control/legacy usage and fallback metrics.
 
 An isolated ConfFlow candidate now supplies the missing producer-owned worker
 boundary. The current candidate commit is
-`2849dd45e734fe5f4d2fd8a505707edaf7c5c31d`; its clean
+`dde9fbe`; its clean
 `confflow-1.5.1-py3-none-any.whl` has SHA-256
-`aee52eb4e366d8c8863f948bbf92068f78b1290a5c31773f3d43728ba55325c7`.
+`1442eab003896fd4efb0d20f22f5e451381e1d6a0b7b74cb66dd559f1294c3eb`.
 The candidate adds `worker-handoff.schema.json`, the `control_worker`
 capability, and `confflow-control-worker`, which consumes the existing queued
 producer token through `ExecutionService` and never calls `prepare` again.
@@ -206,8 +206,8 @@ seconds; producer revisions were `prepared -> queued -> running ->
 checkpointed -> completed`. Evidence includes the output manifest,
 `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16 identity,
 handoff digest, and file SHA-256 values at
-`C:\tmp\jobdesk-control-worker-real-2849dd4-evidence.json`. The exact remote
-attempt root `/tmp/jobdesk-control-worker-real-2849dd4` was absent after
+`C:\tmp\jobdesk-control-worker-real-dde9fbe-evidence.json`. The exact remote
+attempt root `/tmp/jobdesk-control-worker-real-dde9fbe` was absent after
 bounded cleanup.
 
 This candidate is unpublished and is not pinned by the stable JobDesk consumer;
