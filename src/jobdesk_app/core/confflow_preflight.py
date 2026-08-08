@@ -57,8 +57,8 @@ class ConfFlowCapabilities:
     workflow_state: bool
     resume: bool
     dag: bool
-    # Optional producer-candidate capability. Stable v1.5.0 omits this field;
-    # absence must remain a false value so stable negotiation is unchanged.
+    # Optional producer-candidate capability. The pinned stable release omits
+    # this field; absence must remain false so stable negotiation is unchanged.
     control_worker: bool = False
     # `None` is allowed by the parser so v1 payloads can be diagnosed as
     # "unsupported schema" rather than as malformed JSON. The validator
