@@ -162,6 +162,17 @@ def test_control_launcher_accepts_producer_safe_dotted_run_id() -> None:
     assert "--run-id run.2026-08" in command
 
 
+def test_control_prepare_rejects_non_string_request_component() -> None:
+    transport = SSHControlTransport(
+        None,
+        object(),
+        executable="confflow",
+        state_root="/tmp/jobdesk-control",
+    )
+    with pytest.raises(ValueError, match="run_id must be a non-empty string"):
+        transport.prepare({"run_id": 123, "idempotency_key": "jobdesk.run-1"})
+
+
 def test_artifact_parser_rejects_traversal_and_nonterminal_manifest() -> None:
     response = _response(
         "artifacts",

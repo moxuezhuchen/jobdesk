@@ -260,7 +260,8 @@ def _required_string(value: dict[str, object], key: str) -> str:
 def _safe_request_component(value: str, label: str) -> str:
     """Keep producer request identifiers inside the isolated request directory."""
     if (
-        not value
+        not isinstance(value, str)
+        or not value
         or len(value) > 128
         or not value[0].isalnum()
         or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for char in value)
