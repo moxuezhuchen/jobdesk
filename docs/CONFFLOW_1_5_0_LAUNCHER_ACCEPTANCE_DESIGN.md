@@ -36,6 +36,15 @@ The launcher handoff is now implemented in `_submit_control`: it writes a per-ru
 
 There is a separate producer-side execution gap. ConfFlow v1.5.0 `control execute` claims the prepared run and returns `queued`; `_AgentControlExecutor.ensure_launched` intentionally leaves actual launch to an external worker. The current JobDesk launcher invokes that command, but no supported worker/agent handoff is supplied by the pinned producer contract. Therefore a direct control probe can prove prepare/execute state transitions, but cannot be called a real control-to-g16/ORCA computation acceptance. A worker handoff is a new design/release scope, not a reason to bypass the control contract or fall back silently to legacy.
 
+The 2026-08-08 read-only WSL audit confirmed that `confflow-agent` is installed,
+but it is a separate file-queue worker: `serve` watches its own queue and
+`AgentServer` derives its own `.execution_state` root, while the pinned control
+executor remains the no-op `_AgentControlExecutor`. `confflow-agent submit`
+therefore cannot consume a JobDesk control launch token or its prepare request;
+its workflow runner constructs a separate request digest and state layout. No
+agent was started and no agent SQLite was read or written. Treating that CLI as
+an implicit control handoff would bypass the frozen idempotency/state contract.
+
 ## Precise acceptance definition
 
 “Supported launcher path” means all of the following hold for one run:

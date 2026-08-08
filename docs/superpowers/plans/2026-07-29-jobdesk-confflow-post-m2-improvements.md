@@ -50,6 +50,13 @@ bounded cleanup. This is non-compute evidence only: the pinned producer still
 requires an external worker handoff, so no g16/ORCA process was started and it
 does not count as a real control computation sample.
 
+A read-only WSL audit confirmed that the installed `confflow-agent` is an
+independent queue/AgentStateDB worker, while the pinned control executor does
+not enqueue control launch tokens there. Its separate request digest and state
+layout cannot be substituted for the JobDesk control request; no agent was
+started and no agent state was touched. The worker handoff is therefore a
+producer/release-scope prerequisite, not an omitted local command.
+
 The earlier SSH attempt remains recorded as a failed, non-counted attempt. The
 pinned producer's `control execute` currently returns a queued launch intent
 until an external worker handoff is supplied. Therefore the formal decision

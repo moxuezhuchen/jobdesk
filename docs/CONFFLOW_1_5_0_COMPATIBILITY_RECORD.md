@@ -162,6 +162,13 @@ queued launch intent until an external worker handoff is supplied. No g16 or
 ORCA process was started, and no `/opt` path or user state was modified. It
 therefore does not close the Phase F control-computation gate.
 
+The post-run WSL audit found `confflow-agent`, but it is an independent queue
+worker with its own AgentStateDB and execution-state root; the pinned control
+executor does not enqueue work there. Its separate workflow request digest and
+state layout cannot be substituted for the JobDesk control request. No agent
+was started, and this remains an external worker/release-scope gap rather than
+a reason to bypass the control contract.
+
 ## 2026-08-08 stable v1.4.6 rollback probe (current evidence)
 
 A separate temporary server profile pinned the exact stable rollback executable
