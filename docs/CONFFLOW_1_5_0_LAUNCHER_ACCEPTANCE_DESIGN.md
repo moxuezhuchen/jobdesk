@@ -1,6 +1,6 @@
 # ConfFlow 1.5.0 launcher-path control acceptance design
 
-> Status: design plus execution evidence (2026-08-08). This document is not a passing acceptance record. The SSH/SFTP acceptance remains incomplete and the evidence below is deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
+> Status: design plus partial execution evidence (2026-08-08). This document is not a passing acceptance record. A real SSH/SFTP JobDesk launcher handoff now reaches the producer's queued state; control computation, detach/reconnect recovery, terminal artifact download, and the full rollback/compatibility gate remain incomplete. The evidence below is deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
 
 ## Scope and provenance
 
@@ -32,7 +32,7 @@ SSHConfFlowClient.probe / submit_with_outcome / attach
 
 The JobDesk side is implemented by [`SSHConfFlowClient`](../src/jobdesk_app/services/ssh_confflow_client.py), [`SSHControlTransport`](../src/jobdesk_app/services/ssh_confflow_control.py), and durable control state in [`confflow_control_state.py`](../src/jobdesk_app/services/confflow_control_state.py). The producer-side v1.5.0 symbols to revalidate against the pinned, non-editable wheel before execution are `confflow.control`, `confflow.application.execution.service.ExecutionService`, and its workflow adapter. The existing legacy launchers are [`SchedulerAdapter`](../src/jobdesk_app/remote/scheduler.py), including `NohupAdapter`, `SlurmAdapter`, and `PBSAdapter`, and the legacy submit boundary is [`submitter.py`](../src/jobdesk_app/remote/submitter.py).
 
-The launcher handoff is now implemented in `_submit_control`: it writes a per-run launcher script and metadata, selects the configured `SchedulerAdapter` (`NohupAdapter`, Slurm, or PBS), submits the script, and persists the scheduler job id plus the nohup log path. The handoff is covered by fake-adapter regression tests, but it has not yet passed a real SSH/SFTP run because the WSL SSH listener is currently wedged in the kernel networking path (`rtnl_dumpit`, `Exceeded MaxStartups`).
+The launcher handoff is now implemented in `_submit_control`: it writes a per-run launcher script and metadata, selects the configured `SchedulerAdapter` (`NohupAdapter`, Slurm, or PBS), submits the script, and persists the scheduler job id plus the nohup log path. Fake-adapter regression tests cover the local construction, and the post-restart real SSH/SFTP probe completed capability negotiation, prepare, input-manifest upload, `nohup` dispatch, and a queued status/events readback. The producer worker handoff remains unavailable, so this evidence stops before real computation.
 
 There is a separate producer-side execution gap. ConfFlow v1.5.0 `control execute` claims the prepared run and returns `queued`; `_AgentControlExecutor.ensure_launched` intentionally leaves actual launch to an external worker. The current JobDesk launcher invokes that command, but no supported worker/agent handoff is supplied by the pinned producer contract. Therefore a direct control probe can prove prepare/execute state transitions, but cannot be called a real control-to-g16/ORCA computation acceptance. A worker handoff is a new design/release scope, not a reason to bypass the control contract or fall back silently to legacy.
 
@@ -46,7 +46,7 @@ There is a separate producer-side execution gap. ConfFlow v1.5.0 `control execut
 4. ConfFlow owns durable execution state, events, revisions, terminal transitions, and the artifact manifest. JobDesk owns the client-side durable handle and projects the producer state; neither side reads or writes agent SQLite for this acceptance.
 5. The run remains `control` from negotiation through terminal state. An explicit control run must fail closed on an unsupported or malformed response; it must not silently become `legacy`.
 
-The current code proves the transport operations and durable-handle surfaces, and fake tests prove item 3's local construction. Real launcher-path acceptance remains blocked by the unavailable SSH service and the producer worker handoff described above.
+The current code proves the transport operations and durable-handle surfaces, and fake tests prove item 3's local construction. The queued real launcher handoff is now evidenced, but full launcher-path acceptance remains blocked by the producer worker handoff and the remaining recovery, cancellation, and artifact checks described below.
 
 ## Minimum non-compute workflow
 
@@ -88,7 +88,7 @@ The following safety checks are mandatory:
 
 ## Executable acceptance sequence
 
-The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture. Results must be recorded separately for `control` and `legacy`; the current compatibility record still has no real JobDesk cycle-period run sample.
+The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture. Results must be recorded separately for `control` and `legacy`; the current compatibility record has one real v1.5.0 legacy batch, one stable v1.4.6 rollback probe, and zero real control-computation samples. The queued control launcher evidence is tracked separately and does not count as computation.
 
 ### 0. Preflight gate
 
@@ -100,7 +100,7 @@ Run capability negotiation and assert protocol major, producer provenance, and e
 
 ### 2. Launcher handoff
 
-Submit the plain foreground `control execute` command through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that `execute` was launched by the supported adapter rather than by a direct SSH foreground call. Local construction is implemented; this step is still blocked for real acceptance until SSH/SFTP is healthy and a worker handoff is explicitly supported by the pinned producer.
+Submit the plain foreground `control execute` command through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that `execute` was launched by the supported adapter rather than by a direct SSH foreground call. The post-restart probe completed this queued handoff over real SSH/SFTP; this step remains incomplete for control computation until a worker handoff is explicitly supported by the pinned producer.
 
 ### 3. Detach, reconnect, and durable recovery
 
@@ -120,7 +120,7 @@ Read the producer manifest through `SSHControlRunHandle.artifacts`. For every de
 
 ### 7. Stable rollback probe
 
-After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. The user has authorized this class of probe, but the 2026-08-08 SSH failure prevented the live JobDesk rollback run; the direct legacy g16 evidence used v1.5.0 and therefore does not satisfy this gate.
+After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. The post-restart probe completed the two-molecule legacy path and bounded cleanup; it is recorded separately, while the direct legacy g16 evidence used v1.5.0 remains outside this gate.
 
 ### 8. Cleanup and evidence retention
 

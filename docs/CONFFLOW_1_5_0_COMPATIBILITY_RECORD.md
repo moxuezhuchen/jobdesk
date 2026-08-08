@@ -109,7 +109,7 @@ The user explicitly authorized real external-program probes. These results are r
 
 ## Phase F 边界
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)，其中所有实际运行步骤均待单独授权。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时完成支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；其中已授权并完成的 queued/non-compute handoff 与 rollback probe，不替代仍待单独授权的 worker handoff、真实 control computation 及完整周期验收。
 
 ## 2026-08-08 JobDesk legacy-backend real sample (current evidence)
 
