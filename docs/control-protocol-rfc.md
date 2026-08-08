@@ -10,12 +10,15 @@
 
 JobDesk does not define a second control protocol. The authoritative producer
 bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
-repository vendors the same four JSON documents under
+repository vendors the same four core JSON documents plus the released
+worker-handoff extension under
 `confflow/schemas/control/` so the consumer tests and CI can validate requests
-and responses without a checkout of the producer repository. The snapshot is
-checked by `tests/test_control_protocol_schemas.py` using canonical JSON
-digests; changing a schema requires a new pinned producer release and a review
-of the cross-repository contract.
+and responses without a checkout of the producer repository. The v1.5.3
+`control_worker` release contract contains all five documents; historical
+producers that do not advertise that capability retain only the four-file
+core. The snapshot is checked by `tests/test_control_protocol_schemas.py`
+using canonical JSON digests; changing a schema requires a new pinned producer
+release and a review of the cross-repository contract.
 
 ## Bundle
 
@@ -29,6 +32,9 @@ of the cross-repository contract.
   and artifact manifests.
 - `input-manifest.schema.json`: the ordered input file manifest referenced by
   `prepare`.
+- `worker-handoff.schema.json`: the producer-owned, one-task external-worker
+  envelope released with v1.5.3 and required when `control_worker` is
+  advertised.
 
 The producer response envelope uses `state` (not `status`) and advertises
 `supported_protocols` (not an operation list). A `prepare` request carries
@@ -44,11 +50,12 @@ has only persisted remote names at this boundary. It is not the producer
 stage the files, compute their byte digests/sizes, and construct the producer
 manifest before invoking a real calculation.
 The released worker handoff also publishes fixed `{stem}.txt` and
-`{stem}min.xyz` sidecars beside the task work directory. A future JobDesk
+`{stem}min.xyz` sidecars beside the task work directory. The JobDesk
 adapter must retain the established `<stem>_confflow_work` work-directory
 name so the existing metadata bridge can map those sidecars; this naming rule
-is part of the v1.5.3 producer extension and remains outside the four-file
-protocol snapshot.
+is part of the v1.5.3 producer extension. The four-file core remains the
+stable operation snapshot, while the worker-handoff file is the formal fifth
+release member whenever the producer advertises `control_worker`.
 
 The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
 released ConfFlow worker extension. It is part of the pinned v1.5.3 release

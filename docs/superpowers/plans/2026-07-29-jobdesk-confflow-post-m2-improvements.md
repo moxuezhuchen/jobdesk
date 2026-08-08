@@ -30,7 +30,7 @@ the user-authorized normal `--no-ff` merge was created in an isolated
 worktree and pushed. The remote push reported that the protected-ref PR rule
 was bypassed; this is recorded rather than presented as a connector merge.
 
-JobDesk's consumer reference is being updated to the formal v1.5.3 release
+JobDesk's consumer reference is pinned to the formal v1.5.3 release
 commit and wheel digest. The final exact production venv verified the wheel,
 tag, attestation, build cleanliness, dependency lock, and wheelhouse
 manifest provenance. The worker-handoff path remains explicitly one-task
@@ -51,6 +51,13 @@ compatibility counters are now `control_backend_runs=1` and
 remain excluded. A complete measured published compatibility cycle is still
 missing. Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not
 ready.
+
+The stable consumer contract now treats `worker-handoff.schema.json` as the
+formal fifth release member whenever the producer advertises `control_worker`.
+The dual-repository matrix compares all five v1.5.3 schema members and keeps
+the historical v1.5.0 comparison at the four-file core because that producer
+does not advertise the worker capability. The handoff is no longer classified
+as an unpublished candidate snapshot in the active consumer tests.
 
 ## Execution status (2026-08-08 continuation)
 

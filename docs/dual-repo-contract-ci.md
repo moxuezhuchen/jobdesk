@@ -16,7 +16,10 @@ commit, wheel digest, and attestation subject.
 JobDesk pins the exact producer tag and wheel digest. Its matrix installs that
 release, checks the capability payload with the JobDesk parser, requires clean
 build/producer provenance, compares the installed control schema bundle with
-the checked snapshot, and runs consumer golden/negative fixtures. The release
+the checked snapshot, and runs consumer golden/negative fixtures. The stable
+v1.5.3 path compares all five release members, including
+`worker-handoff.schema.json`; historical producers without `control_worker`
+are checked against the four-file core. The release
 and deployment gates additionally verify the external attestation and install
 provenance; a plain pip install in the matrix deliberately reports a missing
 install record as candidate-only. The producer bundle remains authoritative;
@@ -66,7 +69,8 @@ formal release wheel digest is
 `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
 The JobDesk compatibility matrix now labels v1.5.3 as `stable` and keeps the
 old v1.5.0 wheel only as `historical-v1.5.0`; the old 1.5.1 candidate digest
-is not referenced. The JobDesk consumer pin and the worker-handoff schema
-snapshot are being advanced together. Real WSL launcher/control computation,
+is not referenced. The JobDesk consumer pin and the formal five-member
+worker-handoff schema contract are advanced together. Real WSL
+launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
 cycle remain separate gates; no candidate-only or historical run is counted.

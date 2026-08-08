@@ -140,6 +140,10 @@ jobs:
               "responses.schema.json",
               "input-manifest.schema.json",
           )
+          if expected_control_worker:
+              # v1.5.3 adds the producer-owned worker handoff as a fifth
+              # release member; historical v1.5.0 has only the four-file core.
+              required += ("worker-handoff.schema.json",)
           for name in required:
               producer_path = schema_root / name
               consumer_path = consumer_schema_root / name
