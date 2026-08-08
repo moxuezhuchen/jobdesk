@@ -15,8 +15,12 @@ snapshot at `b62fb3c`. The
 ConfFlow contract workflow was green at
 run `31242460044` for PR #50 before the additional local provenance/schema
 parity steps (`cc4a401`, `fd2ea06`), which have not been rerun remotely. The JobDesk
-candidate matrix is implemented locally but has not been published, so its
-remote result is still pending.
+candidate matrix was also executed locally on 2026-08-08 in isolated Python
+3.13 environments: the exact stable v1.5.0 and next v1.5.1 wheels passed
+capability/build/schema parity and each pinned contract suite reported
+`88 passed`. The Windows run used command-presence stubs for Unix-only
+capability fields; the matrix has not been published, so its Ubuntu Actions
+result is still pending.
 
 Direct v1.5.0 Gaussian/g16 and ORCA probes completed, but they are not JobDesk
 SSH compatibility-period samples. After the authorized WSL restart, a real
@@ -875,7 +879,7 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [x] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
 - [x] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义（Phase C/D 已验证）
 - [x] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel（Phase E；WSL 使用 pinned Phase D producer；artifact 为非计算 synthetic lifecycle fixture，未运行 g16）
-- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer（ConfFlow PR #50 `730decf` green；JobDesk matrix workflow 已在本隔离分支提交并固定 stable/next wheel digest，但 JobDesk feature branch 尚未发布，故第二方向尚未取得远端 CI 结果）
+- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer（ConfFlow PR #50 `730decf` green；JobDesk matrix workflow 已在本隔离分支提交并固定 stable/next wheel digest，2026-08-08 本地 Python 3.13 两矩阵各 `88 passed`，但 JobDesk feature branch 尚未发布，故第二方向尚未取得远端 CI 结果）
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
 - [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
 

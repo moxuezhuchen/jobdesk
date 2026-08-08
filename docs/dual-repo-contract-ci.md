@@ -63,7 +63,11 @@ commit, wheel digest, or schema digest is inconsistent.
 The ConfFlow candidate workflow has a green run for PR #50 after installing the
 Qt runtime libraries. The vendored JobDesk control-schema snapshot is checked
 against the canonical v1.5.0 producer bundle locally, and both workflow files
-now contain the candidate capability/schema-parity step. The JobDesk candidate
-matrix is implemented on the isolated branch but has not been published, so it
-has no remote CI result yet. Real WSL, launcher, and Gaussian/ORCA acceptance
-remain separate gates.
+now contain the candidate capability/schema-parity step. On 2026-08-08, the
+isolated local matrix also ran the exact stable v1.5.0 and next v1.5.1 wheels
+under Python 3.13: each capability/build/schema gate passed and each pinned
+contract suite reported `88 passed`. The local Windows run used command-presence
+stubs for the Unix-only capability fields and is not a substitute for Ubuntu
+Actions. The JobDesk candidate matrix has not been published, so it still has
+no remote CI result. Real WSL, launcher, and Gaussian/ORCA acceptance remain
+separate gates.
