@@ -72,9 +72,9 @@ and removed; no `/opt` files or user state were modified.
 
 The producer-side worker gap was implemented in an isolated, unpublished
 ConfFlow candidate. The current candidate commit is
-`dde9fbe`; its clean
+`30c5aaa`; its clean
 `confflow-1.5.1-py3-none-any.whl` has SHA-256
-`1442eab003896fd4efb0d20f22f5e451381e1d6a0b7b74cb66dd559f1294c3eb` and
+`a5fe67c0f2a982a631bd341a2794f2fab3f5d8a222ea450427631a6db67da3f2` and
 `DIRTY=False` build provenance. It adds the producer-owned
 `worker-handoff.schema.json`, the `control_worker` capability flag, and the
 `confflow-control-worker` entrypoint. The worker consumes the existing queued
@@ -89,8 +89,8 @@ completed in 4.837 seconds; producer revisions advanced
 `prepared -> queued -> running -> checkpointed -> completed`, and the output
 manifest, `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16
 identity, and file SHA-256 values were captured. Evidence is retained at
-`C:\tmp\jobdesk-control-worker-real-dde9fbe-evidence.json`; the exact remote
-attempt root `/tmp/jobdesk-control-worker-real-dde9fbe` was absent after
+`C:\tmp\jobdesk-control-worker-real-30c5aaa-evidence.json`; the exact remote
+attempt root `/tmp/jobdesk-control-worker-real-30c5aaa` was absent after
 bounded cleanup. No `/opt` file was modified.
 
 This is producer candidate evidence, not a JobDesk compatibility-period sample:
