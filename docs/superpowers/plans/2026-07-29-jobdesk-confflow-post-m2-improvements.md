@@ -216,10 +216,13 @@ Independent review promoted a55 as the second eligible control success; its
 main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
 index. Independent review promoted a56 as the third eligible control success;
 its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
-index. `attempted=5`, `submitted=5`, `terminal=5`, eligible control/legacy `3/3` and
-`2/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, a retained-failure or non-counted negative probe, and all hard
-thresholds. Phase F remains false.
+index. The independently reviewed n1 non-counted negative probe observed a
+typed unsupported-protocol failure with no workload and retained its exact
+root; its evidence SHA-256 is recorded in the evidence index and it does not
+increment period counters. `attempted=5`, `submitted=5`, `terminal=5`, eligible
+control/legacy `3/3` and `2/2`, with failed/cancelled/uncertain `0/0/0`. The
+negative/retention scenario is now observed; r6 still requires at least 72
+hours and all hard thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 

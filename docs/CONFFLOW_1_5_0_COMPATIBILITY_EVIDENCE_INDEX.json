@@ -468,7 +468,7 @@
         "control_inflight_reconnect_recovery": 1,
         "control_contract_cancel_or_typed_policy": 1,
         "legacy_inflight_rollback_recovery": 1,
-        "failure_retention_or_non_counted_negative_probe": 0
+        "failure_retention_or_non_counted_negative_probe": 1
       },
       "hard_thresholds_observed": {
         "unexpected_control_to_legacy_fallbacks": 0,
@@ -481,7 +481,7 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Independent review promoted a52/a55/a56 as the three r6 eligible completed control successes and a53/a54 as the two r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. r6 has attempted/submitted/terminal=5/5/5, eligible control/legacy=3/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours from authorization, one retained-failure or non-counted negative probe, and all hard thresholds. Phase F remains false.",
+      "reason": "Independent review promoted a52/a55/a56 as the three r6 eligible completed control successes and a53/a54 as the two r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. The retained n1 non-counted negative probe observed typed unsupported_protocol fail-closed behavior without a workload and does not increment attempted/submitted/terminal or stable counters. r6 has attempted/submitted/terminal=5/5/5, eligible control/legacy=3/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours and all hard thresholds. Phase F remains false.",
       "attempts": [
         {
           "attempt_id": "control-v153-a52",
@@ -986,6 +986,32 @@
       "promoted_to_period_window": "post-contract-replacement-20260809-r2",
       "evidence_sha256": "e6fd81b93675fdf29ca592c808e1b8db2606dc1dc5a8ebf4da5567b59c694447",
       "reason": "Independent review promoted this second completed replacement-window legacy bundle for period counting; raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-negative-probe-n1-r6",
+      "evidence_path": "C:\\tmp\\jobdesk-negative-probe-v153-20260810-n1\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "counts_as_period_attempt": false,
+      "period_eligible": false,
+      "candidate_only": false,
+      "synthetic": true,
+      "historical": false,
+      "acceptance_failed": false,
+      "negative_probe": true,
+      "required_scenario": "failure_retention_or_non_counted_negative_probe",
+      "evidence_sha256": "9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da",
+      "typed_error": "unsupported_protocol",
+      "submitted": false,
+      "terminal_workload": false,
+      "agent_sqlite_absent": true,
+      "attempt_root_retained": true,
+      "runtime_retained": true,
+      "remote_attempt_root_absent": false,
+      "reason": "Independent review verified a published v1.5.3 control prepare request with protocol confflow.control.v999 failed closed as typed unsupported_protocol, with no submit or worker, no fallback, no agent SQLite, unchanged runtime identity, and the exact attempt root/logs retained. This non-compute synthetic supplemental probe satisfies the retention/negative scenario only; it never increments compatibility counters or stable samples.",
       "phase_f_ready": false
     }
   ],
