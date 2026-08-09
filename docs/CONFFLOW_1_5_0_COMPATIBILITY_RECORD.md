@@ -1,6 +1,33 @@
-# ConfFlow / JobDesk 兼容发布周期记录
+# ConfFlow / JobDesk Compatibility Record (historical mirror with current index)
 
-## 原始 v1.5.0 周期边界与不可变 provenance（historical; superseded below）
+> Current authoritative summary (2026-08-09): use
+> [`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json)
+> and the current a32/a36/a37/a38/a5 entries in the release-boundary documents. The
+> supplemental a34 fixed-cursor response trace is recorded separately at
+> `C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`;
+> it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
+> The separate a35 released workflow reached producer revision `6` and
+> `completed`, but its harness stopped before replay/download capture because
+> status-only polling had not persisted a JobDesk cursor. Its read-only terminal
+> capture is `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
+> it is also `acceptance_failed=true`, `synthetic=false`, and non-counted.
+> The separately authorized a36, a37, and a38 runs at
+> `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`,
+> `C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and
+> `C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json` are
+> canonical released control computations: each reached revision `6` and
+> `completed` with `fallback_used=false`, proved reconnect, idempotent submit,
+> fixed-cursor replay, terminal empty page, typed terminal cancel/resume
+> rejection, and manifest/download SHA-256 integrity. Each exact per-attempt
+> root was absent after bounded cleanup; the shared published runtime remains
+> intentionally retained.
+> v1.5.0 sections below are retained for provenance only and are superseded;
+> their zero-control, candidate, synthetic, and incomplete-response claims
+> must not be used as current counters. The formal decision remains
+> **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`. The current
+> formal counters are `control_backend_runs=4` and `legacy_backend_runs=1`.
+
+## 周期边界与不可变 provenance（historical; superseded below）
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`
 - `cycle_start_jobdesk_main`：`9904cbaae078344bb35162f3ddee354b1acd040c`
@@ -16,77 +43,9 @@
   - peeled commit：`4e9e74a8991338aec0f393182073c8c087b4fa63`
   - stable wheel SHA256：`7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`
 
-不得修改或覆盖 `v1.4.6`。本历史段绑定的是正式、非 editable 的
-`v1.5.0` wheel；被拒绝的旧候选 digest
-`f90e5c605ccb36cf37b16dcd53093cb3ac0239e630aaf0a082faa39998615e69` 不属于发布物。
+不得修改或覆盖 `v1.4.6`。本记录绑定的是正式、非 editable 的 `v1.5.0` wheel；被拒绝的旧候选 digest `f90e5c605ccb36cf37b16dcd53093cb3ac0239e630aaf0a082faa39998615e69` 不属于发布物。
 
-## 2026-08-09 authoritative published compatibility-cycle closure
-
-This section is the current decision record. It supersedes the earlier a3,
-v1.5.0, pre-release, candidate-only, synthetic, and historical status
-snapshots below; those sections remain for provenance and are not current
-compatibility evidence.
-
-The measured published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`:
-
-- JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
-  SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
-- ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, wheel
-  SHA-256 `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
-- Published producer/consumer CI and release provenance were verified before
-  the acceptance samples: ConfFlow matrix `31271946187`, coverage
-  `31271946186`, JobDesk Consumer Contract `31271946207`, and release workflow
-  `31272089279`; no candidate-only or synthetic result is promoted.
-
-The authoritative control sample is
-`C:\tmp\jobdesk-control-release-v153-20260809-a10\evidence.json`.
-It is one real JobDesk control computation through the released worker-handoff
-and supported launcher: producer revisions advanced to `completed`, the first
-submit dispatched one task, the idempotent resubmit dispatched zero duplicate
-tasks, reconnect identity and cursor replay passed, events/status polling
-passed, terminal cancel/resume returned the expected typed `terminal_run`
-rejection, and manifest/download/hash integrity passed. The exact attempt
-root was absent after cleanup. `formal_counting.counts_as_real_control_backend_run`
-is `true`.
-
-The authoritative legacy closeout sample is
-`C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
-It is one real JobDesk legacy computation using the published JobDesk
-consumer and the exact stable ConfFlow `v1.4.6` rollback release. Two tasks
-completed with remote exit code `0`; the idempotent resubmit dispatched zero
-duplicate tasks; reconnect/status refresh and manifest/download/hash integrity
-passed. Legacy events and resume were recorded as expected unsupported
-operations, and terminal cancel was recorded as the expected no-op. The exact
-attempt and managed runtime roots were absent after cleanup.
-`formal_counting.counts_as_real_legacy_backend_run` is `true`.
-
-| Metric | Control v1.5.3 | Legacy v1.4.6 |
-| --- | --- | --- |
-| counted real runs | 1 | 1 |
-| fallback | `false` | `false` |
-| idempotent duplicate submissions | 0 | 0 |
-| reconnect / status | identity, cursor replay, events and status passed | identity and refresh trace passed |
-| cancel / resume | typed terminal-state rejection expected | terminal cancel no-op; resume unsupported expected |
-| artifact integrity | manifest, download, size and SHA-256 passed | two manifests, downloads, size and SHA-256 passed |
-| agent SQLite / producer double-write | none | none |
-
-The rejected post-release v1.5.0 attempt at
-`C:\tmp\jobdesk-legacy-release-v150-20260809-a1\evidence.json` stopped at
-the approved-release validator and is explicitly non-counted. It is not a
-compatibility success and does not justify widening the consumer gate.
-
-The seven hard gates for this measured period are now evidenced: published
-producer/consumer releases, remote dual-repository CI, released worker-handoff,
-real control computation, control reconnect/events/cancel/resume/artifact
-policy, complete control/legacy period metrics, and legacy closeout. Formal
-decision: **PHASE F READINESS REVIEW MAY BE REQUESTED**. This does not enter or
-authorize Phase F. Until a separate Phase F review and authorization, retain
-both backends, the stable `v1.4.6` rollback path, and all fail-closed gates;
-the phase boundary remains explicit. Both immutable evidence bundles retain
-`phase_f_ready=false`; the aggregate decision only permits requesting a review.
-No `/opt` or agent state was modified.
-
-## 原始 v1.5.0 Gate 与双 backend 验收（historical; superseded above）
+## Gate 与双 backend 验收（historical; superseded below）
 
 ConfFlow 正式发布前的 clean、隔离 worktree Gate 全部通过：
 
@@ -124,7 +83,7 @@ The user explicitly authorized real external-program probes. These results are r
 - A direct v1.5.0 control protocol probe completed capability negotiation, `prepare`, and `execute`; the producer returned the contractually valid `queued` state in `/tmp/jobdesk_phasef_control_direct_20260808_a4`. This is not a real computation: the pinned `_AgentControlExecutor` intentionally leaves actual launch to an external worker, and no worker handoff is supplied by the current control contract.
 - The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified. This is retained as pre-restart failure evidence; the current post-restart samples are recorded below.
 
-## 2026-08-08 Phase F readiness recheck (not entered)
+## 2026-08-08 Phase F readiness recheck (historical; not entered; superseded)
 
 - An elevated read-only WSL probe confirmed `Ubuntu-24.04` was running, but the
   system `ssh.service` remained stuck in `deactivating`/`sshd -t`; its control
@@ -145,17 +104,17 @@ The user explicitly authorized real external-program probes. These results are r
 
 > The zero-control baseline in this historical section is retained for
 > provenance only. It is superseded by the authoritative 2026-08-09 summary
-> and the released-v1.5.3 control sample below; current formal counters are
+> and the released-v1.5.3 control samples above; the counters at the time were
 > `control_backend_runs=1` and `legacy_backend_runs=1`.
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
 
-- 当前有一条兼容周期内真实 JobDesk `legacy` 样本（固定 v1.5.0、两任务），以及一条独立 stable `v1.4.6` rollback probe；另有真实 JobDesk `control` launcher 的 queued、非计算 handoff 证据。direct producer/external-program evidence 不计入兼容周期样本。
-- 当前真实 JobDesk `control` 计算样本数为 `0`：pinned producer 的 `control execute` 只返回 queued launch intent，尚无 external worker handoff。真实 JobDesk `legacy` 运行数为 `1`；本地历史运行记录和重启前失败尝试不计入该计数。
+- 该历史快照当时有一条兼容周期内真实 JobDesk `legacy` 样本（固定 v1.5.0、两任务），以及一条独立 stable `v1.4.6` rollback probe；另有真实 JobDesk `control` launcher 的 queued、非计算 handoff 证据。direct producer/external-program evidence 不计入兼容周期样本。
+- 该历史快照当时真实 JobDesk `control` 计算样本数为 `0`：pinned producer 的 `control execute` 只返回 queued launch intent，尚无 external worker handoff。真实 JobDesk `legacy` 运行数为 `1`；本地历史运行记录和重启前失败尝试不计入该计数。
 - “暂无可观察样本”不等于“零故障”，不得将缺少样本写成零故障或零 fallback。
 - synthetic/non-compute 结果只证明协议、状态和 artifact 合约在该测试范围内可观察，不代表真实计算成功率。
 
-## 原始周期观察指标（按 backend 分层；historical; superseded above）
+## 兼容周期观察指标（按 backend 分层；historical; superseded above）
 
 周期内持续记录并按 backend 分层：
 
@@ -172,17 +131,17 @@ The user explicitly authorized real external-program probes. These results are r
 
 当前基线为：一条真实 JobDesk `legacy` v1.5.0 两任务样本、一次独立 stable `v1.4.6` rollback probe，以及一条正式 ConfFlow v1.5.3 的真实 JobDesk `control` 计算样本。生产周期统计仍必须按实际 JobDesk 运行数据分别填写 `control` 与 `legacy`；当前正式计数为 `control_backend_runs=1`、`legacy_backend_runs=1`，不代表零故障。该 control 样本的 in-memory reconnect/events/cancel/resume/raw-manifest 响应未持久化，完整发布周期指标仍未收齐。
 
-## 原始周期未满足的 Phase F 条件（historical; superseded above）
+## 当前未满足的 Phase F 条件（historical mirror; current decision above）
 
 - 完整兼容发布周期尚未结束。
 - `control` / `legacy` 分层的完整兼容周期指标尚未收齐；当前已记录 `legacy_backend_runs=1`、`control_backend_runs=1`（真实计算样本）、run-scoped `fallbacks=0`，但不能由单一样本推导零故障。
-- 支持 launcher 路径的真实 SSH/SFTP v1.5.3 control computation 已完成一次；a3 evidence 明确标记 in-memory response trace 未持久化，因此仍需完整周期内的 reconnect/events/cancel/resume/artifact、fallback 和 idempotency 指标。
+- 支持 launcher 路径的真实 SSH/SFTP v1.5.3 control computation 已完成一次；canonical a32 的 response trace 只持久化一页，补充 a34 trace 已证明 fixed-cursor replay 与 next-page response，但完整周期内的 reconnect/events/cancel/resume/artifact、fallback 和 idempotency 指标仍需收齐。
 - stable `v1.4.6` live rollback probe 已完成，但完整 rollback/recovery 维度和兼容周期统计仍未完成。
 - agent 保留/弃用决策材料未完成。
 
-## Phase F 边界（仍适用；当前 aggregate decision 不授权进入）
+## Phase F 边界
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；a3 是已完成但 response-trace 不完整的真实 control 样本，不替代完整周期验收。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；canonical a32 是已完成但 response-trace 只持久化一页的真实 control 样本，补充 a34 trace 证明了固定 cursor replay 与 next-page response，但不替代完整周期验收。
 
 ## 2026-08-08 JobDesk legacy-backend real sample (historical; superseded)
 
@@ -209,17 +168,18 @@ period, establish control acceptance, or authorize Phase F: the real control
 worker handoff, full rollback/recovery metrics, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
 
-## 2026-08-09 pre-close status snapshot (historical; superseded)
+## 2026-08-09 pre-a37 status snapshot (historical; superseded)
 
 The earlier zero-control-count snapshot is superseded by the released
-v1.5.3 sample recorded below. The current formal counters are
+v1.5.3 samples recorded above. At that time the formal counters were
 `control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
 synthetic, and historical evidence remains excluded. The compatibility period
-continues because the sample's in-memory response traces were not persisted
-after a post-attempt cleanup timeout and a complete measured published cycle
-has not yet been collected. Phase F remains not ready.
+continues because a complete measured published cycle has not yet been
+collected. The a34 trace closes the fixed-cursor response evidence gap as
+supplemental non-counted provenance, but does not change the canonical
+counters. Phase F remains not ready.
 
-## 2026-08-08 real JobDesk control launcher acceptance (historical non-compute)
+## 2026-08-08 real JobDesk control launcher acceptance (historical non-compute; superseded)
 
 After the same authorized WSL restart, an isolated real JobDesk control path
 completed capability negotiation, prepare, input-manifest upload, launcher
@@ -302,7 +262,7 @@ computation; the sample and its evidence are recorded below. The old v1.5.2
 publication and the `9a5f213`/1.5.1 worker wheel remain historical or
 candidate-only evidence and are not stable samples.
 
-## 2026-08-09 released v1.5.3 real JobDesk control sample (a3 historical; superseded by a10)
+## 2026-08-09 released v1.5.3 real JobDesk control sample (historical a3; superseded by canonical a32)
 
 The isolated JobDesk consumer used the immutable ConfFlow `v1.5.3` release,
 peeled commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, and wheel SHA-256
@@ -345,31 +305,6 @@ reconnect/event/cancel/resume/artifact metrics, fallback and idempotency
 metrics across the release period, and the remaining rollback/closeout
 measurements. Phase F remains **not ready** and the formal decision remains
 **COMPATIBILITY PERIOD CONTINUES**.
-
-## 2026-08-09 JobDesk v0.5.1 consumer release (historical period start; superseded)
-
-The matching JobDesk consumer for the formal ConfFlow `v1.5.3` producer is now
-published as `v0.5.1` at merge commit
-`ebb719b2b67d2095f2199a30c9b97d7f88ac8820`:
-`https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1`. The published
-wheel is `jobdesk-0.5.1-py3-none-any.whl` with SHA-256
-`892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
-The GitHub Release was published at `2026-08-09T01:52:53Z` after PR #9's
-local review, PR checks (`31288788514`, `31288788511`, `31288788509`), normal
-merge, and post-merge main checks (`31288979565`, `31288979564`) passed.
-
-This is the first published producer/consumer pin for the v1.5.3
-worker-handoff contract and starts the separately measured compatibility
-period. It does not close that period. The real v1.5.3 control computation
-recorded above remains counted as real control evidence, but it was captured
-before this consumer release was published; no period-completion claim or
-backdated cycle start is made. Current formal evidence counters remain
-`control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
-synthetic, and historical samples remain excluded.
-
-The period still requires durable runs/fallback/reconnect/idempotency,
-resume/cancel, artifact-integrity, and legacy-closeout metrics. Phase F remains
-**not ready** and the formal decision remains **COMPATIBILITY PERIOD CONTINUES**.
 
 ## 2026-08-09 ConfFlow v1.5.2 producer release (historical, superseded)
 
