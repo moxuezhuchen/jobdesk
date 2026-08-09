@@ -2,7 +2,7 @@
 
 > Current authoritative summary (2026-08-09): use
 > [`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json)
-> and the current a32/a5 entries in the release-boundary documents. The
+> and the current a32/a36/a37/a38/a5 entries in the release-boundary documents. The
 > supplemental a34 fixed-cursor response trace is recorded separately at
 > `C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`;
 > it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
@@ -11,18 +11,21 @@
 > status-only polling had not persisted a JobDesk cursor. Its read-only terminal
 > capture is `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
 > it is also `acceptance_failed=true`, `synthetic=false`, and non-counted.
-> The separately authorized a36 run at
-> `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json` is a
-> second canonical released control computation: it reached revision `6` and
+> The separately authorized a36, a37, and a38 runs at
+> `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`,
+> `C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and
+> `C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json` are
+> canonical released control computations: each reached revision `6` and
 > `completed` with `fallback_used=false`, proved reconnect, idempotent submit,
 > fixed-cursor replay, terminal empty page, typed terminal cancel/resume
-> rejection, and manifest/download SHA-256 integrity. Its exact remote attempt
-> root was absent after bounded cleanup.
+> rejection, and manifest/download SHA-256 integrity. Each exact per-attempt
+> root was absent after bounded cleanup; the shared published runtime remains
+> intentionally retained.
 > v1.5.0 sections below are retained for provenance only and are superseded;
 > their zero-control, candidate, synthetic, and incomplete-response claims
 > must not be used as current counters. The formal decision remains
 > **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`. The current
-> formal counters are `control_backend_runs=2` and `legacy_backend_runs=1`.
+> formal counters are `control_backend_runs=4` and `legacy_backend_runs=1`.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
@@ -101,13 +104,13 @@ The user explicitly authorized real external-program probes. These results are r
 
 > The zero-control baseline in this historical section is retained for
 > provenance only. It is superseded by the authoritative 2026-08-09 summary
-> and the released-v1.5.3 control sample below; current formal counters are
+> and the released-v1.5.3 control samples above; the counters at the time were
 > `control_backend_runs=1` and `legacy_backend_runs=1`.
 
 本记录必须区分正式 Gate/稳定回滚 probe 与兼容周期内的真实 JobDesk 运行样本：
 
-- 当前有一条兼容周期内真实 JobDesk `legacy` 样本（固定 v1.5.0、两任务），以及一条独立 stable `v1.4.6` rollback probe；另有真实 JobDesk `control` launcher 的 queued、非计算 handoff 证据。direct producer/external-program evidence 不计入兼容周期样本。
-- 当前真实 JobDesk `control` 计算样本数为 `0`：pinned producer 的 `control execute` 只返回 queued launch intent，尚无 external worker handoff。真实 JobDesk `legacy` 运行数为 `1`；本地历史运行记录和重启前失败尝试不计入该计数。
+- 该历史快照当时有一条兼容周期内真实 JobDesk `legacy` 样本（固定 v1.5.0、两任务），以及一条独立 stable `v1.4.6` rollback probe；另有真实 JobDesk `control` launcher 的 queued、非计算 handoff 证据。direct producer/external-program evidence 不计入兼容周期样本。
+- 该历史快照当时真实 JobDesk `control` 计算样本数为 `0`：pinned producer 的 `control execute` 只返回 queued launch intent，尚无 external worker handoff。真实 JobDesk `legacy` 运行数为 `1`；本地历史运行记录和重启前失败尝试不计入该计数。
 - “暂无可观察样本”不等于“零故障”，不得将缺少样本写成零故障或零 fallback。
 - synthetic/non-compute 结果只证明协议、状态和 artifact 合约在该测试范围内可观察，不代表真实计算成功率。
 
@@ -165,10 +168,10 @@ period, establish control acceptance, or authorize Phase F: the real control
 worker handoff, full rollback/recovery metrics, remote candidate CI, and one
 complete published compatibility cycle with measured metrics are still open.
 
-## 2026-08-09 current authoritative sample summary
+## 2026-08-09 pre-a37 status snapshot (historical; superseded)
 
 The earlier zero-control-count snapshot is superseded by the released
-v1.5.3 sample recorded below. The current formal counters are
+v1.5.3 samples recorded above. At that time the formal counters were
 `control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
 synthetic, and historical evidence remains excluded. The compatibility period
 continues because a complete measured published cycle has not yet been
