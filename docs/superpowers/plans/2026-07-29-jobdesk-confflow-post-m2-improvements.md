@@ -192,22 +192,31 @@ The newly authorized replacement window
 `post-contract-replacement-20260810-r6` is **OPEN** with no inherited
 denominator. Its authorization is recorded at
 `2026-08-09T16:54:00.8101466Z`. Independent review promoted a52 as its first
-eligible completed control success; the raw bundle remains
-`counts_as_real_run=false`/supplemental. Its main/pre-cleanup/cleanup-proof
+eligible completed control success and a53 as its first eligible completed
+legacy success; both raw bundles remain
+`counts_as_real_run=false`/supplemental. The a52 main/pre-cleanup/cleanup-proof
 SHA-256 values are respectively
 `cd8d47569c3edc6fd3d0820ee4245395527603a388f26c2bbe84f11b437d680c`,
 `993ebee728320bba90b3b7db38f66db62bf2392217ce7ef522fdb702fac853af`, and
 `5c73a16f53f4473fe1e3f1f026ea1eb1059a2f1961986bd6bd2690d278400b6a`.
-The reviewed evidence proves explicit control selection without fallback,
+The a53 main/pre-cleanup/cleanup-proof SHA-256 values are respectively
+`182dbcc3fa6effa1d65f285a45f75490ec090c382616c6c70ad48e33eb5f7232`,
+`b6a3743a540008ff49a797ade28bed02b13c3fcc6376fcd1596c359e1844bd1e`, and
+`67457d334ba100eaf8d014692f854601d7ad7125f34c64834b162eccfd1e8576`.
+The reviewed a52 evidence proves explicit control selection without fallback,
 submit `1`/idempotent resubmit `0`, queued-to-completed in-flight reconnect,
 fixed-cursor replay and terminal empty page, typed terminal policy, g16
 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with
-shared runtime retention. Current r6 metrics are
-`attempted=1`, `submitted=1`, `terminal=1`, eligible control/legacy `1/3` and
-`0/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, two more eligible completed control successes, two eligible completed
-legacy successes, live legacy rollback/recovery, a retained-failure or
-non-counted negative probe, and all hard thresholds. Phase F remains false.
+shared runtime retention. The reviewed a53 evidence proves explicit legacy
+selection without fallback, two-task submit `2`/idempotent resubmit `0`,
+in-flight reconnect and legacy rollback boundaries, terminal completion,
+g16 identity/no-write, artifact SHA integrity, and the same attempt-only
+cleanup proof. Current r6 metrics are
+`attempted=2`, `submitted=2`, `terminal=2`, eligible control/legacy `1/3` and
+`1/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
+hours, two more eligible completed control successes, one more eligible
+completed legacy success, a retained-failure or non-counted negative probe,
+and all hard thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
