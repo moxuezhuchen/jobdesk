@@ -105,12 +105,12 @@
       "uncertain_attempts": 0,
       "replacement_required": false,
       "phase_f_ready": false,
-      "attempted": 2,
-      "submitted": 2,
-      "terminal": 2,
+      "attempted": 3,
+      "submitted": 3,
+      "terminal": 3,
       "eligible_completed_successes": {
         "control": 1,
-        "legacy": 1
+        "legacy": 2
       },
       "required_scenarios_observed": {
         "control_inflight_reconnect_recovery": 1,
@@ -126,7 +126,7 @@
         "orphan_jobs_or_processes": 0,
         "unclassified_attempts": 0
       },
-      "reason": "The newly authorized replacement window has one independently promoted eligible success for each backend; it remains open until 72 hours, control=3/legacy=2 eligible completed successes, and the retained-failure or non-counted negative-probe scenario are complete.",
+      "reason": "The newly authorized replacement window has one independently promoted eligible control success and two eligible legacy successes; it remains open until 72 hours, control=3 eligible completed successes, and the retained-failure or non-counted negative-probe scenario are complete.",
       "attempts": [
         {
           "attempt_id": "control-v153-a44",
@@ -152,6 +152,25 @@
           "backend": "legacy",
           "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a42\\evidence.json",
           "evidence_sha256": "ab33e6700c416d3163b1bb933a97f323bf91644e0a2e482917ac16c7f0a59510",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "legacy",
+          "selected_backend": "legacy",
+          "fallback_used": false,
+          "first_submit": 2,
+          "idempotent_resubmit": 0,
+          "reason": "Independent review verified published provenance, in-flight legacy recovery, typed unsupported operations, artifact integrity, g16 identity, and persist-before-cleanup."
+        },
+        {
+          "attempt_id": "legacy-v146-a43",
+          "backend": "legacy",
+          "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a43\\evidence.json",
+          "evidence_sha256": "e6fd81b93675fdf29ca592c808e1b8db2606dc1dc5a8ebf4da5567b59c694447",
           "terminal_classification": "completed",
           "eligible_completed_success": true,
           "promoted_by_independent_index_review": true,
@@ -380,6 +399,23 @@
       "promoted_to_period_window": "post-contract-replacement-20260809-r2",
       "evidence_sha256": "ab33e6700c416d3163b1bb933a97f323bf91644e0a2e482917ac16c7f0a59510",
       "reason": "Independent review promoted this completed replacement-window legacy bundle for period counting; raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "legacy-v146-a43-replacement-r2",
+      "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a43\\evidence.json",
+      "backend": "legacy",
+      "producer": "confflow-v1.4.6",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": false,
+      "eligible_completed_success": true,
+      "promoted_to_period_window": "post-contract-replacement-20260809-r2",
+      "evidence_sha256": "e6fd81b93675fdf29ca592c808e1b8db2606dc1dc5a8ebf4da5567b59c694447",
+      "reason": "Independent review promoted this second completed replacement-window legacy bundle for period counting; raw formal_counting remains supplemental/non-counted.",
       "phase_f_ready": false
     }
   ],

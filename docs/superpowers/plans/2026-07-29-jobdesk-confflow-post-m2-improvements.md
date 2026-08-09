@@ -125,13 +125,13 @@ sample. It must not be retried in place.
 
 The newly authorized replacement window
 `post-contract-replacement-20260809-r2` is open. Independent index review has
-promoted a44 as one eligible completed control success and a42 as one eligible
-completed legacy success for this window only; both raw bundles remain
-`counts_as_real_run=false`/supplemental. Current window metrics are
-`attempted=2`, `submitted=2`, `terminal=2`, `failed_attempts=0`, eligible
-successes control=1/3 and legacy=1/2. At least 72 hours, the remaining eligible
-successes, and the retained-failure or non-counted negative-probe scenario are
-still required. Phase F remains false.
+promoted a44 as one eligible completed control success and a42/a43 as two
+eligible completed legacy successes for this window only; all raw bundles
+remain `counts_as_real_run=false`/supplemental. Current window metrics are
+`attempted=3`, `submitted=3`, `terminal=3`, `failed_attempts=0`, eligible
+successes control=1/3 and legacy=2/2. At least 72 hours, two remaining eligible
+control successes, and the retained-failure or non-counted negative-probe
+scenario are still required. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
