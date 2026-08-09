@@ -20,50 +20,48 @@
 `v1.5.0` wheel；被拒绝的旧候选 digest
 `f90e5c605ccb36cf37b16dcd53093cb3ac0239e630aaf0a082faa39998615e69` 不属于发布物。
 
-## 2026-08-09 authoritative published compatibility-cycle closure
+## 2026-08-09 authoritative published acceptance update
 
 This section is the current decision record. It supersedes the earlier a3,
 v1.5.0, pre-release, candidate-only, synthetic, and historical status
 snapshots below; those sections remain for provenance and are not current
 compatibility evidence.
 
-The measured published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`:
+The published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`:
 
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
 - ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, wheel
   SHA-256 `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
-- Published producer/consumer CI and release provenance were verified before
-  the acceptance samples: ConfFlow matrix `31271946187`, coverage
-  `31271946186`, JobDesk Consumer Contract `31271946207`, and release workflow
-  `31272089279`; no candidate-only or synthetic result is promoted.
+- Published producer/consumer CI and release provenance were verified:
+  ConfFlow matrix `31271946187`, coverage `31271946186`, JobDesk Consumer
+  Contract `31271946207`, and release workflow `31272089279`. Candidate-only,
+  synthetic, and historical results remain excluded.
 
 The authoritative control sample is
-`C:\tmp\jobdesk-control-release-v153-20260809-a10\evidence.json`.
+`C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`.
 It is one real JobDesk control computation through the released worker-handoff
-and supported launcher: producer revisions advanced to `completed`, the first
-submit dispatched one task, the idempotent resubmit dispatched zero duplicate
-tasks, reconnect identity and cursor replay passed, events/status polling
-passed, terminal cancel/resume returned the expected typed `terminal_run`
-rejection, and manifest/download/hash integrity passed. The exact attempt
-root was absent after cleanup. `formal_counting.counts_as_real_control_backend_run`
-is `true`.
+and supported launcher: producer state reached revision `6` and `completed`,
+the first submit dispatched one task, the idempotent resubmit dispatched zero
+duplicates, and the evidence explicitly records `requested_mode=control`,
+`selected_backend=control`, `fallback_used=false`, reconnect identity, cursor
+replay, events/status polling, typed terminal cancel/resume rejection, and
+manifest/download/hash integrity. The exact attempt and runtime roots are
+absent after cleanup. It is counted as one real control run.
 
 The authoritative legacy closeout sample is
 `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
-It is one real JobDesk legacy computation using the published JobDesk
-consumer and the exact stable ConfFlow `v1.4.6` rollback release. Two tasks
-completed with remote exit code `0`; the idempotent resubmit dispatched zero
-duplicate tasks; reconnect/status refresh and manifest/download/hash integrity
-passed. Legacy events and resume were recorded as expected unsupported
-operations, and terminal cancel was recorded as the expected no-op. The exact
-attempt and managed runtime roots were absent after cleanup.
-`formal_counting.counts_as_real_legacy_backend_run` is `true`.
+It is one real JobDesk legacy computation using the published JobDesk consumer
+and the exact stable ConfFlow `v1.4.6` rollback release. Two tasks completed
+with remote exit code `0`; idempotent resubmit, reconnect/status refresh,
+manifest/download/hash integrity, and exact cleanup passed. Legacy
+events/resume unsupported and terminal cancel no-op were recorded as expected
+legacy boundaries. It is counted as one real legacy run.
 
 | Metric | Control v1.5.3 | Legacy v1.4.6 |
 | --- | --- | --- |
 | counted real runs | 1 | 1 |
-| fallback | `false` | `false` |
+| fallback | `false` (a32 machine-readable evidence) | `false` |
 | idempotent duplicate submissions | 0 | 0 |
 | reconnect / status | identity, cursor replay, events and status passed | identity and refresh trace passed |
 | cancel / resume | typed terminal-state rejection expected | terminal cancel no-op; resume unsupported expected |
@@ -75,15 +73,14 @@ The rejected post-release v1.5.0 attempt at
 the approved-release validator and is explicitly non-counted. It is not a
 compatibility success and does not justify widening the consumer gate.
 
-The seven hard gates for this measured period are now evidenced: published
-producer/consumer releases, remote dual-repository CI, released worker-handoff,
-real control computation, control reconnect/events/cancel/resume/artifact
-policy, complete control/legacy period metrics, and legacy closeout. Formal
-decision: **PHASE F READINESS REVIEW MAY BE REQUESTED**. This does not enter or
-authorize Phase F. Until a separate Phase F review and authorization, retain
-both backends, the stable `v1.4.6` rollback path, and all fail-closed gates;
-the phase boundary remains explicit. Both immutable evidence bundles retain
-`phase_f_ready=false`; the aggregate decision only permits requesting a review.
+Published releases, dual-repository CI, released worker-handoff, one real
+control computation, control reconnect/events/cancel/resume/artifact probes,
+and legacy closeout are evidenced. A complete measured published
+compatibility cycle with period-wide fallback, reconnect, idempotency,
+resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
+Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
+Retain both backends, the stable `v1.4.6` rollback path, and all fail-closed
+gates. Both release evidence bundles retain `phase_f_ready=false`.
 No `/opt` or agent state was modified.
 
 ## 原始 v1.5.0 Gate 与双 backend 验收（historical; superseded above）
@@ -302,7 +299,7 @@ computation; the sample and its evidence are recorded below. The old v1.5.2
 publication and the `9a5f213`/1.5.1 worker wheel remain historical or
 candidate-only evidence and are not stable samples.
 
-## 2026-08-09 released v1.5.3 real JobDesk control sample (a3 historical; superseded by a10)
+## 2026-08-09 released v1.5.3 real JobDesk control sample (a3 historical; superseded by a32)
 
 The isolated JobDesk consumer used the immutable ConfFlow `v1.5.3` release,
 peeled commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, and wheel SHA-256
