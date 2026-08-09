@@ -51,6 +51,24 @@
       "events_next_page_proven": true,
       "reason": "Read-only terminal response trace from the real released workflow after the a34 harness compared a dynamic initial page; the failed acceptance bundle is retained for protocol provenance but does not increment compatibility counters.",
       "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a35-terminal-workflow",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a35\\evidence.json",
+      "read_only_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a35\\post-failure-readonly.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "fallback_used": false,
+      "events_cursor_replay_proven": false,
+      "events_next_page_proven": false,
+      "reason": "The real released workflow reached completed revision 6, but the a35 harness incorrectly required a JobDesk cursor after status-only polling and stopped before replay/download capture. Read-only terminal status/events/artifacts were preserved and the exact attempt root was removed; this failed bundle does not increment compatibility counters.",
+      "phase_f_ready": false
     }
   ],
   "superseded_samples": [

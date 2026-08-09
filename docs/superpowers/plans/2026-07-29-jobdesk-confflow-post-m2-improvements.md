@@ -37,6 +37,11 @@ Authoritative real evidence:
   proves the released producer's fixed-cursor replay and terminal empty-page
   behavior against the completed JobDesk-launched attempt. The a34 harness
   failure is retained at its immutable evidence path and is not counted.
+  The separate a35 released workflow also reached revision `6` and `completed`,
+  but a harness assumption that status-only polling persisted an event cursor
+  stopped it before replay/download capture. Its read-only terminal record is
+  `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
+  it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
 - Legacy closeout: `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
   One published-consumer legacy computation used the exact stable ConfFlow
   `v1.4.6` rollback release. Two tasks completed with remote exit code `0`;

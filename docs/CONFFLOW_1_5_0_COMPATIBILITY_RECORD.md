@@ -6,6 +6,11 @@
 > supplemental a34 fixed-cursor response trace is recorded separately at
 > `C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`;
 > it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
+> The separate a35 released workflow reached producer revision `6` and
+> `completed`, but its harness stopped before replay/download capture because
+> status-only polling had not persisted a JobDesk cursor. Its read-only terminal
+> capture is `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
+> it is also `acceptance_failed=true`, `synthetic=false`, and non-counted.
 > v1.5.0 sections below are retained for provenance only and are superseded;
 > their zero-control, candidate, synthetic, and incomplete-response claims
 > must not be used as current counters. The formal decision remains
