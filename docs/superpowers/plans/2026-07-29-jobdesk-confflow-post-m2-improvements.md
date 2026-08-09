@@ -211,12 +211,11 @@ shared runtime retention. The reviewed a53 evidence proves explicit legacy
 selection without fallback, two-task submit `2`/idempotent resubmit `0`,
 in-flight reconnect and legacy rollback boundaries, terminal completion,
 g16 identity/no-write, artifact SHA integrity, and the same attempt-only
-cleanup proof. Current r6 metrics are
-`attempted=2`, `submitted=2`, `terminal=2`, eligible control/legacy `1/3` and
-`1/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, two more eligible completed control successes, one more eligible
-completed legacy success, a retained-failure or non-counted negative probe,
-and all hard thresholds. Phase F remains false.
+cleanup proof. Independent review promoted a54 as the second eligible legacy success; its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence index.
+`attempted=3`, `submitted=3`, `terminal=3`, eligible control/legacy `1/3` and
+`2/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
+hours, two more eligible completed control successes, a retained-failure or
+non-counted negative probe, and all hard thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
