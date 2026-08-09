@@ -214,10 +214,12 @@ g16 identity/no-write, artifact SHA integrity, and the same attempt-only
 cleanup proof. Independent review promoted a54 as the second eligible legacy success; its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence index.
 Independent review promoted a55 as the second eligible control success; its
 main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
-index. `attempted=4`, `submitted=4`, `terminal=4`, eligible control/legacy `2/3` and
+index. Independent review promoted a56 as the third eligible control success;
+its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
+index. `attempted=5`, `submitted=5`, `terminal=5`, eligible control/legacy `3/3` and
 `2/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, one more eligible completed control success, a retained-failure or
-non-counted negative probe, and all hard thresholds. Phase F remains false.
+hours, a retained-failure or non-counted negative probe, and all hard
+thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
