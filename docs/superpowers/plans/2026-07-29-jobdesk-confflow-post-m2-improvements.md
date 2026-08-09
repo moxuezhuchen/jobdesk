@@ -212,9 +212,11 @@ selection without fallback, two-task submit `2`/idempotent resubmit `0`,
 in-flight reconnect and legacy rollback boundaries, terminal completion,
 g16 identity/no-write, artifact SHA integrity, and the same attempt-only
 cleanup proof. Independent review promoted a54 as the second eligible legacy success; its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence index.
-`attempted=3`, `submitted=3`, `terminal=3`, eligible control/legacy `1/3` and
+Independent review promoted a55 as the second eligible control success; its
+main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
+index. `attempted=4`, `submitted=4`, `terminal=4`, eligible control/legacy `2/3` and
 `2/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, two more eligible completed control successes, a retained-failure or
+hours, one more eligible completed control success, a retained-failure or
 non-counted negative probe, and all hard thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)

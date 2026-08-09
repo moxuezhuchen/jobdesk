@@ -457,11 +457,11 @@
       "uncertain_attempts": 0,
       "replacement_required": false,
       "phase_f_ready": false,
-      "attempted": 3,
-      "submitted": 3,
-      "terminal": 3,
+      "attempted": 4,
+      "submitted": 4,
+      "terminal": 4,
       "eligible_completed_successes": {
-        "control": 1,
+        "control": 2,
         "legacy": 2
       },
       "required_scenarios_observed": {
@@ -481,7 +481,7 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Independent review promoted a52 as the first r6 eligible completed control success and a53/a54 as the first and second r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. r6 has attempted/submitted/terminal=3/3/3, eligible control/legacy=1/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours from authorization, two more eligible completed control successes, a retained-failure or non-counted negative probe, and all hard thresholds. Phase F remains false.",
+      "reason": "Independent review promoted a52 and a55 as the first and second r6 eligible completed control successes and a53/a54 as the first and second r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. r6 has attempted/submitted/terminal=4/4/4, eligible control/legacy=2/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours from authorization, one more eligible completed control success, a retained-failure or non-counted negative probe, and all hard thresholds. Phase F remains false.",
       "attempts": [
         {
           "attempt_id": "control-v153-a52",
@@ -581,6 +581,39 @@
           "remote_attempt_root_absent": true,
           "runtime_root_absent": false,
           "reason": "Independent review verified published JobDesk/ConfFlow provenance, explicit legacy selection without fallback, two-task first submit and idempotent resubmit, in-flight reconnect with the same run/locator, terminal legacy completion, typed unsupported events/resume boundaries, terminal cancel no-op, g16 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with shared runtime retention. Raw formal_counting remains supplemental/non-counted and cannot self-promote."
+        },
+        {
+          "attempt_id": "control-v153-a55",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260810-a55\\evidence.json",
+          "pre_cleanup_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260810-a55\\evidence-before-cleanup.json",
+          "cleanup_proof_path": "C:\\tmp\\jobdesk-control-release-v153-20260810-a55\\cleanup-proof.json",
+          "evidence_sha256": "401fa6f1d5ffc6f1ab926bb2409aa89a38f0cd99be573e1a5e526460f828a66f",
+          "pre_cleanup_evidence_sha256": "7dbe5f726c1503547fab86a321b9480e868dcddadf37ce13742d32ec0c2e92b6",
+          "cleanup_proof_sha256": "37aed0c8e35345d3e636e5b603102b3799d7f2a1ab2709b62a027c09c3c7d738",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "inflight_reconnect_recovery": true,
+          "control_contract_cancel_or_typed_policy": true,
+          "events_cursor_replay_proven": true,
+          "events_next_page_proven": true,
+          "artifact_download_integrity_proven": true,
+          "g16_identity_unchanged": true,
+          "protected_path_write_detected": false,
+          "cleanup_proof_verified": true,
+          "remote_attempt_root_absent": true,
+          "runtime_root_absent": false,
+          "reason": "Independent review verified published JobDesk/ConfFlow provenance, explicit control selection without fallback, first submit and idempotent resubmit, queued-to-completed in-flight reconnect with the same run/locator, fixed-cursor replay and terminal empty page, typed terminal cancel/resume policy, g16 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with shared runtime retention. Raw formal_counting remains supplemental/non-counted and cannot self-promote."
         }
       ]
     }
