@@ -31,8 +31,12 @@ Authoritative real evidence:
   `selected_backend=control`, `fallback_used=false`, reconnect identity, and
   one events/status page, typed terminal cancel/resume policy,
   manifest/download/hash integrity, and exact attempt/runtime cleanup. The
-  bundle publishes `next_cursor`, but has no same-cursor replay or next-page
-  request/response trace; those event acceptance gates remain open.
+  bundle itself publishes `next_cursor` but has no same-cursor replay or
+  next-page request/response trace. The separate, non-counted read-only trace
+  at `C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`
+  proves the released producer's fixed-cursor replay and terminal empty-page
+  behavior against the completed JobDesk-launched attempt. The a34 harness
+  failure is retained at its immutable evidence path and is not counted.
 - Legacy closeout: `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
   One published-consumer legacy computation used the exact stable ConfFlow
   `v1.4.6` rollback release. Two tasks completed with remote exit code `0`;
@@ -49,8 +53,8 @@ non-counted failure evidence.
 
 Release publication, dual-repository CI, released worker-handoff, one real
 control computation, control reconnect identity, first events/status poll,
-terminal cancel/resume and artifact probes, and legacy closeout are evidenced.
-Cursor replay/next-page proof and a complete measured published
+terminal cancel/resume and artifact probes, legacy closeout, and the
+non-counted fixed-cursor response trace are evidenced. A complete measured published
 compatibility cycle with period-wide fallback, reconnect, idempotency,
 resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
 Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
@@ -1044,7 +1048,7 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [x] Published producer/consumer pair: ConfFlow `v1.5.3` × JobDesk `v0.5.1`, with release provenance and remote dual-repository CI verified.
 - [x] Released producer-owned worker-handoff completed one real JobDesk control computation; candidate worker evidence is not used for the count.
 - [x] Control reconnect identity, one events/status page, typed terminal cancel/resume policy, idempotency, manifest/download, artifact integrity, explicit backend/fallback selection, and exact cleanup are recorded at `C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`.
-- [ ] Same-cursor events replay and next-page request/response evidence; a32 publishes `next_cursor` but does not persist these traces.
+- [x] Supplemental same-cursor events replay and next-page request/response evidence is recorded at `C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`; it is read-only supplemental evidence from a failed harness attempt, marked `acceptance_failed=true` and non-counted (`synthetic=false`), and does not change the canonical counters.
 - [x] Stable `v1.4.6` legacy closeout completed one real two-task JobDesk run with reconnect/status, expected legacy operation boundaries, idempotency, artifact integrity, and exact cleanup at `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
 - [x] Formal counters are `control_backend_runs=1`, `legacy_backend_runs=1`; candidate-only, synthetic, historical, agent-SQLite, and producer-double-write evidence is excluded.
 - [ ] Phase F compatibility-layer removal/agent policy: a readiness review may be requested, but Phase F remains separately unauthorized; retain both backends and rollback until that review and authorization.

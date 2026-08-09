@@ -34,6 +34,25 @@
       "fallback_used": false
     }
   ],
+  "supplemental_samples": [
+    {
+      "sample_id": "control-v153-a34-events-trace",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a34\\events-readonly-trace.json",
+      "source_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a34\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "events_cursor_replay_proven": true,
+      "events_next_page_proven": true,
+      "reason": "Read-only terminal response trace from the real released workflow after the a34 harness compared a dynamic initial page; the failed acceptance bundle is retained for protocol provenance but does not increment compatibility counters.",
+      "phase_f_ready": false
+    }
+  ],
   "superseded_samples": [
     {
       "sample_id": "control-v153-a10",
