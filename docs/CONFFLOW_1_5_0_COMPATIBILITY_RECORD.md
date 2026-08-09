@@ -50,10 +50,12 @@ It is one real JobDesk control computation through the released worker-handoff
 and supported launcher: producer state reached revision `6` and `completed`,
 the first submit dispatched one task, the idempotent resubmit dispatched zero
 duplicates, and the evidence explicitly records `requested_mode=control`,
-`selected_backend=control`, `fallback_used=false`, reconnect identity, cursor
-replay, events/status polling, typed terminal cancel/resume rejection, and
-manifest/download/hash integrity. The exact attempt and runtime roots are
-absent after cleanup. It is counted as one real control run.
+`selected_backend=control`, `fallback_used=false`, reconnect identity, one
+events/status page, typed terminal cancel/resume rejection, and
+manifest/download/hash integrity. It publishes `next_cursor`, but does not
+contain a same-cursor replay or next-page request/response trace; those event
+acceptance gates remain open. The exact attempt and runtime roots are absent
+after cleanup. It is counted as one real control run.
 
 The authoritative legacy closeout sample is
 `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
@@ -69,7 +71,7 @@ legacy boundaries. It is counted as one real legacy run.
 | counted real runs | 1 | 1 |
 | fallback | `false` (a32 machine-readable evidence) | `false` |
 | idempotent duplicate submissions | 0 | 0 |
-| reconnect / status | identity, cursor replay, events and status passed | identity and refresh trace passed |
+| reconnect / status | identity and first events/status page passed; cursor replay/next page not captured | identity and refresh trace passed |
 | cancel / resume | typed terminal-state rejection expected | terminal cancel no-op; resume unsupported expected |
 | artifact integrity | manifest, download, size and SHA-256 passed | two manifests, downloads, size and SHA-256 passed |
 | agent SQLite / producer double-write | none | none |
@@ -80,8 +82,9 @@ the approved-release validator and is explicitly non-counted. It is not a
 compatibility success and does not justify widening the consumer gate.
 
 Published releases, dual-repository CI, released worker-handoff, one real
-control computation, control reconnect/events/cancel/resume/artifact probes,
-and legacy closeout are evidenced. A complete measured published
+control computation, control reconnect identity, first events/status poll,
+terminal cancel/resume and artifact probes, and legacy closeout are evidenced.
+Cursor replay/next-page proof and a complete measured published
 compatibility cycle with period-wide fallback, reconnect, idempotency,
 resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
 Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
