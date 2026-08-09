@@ -33,7 +33,9 @@ The machine-readable aggregation boundary is
 [`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json).
 It keeps the immutable a10 raw bundle for provenance while explicitly marking
 it superseded/non-counted by canonical a32; a28 is also non-counted because
-its acceptance evidence file was not persisted.
+its acceptance evidence file was not persisted. The supplemental a34
+fixed-cursor trace is indexed separately with `counts_as_real_run=false` and
+`acceptance_failed=true`.
 
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
@@ -52,10 +54,15 @@ the first submit dispatched one task, the idempotent resubmit dispatched zero
 duplicates, and the evidence explicitly records `requested_mode=control`,
 `selected_backend=control`, `fallback_used=false`, reconnect identity, one
 events/status page, typed terminal cancel/resume rejection, and
-manifest/download/hash integrity. It publishes `next_cursor`, but does not
-contain a same-cursor replay or next-page request/response trace; those event
-acceptance gates remain open. The exact attempt and runtime roots are absent
-after cleanup. It is counted as one real control run.
+manifest/download/hash integrity. It publishes `next_cursor`, but the
+canonical bundle does not contain a same-cursor replay or next-page
+request/response trace. The separately retained read-only trace at
+`C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`
+proves fixed-cursor replay and the terminal empty-page response against the
+completed released workflow. The a34 harness failure is explicitly
+`acceptance_failed=true`, `synthetic=false`, and non-counted. The exact a32
+attempt and runtime roots are absent after cleanup. a32 remains one counted
+real control run.
 
 The authoritative legacy closeout sample is
 `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
@@ -71,7 +78,7 @@ legacy boundaries. It is counted as one real legacy run.
 | counted real runs | 1 | 1 |
 | fallback | `false` (a32 machine-readable evidence) | `false` |
 | idempotent duplicate submissions | 0 | 0 |
-| reconnect / status | identity and first events/status page passed; cursor replay/next page not captured | identity and refresh trace passed |
+| reconnect / status | identity and first events/status page passed; supplemental fixed-cursor replay/next page trace passed, but a34 acceptance bundle is non-counted | identity and refresh trace passed |
 | cancel / resume | typed terminal-state rejection expected | terminal cancel no-op; resume unsupported expected |
 | artifact integrity | manifest, download, size and SHA-256 passed | two manifests, downloads, size and SHA-256 passed |
 | agent SQLite / producer double-write | none | none |
@@ -83,8 +90,8 @@ compatibility success and does not justify widening the consumer gate.
 
 Published releases, dual-repository CI, released worker-handoff, one real
 control computation, control reconnect identity, first events/status poll,
-terminal cancel/resume and artifact probes, and legacy closeout are evidenced.
-Cursor replay/next-page proof and a complete measured published
+terminal cancel/resume and artifact probes, legacy closeout, and non-counted
+fixed-cursor response trace are evidenced. A complete measured published
 compatibility cycle with period-wide fallback, reconnect, idempotency,
 resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
 Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
@@ -130,7 +137,7 @@ The user explicitly authorized real external-program probes. These results are r
 - A direct v1.5.0 control protocol probe completed capability negotiation, `prepare`, and `execute`; the producer returned the contractually valid `queued` state in `/tmp/jobdesk_phasef_control_direct_20260808_a4`. This is not a real computation: the pinned `_AgentControlExecutor` intentionally leaves actual launch to an external worker, and no worker handoff is supplied by the current control contract.
 - The real JobDesk SSH/SFTP attempt could not start because the WSL SSH listener repeatedly returned `Exceeded MaxStartups`; the WSL network path showed `rtnl_dumpit`/`D`-state stalls. No g16/ORCA process was started by that attempt, and no `/opt/g16`, `/opt/ConfFlow`, or user state was modified. This is retained as pre-restart failure evidence; the current post-restart samples are recorded below.
 
-## 2026-08-08 Phase F readiness recheck (not entered)
+## 2026-08-08 Phase F readiness recheck (historical; not entered; superseded)
 
 - An elevated read-only WSL probe confirmed `Ubuntu-24.04` was running, but the
   system `ssh.service` remained stuck in `deactivating`/`sshd -t`; its control
@@ -182,13 +189,13 @@ The user explicitly authorized real external-program probes. These results are r
 
 - 完整兼容发布周期尚未结束。
 - `control` / `legacy` 分层的完整兼容周期指标尚未收齐；当前已记录 `legacy_backend_runs=1`、`control_backend_runs=1`（真实计算样本）、run-scoped `fallbacks=0`，但不能由单一样本推导零故障。
-- 支持 launcher 路径的真实 SSH/SFTP v1.5.3 control computation 已完成一次；a3 evidence 明确标记 in-memory response trace 未持久化，因此仍需完整周期内的 reconnect/events/cancel/resume/artifact、fallback 和 idempotency 指标。
+- 支持 launcher 路径的真实 SSH/SFTP v1.5.3 control computation 已完成一次；canonical a32 的 response trace 只持久化一页，补充 a34 trace 已证明 fixed-cursor replay 与 next-page response，但完整周期内的 reconnect/events/cancel/resume/artifact、fallback 和 idempotency 指标仍需收齐。
 - stable `v1.4.6` live rollback probe 已完成，但完整 rollback/recovery 维度和兼容周期统计仍未完成。
 - agent 保留/弃用决策材料未完成。
 
 ## Phase F 边界（仍适用；当前 aggregate decision 不授权进入）
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；canonical a32 是当前真实 control 样本，但其 response-trace 只持久化一页 events/`next_cursor`，同 cursor replay 与 next-page 仍未证明，不替代完整周期验收。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；canonical a32 是当前真实 control 样本，其 response-trace 只持久化一页 events/`next_cursor`，补充 a34 trace 证明了固定 cursor replay 与 next-page response，但 a34 acceptance bundle 不计入 canonical counters，也不替代完整周期验收。
 
 ## 2026-08-08 JobDesk legacy-backend real sample (historical; superseded)
 
@@ -221,9 +228,10 @@ The earlier zero-control-count snapshot is superseded by the released
 v1.5.3 sample recorded below. The current formal counters are
 `control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
 synthetic, and historical evidence remains excluded. The compatibility period
-continues because the sample's in-memory response traces were not persisted
-after a post-attempt cleanup timeout and a complete measured published cycle
-has not yet been collected. Phase F remains not ready.
+continues because a complete measured published cycle has not yet been
+collected. The a34 trace closes the fixed-cursor response evidence gap as
+supplemental non-counted provenance, but does not change the canonical
+counters. Phase F remains not ready.
 
 ## 2026-08-08 real JobDesk control launcher acceptance (historical non-compute)
 
