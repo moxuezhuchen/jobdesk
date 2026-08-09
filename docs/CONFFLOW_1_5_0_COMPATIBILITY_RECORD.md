@@ -48,7 +48,8 @@ authorized r6 window is post-contract-replacement-20260810-r6 with no
 inherited denominator and remains OPEN.
 
 Independent index review promoted a52 as r6 control success #1 and a53 as
-r6 legacy success #1; a54 is now r6 legacy success #2. All raw bundles remain supplemental with
+r6 legacy success #1; a54 is now r6 legacy success #2 and a55 is r6 control
+success #2. All raw bundles remain supplemental with
 counts_as_real_run=false; promotion is only in the independent index.
 a53 evidence is:
 - main C:\tmp\jobdesk-legacy-release-v146-20260809-a53\evidence.json, SHA-256
@@ -66,6 +67,14 @@ a54 evidence is:
 - cleanup proof SHA-256
   da3f4c9d79ed55ff13a7d4851150526d21fd9ad9af140b6260ce99ba941368de.
 
+a55 evidence is:
+- main C:\tmp\jobdesk-control-release-v153-20260810-a55\evidence.json, SHA-256
+  401fa6f1d5ffc6f1ab926bb2409aa89a38f0cd99be573e1a5e526460f828a66f;
+- pre-cleanup snapshot SHA-256
+  7dbe5f726c1503547fab86a321b9480e868dcddadf37ce13742d32ec0c2e92b6;
+- cleanup proof SHA-256
+  37aed0c8e35345d3e636e5b603102b3799d7f2a1ab2709b62a027c09c3c7d738.
+
 The reviewed a53 legacy run selected v1.4.6 explicitly with
 fallback_used=false, submitted two tasks and idempotently resubmitted zero,
 reconnected in flight to the same run/locator, reached terminal completion,
@@ -74,9 +83,11 @@ verified g16 identity/no-write and artifact/download SHA-256 integrity, and
 removed only its exact attempt root while retaining the shared published
 runtime. The reviewed a54 run has the same explicit legacy selection,
 in-flight recovery, boundary, artifact, and cleanup-proof properties. Current
-r6 metrics are attempted/submitted/terminal=3/3/3, eligible control/legacy
-1/3 and 2/2, failed/cancelled/uncertain 0/0/0. The window still requires at
-least 72 hours, two additional eligible control successes, and a
+r6 metrics are attempted/submitted/terminal=4/4/4, eligible control/legacy
+2/3 and 2/2, failed/cancelled/uncertain 0/0/0. The reviewed a55 control run
+has the same explicit control selection, in-flight recovery, event/cursor,
+artifact, g16 no-write, and cleanup-proof properties. The window still
+requires at least 72 hours, one additional eligible control success, and a
 retained-failure or non-counted negative probe; Phase F remains false.
 
 This section is the current decision record. It supersedes the earlier a3,
