@@ -176,7 +176,7 @@ After the control attempt is stopped and its evidence is captured, use the exact
 
 ### 8. Cleanup and evidence retention
 
-Capture evidence before cleanup. On success, remove only the exact per-attempt root and record a path-bound cleanup proof. On failure or uncertainty, retain the attempt root and logs, stop further remote actions, and request direction; do not broaden cleanup to recover from an ambiguous state.
+Persist and verify the immutable evidence bundle before any cleanup command. On success, remove only the exact per-attempt root and record a path-bound cleanup proof; the shared published runtime remains retained. If evidence persistence, execution, or cleanup is uncertain, retain the exact attempt root and logs, stop further remote actions, and request direction; do not broaden cleanup or delete the root before the durable evidence write succeeds.
 
 ## Evidence bundle
 

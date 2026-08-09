@@ -54,6 +54,21 @@ evidence and formal aggregate counters, but are explicitly excluded from this
 new window denominator. Phase F remains false until the contract is closed and
 independently reviewed.
 
+### Post-contract window observation (blocked; replacement required)
+
+The first post-contract window `post-contract-20260809` is blocked. Supplemental
+a39 was a real completed control run but was not eligible because its bundle did
+not bind the in-flight disconnect/reopen timing and protected external executable
+identity required by the profile. Control a40 captured those checks and reached
+completed computation, but its harness raised `NameError: persist` while
+finalizing evidence after cleanup; its bundle is therefore
+`acceptance_failed=true`, `failed_attempts=1`, and non-counted. The failed attempt
+is retained as denominator evidence and cannot be silently removed or retried.
+Because failure-retention was not satisfied after the cleanup-time persistence
+bug, a newly authorized replacement window with a new unique attempt root is
+required. The formal counters remain `control_backend_runs=4` and
+`legacy_backend_runs=1`; Phase F remains false.
+
 ## 周期边界与不可变 provenance（historical; superseded below）
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`
