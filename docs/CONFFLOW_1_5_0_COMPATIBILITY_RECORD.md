@@ -78,13 +78,13 @@ place.
 
 The newly authorized replacement window
 `post-contract-replacement-20260809-r2` is open. Independent index review has
-promoted a44 as one eligible completed control success and a42 as one eligible
-completed legacy success for this window only; both raw bundles remain
-`counts_as_real_run=false`/supplemental. The window currently records
-`attempted=2`, `submitted=2`, `terminal=2`, `failed_attempts=0`, eligible
-successes control=1/3 and legacy=1/2. It still needs at least 72 hours, the
-remaining eligible successes, and the retained-failure or non-counted negative
-probe. Phase F remains false.
+promoted a44 as one eligible completed control success and a42/a43 as two
+eligible completed legacy successes for this window only; all raw bundles
+remain `counts_as_real_run=false`/supplemental. The window currently records
+`attempted=3`, `submitted=3`, `terminal=3`, `failed_attempts=0`, eligible
+successes control=1/3 and legacy=2/2. It still needs at least 72 hours, two
+remaining eligible control successes, and the retained-failure or non-counted
+negative probe. Phase F remains false.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
