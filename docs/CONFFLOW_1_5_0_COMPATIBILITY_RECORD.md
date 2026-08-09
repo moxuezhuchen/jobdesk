@@ -278,6 +278,31 @@ metrics across the release period, and the remaining rollback/closeout
 measurements. Phase F remains **not ready** and the formal decision remains
 **COMPATIBILITY PERIOD CONTINUES**.
 
+## 2026-08-09 JobDesk v0.5.1 consumer release (published; period started)
+
+The matching JobDesk consumer for the formal ConfFlow `v1.5.3` producer is now
+published as `v0.5.1` at merge commit
+`ebb719b2b67d2095f2199a30c9b97d7f88ac8820`:
+`https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1`. The published
+wheel is `jobdesk-0.5.1-py3-none-any.whl` with SHA-256
+`892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
+The GitHub Release was published at `2026-08-09T01:52:53Z` after PR #9's
+local review, PR checks (`31288788514`, `31288788511`, `31288788509`), normal
+merge, and post-merge main checks (`31288979565`, `31288979564`) passed.
+
+This is the first published producer/consumer pin for the v1.5.3
+worker-handoff contract and starts the separately measured compatibility
+period. It does not close that period. The real v1.5.3 control computation
+recorded above remains counted as real control evidence, but it was captured
+before this consumer release was published; no period-completion claim or
+backdated cycle start is made. Current formal evidence counters remain
+`control_backend_runs=1` and `legacy_backend_runs=1`; candidate-only,
+synthetic, and historical samples remain excluded.
+
+The period still requires durable runs/fallback/reconnect/idempotency,
+resume/cancel, artifact-integrity, and legacy-closeout metrics. Phase F remains
+**not ready** and the formal decision remains **COMPATIBILITY PERIOD CONTINUES**.
+
 ## 2026-08-09 ConfFlow v1.5.2 producer release (historical, superseded)
 
 The producer-owned worker handoff is now published as ConfFlow `v1.5.2`.

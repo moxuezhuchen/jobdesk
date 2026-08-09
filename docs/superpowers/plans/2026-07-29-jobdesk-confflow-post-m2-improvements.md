@@ -30,6 +30,16 @@ the user-authorized normal `--no-ff` merge was created in an isolated
 worktree and pushed. The remote push reported that the protected-ref PR rule
 was bypassed; this is recorded rather than presented as a connector merge.
 
+The matching JobDesk consumer release is now published as `v0.5.1` at
+`ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, with release URL
+`https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1`. Its wheel is
+`jobdesk-0.5.1-py3-none-any.whl`, SHA-256
+`892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
+The PR checks (`31288788514`, `31288788511`, `31288788509`) and post-merge
+main checks (`31288979565`, `31288979564`) passed. Publication of this
+matching producer/consumer pair starts the separately measured compatibility
+period; it does not complete the period or open Phase F.
+
 JobDesk's consumer reference is pinned to the formal v1.5.3 release
 commit and wheel digest. The final exact production venv verified the wheel,
 tag, attestation, build cleanliness, dependency lock, and wheelhouse
@@ -297,16 +307,21 @@ not start the compatibility period, and does not start Phase F.
   read through the unauthenticated API (HTTP 401), so no required-check policy
   is inferred.
 
-#### Compatibility-cycle prerequisites (not started)
+#### Compatibility-cycle prerequisites (started; closeout pending)
 
-- `cycle_started`: **false**; `cycle_start_date`: **not assigned**. A date may
-  be filled only after this branch is actually merged to JobDesk `main` and a
-  compatible release is published.
-- Required before starting the cycle: merge authorization, mainline CI green,
-  stable `v1.4.6` and next-producer parity evidence, the legacy/control
-  acceptance record above, and a published consumer release with backend choice
-  fixed per run.
-- Required metrics for the one published cycle: runs by backend, explicit
+- `cycle_started`: **true**; `cycle_start_date`: `2026-08-09T01:52:53Z` (the
+  published GitHub Release timestamp); `cycle_start_jobdesk_main`:
+  `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`; `consumer_release`: `v0.5.1`.
+- The start gate is satisfied: the matching consumer release is published,
+  mainline CI is green, stable `v1.4.6` rollback and next-producer parity are
+  recorded, and the legacy/control acceptance record is retained. Backend
+  choice remains fixed per run; there is no silent fallback.
+- The already captured real v1.5.3 control computation remains real control
+  evidence and is not candidate-only, synthetic, or historical. It was
+  captured before the consumer release publication, so it must not be used to
+  claim that the published compatibility period is complete or backdate its
+  start.
+- Required metrics for closing the published cycle: runs by backend, explicit
   unsupported-protocol fallback count and reason, protocol/reconnect/cursor
   failures, duplicate/idempotency conflicts, resume/cancel outcomes, artifact
   integrity failures, and legacy usage remaining at cycle close.
