@@ -9,6 +9,9 @@ v1.5.0, candidate-only, synthetic, and historical snapshots below; those
 sections remain only as provenance.
 
 The published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`.
+The machine-readable aggregation boundary is
+[`docs/CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](../../CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json);
+it preserves immutable raw evidence while excluding superseded samples.
 JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820` has wheel
 SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
 ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3` has wheel

@@ -1,0 +1,50 @@
+{
+  "schema": "jobdesk.confflow.compatibility-evidence-index.v1",
+  "updated": "2026-08-09",
+  "decision": "COMPATIBILITY PERIOD CONTINUES",
+  "phase_f_ready": false,
+  "aggregation_rule": "Only canonical_samples contribute to formal compatibility counters; superseded, candidate-only, synthetic, and historical evidence is excluded.",
+  "canonical_samples": [
+    {
+      "sample_id": "control-v153-a32",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a32\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": true,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "fallback_used": false,
+      "supersedes": ["control-v153-a10", "control-v153-a28"]
+    },
+    {
+      "sample_id": "legacy-v146-a5",
+      "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a5\\evidence.json",
+      "backend": "legacy",
+      "producer": "confflow-v1.4.6",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": true,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "fallback_used": false
+    }
+  ],
+  "superseded_samples": [
+    {
+      "sample_id": "control-v153-a10",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a10\\evidence.json",
+      "counts_as_real_run": false,
+      "superseded_by": "control-v153-a32",
+      "reason": "Immutable raw evidence predates machine-readable backend_selection/fallback telemetry; retain it for provenance but do not aggregate it as an additional run."
+    },
+    {
+      "sample_id": "control-v153-a28",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a28",
+      "counts_as_real_run": false,
+      "superseded_by": "control-v153-a32",
+      "reason": "Business artifacts were captured, but the acceptance evidence file was not persisted after a cleanup-timeout harness failure."
+    }
+  ]
+}

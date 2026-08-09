@@ -1,4 +1,12 @@
-# ConfFlow 1.5.0 × JobDesk 兼容发布周期记录
+# ConfFlow / JobDesk Compatibility Record (historical mirror with current index)
+
+> Current authoritative summary (2026-08-09): use
+> [`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json)
+> and the current a32/a5 entries in the release-boundary documents. The
+> v1.5.0 sections below are retained for provenance only and are superseded;
+> their zero-control, candidate, synthetic, and incomplete-response claims
+> must not be used as current counters. The formal decision remains
+> **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`.
 
 ## 周期边界与不可变 provenance
 
