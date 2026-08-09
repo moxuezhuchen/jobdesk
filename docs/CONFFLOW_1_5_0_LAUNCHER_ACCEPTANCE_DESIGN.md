@@ -125,14 +125,14 @@ The acceptance must use a fresh, per-attempt root selected and approved before e
   evidence/
 ```
 
-Expected resources are limited to the synthetic input/manifest, an explicit producer `state_root`, a launcher script or scheduler submission record, stdout/stderr or nohup log, and the synthetic artifact. The request file under `state_root/jobdesk-requests/` is temporary and must be accounted for by the evidence. JobDesk’s local test run directory and durable control state must also be isolated from user runs.
+For the synthetic preflight, expected resources are limited to the synthetic input/manifest, an explicit producer `state_root`, a launcher script or scheduler submission record, stdout/stderr or nohup log, and the synthetic artifact. For a post-contract real profile, the reviewed real input/workflow, producer outputs, scheduler job/PID records, and declared artifact manifest are also expected, all bounded by the same attempt root. The request file under `state_root/jobdesk-requests/` is temporary and must be accounted for by the evidence; JobDesk’s local test run directory and durable control state must be isolated from user runs.
 
 Before execution, the operator must prove that the resolved state root and run directory are descendants of the approved attempt root. If the installed control protocol cannot accept an explicit isolated `--state-root` and would instead use the user’s default `$HOME/.local/state/confflow/control`, stop; do not run the acceptance.
 
 The following safety checks are mandatory:
 
 - Use the exact released v1.5.3 wheel and recorded digest; no editable checkout and no dependency upgrade.
-- Reject any workflow, launcher script, or command containing `g16`, `gaussian`, `orca`, `iprog`, `/opt/g16`, `/opt/ConfFlow`, or a user run root.
+- For the synthetic preflight only, reject any workflow, launcher script, or command containing `g16`, `gaussian`, `orca`, `iprog`, `/opt/g16`, `/opt/ConfFlow`, or a user run root. A post-contract real workload may use an explicitly reviewed, pinned external-program profile from the published pair (including the existing read-only site `g16`/ORCA installation) only through the released JobDesk scheduler handoff; its executable identity must be recorded before launch and no file may be created or changed under `/opt`.
 - Verify the remote command identity and resolved paths before `prepare` and before launcher submission.
 - Do not create or alter `/opt/g16`, `/opt/ConfFlow`, agent SQLite, or producer state outside the isolated attempt root.
 - For the synthetic preflight, do not submit a user workflow or upload a real input; the only upload is the synthetic fixture and its manifest. The real published-pair workload profile is a separate explicit authorization and must use its own reviewed input and attempt root.
@@ -148,7 +148,7 @@ Verify the refs, tag objects, peeled commits, wheel digest, clean/non-editable p
 
 ### 1. Negotiation and prepare
 
-Run capability negotiation and assert protocol major, producer provenance, and explicit backend selection. Upload only the synthetic manifest/input, call `prepare`, and verify that no worker or launcher process exists. Save the durable locator, backend, protocol, run id, idempotency key, and prepare response.
+Run capability negotiation and assert protocol major, producer provenance, and explicit backend selection. For synthetic preflight, upload only the synthetic manifest/input; for an authorized real profile, upload the reviewed real input/workflow and record its schema and digest. Call `prepare` and verify that no worker or launcher process exists before the handoff. Save the durable locator, backend, protocol, run id, idempotency key, and prepare response.
 
 ### 2. Launcher handoff
 
@@ -164,7 +164,7 @@ Collect events from the initial cursor, replay from the same cursor, and collect
 
 ### 5. Cancel or safe termination
 
-Use the control cancel contract while the synthetic run is cancellable, or use the selected adapter’s documented cancellation path if it is still queued/running. Prove the terminal state, retry count and failure reason, no orphan process/job, and no second backend selection. Do not use an ad-hoc kill command as a substitute for the contract.
+Use the control cancel contract while the synthetic or real control run is cancellable, or record the selected legacy adapter’s typed cancellation policy if cancellation is unsupported. Prove the terminal state, retry count and failure reason, no orphan process/job, and no second backend selection. Do not use an ad-hoc kill command as a substitute for the contract.
 
 ### 6. Manifest and download integrity
 
@@ -208,7 +208,7 @@ Stop immediately and preserve evidence if any of the following occurs:
 - a selected `control` run falls back to `legacy`, or any fallback has no documented unsupported-protocol reason;
 - a malformed response, unknown major, typed error, invalid cursor, duplicate idempotency conflict, non-monotonic revision, cursor regression, or terminal regression is observed;
 - the state locator, artifact path, log path, or cleanup target escapes the approved attempt root;
-- an agent SQLite read/write, producer state double write, `/opt/g16`/`/opt/ConfFlow` write, real computational command, user workflow, or orphan process is detected;
+- an agent SQLite read/write, producer state double write, an unapproved external-program command, any `/opt/g16`/`/opt/ConfFlow` write, user workflow outside the separately reviewed real profile, or orphan process is detected;
 - manifest path/digest/size/content-schema/download verification fails;
 - stable rollback cannot be isolated from the control attempt.
 
