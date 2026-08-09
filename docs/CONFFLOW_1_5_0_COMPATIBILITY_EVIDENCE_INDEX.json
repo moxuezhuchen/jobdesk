@@ -22,6 +22,26 @@
       "supersedes": ["control-v153-a10", "control-v153-a28"]
     },
     {
+      "sample_id": "control-v153-a36-complete-lifecycle",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a36\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": true,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "fallback_used": false,
+      "reconnect_proven": true,
+      "idempotent_resubmit_proven": true,
+      "events_cursor_replay_proven": true,
+      "events_next_page_proven": true,
+      "terminal_cancel_resume_fail_closed_proven": true,
+      "artifact_download_integrity_proven": true,
+      "aggregation_decision": "The immutable raw bundle retains its harness-level supplemental/counts=false marker so a run cannot self-promote. This separately reviewed canonical index entry promotes the completed published producer/consumer lifecycle evidence for formal aggregation.",
+      "evidence_limit": "This is one successful released control run, not a complete compatibility-period metric set; the period-wide fallback, recovery, legacy-retention, and closeout measurements remain open."
+    },
+    {
       "sample_id": "legacy-v146-a5",
       "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a5\\evidence.json",
       "backend": "legacy",

@@ -11,10 +11,18 @@
 > status-only polling had not persisted a JobDesk cursor. Its read-only terminal
 > capture is `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
 > it is also `acceptance_failed=true`, `synthetic=false`, and non-counted.
+> The separately authorized a36 run at
+> `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json` is a
+> second canonical released control computation: it reached revision `6` and
+> `completed` with `fallback_used=false`, proved reconnect, idempotent submit,
+> fixed-cursor replay, terminal empty page, typed terminal cancel/resume
+> rejection, and manifest/download SHA-256 integrity. Its exact remote attempt
+> root was absent after bounded cleanup.
 > v1.5.0 sections below are retained for provenance only and are superseded;
 > their zero-control, candidate, synthetic, and incomplete-response claims
 > must not be used as current counters. The formal decision remains
-> **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`.
+> **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`. The current
+> formal counters are `control_backend_runs=2` and `legacy_backend_runs=1`.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
