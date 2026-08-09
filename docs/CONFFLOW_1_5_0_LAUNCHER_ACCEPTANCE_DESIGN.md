@@ -17,6 +17,27 @@ The proposed launcher acceptance is Route B compatibility observation work. The 
 
 The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the public post-M2 compatibility plan.
 
+## Quantitative compatibility-period gate
+
+The evidence index `period_metric_contract` defines the next observation window;
+this launcher design does not close it by itself. The window begins with the
+first newly authorized real workload after the contract is published on the
+merged `v0.5.1`/`v1.5.3` pair, stays open for at least 72 hours, and requires at
+least three real control attempts and two real legacy attempts. Every attempt
+needs a terminal classification and immutable provenance. Failed or uncertain
+attempts remain denominator evidence but cannot be promoted as stable samples;
+candidate-only, synthetic, historical, direct-producer, mock, and incomplete
+evidence remains excluded.
+
+The hard closeout thresholds are zero unexpected control-to-legacy fallbacks,
+duplicate idempotency conflicts, protocol/reconnect/cursor failures,
+artifact-integrity failures, orphan jobs/processes, and unclassified attempts.
+The window must include in-flight control reconnect recovery, a control cancel or
+typed policy observation, live legacy rollback/recovery, and retained failure or
+non-counted negative evidence. Legacy usage at close and the retain/remove
+decision are separate recorded metrics. Phase F stays false until the index
+contract is closed and independently reviewed.
+
 ## Current call chain and released worker handoff
 
 The current JobDesk symbols trace the control path as follows:

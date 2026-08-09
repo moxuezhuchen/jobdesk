@@ -27,6 +27,29 @@
 > **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`. The current
 > formal counters are `control_backend_runs=4` and `legacy_backend_runs=1`.
 
+## Period-wide metric contract (authoritative; currently open)
+
+The machine-readable `period_metric_contract` in the evidence index now defines
+the remaining compatibility gate. A new observation window starts only with the
+first newly authorized real workload after this contract is published on the
+merged JobDesk `v0.5.1` / ConfFlow `v1.5.3` pair. It must remain open for at
+least 72 hours and include at least three real `control` attempts and two real
+`legacy` attempts. Every authorized attempt must have a terminal classification;
+failed or uncertain attempts stay in the denominator but never become stable
+success samples.
+
+The closeout thresholds are zero unexpected selected-control-to-legacy
+fallbacks, duplicate idempotency conflicts, protocol/reconnect/cursor failures,
+artifact-integrity failures, orphan jobs/processes, and unclassified attempts.
+The window also requires one in-flight control reconnect recovery, one control
+contract cancel or typed policy observation, one live legacy rollback/recovery
+probe, and one retained failure or explicitly non-counted negative probe. Legacy
+usage at close and the retain/remove decision must be recorded separately.
+The existing a32/a36/a37/a38/a5 bundles remain canonical release-boundary
+evidence and formal aggregate counters, but are explicitly excluded from this
+new window denominator. Phase F remains false until the contract is closed and
+independently reviewed.
+
 ## 周期边界与不可变 provenance（historical; superseded below）
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`

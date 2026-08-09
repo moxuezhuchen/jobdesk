@@ -78,6 +78,28 @@ Retain both backends, stable `v1.4.6` rollback, and all fail-closed gates.
 All four immutable control evidence bundles and the legacy closeout bundle retain `phase_f_ready=false`.
 No `/opt` or agent state was modified.
 
+### Quantitative compatibility-period gate (authoritative; open)
+
+The evidence index `period_metric_contract` is the sole definition of the next
+measurement window. The window starts with the first newly authorized real
+workload after this contract is published on the merged `v0.5.1`/`v1.5.3`
+release pair, remains open for at least 72 hours, and requires at least three
+real control attempts plus two real legacy attempts. The denominator includes
+every authorized real attempt with an immutable bundle, including failures or
+uncertainty; candidate-only, synthetic, historical, direct-producer, mock, and
+incomplete evidence never counts as a stable compatibility run.
+
+Closeout requires terminal classification for every attempt and zero
+unexpected control-to-legacy fallbacks, duplicate idempotency conflicts,
+protocol/reconnect/cursor failures, artifact-integrity failures, orphan jobs or
+processes, and unclassified attempts. It also requires in-flight control
+reconnect recovery, a control cancel or typed policy observation, live legacy
+rollback/recovery, and retained failure or non-counted negative evidence. The
+legacy usage and retain/remove decision at close must be recorded. The existing
+a32/a36/a37/a38/a5 release-boundary evidence remains canonical but is excluded
+from this post-contract denominator; Phase F remains false until independent
+review closes the contract.
+
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer
