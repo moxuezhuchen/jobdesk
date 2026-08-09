@@ -69,6 +69,23 @@ bug, a newly authorized replacement window with a new unique attempt root is
 required. The formal counters remain `control_backend_runs=4` and
 `legacy_backend_runs=1`; Phase F remains false.
 
+The first replacement window `post-contract-replacement-20260809` is also
+blocked by a41. Its real control computation completed, but the harness failed
+the pre-cleanup JSON round-trip assertion; the exact remote attempt root and
+logs remain retained (`remote_attempt_root_absent=false`). a41 is a failed
+denominator observation and is not a stable sample. It cannot be retried in
+place.
+
+The newly authorized replacement window
+`post-contract-replacement-20260809-r2` is open. Independent index review has
+promoted a44 as one eligible completed control success and a42 as one eligible
+completed legacy success for this window only; both raw bundles remain
+`counts_as_real_run=false`/supplemental. The window currently records
+`attempted=2`, `submitted=2`, `terminal=2`, `failed_attempts=0`, eligible
+successes control=1/3 and legacy=1/2. It still needs at least 72 hours, the
+remaining eligible successes, and the retained-failure or non-counted negative
+probe. Phase F remains false.
+
 ## 周期边界与不可变 provenance（historical; superseded below）
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`

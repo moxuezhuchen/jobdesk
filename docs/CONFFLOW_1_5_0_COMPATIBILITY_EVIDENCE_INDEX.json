@@ -74,6 +74,99 @@
           "reason": "The enhanced lifecycle and protected-path checks passed, but an undefined persist helper raised during evidence finalization; cleanup occurred before the failure, so this attempt cannot satisfy the failure-retention scenario."
         }
       ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260809",
+      "status": "BLOCKED",
+      "failed_attempts": 1,
+      "replacement_required": true,
+      "phase_f_ready": false,
+      "reason": "The first replacement-window control attempt a41 completed computation but failed canonical evidence parse verification before cleanup; the exact attempt root was retained, so this failed denominator requires a newly authorized replacement window.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a41",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a41\\evidence.json",
+          "evidence_sha256": "60dcff71bc5bc3b46910b53dc5cbab17a1df5471a05075c529aac0cbcce52b2f",
+          "terminal_classification": "acceptance_failed/evidence-parse-verification",
+          "eligible_completed_success": false,
+          "acceptance_failed": true,
+          "counts_as_real_run": false,
+          "failed_denominator": true,
+          "remote_attempt_root_absent": false,
+          "reason": "The real control computation reached terminal completion, but the pre-cleanup evidence round-trip comparison failed; no cleanup command ran and the exact remote root/logs remain retained for review."
+        }
+      ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260809-r2",
+      "status": "OPEN",
+      "failed_attempts": 0,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0,
+      "replacement_required": false,
+      "phase_f_ready": false,
+      "attempted": 2,
+      "submitted": 2,
+      "terminal": 2,
+      "eligible_completed_successes": {
+        "control": 1,
+        "legacy": 1
+      },
+      "required_scenarios_observed": {
+        "control_inflight_reconnect_recovery": 1,
+        "control_contract_cancel_or_typed_policy": 1,
+        "legacy_inflight_rollback_recovery": 1,
+        "failure_retention_or_non_counted_negative_probe": 0
+      },
+      "hard_thresholds_observed": {
+        "unexpected_control_to_legacy_fallbacks": 0,
+        "duplicate_idempotency_conflicts": 0,
+        "protocol_reconnect_cursor_failures": 0,
+        "artifact_integrity_failures": 0,
+        "orphan_jobs_or_processes": 0,
+        "unclassified_attempts": 0
+      },
+      "reason": "The newly authorized replacement window has one independently promoted eligible success for each backend; it remains open until 72 hours, control=3/legacy=2 eligible completed successes, and the retained-failure or non-counted negative-probe scenario are complete.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a44",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a44\\evidence.json",
+          "evidence_sha256": "36b1e7f18f94106560cd95864faa9a7d7cc77b85f391159d5c1e70a2346846d7",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "reason": "Independent review verified published provenance, in-flight reconnect, typed terminal policy, artifact integrity, g16 identity, and persist-before-cleanup."
+        },
+        {
+          "attempt_id": "legacy-v146-a42",
+          "backend": "legacy",
+          "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a42\\evidence.json",
+          "evidence_sha256": "ab33e6700c416d3163b1bb933a97f323bf91644e0a2e482917ac16c7f0a59510",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "legacy",
+          "selected_backend": "legacy",
+          "fallback_used": false,
+          "first_submit": 2,
+          "idempotent_resubmit": 0,
+          "reason": "Independent review verified published provenance, in-flight legacy recovery, typed unsupported operations, artifact integrity, g16 identity, and persist-before-cleanup."
+        }
+      ]
     }
   ],
   "canonical_samples": [
@@ -235,6 +328,58 @@
       "failed_denominator": true,
       "evidence_sha256": "dca1a0f4c70a505a08c9da1097bf013c2bcab2525a903d53a6f059badaef189f",
       "reason": "Real control computation reached completed, but evidence persistence failed with NameError persist after cleanup; the failed attempt blocks the window and is never promoted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a41-failed-precleanup-parse",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a41\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "eligible_completed_success": false,
+      "failed_denominator": true,
+      "remote_attempt_root_absent": false,
+      "evidence_sha256": "60dcff71bc5bc3b46910b53dc5cbab17a1df5471a05075c529aac0cbcce52b2f",
+      "reason": "Replacement-window control computation completed, but canonical pre-cleanup evidence parse verification failed; the exact remote attempt root and logs were retained and no cleanup was attempted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a44-replacement-r2",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a44\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": false,
+      "eligible_completed_success": true,
+      "promoted_to_period_window": "post-contract-replacement-20260809-r2",
+      "evidence_sha256": "36b1e7f18f94106560cd95864faa9a7d7cc77b85f391159d5c1e70a2346846d7",
+      "reason": "Independent review promoted this completed replacement-window control bundle for period counting; raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "legacy-v146-a42-replacement-r2",
+      "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a42\\evidence.json",
+      "backend": "legacy",
+      "producer": "confflow-v1.4.6",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": false,
+      "eligible_completed_success": true,
+      "promoted_to_period_window": "post-contract-replacement-20260809-r2",
+      "evidence_sha256": "ab33e6700c416d3163b1bb933a97f323bf91644e0a2e482917ac16c7f0a59510",
+      "reason": "Independent review promoted this completed replacement-window legacy bundle for period counting; raw formal_counting remains supplemental/non-counted.",
       "phase_f_ready": false
     }
   ],
