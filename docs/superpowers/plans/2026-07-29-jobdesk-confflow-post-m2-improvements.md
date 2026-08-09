@@ -373,7 +373,7 @@ not start the compatibility period, and does not start Phase F.
   read through the unauthenticated API (HTTP 401), so no required-check policy
   is inferred.
 
-#### Compatibility-cycle prerequisites (not started)
+#### Compatibility-cycle prerequisites (historical; superseded by the 2026-08-09 authoritative update above)
 
 - `cycle_started`: **false**; `cycle_start_date`: **not assigned**. A date may
   be filled only after this branch is actually merged to JobDesk `main` and a
