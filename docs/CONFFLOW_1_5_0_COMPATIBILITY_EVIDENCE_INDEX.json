@@ -272,17 +272,17 @@
     },
     {
       "window_id": "post-contract-replacement-20260809-r4",
-      "status": "OPEN",
+      "status": "BLOCKED",
       "authorized_at": "2026-08-09T15:11:36.8267925Z",
       "authorization": "User-authorized replacement after r3/a46 acceptance failure; new real published-pair window with unique roots and independent promotion.",
-      "failed_attempts": 0,
+      "failed_attempts": 1,
       "cancelled_attempts": 0,
       "uncertain_attempts": 0,
-      "replacement_required": false,
+      "replacement_required": true,
       "phase_f_ready": false,
-      "attempted": 2,
+      "attempted": 3,
       "submitted": 2,
-      "terminal": 2,
+      "terminal": 3,
       "eligible_completed_successes": {
         "control": 2,
         "legacy": 0
@@ -300,11 +300,11 @@
         "artifact_integrity_failures": 0,
         "orphan_jobs_or_processes": 0,
         "unclassified_attempts": 0,
-        "failed_attempts": 0,
+        "failed_attempts": 1,
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Independent index review promoted a47 and a48 as the first two eligible completed control successes for r4. The window remains open until at least 72 hours, control=3 and legacy=2 eligible completed successes, live legacy recovery, the retained-failure or non-counted negative-probe scenario, and all hard thresholds are complete. No r3/r2 attempt or pre-contract evidence is carried into this denominator.",
+      "reason": "The r4 window is blocked by a50, a user-authorized real control attempt whose immutable local evidence failed during JobDesk run initialization because the harness passed unsupported confflow_executable to ConfFlowAdapter.build_spec. a50 reached the persisted failure boundary before submit or SSH, so it is attempted=1, submitted=0, terminal=1, failed_denominator=true, non-counted, and its exact local evidence/workspace root is retained. a47/a48 remain the two eligible r4 control successes; a49 was an earlier pre-execution import failure with no root or bundle and is outside the denominator. A newly authorized replacement window with a new unique root/run is required; no r4 retry is permitted.",
       "attempts": [
         {
           "attempt_id": "control-v153-a47",
@@ -357,6 +357,31 @@
           "remote_attempt_root_absent": true,
           "runtime_root_absent": false,
           "reason": "Independent review verified published provenance, in-flight reconnect, fixed-cursor replay and terminal empty page, typed terminal policy, g16 identity/no-write, artifact SHA integrity, and cleanup-proof root removal with shared runtime retention. Raw formal_counting remains supplemental/non-counted."
+        },
+        {
+          "attempt_id": "control-v153-a50",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a50\\evidence.json",
+          "evidence_sha256": "ba200b604ec7e172d8cfc8f4b556afb057e3c9ef9768a512f59337e2bb7b4997",
+          "terminal_classification": "acceptance_failed",
+          "eligible_completed_success": false,
+          "promoted_by_independent_index_review": false,
+          "counts_as_period_success": false,
+          "counts_as_real_run": false,
+          "acceptance_failed": true,
+          "failed_denominator": true,
+          "submission_boundary_reached": false,
+          "remote_workload_started": false,
+          "requested_backend": null,
+          "selected_backend": null,
+          "fallback_used": null,
+          "first_submit": 0,
+          "idempotent_resubmit": 0,
+          "cleanup_proof_verified": false,
+          "remote_attempt_root_absent": null,
+          "runtime_root_absent": null,
+          "retention_state": "local immutable evidence/workspace retained; no remote attempt root was created",
+          "reason": "Harness failed at initializing_jobdesk_run with TypeError: ConfFlowAdapter.build_spec() got an unexpected keyword argument 'confflow_executable'. The persisted failure bundle is non-counted and cannot satisfy the r4 success or negative-probe scenario. A new authorized replacement window and unique root/run are required."
         }
       ]
     }
@@ -640,6 +665,28 @@
       "cleanup_proof_sha256": "11bdf5cbddbfc43ccc380833f035df90cf6f8b218387b53c1abf2430dc2cd1eb",
       "cleanup_proof_verified": true,
       "reason": "Independent review promoted this second completed r4 control bundle for period counting; cleanup-proof verifies exact attempt-root removal and shared runtime retention, while raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a50-replacement-r4-failed",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a50\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "eligible_completed_success": false,
+      "failed_denominator": true,
+      "promoted_to_period_window": "post-contract-replacement-20260809-r4",
+      "evidence_sha256": "ba200b604ec7e172d8cfc8f4b556afb057e3c9ef9768a512f59337e2bb7b4997",
+      "cleanup_proof_verified": false,
+      "submission_boundary_reached": false,
+      "remote_workload_started": false,
+      "retention_state": "local immutable evidence/workspace retained; no remote attempt root was created",
+      "reason": "Independent review classified this as the r4 failed denominator. The harness failed before submit/SSH while initializing the local JobDesk run because ConfFlowAdapter.build_spec received unsupported confflow_executable; it is non-counted and cannot promote or satisfy the negative-probe scenario. A new authorized replacement window and unique root/run are required.",
       "phase_f_ready": false
     },
     {
