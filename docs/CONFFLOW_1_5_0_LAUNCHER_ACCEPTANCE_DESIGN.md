@@ -97,7 +97,7 @@ The following safety checks are mandatory:
 
 ## Executable acceptance sequence
 
-The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture for any future cycle. Results are recorded separately for `control` and `legacy`; the current compatibility record has one authoritative real v1.5.3 JobDesk control-computation sample and one authoritative stable v1.4.6 rollback/legacy closeout sample. The direct candidate worker/g16 evidence remains candidate-only and does not count as a stable JobDesk computation. The a32 control bundle is the current complete response-trace record; a5 is the current legacy closeout record.
+The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture for any future cycle. Results are recorded separately for `control` and `legacy`; the current compatibility record has one authoritative real v1.5.3 JobDesk control-computation sample and one authoritative stable v1.4.6 rollback/legacy closeout sample. The direct candidate worker/g16 evidence remains candidate-only and does not count as a stable JobDesk computation. The a32 control bundle is the current launcher/lifecycle record, but not a complete response-trace record: its events trace has one poll and `next_cursor` only, so same-cursor replay and next-page response evidence remain open. a5 is the current legacy closeout record.
 
 ### 0. Preflight gate
 
