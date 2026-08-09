@@ -210,9 +210,71 @@
     },
     {
       "window_id": "post-contract-replacement-20260809-r3",
-      "status": "OPEN",
+      "status": "BLOCKED",
       "authorized_at": "2026-08-09T14:45:58.5234809Z",
       "authorization": "User-authorized replacement after r2/a45 acceptance failure; new real published-pair window with unique roots and independent promotion.",
+      "failed_attempts": 1,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0,
+      "replacement_required": true,
+      "phase_f_ready": false,
+      "attempted": 1,
+      "submitted": 1,
+      "terminal": 1,
+      "eligible_completed_successes": {
+        "control": 0,
+        "legacy": 0
+      },
+      "required_scenarios_observed": {
+        "control_inflight_reconnect_recovery": 0,
+        "control_contract_cancel_or_typed_policy": 0,
+        "legacy_inflight_rollback_recovery": 0,
+        "failure_retention_or_non_counted_negative_probe": 0
+      },
+      "hard_thresholds_observed": {
+        "unexpected_control_to_legacy_fallbacks": 0,
+        "duplicate_idempotency_conflicts": 0,
+        "protocol_reconnect_cursor_failures": 0,
+        "artifact_integrity_failures": 0,
+        "orphan_jobs_or_processes": 0,
+        "unclassified_attempts": 0,
+        "failed_attempts": 1,
+        "cancelled_attempts": 0,
+        "uncertain_attempts": 0
+      },
+      "reason": "The r3 replacement window is blocked by a46: the real control computation completed and main evidence was durably persisted before cleanup, but a harness retention-check inversion treated the shared runtime as unavailable after attempt-root cleanup. The cleanup-proof sidecar was not produced, so a46 is a failed denominator and cannot be promoted; a new authorized replacement window and unique root are required.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a46",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a46\\evidence.json",
+          "failure_marker_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a46\\post-cleanup-failure.json",
+          "evidence_sha256": "1a0813fa4d58293c75840256e403281c560520cf3c3db35991946e4c592438f0",
+          "failure_marker_sha256": "9081edbbc7fc7d0ed9cf6af4a9ff0912e1750bcb91268380dddd231276aab9ac",
+          "terminal_classification": "acceptance_failed/post-cleanup-cleanup-proof",
+          "eligible_completed_success": false,
+          "promoted_by_independent_index_review": false,
+          "counts_as_period_success": false,
+          "counts_as_real_run": false,
+          "acceptance_failed": true,
+          "failed_denominator": true,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "cleanup_proof_verified": false,
+          "remote_attempt_root_absent": null,
+          "runtime_root_absent": null,
+          "reason": "The control computation reached revision 6/completed and main evidence was persisted with acceptance_state=pending_cleanup_proof. The runtime-retention check was inverted (`not exists` treated as retained), so the shared runtime's existing state raised after attempt-root cleanup and no cleanup-proof sidecar was written. The failure marker is authoritative for non-promotion; no computation success is counted."
+        }
+      ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260809-r4",
+      "status": "OPEN",
+      "authorized_at": "2026-08-09T15:11:36.8267925Z",
+      "authorization": "User-authorized replacement after r3/a46 acceptance failure; new real published-pair window with unique roots and independent promotion.",
       "failed_attempts": 0,
       "cancelled_attempts": 0,
       "uncertain_attempts": 0,
@@ -242,7 +304,7 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Replacement window opened after independent review of r2/a45. It requires three eligible completed control successes, two eligible completed legacy successes, at least 72 hours, all required recovery/cancel/retention scenarios, and zero failed/cancelled/uncertain attempts. No r2 attempt or pre-contract evidence is carried into this denominator.",
+      "reason": "Replacement window opened after independent review of r3/a46. It requires three eligible completed control successes, two eligible completed legacy successes, at least 72 hours, all required recovery/cancel/retention scenarios, and zero failed/cancelled/uncertain attempts. No r3/r2 attempt or pre-contract evidence is carried into this denominator.",
       "attempts": []
     }
   ],
@@ -460,6 +522,27 @@
       "remote_attempt_root_absent": true,
       "runtime_root_absent": false,
       "reason": "The real computation reached revision 6/completed and the pre-cleanup snapshot parsed, but a post-cleanup final-evidence JSON round-trip check compared decoded lists with in-memory tuples and failed. It is a failed denominator and cannot satisfy failure retention because the attempt root was already removed before the verification failure; raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a46-replacement-r3-failed",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a46\\evidence.json",
+      "failure_marker_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a46\\post-cleanup-failure.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "eligible_completed_success": false,
+      "failed_denominator": true,
+      "evidence_sha256": "1a0813fa4d58293c75840256e403281c560520cf3c3db35991946e4c592438f0",
+      "failure_marker_sha256": "9081edbbc7fc7d0ed9cf6af4a9ff0912e1750bcb91268380dddd231276aab9ac",
+      "promoted_to_period_window": "post-contract-replacement-20260809-r3",
+      "cleanup_proof_verified": false,
+      "reason": "Main evidence was persisted before cleanup with acceptance_state=pending_cleanup_proof, but an inverted shared-runtime retention check raised after attempt-root cleanup and prevented cleanup-proof creation. Failure marker is authoritative; raw evidence remains supplemental/non-counted and cannot promote.",
       "phase_f_ready": false
     },
     {

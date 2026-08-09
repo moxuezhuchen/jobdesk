@@ -95,11 +95,27 @@ cannot carry into another window. Phase F remains false.
 After independent review of a45, the user-authorized replacement window
 `post-contract-replacement-20260809-r3` opened at
 `2026-08-09T14:45:58.5234809Z` with fresh roots and no inherited denominator.
+It is now **blocked** by a46: the real computation reached revision 6/completed
+and the main evidence was durably persisted before cleanup, but the harness
+inverted the shared-runtime retention check (`not exists` was treated as
+retained) and raised after attempt-root cleanup. The cleanup-proof sidecar was
+not produced. Main evidence SHA-256 is
+`1a0813fa4d58293c75840256e403281c560520cf3c3db35991946e4c592438f0`; the
+authoritative failure marker SHA-256 is
+`9081edbbc7fc7d0ed9cf6af4a9ff0912e1750bcb91268380dddd231276aab9ac`.
+a46 is `acceptance_failed=true`, `failed_denominator=true`, and non-counted;
+it cannot satisfy failure retention or be promoted. r3 records
+`attempted=1`, `submitted=1`, `terminal=1`, `failed_attempts=1` and cannot be
+retried in place. Phase F remains false.
+
+After independent review of a46, the user-authorized replacement window
+`post-contract-replacement-20260809-r4` opened at
+`2026-08-09T15:11:36.8267925Z` with fresh roots and no inherited denominator.
 It requires three eligible completed control successes, two eligible completed
 legacy successes, at least 72 hours, all required recovery/cancel/retention
 scenarios, and zero failed/cancelled/uncertain attempts. It is currently empty
-and open; r2, a40/a41/a45, candidate, synthetic, historical, and incomplete
-evidence do not satisfy it. Phase F remains false.
+and open; r3/r2, a40/a41/a45/a46, candidate, synthetic, historical, and
+incomplete evidence do not satisfy it. Phase F remains false.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
