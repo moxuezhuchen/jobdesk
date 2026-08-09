@@ -3,6 +3,7 @@
 不依赖真实服务器，完全通过 mock paramiko.SSHClient 测试。
 """
 
+import re
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -794,7 +795,7 @@ class TestSSHClientWrapper:
         assert "Ubuntu-24.04" in message
         assert "127.0.0.1:2200" in message
         assert "valid SSH banner" in message
-        assert "0.00s" in message
+        assert re.search(r"within \d+\.\d{2}s$", message)
         run_wsl.assert_called_once()
 
     def test_wsl_bootstrap_skipped_for_non_local_host(self):
