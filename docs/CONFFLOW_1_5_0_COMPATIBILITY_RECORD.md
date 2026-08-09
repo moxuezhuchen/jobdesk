@@ -96,8 +96,14 @@ recovery, event/cursor,
 artifact, g16 no-write, and cleanup-proof properties. The reviewed a56 control
 run has the same properties. Current r6 metrics are attempted/submitted/terminal
 5/5/5, eligible control/legacy 3/3 and 2/2, failed/cancelled/uncertain 0/0/0.
-The window still requires at least 72 hours and a retained-failure or
-non-counted negative probe; Phase F remains false.
+The independently reviewed n1 non-counted negative probe observed a typed
+unsupported_protocol failure without submitting a workload and retained its
+exact root; its evidence SHA-256 is recorded in the evidence index and it does
+not increment period counters (main SHA
+`9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da`). The
+negative/retention scenario is observed;
+the window still requires at least 72 hours and all hard thresholds. Phase F
+remains false.
 
 This section is the current decision record. It supersedes the earlier a3,
 v1.5.0, pre-release, candidate-only, synthetic, and historical status
