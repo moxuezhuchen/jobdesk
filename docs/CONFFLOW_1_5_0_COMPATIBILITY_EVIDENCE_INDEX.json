@@ -280,16 +280,16 @@
       "uncertain_attempts": 0,
       "replacement_required": false,
       "phase_f_ready": false,
-      "attempted": 0,
-      "submitted": 0,
-      "terminal": 0,
+      "attempted": 1,
+      "submitted": 1,
+      "terminal": 1,
       "eligible_completed_successes": {
-        "control": 0,
+        "control": 1,
         "legacy": 0
       },
       "required_scenarios_observed": {
-        "control_inflight_reconnect_recovery": 0,
-        "control_contract_cancel_or_typed_policy": 0,
+        "control_inflight_reconnect_recovery": 1,
+        "control_contract_cancel_or_typed_policy": 1,
         "legacy_inflight_rollback_recovery": 0,
         "failure_retention_or_non_counted_negative_probe": 0
       },
@@ -304,8 +304,35 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Replacement window opened after independent review of r3/a46. It requires three eligible completed control successes, two eligible completed legacy successes, at least 72 hours, all required recovery/cancel/retention scenarios, and zero failed/cancelled/uncertain attempts. No r3/r2 attempt or pre-contract evidence is carried into this denominator.",
-      "attempts": []
+      "reason": "Independent index review promoted a47 as the first eligible completed control success for r4. The window remains open until at least 72 hours, control=3 and legacy=2 eligible completed successes, live legacy recovery, the retained-failure or non-counted negative-probe scenario, and all hard thresholds are complete. No r3/r2 attempt or pre-contract evidence is carried into this denominator.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a47",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\evidence.json",
+          "pre_cleanup_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\evidence-before-cleanup.json",
+          "cleanup_proof_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\cleanup-proof.json",
+          "evidence_sha256": "a82f203c81a2ecaf0f85fde08c418e12c0224749994915fa1d19e544585d0adc",
+          "pre_cleanup_evidence_sha256": "cf39c5b34e0288fe087df0bc994cb25638f61d8f3975a19b3cc9ad7b6c4c9a2b",
+          "cleanup_proof_sha256": "c3bab86268db3b72af74e884ee3ee25369274e00bb22cc8f056f9cee1322e070",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "cleanup_proof_verified": true,
+          "remote_attempt_root_absent": true,
+          "runtime_root_absent": false,
+          "reason": "Independent review verified published provenance, in-flight reconnect, fixed-cursor replay and terminal empty page, typed terminal policy, g16 identity/no-write, artifact SHA integrity, and cleanup-proof root removal with shared runtime retention. Raw formal_counting remains supplemental/non-counted."
+        }
+      ]
     }
   ],
   "canonical_samples": [
@@ -543,6 +570,28 @@
       "promoted_to_period_window": "post-contract-replacement-20260809-r3",
       "cleanup_proof_verified": false,
       "reason": "Main evidence was persisted before cleanup with acceptance_state=pending_cleanup_proof, but an inverted shared-runtime retention check raised after attempt-root cleanup and prevented cleanup-proof creation. Failure marker is authoritative; raw evidence remains supplemental/non-counted and cannot promote.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a47-replacement-r4",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\evidence.json",
+      "pre_cleanup_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\evidence-before-cleanup.json",
+      "cleanup_proof_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a47\\cleanup-proof.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": false,
+      "eligible_completed_success": true,
+      "promoted_to_period_window": "post-contract-replacement-20260809-r4",
+      "evidence_sha256": "a82f203c81a2ecaf0f85fde08c418e12c0224749994915fa1d19e544585d0adc",
+      "pre_cleanup_evidence_sha256": "cf39c5b34e0288fe087df0bc994cb25638f61d8f3975a19b3cc9ad7b6c4c9a2b",
+      "cleanup_proof_sha256": "c3bab86268db3b72af74e884ee3ee25369274e00bb22cc8f056f9cee1322e070",
+      "cleanup_proof_verified": true,
+      "reason": "Independent review promoted this completed r4 control bundle for period counting; cleanup-proof verifies exact attempt-root removal and shared runtime retention, while raw formal_counting remains supplemental/non-counted.",
       "phase_f_ready": false
     },
     {

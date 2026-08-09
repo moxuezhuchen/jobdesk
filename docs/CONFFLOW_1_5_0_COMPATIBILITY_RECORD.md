@@ -111,11 +111,17 @@ retried in place. Phase F remains false.
 After independent review of a46, the user-authorized replacement window
 `post-contract-replacement-20260809-r4` opened at
 `2026-08-09T15:11:36.8267925Z` with fresh roots and no inherited denominator.
-It requires three eligible completed control successes, two eligible completed
-legacy successes, at least 72 hours, all required recovery/cancel/retention
-scenarios, and zero failed/cancelled/uncertain attempts. It is currently empty
-and open; r3/r2, a40/a41/a45/a46, candidate, synthetic, historical, and
-incomplete evidence do not satisfy it. Phase F remains false.
+Independent index review has promoted a47 as the first eligible completed
+control success for r4. Its raw evidence remains
+`counts_as_real_run=false`/supplemental; the separate cleanup-proof SHA
+`c3bab86268db3b72af74e884ee3ee25369274e00bb22cc8f056f9cee1322e070` verifies
+exact attempt-root removal and shared-runtime retention. Current r4 metrics are
+`attempted=1`, `submitted=1`, `terminal=1`, `failed_attempts=0`, eligible
+successes control=1/3 and legacy=0/2. The window still requires at least 72
+hours, two remaining control successes, two legacy successes, live legacy
+rollback/recovery, the retained-failure or non-counted negative-probe scenario,
+and all hard thresholds. r3/r2, a40/a41/a45/a46, candidate, synthetic,
+historical, and incomplete evidence do not satisfy r4. Phase F remains false.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
