@@ -129,12 +129,27 @@ new unique root/run is required; r3/r2, a40/a41/a45/a46, candidate, synthetic,
 historical, and incomplete evidence do not satisfy r4. Phase F remains false.
 
 The user-authorized replacement window
-`post-contract-replacement-20260809-r5` is now **OPEN** with no inherited
-denominator. The prepared a51 harness targets a new exact remote/local root
-and ordinal `1`; its public API/import/create-run path, cleanup proof, g16
-identity/no-write checks, and in-flight reconnect path have passed independent
-static review. No r5 workload has run yet. The r5 window still requires at
-least 72 hours, three eligible completed control successes, two eligible
+`post-contract-replacement-20260809-r5` is now **BLOCKED** by a51. The attempt
+entered local JobDesk run initialization and durably recorded an acceptance
+failure before submit or SSH: the harness was executed against the
+legacy-only `jobdesk-dev` checkout and passed unsupported
+`SSHConfFlowClient(..., backend_mode=...)` arguments. Its evidence SHA-256 is
+`ef5701fb24294b36628998564d061292c52857255cace7c75ad9bccb9f73dded`;
+`acceptance_failed=true`, `failed_denominator=true`, and it is non-counted with
+the exact local evidence/workspace root retained. It cannot be retried in
+place. The control harness must run against the control-enabled published
+JobDesk source in a newly authorized replacement window with a fresh root/run.
+The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
+`failed_attempts=1`, eligible control/legacy `0/0`; Phase F remains false.
+
+The newly authorized replacement window
+`post-contract-replacement-20260810-r6` is **OPEN** with no inherited
+denominator. Its authorization is recorded at
+`2026-08-09T16:54:00.8101466Z`; it must use a new unique root/run and the
+control-enabled JobDesk source. The repaired harness must pass local API and
+import checks, persist and parse-verify evidence before attempt-only cleanup,
+and remain supplemental until independent index promotion. r6 still requires
+at least 72 hours, three eligible completed control successes, two eligible
 completed legacy successes, live legacy rollback/recovery, a retained-failure
 or non-counted negative probe, and all hard thresholds. Phase F remains false.
 

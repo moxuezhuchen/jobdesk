@@ -387,9 +387,71 @@
     },
     {
       "window_id": "post-contract-replacement-20260809-r5",
-      "status": "OPEN",
+      "status": "BLOCKED",
       "authorized_at": "2026-08-09T16:33:49.3203913Z",
       "authorization": "User continuation authorization after r4/a50 acceptance failure; new real published-pair window with fresh unique roots and independent promotion.",
+      "failed_attempts": 1,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0,
+      "replacement_required": true,
+      "phase_f_ready": false,
+      "attempted": 1,
+      "submitted": 0,
+      "terminal": 1,
+      "eligible_completed_successes": {
+        "control": 0,
+        "legacy": 0
+      },
+      "required_scenarios_observed": {
+        "control_inflight_reconnect_recovery": 0,
+        "control_contract_cancel_or_typed_policy": 0,
+        "legacy_inflight_rollback_recovery": 0,
+        "failure_retention_or_non_counted_negative_probe": 0
+      },
+      "hard_thresholds_observed": {
+        "unexpected_control_to_legacy_fallbacks": 0,
+        "duplicate_idempotency_conflicts": 0,
+        "protocol_reconnect_cursor_failures": 0,
+        "artifact_integrity_failures": 0,
+        "orphan_jobs_or_processes": 0,
+        "unclassified_attempts": 0,
+        "failed_attempts": 1,
+        "cancelled_attempts": 0,
+        "uncertain_attempts": 0
+      },
+      "reason": "The first r5 attempt a51 entered local JobDesk run initialization and durably recorded an acceptance failure before submit or SSH: the harness executed against the legacy-only jobdesk-dev checkout and passed unsupported SSHConfFlowClient backend_mode arguments. Its immutable local evidence/workspace root is retained, it is a failed denominator and non-counted, and r5 cannot be retried in place. The control harness must be repaired and a newly authorized r6 window must use the control-enabled published JobDesk source with a fresh unique root/run. The r5 72-hour, three-control, two-legacy, recovery, negative-probe, and hard-threshold requirements remain unmet.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a51",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a51\\evidence.json",
+          "evidence_sha256": "ef5701fb24294b36628998564d061292c52857255cace7c75ad9bccb9f73dded",
+          "terminal_classification": "acceptance_failed/initializing_jobdesk_run",
+          "eligible_completed_success": false,
+          "promoted_by_independent_index_review": false,
+          "counts_as_period_success": false,
+          "counts_as_real_run": false,
+          "acceptance_failed": true,
+          "failed_denominator": true,
+          "submission_boundary_reached": false,
+          "remote_workload_started": false,
+          "requested_backend": null,
+          "selected_backend": null,
+          "fallback_used": null,
+          "first_submit": 0,
+          "idempotent_resubmit": 0,
+          "remote_attempt_root_absent": null,
+          "runtime_root_absent": null,
+          "retention_state": "local immutable evidence/workspace retained; no remote attempt root was created",
+          "reason": "SSHConfFlowClient.__init__() got an unexpected keyword argument 'backend_mode'; the failure occurred before submit/SSH and the local evidence/workspace root remains available for review."
+        }
+      ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260810-r6",
+      "status": "OPEN",
+      "authorized_at": "2026-08-09T16:54:00.8101466Z",
+      "authorization": "User continuation authorization after r5/a51 acceptance failure; new real published-pair window with control-enabled JobDesk source, fresh unique roots, and independent promotion.",
       "failed_attempts": 0,
       "cancelled_attempts": 0,
       "uncertain_attempts": 0,
@@ -419,7 +481,7 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "New r5 replacement window opened after r4/a50 failed-denominator review. It starts with no inherited denominator and requires at least 72 hours, three eligible completed control successes, two eligible completed legacy successes, live legacy recovery, a retained-failure or non-counted negative probe, and all hard thresholds. The prepared a51 harness has passed independent static/API review but has not yet produced an attempt.",
+      "reason": "New r6 replacement window opened after r5/a51 failed-denominator review. It does not inherit any r5 denominator or success. It requires at least 72 hours from authorization, three eligible completed control successes, two eligible completed legacy successes, live legacy recovery, a retained-failure or non-counted negative probe, and all hard thresholds. The repaired harness must run with the control-enabled published JobDesk source, persist and verify evidence before attempt-only cleanup, and remain supplemental until independent index promotion.",
       "attempts": []
     }
   ],
