@@ -103,6 +103,20 @@ this real-workload window. The existing a32/a36/a37/a38/a5 release-boundary evid
 from this post-contract denominator; Phase F remains false until independent
 review closes the contract.
 
+### Post-contract window observation (blocked; replacement required)
+
+The first post-contract window `post-contract-20260809` is blocked by one
+failed denominator attempt. a39 remains supplemental because its bundle did not
+bind the in-flight disconnect/reopen timing and protected external executable
+identity. a40 reached completed computation and captured those checks, but the
+harness raised `NameError: persist` while finalizing evidence after cleanup;
+therefore it is `acceptance_failed=true`, non-counted, and contributes
+`failed_attempts=1`. The failed attempt cannot be removed or retried in place;
+failure-retention was not satisfied after the cleanup-time persistence bug.
+After review, the next real workload must use a newly authorized replacement
+window and a new exact attempt root. Formal counters stay control=4/legacy=1
+and Phase F stays false.
+
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer

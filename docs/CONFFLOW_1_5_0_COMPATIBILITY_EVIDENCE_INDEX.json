@@ -52,6 +52,30 @@
     "counts_as_period_denominator": false,
     "reason": "a32/a36/a37/a38 and a5 prove the published release boundary but were captured before this quantitative period contract; they remain canonical release evidence and formal aggregate counters."
   },
+  "period_window_observations": [
+    {
+      "window_id": "post-contract-20260809",
+      "status": "BLOCKED",
+      "failed_attempts": 1,
+      "replacement_required": true,
+      "phase_f_ready": false,
+      "reason": "The first authorized post-contract control attempt a40 reached terminal completed computation, but its evidence bundle failed during harness persistence after cleanup (NameError: persist). The attempt is a failed denominator observation and cannot be promoted; a new authorized replacement window with a new unique attempt root is required.",
+      "related_supplemental_samples": ["control-v153-a39-post-contract-supplemental"],
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a40",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a40\\evidence.json",
+          "evidence_sha256": "dca1a0f4c70a505a08c9da1097bf013c2bcab2525a903d53a6f059badaef189f",
+          "terminal_classification": "completed-computation/failed-evidence-persistence",
+          "eligible_completed_success": false,
+          "acceptance_failed": true,
+          "counts_as_real_run": false,
+          "failed_denominator": true,
+          "reason": "The enhanced lifecycle and protected-path checks passed, but an undefined persist helper raised during evidence finalization; cleanup occurred before the failure, so this attempt cannot satisfy the failure-retention scenario."
+        }
+      ]
+    }
+  ],
   "canonical_samples": [
     {
       "sample_id": "control-v153-a32",
@@ -178,6 +202,39 @@
       "events_cursor_replay_proven": false,
       "events_next_page_proven": false,
       "reason": "The real released workflow reached completed revision 6, but the a35 harness incorrectly required a JobDesk cursor after status-only polling and stopped before replay/download capture. Read-only terminal status/events/artifacts were preserved and the exact attempt root was removed; this failed bundle does not increment compatibility counters.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a39-post-contract-supplemental",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a39\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": false,
+      "eligible_completed_success": false,
+      "evidence_sha256": "892cc8507837ede03d82da74ef4dc161c02812d41b631e8355680610229e631e",
+      "reason": "Independent review retained this post-contract real run as supplemental because the bundle did not bind an in-flight disconnect/reopen sequence or protected external executable identity before promotion.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a40-failed-evidence-persistence",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a40\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "eligible_completed_success": false,
+      "failed_denominator": true,
+      "evidence_sha256": "dca1a0f4c70a505a08c9da1097bf013c2bcab2525a903d53a6f059badaef189f",
+      "reason": "Real control computation reached completed, but evidence persistence failed with NameError persist after cleanup; the failed attempt blocks the window and is never promoted.",
       "phase_f_ready": false
     }
   ],
