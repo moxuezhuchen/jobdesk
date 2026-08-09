@@ -36,6 +36,11 @@ it superseded/non-counted by canonical a32; a28 is also non-counted because
 its acceptance evidence file was not persisted. The supplemental a34
 fixed-cursor trace is indexed separately with `counts_as_real_run=false` and
 `acceptance_failed=true`.
+The separate a35 released workflow reached revision `6` and `completed`, but
+its harness stopped before replay/download capture because status-only polling
+had not persisted a JobDesk cursor. Its read-only terminal capture is
+`C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
+it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
 
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
