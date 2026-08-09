@@ -2,7 +2,54 @@
 
 **Date:** 2026-07-29
 
-## Execution status (2026-08-09 release continuation)
+## Execution status (2026-08-09 authoritative published-cycle closure)
+
+This is the current Post-M2 decision record. It supersedes the older a3,
+v1.5.0, candidate-only, synthetic, and historical snapshots below; those
+sections remain only as provenance.
+
+The measured published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`.
+JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820` has wheel
+SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
+ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3` has wheel
+SHA-256 `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
+The published release provenance and remote dual-repository CI were verified:
+ConfFlow matrix `31271946187`, coverage `31271946186`, JobDesk Consumer
+Contract `31271946207`, and release workflow `31272089279`; candidate-only and
+synthetic results remain excluded.
+
+Authoritative real evidence:
+
+- Control: `C:\tmp\jobdesk-control-release-v153-20260809-a10\evidence.json`.
+  One released-worker control computation completed through the supported
+  launcher. Durable state reached `completed`; first submit was one task and
+  the idempotent resubmit was zero duplicate tasks. Reconnect identity, cursor
+  replay, events/status polling, typed terminal cancel/resume policy, and
+  manifest/download/hash integrity all passed. Exact attempt cleanup passed.
+- Legacy closeout: `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
+  One published-consumer legacy computation used the exact stable ConfFlow
+  `v1.4.6` rollback release. Two tasks completed with remote exit code `0`;
+  idempotent resubmit, reconnect/status refresh, manifest/download/hash
+  integrity, and exact cleanup passed. Legacy events/resume unsupported and
+  terminal cancel no-op were recorded as expected legacy boundaries.
+
+The formal counters are `control_backend_runs=1` and
+`legacy_backend_runs=1`; explicit fallback is false in both evidence bundles,
+duplicate idempotent submissions are zero, no agent SQLite was read, and no
+producer state was double-written. The post-release v1.5.0 attempt rejected by
+the consumer approved-release gate is retained as non-counted failure evidence.
+
+The seven hard gates are now evidenced: published matched releases, remote
+dual-repository CI, released worker-handoff, real control computation, control
+reconnect/events/cancel/resume/artifact policy, complete measured period
+metrics, and legacy closeout. Formal decision: **PHASE F READINESS REVIEW MAY
+BE REQUESTED**. This is not Phase F entry or authorization. Until a separate
+Phase F review is authorized, retain both backends, stable `v1.4.6` rollback,
+and all fail-closed gates. Both immutable evidence bundles retain
+`phase_f_ready=false`; the aggregate decision only permits requesting a review.
+No `/opt` or agent state was modified.
+
+## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer
 release `v1.5.3`. The normal merge commit is
@@ -970,7 +1017,7 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 
 ### 8.2 Post-M2 collaboration architecture
 
-以下项目属于后续独立轨道，不阻塞 8.1：
+以下项目属于后续独立轨道，不阻塞 8.1；该历史清单保留原始状态，当前发布周期闭环见 §8.3：
 
 - [x] GUI 不再 import `remote.*`；architecture test 固定依赖方向
 - [x] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
@@ -983,7 +1030,17 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
 - [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
 
-The remaining real-acceptance gate is intentionally open. The 2026-08-08 direct
+### 8.3 Authoritative 2026-08-09 published compatibility-cycle closure
+
+- [x] Published producer/consumer pair: ConfFlow `v1.5.3` × JobDesk `v0.5.1`, with release provenance and remote dual-repository CI verified.
+- [x] Released producer-owned worker-handoff completed one real JobDesk control computation; candidate worker evidence is not used for the count.
+- [x] Control reconnect, cursor replay, events/status, typed terminal cancel/resume policy, idempotency, manifest/download, artifact integrity, and exact cleanup recorded at `C:\tmp\jobdesk-control-release-v153-20260809-a10\evidence.json`.
+- [x] Stable `v1.4.6` legacy closeout completed one real two-task JobDesk run with reconnect/status, expected legacy operation boundaries, idempotency, artifact integrity, and exact cleanup at `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
+- [x] Formal counters are `control_backend_runs=1`, `legacy_backend_runs=1`; candidate-only, synthetic, historical, agent-SQLite, and producer-double-write evidence is excluded.
+- [ ] Phase F compatibility-layer removal/agent policy: a readiness review may be requested, but Phase F remains separately unauthorized; retain both backends and rollback until that review and authorization.
+
+The remaining real-acceptance gate is intentionally open in the historical
+snapshot above. The 2026-08-08 direct
 v1.5.0 g16 and ORCA probes completed, but they were not JobDesk SSH lifecycle
 samples. A pre-restart JobDesk SSH/SFTP attempt was blocked by the WSL SSH
 listener's `Exceeded MaxStartups`/`rtnl_dumpit` failure; after the authorized
