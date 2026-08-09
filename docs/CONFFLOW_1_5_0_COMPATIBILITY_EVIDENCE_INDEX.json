@@ -99,15 +99,15 @@
     },
     {
       "window_id": "post-contract-replacement-20260809-r2",
-      "status": "OPEN",
-      "failed_attempts": 0,
+      "status": "BLOCKED",
+      "failed_attempts": 1,
       "cancelled_attempts": 0,
       "uncertain_attempts": 0,
-      "replacement_required": false,
+      "replacement_required": true,
       "phase_f_ready": false,
-      "attempted": 3,
-      "submitted": 3,
-      "terminal": 3,
+      "attempted": 4,
+      "submitted": 4,
+      "terminal": 4,
       "eligible_completed_successes": {
         "control": 1,
         "legacy": 2
@@ -126,7 +126,7 @@
         "orphan_jobs_or_processes": 0,
         "unclassified_attempts": 0
       },
-      "reason": "The newly authorized replacement window has one independently promoted eligible control success and two eligible legacy successes; it remains open until 72 hours, control=3 eligible completed successes, and the retained-failure or non-counted negative-probe scenario are complete.",
+      "reason": "The r2 replacement window is blocked by a45: the real control computation completed, but a post-cleanup final-evidence JSON round-trip check failed. The attempt is a failed denominator, raw/non-counted, and the exact root was already removed before that verification failure; a new authorized replacement window and new unique root are required. The r2 successes remain eligible only for r2 and cannot be carried into the replacement window.",
       "attempts": [
         {
           "attempt_id": "control-v153-a44",
@@ -184,8 +184,66 @@
           "first_submit": 2,
           "idempotent_resubmit": 0,
           "reason": "Independent review verified published provenance, in-flight legacy recovery, typed unsupported operations, artifact integrity, g16 identity, and persist-before-cleanup."
+        },
+        {
+          "attempt_id": "control-v153-a45",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a45\\evidence.json",
+          "evidence_sha256": "994f3fb4db6ff9913d5a1504e12b6e6417af3372b996c28bfbcbf03fddb67b51",
+          "terminal_classification": "acceptance_failed/post-cleanup-final-evidence-verification",
+          "eligible_completed_success": false,
+          "promoted_by_independent_index_review": false,
+          "counts_as_period_success": false,
+          "counts_as_real_run": false,
+          "acceptance_failed": true,
+          "failed_denominator": true,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "remote_attempt_root_absent": true,
+          "runtime_root_absent": false,
+          "reason": "The computation reached revision 6/completed and the pre-cleanup evidence snapshot parsed successfully, but final evidence verification compared JSON-decoded lists against in-memory tuples after cleanup and raised RuntimeError. This is harness acceptance failure, not a computation success; cleanup already removed the exact attempt root, so it cannot satisfy the failure-retention scenario."
         }
       ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260809-r3",
+      "status": "OPEN",
+      "authorized_at": "2026-08-09T14:45:58.5234809Z",
+      "authorization": "User-authorized replacement after r2/a45 acceptance failure; new real published-pair window with unique roots and independent promotion.",
+      "failed_attempts": 0,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0,
+      "replacement_required": false,
+      "phase_f_ready": false,
+      "attempted": 0,
+      "submitted": 0,
+      "terminal": 0,
+      "eligible_completed_successes": {
+        "control": 0,
+        "legacy": 0
+      },
+      "required_scenarios_observed": {
+        "control_inflight_reconnect_recovery": 0,
+        "control_contract_cancel_or_typed_policy": 0,
+        "legacy_inflight_rollback_recovery": 0,
+        "failure_retention_or_non_counted_negative_probe": 0
+      },
+      "hard_thresholds_observed": {
+        "unexpected_control_to_legacy_fallbacks": 0,
+        "duplicate_idempotency_conflicts": 0,
+        "protocol_reconnect_cursor_failures": 0,
+        "artifact_integrity_failures": 0,
+        "orphan_jobs_or_processes": 0,
+        "unclassified_attempts": 0,
+        "failed_attempts": 0,
+        "cancelled_attempts": 0,
+        "uncertain_attempts": 0
+      },
+      "reason": "Replacement window opened after independent review of r2/a45. It requires three eligible completed control successes, two eligible completed legacy successes, at least 72 hours, all required recovery/cancel/retention scenarios, and zero failed/cancelled/uncertain attempts. No r2 attempt or pre-contract evidence is carried into this denominator.",
+      "attempts": []
     }
   ],
   "canonical_samples": [
@@ -382,6 +440,26 @@
       "promoted_to_period_window": "post-contract-replacement-20260809-r2",
       "evidence_sha256": "36b1e7f18f94106560cd95864faa9a7d7cc77b85f391159d5c1e70a2346846d7",
       "reason": "Independent review promoted this completed replacement-window control bundle for period counting; raw formal_counting remains supplemental/non-counted.",
+      "phase_f_ready": false
+    },
+    {
+      "sample_id": "control-v153-a45-replacement-r2-failed",
+      "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a45\\evidence.json",
+      "backend": "control",
+      "producer": "confflow-v1.5.3",
+      "consumer": "jobdesk-v0.5.1",
+      "counts_as_real_run": false,
+      "candidate_only": false,
+      "synthetic": false,
+      "historical": false,
+      "acceptance_failed": true,
+      "eligible_completed_success": false,
+      "failed_denominator": true,
+      "evidence_sha256": "994f3fb4db6ff9913d5a1504e12b6e6417af3372b996c28bfbcbf03fddb67b51",
+      "promoted_to_period_window": "post-contract-replacement-20260809-r2",
+      "remote_attempt_root_absent": true,
+      "runtime_root_absent": false,
+      "reason": "The real computation reached revision 6/completed and the pre-cleanup snapshot parsed, but a post-cleanup final-evidence JSON round-trip check compared decoded lists with in-memory tuples and failed. It is a failed denominator and cannot satisfy failure retention because the attempt root was already removed before the verification failure; raw formal_counting remains supplemental/non-counted.",
       "phase_f_ready": false
     },
     {

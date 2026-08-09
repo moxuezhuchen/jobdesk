@@ -124,14 +124,28 @@ retained and the bundle is a failed denominator observation, never a stable
 sample. It must not be retried in place.
 
 The newly authorized replacement window
-`post-contract-replacement-20260809-r2` is open. Independent index review has
-promoted a44 as one eligible completed control success and a42/a43 as two
-eligible completed legacy successes for this window only; all raw bundles
-remain `counts_as_real_run=false`/supplemental. Current window metrics are
-`attempted=3`, `submitted=3`, `terminal=3`, `failed_attempts=0`, eligible
-successes control=1/3 and legacy=2/2. At least 72 hours, two remaining eligible
-control successes, and the retained-failure or non-counted negative-probe
-scenario are still required. Phase F remains false.
+`post-contract-replacement-20260809-r2` is now **blocked** by a45. Independent
+index review had promoted a44 as one eligible completed control success and
+a42/a43 as two eligible completed legacy successes for r2 only; all raw bundles
+remain `counts_as_real_run=false`/supplemental. a45 reached computation
+revision 6/completed and its pre-cleanup evidence snapshot parsed, but the
+harness compared JSON-decoded lists with in-memory tuples during post-cleanup
+final-evidence verification and raised `RuntimeError`. Its bundle is
+`acceptance_failed=true`, `failed_denominator=true`, non-counted, SHA-256
+`994f3fb4db6ff9913d5a1504e12b6e6417af3372b996c28bfbcbf03fddb67b51`; the exact
+attempt root was already removed before that failure, so it cannot satisfy the
+failure-retention scenario. r2 metrics are `attempted=4`, `submitted=4`,
+`terminal=4`, `failed_attempts=1`; it cannot be retried in place and its
+successes cannot carry into a new window. Phase F remains false.
+
+After independent review of a45, the user-authorized replacement window
+`post-contract-replacement-20260809-r3` opened at
+`2026-08-09T14:45:58.5234809Z` with fresh roots and no inherited denominator.
+It requires three eligible completed control successes, two eligible completed
+legacy successes, at least 72 hours, all required recovery/cancel/retention
+scenarios, and zero failed/cancelled/uncertain attempts. It is currently empty
+and open; r2, a40/a41/a45, candidate, synthetic, historical, and incomplete
+evidence do not satisfy it. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
