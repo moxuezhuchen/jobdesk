@@ -48,7 +48,7 @@ The current schema is **schema v6**. Schema v5 databases auto-upgrade on first o
 
 ## [0.5.0] — 2026-07-08
 
-The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0; superseded by v5 in the unreleased version). The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.
+The schema at v0.5.0 was **schema v4** (introduced in v0.2.x and retained by v0.5.0); it was superseded by schemas v5 and v6 in v0.5.1. The unified Submit page consumes the v4 `RunSpec` / `WorkflowSpec` shape unchanged.
 
 ### Added (Phase 14 — unified Submit page)
 - `core.submit_payload` value types: `InputSource`, `WorkflowFields`, `SubmitPayload` (frozen dataclasses, no Qt deps). `core.RunSpec.workflow_kind` is the discriminant for the page → use-case → worker boundary.
@@ -144,7 +144,8 @@ The current schema is **schema v4** (introduced in v0.2.x; retained by v0.5.0; s
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.3.0
