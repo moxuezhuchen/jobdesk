@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.5.1] - 2026-08-09
+
+This controlled consumer release pins and validates the formal ConfFlow
+v1.5.3 producer contract, including the released one-task worker-handoff
+schema. It is the starting point for the separately measured compatibility
+period; Phase F remains closed until that period is complete.
+
+### Compatibility
+- Stable v1.5.3 parity checks all five released control schema members.
+- Historical v1.5.0 remains available for compatibility comparison using its
+  four-file core contract.
+- The release keeps the legacy backend and v1.4.6 rollback path at the run
+  boundary; no silent fallback is introduced.
+
 The current schema is **schema v6**. Schema v5 databases auto-upgrade on first open.
 
 ### Fixed
