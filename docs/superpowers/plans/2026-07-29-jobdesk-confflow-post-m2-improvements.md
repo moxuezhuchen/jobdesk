@@ -42,6 +42,12 @@ Authoritative real evidence:
   stopped it before replay/download capture. Its read-only terminal record is
   `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
   it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
+  The separately authorized a36 run is a second canonical released control
+  sample at `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`.
+  It completed revision `6` with no fallback; it recorded reconnect identity,
+  first/idempotent submit counts `1`/`0`, fixed-cursor replay, terminal empty
+  next page, typed terminal cancel/resume rejection, and manifest/download
+  SHA-256 integrity. Its exact remote attempt root was removed after capture.
 - Legacy closeout: `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
   One published-consumer legacy computation used the exact stable ConfFlow
   `v1.4.6` rollback release. Two tasks completed with remote exit code `0`;
@@ -49,15 +55,16 @@ Authoritative real evidence:
   integrity, and exact cleanup passed. Legacy events/resume unsupported and
   terminal cancel no-op were recorded as expected legacy boundaries.
 
-The formal counters are `control_backend_runs=1` and
+The formal counters are `control_backend_runs=2` and
 `legacy_backend_runs=1`. The a32 control sample is the canonical replacement
 for a10, whose fallback field was not persisted; a32 now supplies the explicit
-machine-readable fallback result. No agent SQLite was read, no producer state
-was double-written, and the rejected post-release v1.5.0 attempt remains
-non-counted failure evidence.
+machine-readable fallback result; a36 adds the complete lifecycle trace as a
+separate canonical sample. No agent SQLite was read, no producer state was
+double-written, and the rejected post-release v1.5.0 attempt remains non-counted
+failure evidence.
 
-Release publication, dual-repository CI, released worker-handoff, one real
-control computation, control reconnect identity, first events/status poll,
+Release publication, dual-repository CI, released worker-handoff, two real
+control computations, control reconnect identity, first events/status poll,
 terminal cancel/resume and artifact probes, legacy closeout, and the
 non-counted fixed-cursor response trace are evidenced. A complete measured
 published compatibility cycle with period-wide fallback, reconnect,

@@ -42,6 +42,14 @@ had not persisted a JobDesk cursor. Its read-only terminal capture is
 `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
 it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
 
+The separately authorized a36 run at
+`C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json` is the
+independently indexed second canonical released control computation. It reached
+revision `6` and `completed` with `fallback_used=false`, and recorded reconnect,
+idempotent submit `1` then `0`, fixed-cursor replay, terminal empty next page,
+typed terminal cancel/resume rejection, and manifest/download SHA-256 integrity.
+Its exact remote attempt root was absent after bounded cleanup.
+
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
 - ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, wheel
@@ -80,7 +88,7 @@ legacy boundaries. It is counted as one real legacy run.
 
 | Metric | Control v1.5.3 | Legacy v1.4.6 |
 | --- | --- | --- |
-| counted real runs | 1 | 1 |
+| counted real runs | 2 | 1 |
 | fallback | `false` (a32 machine-readable evidence) | `false` |
 | idempotent duplicate submissions | 0 | 0 |
 | reconnect / status | identity and first events/status page passed; supplemental fixed-cursor replay/next page trace passed, but a34 acceptance bundle is non-counted | identity and refresh trace passed |
@@ -93,10 +101,10 @@ The rejected post-release v1.5.0 attempt at
 the approved-release validator and is explicitly non-counted. It is not a
 compatibility success and does not justify widening the consumer gate.
 
-Published releases, dual-repository CI, released worker-handoff, one real
-control computation, control reconnect identity, first events/status poll,
-terminal cancel/resume and artifact probes, legacy closeout, and non-counted
-fixed-cursor response trace are evidenced. A complete measured published
+Published releases, dual-repository CI, released worker-handoff, two real
+control computations, and a second canonical run with reconnect, idempotency,
+cursor replay/empty-page, terminal cancel/resume, and artifact-download
+integrity are evidenced. A complete measured published
 compatibility cycle with period-wide fallback, reconnect, idempotency,
 resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
 Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
