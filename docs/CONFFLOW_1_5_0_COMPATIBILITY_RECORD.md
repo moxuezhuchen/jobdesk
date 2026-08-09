@@ -48,7 +48,7 @@ authorized r6 window is post-contract-replacement-20260810-r6 with no
 inherited denominator and remains OPEN.
 
 Independent index review promoted a52 as r6 control success #1 and a53 as
-r6 legacy success #1. Their raw bundles remain supplemental with
+r6 legacy success #1; a54 is now r6 legacy success #2. All raw bundles remain supplemental with
 counts_as_real_run=false; promotion is only in the independent index.
 a53 evidence is:
 - main C:\tmp\jobdesk-legacy-release-v146-20260809-a53\evidence.json, SHA-256
@@ -58,17 +58,26 @@ a53 evidence is:
 - cleanup proof SHA-256
   67457d334ba100eaf8d014692f854601d7ad7125f34c64834b162eccfd1e8576.
 
+a54 evidence is:
+- main C:\tmp\jobdesk-legacy-release-v146-20260809-a54\evidence.json, SHA-256
+  864d6f6bd93e82473bf2160932493a458bc9685368ecd003218fbc80c7c62dfb;
+- pre-cleanup snapshot SHA-256
+  8ab24d08d7460682dc6366de53312189c428433262069980404e11af7838f297;
+- cleanup proof SHA-256
+  da3f4c9d79ed55ff13a7d4851150526d21fd9ad9af140b6260ce99ba941368de.
+
 The reviewed a53 legacy run selected v1.4.6 explicitly with
 fallback_used=false, submitted two tasks and idempotently resubmitted zero,
 reconnected in flight to the same run/locator, reached terminal completion,
 proved typed legacy events/resume boundaries and terminal cancel no-op,
 verified g16 identity/no-write and artifact/download SHA-256 integrity, and
 removed only its exact attempt root while retaining the shared published
-runtime. Current r6 metrics are attempted/submitted/terminal=2/2/2,
-eligible control/legacy 1/3 and 1/2, failed/cancelled/uncertain 0/0/0.
-The window still requires at least 72 hours, two additional eligible control
-successes, one additional eligible legacy success, and a retained-failure or
-non-counted negative probe; Phase F remains false.
+runtime. The reviewed a54 run has the same explicit legacy selection,
+in-flight recovery, boundary, artifact, and cleanup-proof properties. Current
+r6 metrics are attempted/submitted/terminal=3/3/3, eligible control/legacy
+1/3 and 2/2, failed/cancelled/uncertain 0/0/0. The window still requires at
+least 72 hours, two additional eligible control successes, and a
+retained-failure or non-counted negative probe; Phase F remains false.
 
 This section is the current decision record. It supersedes the earlier a3,
 v1.5.0, pre-release, candidate-only, synthetic, and historical status
