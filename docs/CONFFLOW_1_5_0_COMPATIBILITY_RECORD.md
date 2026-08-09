@@ -145,23 +145,24 @@ The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
 The newly authorized replacement window
 `post-contract-replacement-20260810-r6` is **OPEN** with no inherited
 denominator. Its authorization is recorded at
-`2026-08-09T16:54:00.8101466Z`. Independent review promoted a52 as its first
-eligible completed control success; the raw bundle remains
-`counts_as_real_run=false`/supplemental. Its main/pre-cleanup/cleanup-proof
-SHA-256 values are respectively
-`cd8d47569c3edc6fd3d0820ee4245395527603a388f26c2bbe84f11b437d680c`,
-`993ebee728320bba90b3b7db38f66db62bf2392217ce7ef522fdb702fac853af`, and
-`5c73a16f53f4473fe1e3f1f026ea1eb1059a2f1961986bd6bd2690d278400b6a`.
-The reviewed evidence proves explicit control selection without fallback,
-submit `1`/idempotent resubmit `0`, queued-to-completed in-flight reconnect,
-fixed-cursor replay and terminal empty page, typed terminal policy, g16
-identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with
-shared runtime retention. Current r6 metrics are
-`attempted=1`, `submitted=1`, `terminal=1`, eligible control/legacy `1/3` and
-`0/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
-hours, two more eligible completed control successes, two eligible completed
-legacy successes, live legacy rollback/recovery, a retained-failure or
-non-counted negative probe, and all hard thresholds. Phase F remains false.
+`2026-08-09T16:54:00.8101466Z`. Independent index review promoted a52 as r6
+control success #1 and a53 as r6 legacy success #1; a54 is r6 legacy success
+#2 and a55/a56 are r6 control successes #2/#3. All raw bundles remain
+`counts_as_real_run=false`/supplemental; promotion is only in the independent
+index. The a53/a54/a55/a56 main, pre-cleanup, and cleanup-proof SHA-256 values
+are recorded in the machine-readable evidence index. The reviewed runs prove
+explicit backend selection without fallback, submit/idempotency boundaries,
+in-flight reconnect/recovery, event/cursor behavior, typed terminal policy,
+g16 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup
+with shared runtime retention. Current r6 metrics are
+`attempted=5`, `submitted=5`, `terminal=5`, eligible control/legacy `3/3` and
+`2/2`, with failed/cancelled/uncertain `0/0/0`. The independently reviewed n1
+non-counted negative probe observed typed `unsupported_protocol` without a
+workload and retained its exact root; its main SHA-256 is
+`9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da` and it
+does not increment period counters. The negative/retention scenario is
+observed; the window still requires at least 72 hours and all hard thresholds.
+Phase F remains false.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 
