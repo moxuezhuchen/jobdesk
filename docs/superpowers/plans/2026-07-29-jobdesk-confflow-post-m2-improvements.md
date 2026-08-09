@@ -117,6 +117,22 @@ After review, the next real workload must use a newly authorized replacement
 window and a new exact attempt root. Formal counters stay control=4/legacy=1
 and Phase F stays false.
 
+The first replacement window `post-contract-replacement-20260809` is likewise
+blocked by a41. Its real control computation completed, but pre-cleanup JSON
+round-trip verification failed; the exact remote attempt root/logs were
+retained and the bundle is a failed denominator observation, never a stable
+sample. It must not be retried in place.
+
+The newly authorized replacement window
+`post-contract-replacement-20260809-r2` is open. Independent index review has
+promoted a44 as one eligible completed control success and a42 as one eligible
+completed legacy success for this window only; both raw bundles remain
+`counts_as_real_run=false`/supplemental. Current window metrics are
+`attempted=2`, `submitted=2`, `terminal=2`, `failed_attempts=0`, eligible
+successes control=1/3 and legacy=1/2. At least 72 hours, the remaining eligible
+successes, and the retained-failure or non-counted negative-probe scenario are
+still required. Phase F remains false.
+
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer
