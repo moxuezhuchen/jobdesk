@@ -457,16 +457,16 @@
       "uncertain_attempts": 0,
       "replacement_required": false,
       "phase_f_ready": false,
-      "attempted": 0,
-      "submitted": 0,
-      "terminal": 0,
+      "attempted": 1,
+      "submitted": 1,
+      "terminal": 1,
       "eligible_completed_successes": {
-        "control": 0,
+        "control": 1,
         "legacy": 0
       },
       "required_scenarios_observed": {
-        "control_inflight_reconnect_recovery": 0,
-        "control_contract_cancel_or_typed_policy": 0,
+        "control_inflight_reconnect_recovery": 1,
+        "control_contract_cancel_or_typed_policy": 1,
         "legacy_inflight_rollback_recovery": 0,
         "failure_retention_or_non_counted_negative_probe": 0
       },
@@ -481,8 +481,42 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "New r6 replacement window opened after r5/a51 failed-denominator review. It does not inherit any r5 denominator or success. It requires at least 72 hours from authorization, three eligible completed control successes, two eligible completed legacy successes, live legacy recovery, a retained-failure or non-counted negative probe, and all hard thresholds. The repaired harness must run with the control-enabled published JobDesk source, persist and verify evidence before attempt-only cleanup, and remain supplemental until independent index promotion.",
-      "attempts": []
+      "reason": "Independent review promoted a52 as the first r6 eligible completed control success; its raw bundle remains supplemental/counts=false. r6 has attempted/submitted/terminal=1/1/1, eligible control/legacy=1/3 and 0/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours from authorization, two more eligible completed control successes, two eligible completed legacy successes, live legacy recovery, a retained-failure or non-counted negative probe, and all hard thresholds. Phase F remains false.",
+      "attempts": [
+        {
+          "attempt_id": "control-v153-a52",
+          "backend": "control",
+          "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a52\\evidence.json",
+          "pre_cleanup_evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a52\\evidence-before-cleanup.json",
+          "cleanup_proof_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a52\\cleanup-proof.json",
+          "evidence_sha256": "cd8d47569c3edc6fd3d0820ee4245395527603a388f26c2bbe84f11b437d680c",
+          "pre_cleanup_evidence_sha256": "993ebee728320bba90b3b7db38f66db62bf2392217ce7ef522fdb702fac853af",
+          "cleanup_proof_sha256": "5c73a16f53f4473fe1e3f1f026ea1eb1059a2f1961986bd6bd2690d278400b6a",
+          "terminal_classification": "completed",
+          "eligible_completed_success": true,
+          "promoted_by_independent_index_review": true,
+          "counts_as_period_success": true,
+          "counts_as_real_run": false,
+          "acceptance_failed": false,
+          "failed_denominator": false,
+          "requested_backend": "control",
+          "selected_backend": "control",
+          "fallback_used": false,
+          "first_submit": 1,
+          "idempotent_resubmit": 0,
+          "inflight_reconnect_recovery": true,
+          "control_contract_cancel_or_typed_policy": true,
+          "events_cursor_replay_proven": true,
+          "events_next_page_proven": true,
+          "artifact_download_integrity_proven": true,
+          "g16_identity_unchanged": true,
+          "protected_path_write_detected": false,
+          "cleanup_proof_verified": true,
+          "remote_attempt_root_absent": true,
+          "runtime_root_absent": false,
+          "reason": "Independent review verified published JobDesk/ConfFlow provenance, explicit control selection without fallback, first submit and idempotent resubmit, queued-to-completed in-flight reconnect, fixed-cursor replay and terminal empty page, typed terminal cancel/resume policy, g16 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with shared runtime retention. Raw formal_counting remains supplemental/non-counted and cannot self-promote."
+        }
+      ]
     }
   ],
   "canonical_samples": [

@@ -191,13 +191,23 @@ The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
 The newly authorized replacement window
 `post-contract-replacement-20260810-r6` is **OPEN** with no inherited
 denominator. Its authorization is recorded at
-`2026-08-09T16:54:00.8101466Z`; it must use a new unique root/run and the
-control-enabled JobDesk source. The repaired harness must pass local API and
-import checks, persist and parse-verify evidence before attempt-only cleanup,
-and remain supplemental until independent index promotion. r6 still requires
-at least 72 hours, three eligible completed control successes, two eligible
-completed legacy successes, live legacy rollback/recovery, a retained-failure
-or non-counted negative probe, and all hard thresholds. Phase F remains false.
+`2026-08-09T16:54:00.8101466Z`. Independent review promoted a52 as its first
+eligible completed control success; the raw bundle remains
+`counts_as_real_run=false`/supplemental. Its main/pre-cleanup/cleanup-proof
+SHA-256 values are respectively
+`cd8d47569c3edc6fd3d0820ee4245395527603a388f26c2bbe84f11b437d680c`,
+`993ebee728320bba90b3b7db38f66db62bf2392217ce7ef522fdb702fac853af`, and
+`5c73a16f53f4473fe1e3f1f026ea1eb1059a2f1961986bd6bd2690d278400b6a`.
+The reviewed evidence proves explicit control selection without fallback,
+submit `1`/idempotent resubmit `0`, queued-to-completed in-flight reconnect,
+fixed-cursor replay and terminal empty page, typed terminal policy, g16
+identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with
+shared runtime retention. Current r6 metrics are
+`attempted=1`, `submitted=1`, `terminal=1`, eligible control/legacy `1/3` and
+`0/2`, with failed/cancelled/uncertain `0/0/0`. r6 still requires at least 72
+hours, two more eligible completed control successes, two eligible completed
+legacy successes, live legacy rollback/recovery, a retained-failure or
+non-counted negative probe, and all hard thresholds. Phase F remains false.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
