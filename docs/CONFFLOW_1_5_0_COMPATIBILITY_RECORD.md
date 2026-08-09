@@ -188,7 +188,7 @@ The user explicitly authorized real external-program probes. These results are r
 
 ## Phase F 边界（仍适用；当前 aggregate decision 不授权进入）
 
-Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；a3 是已完成但 response-trace 不完整的真实 control 样本，不替代完整周期验收。
+Phase F 仍未授权。最早只能在一个完整发布兼容周期结束后，且上述指标已收集齐全，同时保留支持 launcher 路径的真实 control computation acceptance 与 rollback evidence，才可提出是否移除或保留 legacy backend 的申请；在此之前必须保留双 backend、`v1.4.6` rollback 路径与 fail-closed 门。launcher acceptance 的执行设计见 [`docs/CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md`](CONFFLOW_1_5_0_LAUNCHER_ACCEPTANCE_DESIGN.md)；canonical a32 是当前真实 control 样本，但其 response-trace 只持久化一页 events/`next_cursor`，同 cursor replay 与 next-page 仍未证明，不替代完整周期验收。
 
 ## 2026-08-08 JobDesk legacy-backend real sample (historical; superseded)
 
