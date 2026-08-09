@@ -88,7 +88,15 @@ def probe_confflow_capabilities(
         raise ConfFlowCapabilityPreflightError(f"ConfFlow capability preflight failed: {detail}")
     try:
         capabilities = parse_confflow_capabilities(response.stdout)
-        validate_confflow_capabilities(capabilities, require_dag=require_dag)
+        # Keep the last stable producer visible to backend negotiation. The
+        # caller still performs exact release provenance validation before a
+        # legacy submit, while control mode must prove the v1 protocol and
+        # fails closed when the stable CLI lacks it.
+        validate_confflow_capabilities(
+            capabilities,
+            require_dag=require_dag,
+            allow_legacy_stable=True,
+        )
     except ValueError as exc:
         raise ConfFlowCapabilityPreflightError(f"ConfFlow capability preflight failed: {exc}") from exc
     return capabilities

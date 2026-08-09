@@ -23,13 +23,14 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 [project.optional-dependencies]
 chem = [
     "rdkit>=2023.9",
-    "confflow>=1.4.6,<2.0",
+    "confflow>=1.5,<2.0",
 ]
 package = [
     "pyinstaller>=6.0",
 ]
 dev = [
     "build>=1.2",
+    "jsonschema>=4.23,<5.0",
     "mypy>=1.10",
     # ConfFlow's top-level __init__ transitively imports
     # numpy, so the CI runner needs a numpy wheel. Two constraints

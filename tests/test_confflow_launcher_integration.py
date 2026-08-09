@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +17,7 @@ from jobdesk_app.remote.scheduler import ResourceSpec
 from jobdesk_app.services.confflow_control import ControlArtifactManifest, ControlSnapshot
 from jobdesk_app.services.confflow_control_state import load_state, save_state
 from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient
+from jobdesk_app.services.ssh_confflow_client import ConfFlowClientError, SSHConfFlowClient
 
 
 class FakeSFTP:
@@ -121,6 +124,7 @@ def _spec() -> RunSpec:
 
 
 def _seed_control_state(service: RunService, run_id: str) -> None:
+    attempt_root = "/home/test/.local/state/confflow/jobdesk-run-1"
     save_state(
         service,
         run_id,
@@ -132,6 +136,27 @@ def _seed_control_state(service: RunService, run_id: str) -> None:
             "state_locator": "/home/test/.local/state/confflow/control",
             "idempotency_key": f"jobdesk.{run_id}",
             "producer_identity": {"sha256": "d" * 64},
+            "capability": {"capabilities": {"control_worker": True}},
+            "input_manifest_path": f"{attempt_root}/input/worker-handoff.json",
+            "worker_attempt_root": attempt_root,
+            "worker_work_dir": f"{attempt_root}/results/methane_confflow_work",
+            "worker_executable": "/opt/confflow/bin/confflow-control-worker",
+            "worker_handoff": {
+                "content_schema": "confflow.control.worker-handoff.v1",
+                "run_id": run_id,
+                "workflow_config": {
+                    "path": f"{attempt_root}/input/workflow.yaml",
+                    "sha256": "b" * 64,
+                },
+                "tasks": [
+                    {
+                        "task_id": "methane",
+                        "input_xyz": f"{attempt_root}/input/methane.xyz",
+                        "work_dir": f"{attempt_root}/results/methane_confflow_work",
+                        "sha256": "c" * 64,
+                    }
+                ],
+            },
             "revision": 0,
             "state": "prepared",
         },
@@ -158,6 +183,8 @@ def test_control_launcher_script_uses_existing_scheduler_headers(scheduler_type:
 
     script = build_control_launcher_script(
         executable="/opt/confflow/bin/confflow",
+        worker_executable="/opt/confflow/bin/confflow-control-worker",
+        handoff_path="/tmp/jobdesk-control/input/worker-handoff.json",
         state_root="/tmp/jobdesk-control/state",
         run_id="run-1",
         metadata_path="/tmp/jobdesk-control/launcher.json",
@@ -167,12 +194,45 @@ def test_control_launcher_script_uses_existing_scheduler_headers(scheduler_type:
     )
 
     assert "control execute" in script
+    assert "confflow-control-worker" in script
+    assert "setsid --wait" in script
     assert "--state-root /tmp/jobdesk-control/state" in script
     assert "--run-id run-1" in script
     assert "/tmp/jobdesk-control/launcher.json" in script
+    assert '"execute_rc":null' in script
+    assert "completed_marker=\"${marker//$old_fragment/$new_fragment}\"" in script
+    assert "sed" not in script
     assert header in script
     assert "gaussian" not in script.lower()
     assert "g16" not in script.lower()
+
+
+def test_control_launcher_script_is_shell_valid() -> None:
+    if os.name == "nt":
+        pytest.skip("POSIX shell validation runs in the Linux contract environment")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to validate the POSIX launcher script")
+    from jobdesk_app.services.ssh_confflow_control import build_control_launcher_script
+
+    script = build_control_launcher_script(
+        executable="/opt/confflow/bin/confflow",
+        worker_executable="/opt/confflow/bin/confflow-control-worker",
+        handoff_path="/tmp/jobdesk-control/input/worker-handoff.json",
+        state_root="/tmp/jobdesk-control/state",
+        run_id="run-1",
+        metadata_path="/tmp/jobdesk-control/launcher.json",
+        scheduler_type="nohup",
+        resources=ResourceSpec(cpus=2),
+    )
+    result = subprocess.run(
+        [bash, "-n"],
+        input=script.encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
 
 
 def test_control_submit_dispatches_scheduler_and_persists_provenance(tmp_path, monkeypatch) -> None:
@@ -230,6 +290,76 @@ def test_dispatch_response_loss_reconciles_from_remote_launcher_marker(tmp_path,
     assert saved is not None
     assert saved["dispatch_state"] == "submitted"
     assert saved["scheduler_job_id"] == "12345"
+
+
+def test_worker_started_marker_reconciles_after_execute_response_loss(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_spec(), run_id="run-1")
+    _seed_control_state(service, "run-1")
+    sftp = FakeSFTP()
+    transport = FakeControlTransport(sftp)
+    scheduler = FakeScheduler(service=service, sftp=sftp, job_id="worker-123", lose_response=True)
+    client = _client(service, transport, scheduler)
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert outcome.errors
+    state = load_state(service, "run-1")
+    assert state is not None
+    launcher = state["launcher"]
+    assert isinstance(launcher, dict)
+    marker_path = str(launcher["metadata_path"])
+    marker = json.loads(sftp.files[marker_path].decode("utf-8"))
+    marker.update({"execution_state": "started", "execute_rc": 0, "worker_started": True, "worker_rc": None})
+    sftp.files[marker_path] = json.dumps(marker).encode("utf-8")
+
+    recovered = client.attach("run-1")
+    assert recovered.run_id == "run-1"
+    recovered_state = load_state(service, "run-1")
+    assert recovered_state is not None
+    assert recovered_state["dispatch_state"] == "submitted"
+    assert recovered_state["scheduler_job_id"] == "worker-123"
+
+
+def test_failed_launcher_marker_is_not_reconciled_as_submitted(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(_spec(), run_id="run-1")
+    _seed_control_state(service, "run-1")
+    sftp = FakeSFTP()
+    transport = FakeControlTransport(sftp)
+    scheduler = FakeScheduler(service=service, sftp=sftp, job_id="54321", lose_response=True)
+    client = _client(service, transport, scheduler)
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert outcome.errors
+    state = load_state(service, "run-1")
+    assert state is not None
+    launcher = state["launcher"]
+    assert isinstance(launcher, dict)
+    marker_path = str(launcher["metadata_path"])
+    marker = json.loads(sftp.files[marker_path].decode("utf-8"))
+    marker["execution_state"] = []
+    sftp.files[marker_path] = json.dumps(marker).encode("utf-8")
+    with pytest.raises(ConfFlowClientError, match="invalid execution state"):
+        client.attach("run-1")
+    marker.update({"execution_state": "failed", "execute_rc": 17})
+    sftp.files[marker_path] = json.dumps(marker).encode("utf-8")
+
+    recovered = client.attach("run-1")
+    assert recovered.run_id == "run-1"
+    failed = load_state(service, "run-1")
+    assert failed is not None
+    assert failed["dispatch_state"] == "failed"
+    assert failed["launcher"]["execute_rc"] == 17
+    assert "scheduler_job_id" not in failed
+
+    retry_handle, retry_outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert retry_handle is None
+    assert any("refusing duplicate prepare" in error for error in retry_outcome.errors)
+    assert len(scheduler.calls) == 1
 
 
 def test_local_provenance_save_failure_reconciles_without_duplicate_dispatch(tmp_path, monkeypatch) -> None:

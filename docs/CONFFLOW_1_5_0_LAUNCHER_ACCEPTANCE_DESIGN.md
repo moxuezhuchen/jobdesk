@@ -1,23 +1,23 @@
-# ConfFlow 1.5.0 launcher-path control acceptance design
+# ConfFlow 1.5.3 launcher-path control acceptance design
 
-> Status: design only. This document is not an acceptance record. No step in this document has been run in this task; every remote execution step is **待单独授权**.
+> Status: design plus partial execution evidence (2026-08-09). This document is not a passing compatibility-cycle record. One released-v1.5.3 JobDesk control computation completed through the supported launcher and producer worker; the retained evidence is explicitly marked as salvaged because the harness timed out only while deleting its large temporary runtime after the exact attempt root had been removed. In-memory event/cancel/resume/raw-manifest responses were not persisted. The full rollback/compatibility gate remains incomplete. The evidence below is deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
 
 ## Scope and provenance
 
-The proposed acceptance is Route B compatibility observation work only. It is non-compute and must not start a real worker, scheduler workload, Gaussian, or g16. It does not authorize Phase F.
+The proposed launcher acceptance is Route B compatibility observation work. The design itself does not authorize a worker, scheduler workload, Gaussian, g16, ORCA, or Phase F. The 2026-08-08 direct g16/ORCA probes were run only after explicit user authorization and are recorded as separate evidence; they are not JobDesk SSH compatibility-period samples.
 
 - Cycle start UTC: `2026-08-01T15:57:13Z`
 - `cycle_start_jobdesk_main`: `9904cbaae078344bb35162f3ddee354b1acd040c`
 - `current_audit_jobdesk_main`: `ad5c6263ff02690f20e8f25b92303b533b13e284`
 - `current_audit_confflow_main`: `0c7d804b297a2c3205741996ebfc1f12d070942b`
-- ConfFlow `v1.5.0` tag object: `5333d4854aa9d430221f3e16f5c36461010a2b3e`
-- ConfFlow `v1.5.0` peeled commit: `0fff6439a4614ec155959b1d0d3781fc5342d736`
-- ConfFlow `v1.5.0` wheel SHA256: `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`
+- ConfFlow `v1.5.3` annotated tag: `v1.5.3` (immutable)
+- ConfFlow `v1.5.3` peeled commit: `f37759954da2818d777ec4d06f81bd53aeafe6e3`
+- ConfFlow `v1.5.3` wheel SHA256: `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`
 - Stable rollback `v1.4.6` wheel SHA256: `7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5`
 
 The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the public post-M2 compatibility plan.
 
-## Current call chain and the launcher gap
+## Current call chain, launcher handoff, and remaining worker gap
 
 The current JobDesk symbols trace the control path as follows:
 
@@ -25,14 +25,25 @@ The current JobDesk symbols trace the control path as follows:
 SSHConfFlowClient.probe / submit_with_outcome / attach
   -> SSHControlTransport.capabilities / prepare / execute / status / events / cancel / resume / artifacts
   -> remote `confflow control <operation> ... --json`
-  -> ConfFlow v1.5.0 `confflow/control.py`
+  -> ConfFlow v1.5.3 `confflow/control.py`
   -> application execution service (`ExecutionService`)
   -> workflow adapter / launcher-owned process boundary
 ```
 
-The JobDesk side is implemented by [`SSHConfFlowClient`](../src/jobdesk_app/services/ssh_confflow_client.py), [`SSHControlTransport`](../src/jobdesk_app/services/ssh_confflow_control.py), and durable control state in [`confflow_control_state.py`](../src/jobdesk_app/services/confflow_control_state.py). The producer-side v1.5.0 symbols to revalidate against the pinned, non-editable wheel before execution are `confflow.control`, `confflow.application.execution.service.ExecutionService`, and its workflow adapter. The existing legacy launchers are [`SchedulerAdapter`](../src/jobdesk_app/remote/scheduler.py), including `NohupAdapter`, `SlurmAdapter`, and `PBSAdapter`, and the legacy submit boundary is [`submitter.py`](../src/jobdesk_app/remote/submitter.py).
+The JobDesk side is implemented by [`SSHConfFlowClient`](../src/jobdesk_app/services/ssh_confflow_client.py), [`SSHControlTransport`](../src/jobdesk_app/services/ssh_confflow_control.py), and durable control state in [`confflow_control_state.py`](../src/jobdesk_app/services/confflow_control_state.py). The producer-side v1.5.3 symbols to revalidate against the pinned, non-editable wheel before execution are `confflow.control`, `confflow.application.execution.service.ExecutionService`, `confflow.control_worker`, and its workflow adapter. The existing legacy launchers are [`SchedulerAdapter`](../src/jobdesk_app/remote/scheduler.py), including `NohupAdapter`, `SlurmAdapter`, and `PBSAdapter`, and the legacy submit boundary is [`submitter.py`](../src/jobdesk_app/remote/submitter.py).
 
-There is a design-level blocker in the current audited JobDesk code: `_submit_control` currently calls `SSHControlTransport.execute()` directly after `prepare`, and its `SubmitResult.control_nohup_log_path` is empty. It does not currently hand `control execute` to `NohupAdapter`, Slurm, or PBS. Therefore “supported launcher path” is defined below as a required handoff contract, not as an already accepted behavior. Actual acceptance must stop before execution until the exact launcher handoff is available and separately authorized; this docs task makes no code change.
+The launcher handoff is now implemented in `_submit_control`: it writes a per-run launcher script and metadata, selects the configured `SchedulerAdapter` (`NohupAdapter`, Slurm, or PBS), submits the script, and persists the scheduler job id plus the nohup log path. The script runs producer `control execute` followed by the released producer-owned `confflow-control-worker` under `setsid --wait`. Fake-adapter regression tests cover the local construction. The released v1.5.3 path has now completed one real JobDesk SSH/SFTP control computation through this launcher; the exact durable state, launcher metadata, producer log, handoff, downloaded file hash, and cleanup proof are retained in `C:\tmp\jobdesk-control-release-v153-20260809-a3\evidence.json`. The bundle records that in-memory event/cancel/resume/raw-manifest responses were not persisted after the harness timed out during runtime cleanup, so this is not yet a complete compatibility-cycle record.
+
+There is a pinned-release producer boundary. ConfFlow v1.5.3 `control execute` claims the prepared run and returns `queued`; the released `confflow-control-worker` consumes that queued token through `ExecutionService` and owns the external computation handoff. The current JobDesk launcher invokes both commands through the supported scheduler script, and the a3 sample proves one real control computation through that boundary. This does not close the compatibility period: the retained evidence is partial at the response-trace level, and a worker handoff is never a reason to bypass the control contract or fall back silently to legacy.
+
+The 2026-08-08 read-only WSL audit confirmed that `confflow-agent` is installed,
+but it is a separate file-queue worker: `serve` watches its own queue and
+`AgentServer` derives its own `.execution_state` root, while the pinned control
+executor remains the no-op `_AgentControlExecutor`. `confflow-agent submit`
+therefore cannot consume a JobDesk control launch token or its prepare request;
+its workflow runner constructs a separate request digest and state layout. No
+agent was started and no agent SQLite was read or written. Treating that CLI as
+an implicit control handoff would bypass the frozen idempotency/state contract.
 
 ## Precise acceptance definition
 
@@ -44,11 +55,11 @@ There is a design-level blocker in the current audited JobDesk code: `_submit_co
 4. ConfFlow owns durable execution state, events, revisions, terminal transitions, and the artifact manifest. JobDesk owns the client-side durable handle and projects the producer state; neither side reads or writes agent SQLite for this acceptance.
 5. The run remains `control` from negotiation through terminal state. An explicit control run must fail closed on an unsupported or malformed response; it must not silently become `legacy`.
 
-The current code proves the transport operations and durable-handle surfaces, but not item 3. That missing handoff is a blocker for claiming launcher-path acceptance.
+The current code proves the transport operations and durable-handle surfaces, and fake tests prove item 3's local construction. One released-v1.5.3 real launcher computation is now evidenced by the a3 sample. Full stable launcher-path acceptance remains open at the evidence/compatibility-cycle gate because the in-memory recovery, cancellation, and raw artifact responses were not persisted by that run and the complete measured cycle is still missing.
 
 ## Minimum non-compute workflow
 
-The smallest permitted workflow is a pinned ConfFlow v1.5.0 synthetic lifecycle fixture that:
+The smallest permitted workflow is a pinned ConfFlow v1.5.3 synthetic lifecycle fixture that:
 
 - uses the real SSH/SFTP control transport and the real launcher handoff under test;
 - executes only a deterministic in-process or producer-owned synthetic step, such as writing `synthetic-output.json` and its declared schema under the per-run root;
@@ -77,7 +88,7 @@ Before execution, the operator must prove that the resolved state root and run d
 
 The following safety checks are mandatory:
 
-- Use the exact v1.5.0 wheel and recorded digest; no editable checkout and no dependency upgrade.
+- Use the exact released v1.5.3 wheel and recorded digest; no editable checkout and no dependency upgrade.
 - Reject any workflow, launcher script, or command containing `g16`, `gaussian`, `orca`, `iprog`, `/opt/g16`, `/opt/ConfFlow`, or a user run root.
 - Verify the remote command identity and resolved paths before `prepare` and before launcher submission.
 - Do not create or alter `/opt/g16`, `/opt/ConfFlow`, agent SQLite, or producer state outside the isolated attempt root.
@@ -86,7 +97,7 @@ The following safety checks are mandatory:
 
 ## Executable acceptance sequence
 
-Every step below remains **待单独授权**. The result must be recorded separately for `control` and `legacy`; the current compatibility record has no real cycle-period run sample.
+The SSH/SFTP steps below remain gated by a fresh attempt root and evidence capture. Results must be recorded separately for `control` and `legacy`; the current compatibility record has one real v1.5.3 JobDesk control-computation sample, one historical v1.5.0 legacy batch, and one stable v1.4.6 rollback probe. The direct candidate worker/g16 evidence remains candidate-only and does not count as a stable JobDesk computation. The a3 control evidence is a real sample but not a complete compatibility-cycle bundle because its in-memory response traces were not persisted.
 
 ### 0. Preflight gate
 
@@ -98,7 +109,7 @@ Run capability negotiation and assert protocol major, producer provenance, and e
 
 ### 2. Launcher handoff
 
-Submit the plain foreground `control execute` command through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that `execute` was launched by the supported adapter rather than by a direct SSH foreground call. With the current audited code, this step is blocked until the missing handoff is available.
+Submit the plain foreground `control execute` command followed by the producer-owned `confflow-control-worker` through the selected launcher. Capture the launcher command, PID or scheduler job id, resolved working directory, state root, stdout/stderr or nohup log path, and JobDesk durable state. Prove that both stages were launched by the supported adapter rather than by a direct SSH foreground call. The a3 sample completed this boundary with `execute_rc=0`, `worker_started=true`, `worker_rc=0`, and terminal producer state `completed`; its evidence path is recorded above.
 
 ### 3. Detach, reconnect, and durable recovery
 
@@ -118,7 +129,7 @@ Read the producer manifest through `SSHControlRunHandle.artifacts`. For every de
 
 ### 7. Stable rollback probe
 
-After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. It is not authorized in this task.
+After the control attempt is stopped and its evidence is captured, use the exact stable `v1.4.6` wheel in a separate isolated legacy probe. Prove that capability negotiation selects `legacy`, the legacy path remains usable, the control state root is not reused, and no producer state is double-written or polluted by the control attempt. This must be live rollback/recovery evidence, not only a unit test or a tag/digest check. The post-restart probe completed the two-molecule legacy path and bounded cleanup; it is recorded separately, while the direct legacy g16 evidence used v1.5.0 remains outside this gate.
 
 ### 8. Cleanup and evidence retention
 
@@ -170,4 +181,4 @@ Before any real execution, the user must separately authorize all of the followi
 - live stable `v1.4.6` legacy rollback/recovery probe;
 - retention or cleanup of remote failure evidence.
 
-Real worker, scheduler workload, Gaussian, g16, `/opt/g16` changes, producer code changes, release/tag/wheel changes, and Phase F remain outside this design and require separate authorization. This document does not claim that launcher acceptance, rollback evidence, or Phase F readiness is complete.
+Real worker, scheduler workload, `/opt/g16` changes, producer code changes, release/tag/wheel changes, and Phase F remain outside this design and require separate authorization. The user separately authorized the 2026-08-08 direct g16/ORCA probes; those probes do not claim that launcher acceptance, rollback evidence, or Phase F readiness is complete.

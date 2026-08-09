@@ -206,6 +206,20 @@ def test_preflight_accepts_clean_verified_producer_without_warning():
     assert result.warnings == []
 
 
+def test_preflight_accepts_same_venv_python_alias():
+    task = _make_workflow_task()
+    ssh = MagicMock()
+    ssh.run.side_effect = [
+        _capability_result(executable_python="/opt/confflow-1.4.6-prod-venv/bin/python"),
+        _identity_result(),
+    ]
+    submitter = JobSubmitter(tasks=[task], ssh=ssh, sftp=None, max_parallel=1)
+    result = SubmitResult(batch_id="b1", submitted_task_count=0, remote_batch_dir="/remote")
+
+    assert submitter._preflight_capabilities([task], result) is True
+    assert result.warnings == []
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
@@ -215,7 +229,6 @@ def test_preflight_accepts_clean_verified_producer_without_warning():
         ({"wheel_sha256": "b" * 64}, "wheel digest"),
         ({"executable_sha256": "bad"}, "executable digest"),
         ({"executable_python": "/usr/bin/python3"}, "controlled Python 3.12"),
-        ({"executable_python": "/opt/confflow-1.4.6-prod-venv/bin/python"}, "controlled Python 3.12"),
     ],
 )
 def test_preflight_rejects_unapproved_production_producer(kwargs, message):

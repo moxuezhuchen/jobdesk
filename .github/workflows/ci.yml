@@ -40,23 +40,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Check out ConfFlow v1.4.6
+      - name: Check out ConfFlow v1.5.3
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v1.4.6
+          ref: v1.5.3
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v1.4.6 wheel
+      - name: Install released ConfFlow v1.5.3 wheel
         shell: pwsh
         run: |
-          gh release download v1.4.6 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.4.6-py3-none-any.whl" --dir .ci\confflow-dist
-          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-1.4.6-*.whl" | Select-Object -First 1
-          if ($null -eq $wheel) { throw "ConfFlow v1.4.6 release wheel was not downloaded." }
-          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5") { throw "ConfFlow release wheel digest mismatch." }
+          gh release download v1.5.3 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.5.3-py3-none-any.whl" --dir .ci\confflow-dist
+          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-1.5.3-*.whl" | Select-Object -First 1
+          if ($null -eq $wheel) { throw "ConfFlow v1.5.3 release wheel was not downloaded." }
+          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6") { throw "ConfFlow release wheel digest mismatch." }
           python -m pip install --no-deps $wheel.FullName
-          python -c "import confflow; assert confflow.__version__ == '1.4.6'; print(confflow.__version__)"
+          python -c "import confflow; assert confflow.__version__ == '1.5.3'; print(confflow.__version__)"
 
       - name: MyPy type check
         run: python -m mypy src
@@ -102,23 +102,23 @@ jobs:
           pip install -e ".[dev]"
           pip install pytest-cov
 
-      - name: Check out ConfFlow v1.4.6
+      - name: Check out ConfFlow v1.5.3
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v1.4.6
+          ref: v1.5.3
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v1.4.6 wheel
+      - name: Install released ConfFlow v1.5.3 wheel
         shell: pwsh
         run: |
-          gh release download v1.4.6 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.4.6-py3-none-any.whl" --dir .ci\confflow-dist
-          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-1.4.6-*.whl" | Select-Object -First 1
-          if ($null -eq $wheel) { throw "ConfFlow v1.4.6 release wheel was not downloaded." }
-          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5") { throw "ConfFlow release wheel digest mismatch." }
+          gh release download v1.5.3 --repo moxuezhuchen/ConfFlow --pattern "confflow-1.5.3-py3-none-any.whl" --dir .ci\confflow-dist
+          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-1.5.3-*.whl" | Select-Object -First 1
+          if ($null -eq $wheel) { throw "ConfFlow v1.5.3 release wheel was not downloaded." }
+          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6") { throw "ConfFlow release wheel digest mismatch." }
           python -m pip install --no-deps $wheel.FullName
-          python -c "import confflow; assert confflow.__version__ == '1.4.6'; print(confflow.__version__)"
+          python -c "import confflow; assert confflow.__version__ == '1.5.3'; print(confflow.__version__)"
 
       - name: Verify ConfFlow wheel build provenance
         shell: pwsh

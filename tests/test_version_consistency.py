@@ -6,12 +6,12 @@ The single source of truth for the ConfFlow version window that JobDesk
 accepts is the structured tuple in
 :mod:`jobdesk_app.core.confflow_contract`:
 
-* ``MIN_VERSION = (1, 4, 6)``
+* ``MIN_VERSION = (1, 5, 0)``
 * ``MAX_EXCLUSIVE = (2, 0, 0)``
 
-Every other surface — ``pyproject.toml``, the GitHub Actions workflow
+Every other surface (``pyproject.toml``, the GitHub Actions workflow
 (4 slots), the README, and the offline subset validator error messages
-— must be a *mirror* of these tuples. Any drift between the source of
+must be a *mirror* of these tuples. Any drift between the source of
 truth and a mirror is a real bug (or a release-train bug if it
 slipped through CI), and must fail this test module.
 """
@@ -27,6 +27,7 @@ from jobdesk_app.core import confflow_contract
 from jobdesk_app.core.confflow_contract import (
     MAX_EXCLUSIVE,
     MIN_VERSION,
+    REFERENCE_WHEEL_SHA256,
     ConfFlowArtifactContract,
     version_spec,
 )
@@ -41,49 +42,65 @@ def _read(path: str) -> str:
 
 def test_structured_source_of_truth():
     """Lock the structured tuple so the rest of the suite mirrors it."""
-    assert MIN_VERSION == (1, 4, 6)
+    assert MIN_VERSION == (1, 5, 0)
     assert MAX_EXCLUSIVE == (2, 0, 0)
-    assert version_spec() == ">=1.4.6,<2.0"
+    assert version_spec() == ">=1.5,<2.0"
 
 
 def test_pyproject_pin_matches_spec():
     """``pyproject.toml`` ``confflow`` pin must be the version spec."""
     content = _read("pyproject.toml")
-    expected = "confflow>=1.4.6,<2.0"
+    expected = "confflow>=1.5,<2.0"
     assert expected in content, f"pyproject.toml must contain {expected!r}"
 
 
 def test_ci_yaml_uses_version_in_all_four_slots():
-    """CI must reference the v1.4.6 tag and released wheel in all four slots."""
+    """CI must reference the v1.5.3 tag and released wheel in all four slots."""
     content = _read(".github/workflows/ci.yml")
     assert "1.4.1" not in content, "ci.yml must not contain any 1.4.1 reference"
-    assert content.count("ref: v1.4.6") == 2
-    assert content.count("confflow-1.4.6-*.whl") == 2
-    assert content.count("confflow.__version__ == '1.4.6'") == 2
-    assert content.count("7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5") == 2
+    assert content.count("ref: v1.5.3") == 2
+    assert content.count("confflow-1.5.3-*.whl") == 2
+    assert content.count("confflow.__version__ == '1.5.3'") == 2
+    assert content.count("213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6") == 2
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
     """PowerShell wheel glob must match the version literal in the assert."""
     content = _read(".github/workflows/ci.yml")
-    assert content.count("confflow-1.4.6-*.whl") == 2
-    assert content.count("confflow.__version__ == '1.4.6'") == 2
+    assert content.count("confflow-1.5.3-*.whl") == 2
+    assert content.count("confflow.__version__ == '1.5.3'") == 2
 
 
 def test_optional_coverage_uses_the_same_released_wheel():
     """The optional Linux job must not silently exercise an older producer."""
     content = _read(".github/workflows/optional-coverage.yml")
-    assert content.count("ref: v1.4.6") == 1
-    assert content.count("gh release download v1.4.6") == 1
-    assert content.count("confflow-1.4.6-*.whl") == 1
-    assert "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5" in content
-    assert "confflow.__version__ == '1.4.6'" in content
+    assert content.count("ref: v1.5.3") == 1
+    assert content.count("gh release download v1.5.3") == 1
+    assert content.count("confflow-1.5.3-*.whl") == 1
+    assert "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6" in content
+    assert "confflow.__version__ == '1.5.3'" in content
+
+
+def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
+    """The candidate matrix must not silently drift from its wheel digests."""
+    content = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    assert "version: 1.5.3" in content
+    assert "version: 1.5.0" in content
+    assert f"wheel_sha256: {REFERENCE_WHEEL_SHA256}" in content
+    assert "wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc" in content
+    assert "EXPECTED_WHEEL_SHA256" in content
+    assert "pinned build provenance is not clean" in content
+    assert "producer/consumer schema drift" in content
+    assert 'python -m pip install "$wheel"' in content
+    assert 'pip install --no-deps "$wheel"' not in content
+    assert 'python-version: "3.13"' in content
+    assert "validate_confflow_capabilities(capabilities, require_dag=False)" in content
 
 
 def test_readme_states_version_spec():
     """README must state the version spec and the v4 schema."""
     content = _read("README.md")
-    assert "confflow>=1.4.6,<2.0" in content
+    assert "confflow>=1.5,<2.0" in content
     assert "1.4.1" not in content
     assert "schema_version=4" in content
     assert "run_summary.json" in content
@@ -98,7 +115,7 @@ def test_readme_states_version_spec():
 def test_deployment_doc_mirrors_version_and_capability_contract():
     """The deployment guide must mirror the structured version contract."""
     content = _read("docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md")
-    assert "confflow-1.4.6-py3-none-any.whl" in content
+    assert "confflow-1.5.3-py3-none-any.whl" in content
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content
@@ -111,8 +128,8 @@ def test_preflight_module_has_no_bare_version_literal():
     structured tuple, not from a string literal.
     """
     content = _read("src/jobdesk_app/core/confflow_preflight.py")
-    assert "1.4.6" not in content, (
-        "confflow_preflight.py must not contain the bare literal '1.4.6'; "
+    assert "1.5.0" not in content, (
+        "confflow_preflight.py must not contain the bare literal '1.5.0'; "
         "it must source the spec from MIN_VERSION/MAX_EXCLUSIVE."
     )
     assert "2.0.0" not in content, (

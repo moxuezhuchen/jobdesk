@@ -7,13 +7,20 @@ import pytest
 from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
+    LEGACY_REFERENCE_BUILD_COMMIT,
+    LEGACY_REFERENCE_VERSION,
+    LEGACY_REFERENCE_WHEEL_FILENAME,
+    LEGACY_REFERENCE_WHEEL_SHA256,
     MIN_VERSION,
+    REFERENCE_VERSION,
     REQUIRED_COMMANDS,
+    version_spec,
 )
 from jobdesk_app.core.confflow_preflight import (
     ConfFlowCapabilities,
     parse_confflow_capabilities,
     validate_confflow_capabilities,
+    validate_confflow_production_capability,
 )
 
 
@@ -62,6 +69,58 @@ def test_parse_and_validate_supported_capabilities():
         build={"commit": "abc1234", "dirty": False},
     )
     validate_confflow_capabilities(capabilities, require_dag=True)
+
+
+def test_parser_reads_optional_control_worker_capability():
+    payload = json.loads(_payload())
+    payload["capabilities"]["control_worker"] = True
+
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+
+    assert capabilities.control_worker is True
+
+
+def test_parser_rejects_non_boolean_control_worker_capability():
+    payload = json.loads(_payload())
+    payload["capabilities"]["control_worker"] = "yes"
+
+    with pytest.raises(ValueError, match="control_worker must be boolean"):
+        parse_confflow_capabilities(json.dumps(payload))
+
+
+def test_capability_positional_artifact_argument_remains_compatible():
+    capabilities = ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, True, EXPECTED_ARTIFACTS)
+
+    assert capabilities.artifacts == EXPECTED_ARTIFACTS
+    assert capabilities.control_worker is False
+
+
+def test_legacy_stable_is_allowed_only_for_legacy_provenance_path():
+    payload = json.loads(_payload())
+    payload["version"] = LEGACY_REFERENCE_VERSION
+    payload["build"] = {"commit": LEGACY_REFERENCE_BUILD_COMMIT, "dirty": False}
+    payload["producer"] = {
+        "package": "confflow",
+        "version": LEGACY_REFERENCE_VERSION,
+        "build": {"commit": LEGACY_REFERENCE_BUILD_COMMIT, "dirty": False},
+        "wheel": {
+            "filename": LEGACY_REFERENCE_WHEEL_FILENAME,
+            "sha256": LEGACY_REFERENCE_WHEEL_SHA256,
+        },
+        "install_provenance": {"status": "verified"},
+    }
+    payload["executable"] = {
+        "path": "/opt/confflow/bin/confflow",
+        "sha256": "a" * 64,
+        "python": "/opt/confflow/bin/python3.12",
+    }
+    capabilities = parse_confflow_capabilities(json.dumps(payload))
+
+    with pytest.raises(ValueError, match=version_spec()):
+        validate_confflow_capabilities(capabilities, require_dag=True)
+    validate_confflow_capabilities(capabilities, require_dag=True, allow_legacy_stable=True)
+    identity = validate_confflow_production_capability(capabilities, allow_legacy_stable=True)
+    assert identity["path"] == "/opt/confflow/bin/confflow"
 
 
 @pytest.mark.parametrize(
@@ -121,7 +180,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(4, "1.4.6", True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "requires an artifacts block",
         ),
@@ -129,7 +188,7 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         (
             ConfFlowCapabilities(
                 4,
-                "1.4.6",
+                REFERENCE_VERSION,
                 True,
                 True,
                 True,
@@ -147,19 +206,19 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         (
             ConfFlowCapabilities(4, "1.4.4", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.6",
+            version_spec(),
         ),
         # Schema==2 but version is 1.4.2 prerelease → rejected.
         (
             ConfFlowCapabilities(4, "1.4.6-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.6",
+            version_spec(),
         ),
         # Schema==2 but version is >= MAX_EXCLUSIVE.
         (
             ConfFlowCapabilities(4, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
-            "1.4.6",
+            version_spec(),
         ),
         # Schema==2 but version is malformed.
         (
@@ -169,17 +228,17 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(4, "1.4.6", False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, REFERENCE_VERSION, False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.6", True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, REFERENCE_VERSION, True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(4, "1.4.6", True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             True,
             "dag",
         ),

@@ -1,0 +1,182 @@
+name: ConfFlow Compatibility Matrix
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  producer-matrix:
+    name: JobDesk with ConfFlow ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: stable
+            version: 1.5.3
+            wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
+            control_worker: true
+          - label: historical-v1.5.0
+            version: 1.5.0
+            wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc
+            control_worker: false
+    steps:
+      - name: Check out JobDesk
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # JobDesk's dev extra uses numpy<2 on Python 3.12, while the
+          # producer release requires numpy>=2.2.6. Python 3.13 selects the
+          # compatible numpy>=2.1,<2.4 branch for both repositories.
+          python-version: "3.13"
+
+      - name: Install Linux Qt runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1
+
+      - name: Install JobDesk test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Download and verify the exact producer wheel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/confflow-dist"
+          gh release download "v${{ matrix.version }}" \
+            --repo moxuezhuchen/ConfFlow \
+            --pattern "confflow-${{ matrix.version }}-py3-none-any.whl" \
+            --dir "$RUNNER_TEMP/confflow-dist"
+          wheel="$RUNNER_TEMP/confflow-dist/confflow-${{ matrix.version }}-py3-none-any.whl"
+          test -f "$wheel"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = "${{ matrix.wheel_sha256 }}"
+          # Install the producer runtime dependencies as well as the exact
+          # wheel; the capability CLI imports the normal workflow modules.
+          python -m pip install "$wheel"
+
+      - name: Verify capability contract
+        env:
+          EXPECTED_VERSION: ${{ matrix.version }}
+          EXPECTED_WHEEL_SHA256: ${{ matrix.wheel_sha256 }}
+          EXPECTED_CONTROL_WORKER: ${{ matrix.control_worker }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          from jobdesk_app.core.confflow_preflight import (
+              parse_confflow_capabilities,
+              validate_confflow_capabilities,
+          )
+
+          raw = subprocess.check_output(["confflow", "--capabilities", "--json"], text=True)
+          payload = json.loads(raw)
+          capabilities = parse_confflow_capabilities(raw)
+          validate_confflow_capabilities(capabilities, require_dag=False)
+          expected = os.environ["EXPECTED_VERSION"]
+          expected_wheel_sha = os.environ["EXPECTED_WHEEL_SHA256"]
+          if capabilities.version != expected:
+              raise AssertionError(
+                  f"capability version {capabilities.version!r} != wheel version {expected!r}"
+              )
+          build = payload.get("build")
+          if (
+              not isinstance(build, dict)
+              or not isinstance(build.get("commit"), str)
+              or re.fullmatch(r"[0-9a-f]{40}", build["commit"]) is None
+              or build.get("dirty") is not False
+          ):
+              raise AssertionError(f"pinned build provenance is not clean: {build!r}")
+          producer = payload.get("producer")
+          if not isinstance(producer, dict) or producer.get("package") != "confflow":
+              raise AssertionError(f"pinned producer provenance is malformed: {producer!r}")
+          if producer.get("version") != expected or producer.get("build") != build:
+              raise AssertionError(f"pinned producer/build provenance drift: {producer!r}")
+          wheel_provenance = producer.get("wheel")
+          if not isinstance(wheel_provenance, dict):
+              raise AssertionError(f"pinned wheel provenance is malformed: {wheel_provenance!r}")
+          expected_wheel_name = f"confflow-{expected}-py3-none-any.whl"
+          wheel_name = wheel_provenance.get("filename")
+          wheel_sha = wheel_provenance.get("sha256")
+          if wheel_name is not None and wheel_name != expected_wheel_name:
+              raise AssertionError(f"pinned wheel filename drift: {wheel_provenance!r}")
+          if wheel_sha is not None and wheel_sha != expected_wheel_sha:
+              raise AssertionError(f"pinned wheel digest drift: {wheel_provenance!r}")
+          install_provenance = payload.get("install_provenance") or producer.get("install_provenance")
+          if not isinstance(install_provenance, dict):
+              raise AssertionError("pinned install provenance block is missing")
+
+          actual_control_worker = (
+              payload.get("capabilities", {}).get("control_worker") is True
+          )
+          expected_control_worker = os.environ["EXPECTED_CONTROL_WORKER"].lower() == "true"
+          if actual_control_worker != expected_control_worker:
+              raise AssertionError(
+                  f"control_worker capability {actual_control_worker!r} != "
+                  f"matrix expectation {expected_control_worker!r}"
+              )
+
+          schema_root = Path(sys.prefix) / "share" / "confflow" / "control_protocol" / "v1"
+          consumer_schema_root = Path("confflow") / "schemas" / "control"
+          required = (
+              "common.schema.json",
+              "requests.schema.json",
+              "responses.schema.json",
+              "input-manifest.schema.json",
+          )
+          if expected_control_worker:
+              # v1.5.3 adds the producer-owned worker handoff as a fifth
+              # release member; historical v1.5.0 has only the four-file core.
+              required += ("worker-handoff.schema.json",)
+          for name in required:
+              producer_path = schema_root / name
+              consumer_path = consumer_schema_root / name
+              if not producer_path.is_file() or not consumer_path.is_file():
+                  raise AssertionError(f"schema bundle member is missing: {producer_path} / {consumer_path}")
+              producer_schema = json.loads(producer_path.read_text(encoding="utf-8"))
+              consumer_schema = json.loads(consumer_path.read_text(encoding="utf-8"))
+              producer_canonical = json.dumps(
+                  producer_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              consumer_canonical = json.dumps(
+                  consumer_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              if producer_canonical != consumer_canonical:
+                  raise AssertionError(f"producer/consumer schema drift in {name}")
+          print(
+              json.dumps(
+                  {
+                      "version": capabilities.version,
+                      "build_commit": build["commit"],
+                      "install_provenance": install_provenance.get("status"),
+                      "schema_members": list(required),
+                      "wire_contract": "accepted",
+                  }
+              )
+          )
+          PY
+
+      - name: Run protocol and facade contract tests
+        run: |
+          python -m pytest -q \
+            tests/test_confflow_preflight.py \
+            tests/test_confflow_results.py \
+            tests/test_control_protocol_schemas.py \
+            tests/test_confflow_control_backend.py \
+            tests/test_confflow_launcher_integration.py

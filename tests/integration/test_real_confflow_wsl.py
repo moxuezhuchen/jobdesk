@@ -97,6 +97,7 @@ def test_real_confflow_batch_two_molecules(tmp_path):
             xyz_paths=[f"{remote_dir}/water.xyz", f"{remote_dir}/methane.xyz"],
             config_path=f"{remote_dir}/confflow.yaml",
             max_parallel=2,
+            confflow_executable=str(getattr(server, "confflow_executable", "") or ""),
         )
         assert len(spec.sources) == 2
         assert spec.max_parallel == 2

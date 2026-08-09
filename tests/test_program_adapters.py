@@ -30,6 +30,21 @@ def test_confflow_adapter_builds_one_run_task_with_config_and_summary_outputs():
     ]
 
 
+def test_confflow_adapter_preserves_explicit_server_executable():
+    spec = ConfFlowAdapter.build_spec(
+        server_id="wsl",
+        remote_dir="/tmp/jobdesk",
+        xyz_paths=["/tmp/jobdesk/water.xyz"],
+        config_path="/tmp/jobdesk/confflow.yaml",
+        confflow_executable="/opt/confflow/bin/confflow",
+    )
+
+    task = build_run_plan(spec, run_id="pinned-executable").tasks[0]
+    assert task.confflow_executable == "/opt/confflow/bin/confflow"
+    assert " && /opt/confflow/bin/confflow " in task.command
+    assert " && confflow " not in task.command
+
+
 def test_confflow_adapter_batch_multiple_xyz_shared_yaml():
     spec = ConfFlowAdapter.build_spec(
         server_id="wsl",

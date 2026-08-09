@@ -27,6 +27,10 @@ from packaging.version import InvalidVersion, Version
 from .confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
+    LEGACY_REFERENCE_BUILD_COMMIT,
+    LEGACY_REFERENCE_VERSION,
+    LEGACY_REFERENCE_WHEEL_FILENAME,
+    LEGACY_REFERENCE_WHEEL_SHA256,
     MAX_EXCLUSIVE,
     MIN_VERSION,
     REFERENCE_BUILD_COMMIT,
@@ -62,6 +66,9 @@ class ConfFlowCapabilities:
     producer: dict[str, object] | None = field(default=None, compare=False)
     executable: dict[str, object] | None = field(default=None, compare=False)
     raw_payload: dict[str, object] | None = field(default=None, compare=False, repr=False)
+    # Optional producer-candidate capability. The pinned stable release omits
+    # this field; absence must remain false so stable negotiation is unchanged.
+    control_worker: bool = False
 
 
 def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
@@ -96,6 +103,9 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         if type(value) is not bool:
             raise ValueError(f"ConfFlow capability {name} must be boolean")
         parsed[name] = value
+    control_worker = capability_values.get("control_worker", False)
+    if type(control_worker) is not bool:
+        raise ValueError("ConfFlow capability control_worker must be boolean")
 
     artifacts = _parse_artifacts(payload.get("artifacts"))
     commands = _parse_commands(payload.get("commands"))
@@ -109,6 +119,7 @@ def parse_confflow_capabilities(stdout: str) -> ConfFlowCapabilities:
         workflow_state=parsed["workflow_state"],
         resume=parsed["resume"],
         dag=parsed["dag"],
+        control_worker=control_worker,
         artifacts=artifacts,
         commands=commands,
         build=build,
@@ -227,12 +238,19 @@ def _parse_artifacts(raw: object) -> ConfFlowArtifactContract | None:
         return None
 
 
-def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, require_dag: bool) -> None:
+def validate_confflow_capabilities(
+    capabilities: ConfFlowCapabilities,
+    *,
+    require_dag: bool,
+    allow_legacy_stable: bool = False,
+) -> None:
     """Fail closed unless the remote supports JobDesk's workflow contract.
 
     The schema check fires first: v1 payloads are rejected outright,
     even when ``artifacts`` is ``None``, so there is no soft path
-    through the validator.
+    through the validator. ``allow_legacy_stable`` is reserved for the
+    compatibility-period backend probe and admits only the exact v1.4.6
+    stable release so backend negotiation can select legacy.
     """
     spec = version_spec()
     if capabilities.schema_version != CAPABILITY_SCHEMA_VERSION:
@@ -253,7 +271,9 @@ def validate_confflow_capabilities(capabilities: ConfFlowCapabilities, *, requir
     version = _parse_version(capabilities.version)
     core = version.release
     prerelease = version.is_prerelease
-    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT):
+    legacy_core = _parse_version(LEGACY_REFERENCE_VERSION).release
+    legacy_allowed = allow_legacy_stable and core == legacy_core and not prerelease
+    if (core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT)) and not legacy_allowed:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
     if core >= MAX_EXCLUSIVE:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
@@ -282,6 +302,7 @@ def validate_confflow_production_capability(
     capabilities: ConfFlowCapabilities,
     *,
     expected_executable: str | None = None,
+    allow_legacy_stable: bool = False,
 ) -> dict[str, object]:
     """Require the exact clean, attested Gate B producer identity.
 
@@ -293,15 +314,27 @@ def validate_confflow_production_capability(
     Returns the executable identity fields used by the submitter's second
     remote probe and by the immutable runner guard.
     """
-    validate_confflow_capabilities(capabilities, require_dag=False)
+    validate_confflow_capabilities(
+        capabilities,
+        require_dag=False,
+        allow_legacy_stable=allow_legacy_stable,
+    )
     payload = capabilities.raw_payload
     if not isinstance(payload, dict):
         raise ValueError("ConfFlow production capability requires raw provenance")
-    if capabilities.version != REFERENCE_VERSION:
-        raise ValueError("ConfFlow production version does not match the approved release")
+    if capabilities.version == REFERENCE_VERSION:
+        approved_commit = REFERENCE_BUILD_COMMIT
+        approved_wheel_filename = REFERENCE_WHEEL_FILENAME
+        approved_wheel_sha256 = REFERENCE_WHEEL_SHA256
+    elif allow_legacy_stable and capabilities.version == LEGACY_REFERENCE_VERSION:
+        approved_commit = LEGACY_REFERENCE_BUILD_COMMIT
+        approved_wheel_filename = LEGACY_REFERENCE_WHEEL_FILENAME
+        approved_wheel_sha256 = LEGACY_REFERENCE_WHEEL_SHA256
+    else:
+        raise ValueError("ConfFlow production version does not match an approved release")
 
     build = capabilities.build or {}
-    if build.get("commit") != REFERENCE_BUILD_COMMIT:
+    if build.get("commit") != approved_commit:
         raise ValueError("ConfFlow production build commit does not match the approved release")
     if build.get("dirty") is not False:
         raise ValueError("ConfFlow production build must be clean")
@@ -312,7 +345,7 @@ def validate_confflow_production_capability(
     producer_build = producer.get("build")
     if not isinstance(producer_build, dict):
         raise ValueError("ConfFlow production capability requires producer build provenance")
-    if producer_build.get("commit") != REFERENCE_BUILD_COMMIT:
+    if producer_build.get("commit") != approved_commit:
         raise ValueError("ConfFlow producer build commit does not match the approved release")
     if producer_build.get("dirty") is not False:
         raise ValueError("ConfFlow producer build must be clean")
@@ -320,9 +353,9 @@ def validate_confflow_production_capability(
     wheel = producer.get("wheel")
     if not isinstance(wheel, dict):
         raise ValueError("ConfFlow production capability requires wheel provenance")
-    if wheel.get("filename") != REFERENCE_WHEEL_FILENAME:
+    if wheel.get("filename") != approved_wheel_filename:
         raise ValueError("ConfFlow producer wheel filename does not match the approved release")
-    if wheel.get("sha256") != REFERENCE_WHEEL_SHA256:
+    if wheel.get("sha256") != approved_wheel_sha256:
         raise ValueError("ConfFlow producer wheel digest does not match the approved release")
 
     install_provenance = payload.get("install_provenance")
@@ -343,12 +376,13 @@ def validate_confflow_production_capability(
         raise ValueError("ConfFlow executable does not match the configured production path")
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-fA-F]{64}", digest) is None:
         raise ValueError("ConfFlow executable digest is missing or malformed")
-    expected_python = f"{path.rsplit('/', 1)[0]}/python3.12"
+    python_dir = path.rsplit("/", 1)[0]
+    expected_pythons = {f"{python_dir}/python", f"{python_dir}/python3.12"}
     if (
         not isinstance(python_executable, str)
         or not python_executable.startswith("/")
         or any(char in python_executable for char in "\x00\r\n")
-        or python_executable != expected_python
+        or python_executable not in expected_pythons
     ):
         raise ValueError("ConfFlow executable Python path does not match the controlled Python 3.12 virtual environment")
 

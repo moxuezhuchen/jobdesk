@@ -50,8 +50,8 @@ class SSHControlTransport(ControlTransport):
         return parse_capabilities(result.stdout, exit_code=result.exit_code, stderr=result.stderr)
 
     def prepare(self, request: dict[str, object]) -> ControlSnapshot:
-        run_id = _required_string(request, "run_id")
-        key = _required_string(request, "idempotency_key")
+        run_id = _safe_request_component(_required_string(request, "run_id"), "run_id")
+        key = _safe_request_component(_required_string(request, "idempotency_key"), "idempotency_key")
         request_path = posixpath.join(self.state_root, "jobdesk-requests", f"{run_id}-{key}.json")
         self._sftp.mkdir_p(posixpath.dirname(request_path))
         with tempfile.TemporaryDirectory(prefix="jobdesk-control-") as temp_dir:
@@ -68,7 +68,13 @@ class SSHControlTransport(ControlTransport):
                     self._sftp.remove_file(request_path)
                 except Exception:
                     pass
-        return parse_snapshot_response("prepare", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            "prepare",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def execute(self, run_id: str) -> ControlSnapshot:
         return self._snapshot("execute", run_id)
@@ -82,7 +88,13 @@ class SSHControlTransport(ControlTransport):
             "events",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}{suffix}",
         )
-        return parse_events_response("events", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_events_response(
+            "events",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def cancel(self, run_id: str) -> ControlSnapshot:
         return self._snapshot("cancel", run_id)
@@ -93,21 +105,39 @@ class SSHControlTransport(ControlTransport):
             "resume",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}{suffix}",
         )
-        return parse_snapshot_response("resume", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            "resume",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def artifacts(self, run_id: str) -> ControlArtifactManifest:
         result = self._run(
             "artifacts",
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}",
         )
-        return parse_artifacts_response("artifacts", result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_artifacts_response(
+            "artifacts",
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def _snapshot(self, operation: str, run_id: str) -> ControlSnapshot:
         result = self._run(
             operation,
             f"--state-root {shlex.quote(self.state_root)} --run-id {shlex.quote(run_id)}",
         )
-        return parse_snapshot_response(operation, result.stdout, exit_code=result.exit_code, stderr=result.stderr)
+        return parse_snapshot_response(
+            operation,
+            result.stdout,
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            expected_run_id=run_id,
+        )
 
     def _run(self, operation: str, options: str = ""):
         command = f"{quote_confflow_executable(self._executable)} control {operation} {options} --json".strip()
@@ -137,9 +167,29 @@ def build_control_execute_command(executable: str | None, state_root: str, run_i
     )
 
 
+def build_control_worker_command(
+    worker_executable: str | None,
+    state_root: str,
+    run_id: str,
+    handoff_path: str,
+) -> str:
+    """Build the producer-owned external worker handoff command."""
+    state_root = _absolute_remote_path(state_root, "state_root")
+    handoff_path = _absolute_remote_path(handoff_path, "handoff_path")
+    run_id = _safe_launcher_run_id(run_id)
+    return (
+        f"{quote_confflow_executable(worker_executable)}"
+        f" --state-root {shlex.quote(state_root)}"
+        f" --run-id {shlex.quote(run_id)}"
+        f" --handoff {shlex.quote(handoff_path)} --json"
+    )
+
+
 def build_control_launcher_script(
     *,
     executable: str | None,
+    worker_executable: str | None,
+    handoff_path: str,
     state_root: str,
     run_id: str,
     metadata_path: str,
@@ -147,16 +197,21 @@ def build_control_launcher_script(
     resources: ResourceSpec,
     env_init_scripts: Iterable[str] = (),
 ) -> str:
-    """Build a scheduler script that only dispatches an existing control producer.
+    """Build a scheduler script for execute followed by the producer worker.
 
     The marker is written before the producer command so a lost submit response
-    can be reconciled without submitting the same producer request twice.
+    can be reconciled without submitting the same producer request twice. The
+    producer worker is launched through ``setsid`` so its lease records a
+    dedicated process session, which is required for crash recovery.
     """
     state_root = _absolute_remote_path(state_root, "state_root")
+    handoff_path = _absolute_remote_path(handoff_path, "handoff_path")
     metadata_path = _absolute_remote_path(metadata_path, "metadata_path")
     run_id = _safe_launcher_run_id(run_id)
     scheduler = (scheduler_type or "nohup").lower()
-    command = build_control_execute_command(executable, state_root, run_id)
+    execute_command = build_control_execute_command(executable, state_root, run_id)
+    worker_command = build_control_worker_command(worker_executable, state_root, run_id, handoff_path)
+    command = f"{execute_command} && setsid --wait {worker_command}"
     marker = json.dumps(
         {
             "content_schema": "jobdesk.confflow.launcher.v1",
@@ -166,6 +221,10 @@ def build_control_launcher_script(
             "pid": "__JOBDESK_PID__",
             "command": command,
             "state_root": state_root,
+            "execution_state": "started",
+            "execute_rc": None,
+            "worker_rc": None,
+            "worker_started": False,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -192,7 +251,37 @@ def build_control_launcher_script(
             'marker=${marker//__JOBDESK_PID__/$$}',
             f"printf '%s\\n' \"$marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
-            build_confflow_preflight_shell(command, env_init_scripts),
+            "set +e",
+            build_confflow_preflight_shell(execute_command, env_init_scripts),
+            "execute_rc=$?",
+            "set -e",
+            'worker_rc=""',
+            'if [ "$execute_rc" -eq 0 ]; then',
+            '  old_worker_fragment=\'"worker_rc":null,"worker_started":false\'',
+            '  new_worker_fragment=\'"worker_rc":null,"worker_started":true\'',
+            '  started_marker="${marker//$old_worker_fragment/$new_worker_fragment}"',
+            f"  printf '%s\\n' \"$started_marker\" > {tmp_q}",
+            f"  mv -f {tmp_q} {metadata_q}",
+            '  marker="$started_marker"',
+            "  set +e",
+            build_confflow_preflight_shell(f"setsid --wait {worker_command}", env_init_scripts),
+            "  worker_rc=$?",
+            "  set -e",
+            '  execution_state="completed"',
+            'else',
+            '  worker_rc=""',
+            '  execution_state="failed"',
+            'fi',
+            "old_fragment='\"execute_rc\":null,\"execution_state\":\"started\"'",
+            "new_fragment='\"execute_rc\":'\"$execute_rc\"',\"execution_state\":\"'\"$execution_state\"'\"'",
+            'completed_marker="${marker//$old_fragment/$new_fragment}"',
+            'if [ "$execute_rc" -eq 0 ]; then',
+            "  old_worker_rc='\"worker_rc\":null'",
+            "  new_worker_rc='\"worker_rc\":'\"$worker_rc\"''",
+            '  completed_marker="${completed_marker//$old_worker_rc/$new_worker_rc}"',
+            'fi',
+            f"printf '%s\\n' \"$completed_marker\" > {tmp_q}",
+            f"mv -f {tmp_q} {metadata_q}",
             "",
         ]
     )
@@ -212,6 +301,19 @@ def _required_string(value: dict[str, object], key: str) -> str:
     return result
 
 
+def _safe_request_component(value: str, label: str) -> str:
+    """Keep producer request identifiers inside the isolated request directory."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 128
+        or not value[0].isalnum()
+        or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for char in value)
+    ):
+        raise ValueError(f"{label} must match the producer request identifier pattern")
+    return value
+
+
 def _looks_like_unsupported_capability(stderr: str, stdout: str) -> bool:
     diagnostic = f"{stderr}\n{stdout}".lower()
     return any(
@@ -228,14 +330,13 @@ def _looks_like_unsupported_capability(stderr: str, stdout: str) -> bool:
 
 
 def _safe_launcher_run_id(run_id: str) -> str:
-    if not isinstance(run_id, str) or not run_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in run_id):
-        raise ValueError("run_id must contain only letters, numbers, underscores, and hyphens")
-    return run_id
+    return _safe_request_component(run_id, "run_id")
 
 
 __all__ = [
     "SSHControlTransport",
     "build_control_execute_command",
+    "build_control_worker_command",
     "build_control_launcher_script",
     "resolve_control_state_root",
 ]

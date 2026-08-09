@@ -18,15 +18,17 @@ Structured version source of truth
 ``version_spec()`` derives the human-readable spec from. Every other
 surface (pyproject pin, CI wheel pin, README, validator error messages)
 must be a *mirror* of these tuples; never a free-floating literal.
+The legacy preflight has one explicit exception for the provenance-verified
+v1.4.6 rollback release; that exception is never used for control submission.
 
 Reference build artefact
 ------------------------
-The ConfFlow v1.4.6 wheel released from the clean tagged producer commit
+The ConfFlow v1.5.3 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-1.4.6-py3-none-any.whl
-    sha256: 7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5
-    commit: 4e9e74a8991338aec0f393182073c8c087b4fa63
+    confflow-1.5.3-py3-none-any.whl
+    sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
+    commit: f37759954da2818d777ec4d06f81bd53aeafe6e3
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -58,6 +60,10 @@ __all__ = [
     "REFERENCE_BUILD_COMMIT",
     "REFERENCE_WHEEL_FILENAME",
     "REFERENCE_WHEEL_SHA256",
+    "LEGACY_REFERENCE_VERSION",
+    "LEGACY_REFERENCE_BUILD_COMMIT",
+    "LEGACY_REFERENCE_WHEEL_FILENAME",
+    "LEGACY_REFERENCE_WHEEL_SHA256",
     "version_spec",
     "RUN_REPORT_FILE",
     "RUN_MIN_XYZ_TEMPLATE",
@@ -127,12 +133,20 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # Structured version source of truth. Any change here must be mirrored
 # into pyproject.toml's confflow pin, CI's checkout ref + wheel glob,
 # docs, and the package's expected reference build.
-MIN_VERSION: tuple[int, int, int] = (1, 4, 6)
+MIN_VERSION: tuple[int, int, int] = (1, 5, 0)
 MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
-REFERENCE_VERSION: str = "1.4.6"
-REFERENCE_BUILD_COMMIT: str = "4e9e74a8991338aec0f393182073c8c087b4fa63"
-REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.6-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5"
+REFERENCE_VERSION: str = "1.5.3"
+REFERENCE_BUILD_COMMIT: str = "f37759954da2818d777ec4d06f81bd53aeafe6e3"
+REFERENCE_WHEEL_FILENAME: str = "confflow-1.5.3-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6"
+
+# The last released legacy producer remains an explicit rollback target during
+# the v1.5.3 compatibility period. It is accepted only by the legacy submit
+# preflight; control-mode production still requires the exact reference above.
+LEGACY_REFERENCE_VERSION: str = "1.4.6"
+LEGACY_REFERENCE_BUILD_COMMIT: str = "4e9e74a8991338aec0f393182073c8c087b4fa63"
+LEGACY_REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.6-py3-none-any.whl"
+LEGACY_REFERENCE_WHEEL_SHA256: str = "7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5"
 
 
 def _format_version_tuple(version: tuple[int, int, int]) -> str:
@@ -140,7 +154,7 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 
     Trailing ``.0`` segments are stripped *except* the trailing one,
     so ``(2, 0, 0)`` renders as ``2.0`` (PEP 440 normal form) and
-    ``(1, 4, 6)`` renders as ``1.4.6``. We never render a single
+    ``(1, 5, 0)`` renders as ``1.5``. We never render a single
     major-only version because it would collapse e.g. ``(1, 4, 0)``
     into ``1`` which PEP 440 parses as ``1.0.0`` and round-trips
     silently.
@@ -154,6 +168,6 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 def version_spec() -> str:
     """Return the human-readable PEP 440 spec derived from MIN/MAX.
 
-    Example: ``version_spec() == ">=1.4.6,<2.0"``.
+    Example: ``version_spec() == ">=1.5,<2.0"``.
     """
     return f">={_format_version_tuple(MIN_VERSION)},<{_format_version_tuple(MAX_EXCLUSIVE)}"

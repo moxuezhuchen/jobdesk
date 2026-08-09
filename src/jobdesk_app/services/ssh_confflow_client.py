@@ -31,7 +31,10 @@ from jobdesk_app.core.confflow_executable import (
     build_executable_identity_probe,
     parse_executable_identity_probe,
 )
-from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
+from jobdesk_app.core.confflow_preflight import (
+    ConfFlowCapabilities,
+    validate_confflow_production_capability,
+)
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError, build_confflow_preflight_shell
@@ -57,6 +60,7 @@ from jobdesk_app.services.ssh_confflow_control import (
     SSHControlTransport,
     build_control_execute_command,
     build_control_launcher_script,
+    build_control_worker_command,
     resolve_control_state_root,
 )
 
@@ -198,6 +202,7 @@ class SSHConfFlowClient:
 
     def _submit_control(self, request: SubmitRequest, record: Any, state: dict[str, object] | None):
         try:
+            retrying_failed_dispatch = False
             if state is not None:
                 state = self._reconcile_control_dispatch(record, state)
                 dispatch_state = state.get("dispatch_state")
@@ -216,6 +221,7 @@ class SSHConfFlowClient:
                     raise ConfFlowClientError(
                         "control launcher dispatch is unresolved; refusing duplicate submission"
                     )
+                retrying_failed_dispatch = dispatch_state == "failed"
             tasks = self._coordinator.service.repository.load_tasks(request.run_id)
             capability = self._selected_capability
             if capability is None and state is not None:
@@ -224,21 +230,84 @@ class SSHConfFlowClient:
             state_locator = _state_locator(state) or self._selected_state_locator
             if not state_locator:
                 raise ConfFlowClientError("control backend has no durable producer state locator")
+            if retrying_failed_dispatch:
+                # A launcher can fail after the producer has already consumed
+                # the execute intent.  The producer's prepare response is
+                # required to remain ``prepared``, so blindly preparing again
+                # would turn a retry into a protocol error or duplicate work.
+                with self._control_session(request.run_id, state_locator, need_sftp=False) as (
+                    transport,
+                    _sftp,
+                    _ssh,
+                ):
+                    producer_snapshot = transport.status(request.run_id)
+                if producer_snapshot.state != "prepared":
+                    raise ConfFlowClientError(
+                        "control launcher failed after producer reached "
+                        f"{producer_snapshot.state}; refusing duplicate prepare"
+                    )
             if not producer_identity:
                 if capability is None:
                     raise ConfFlowClientError("control backend has no accepted producer identity")
                 producer_identity = self._measure_control_identity(capability)
 
-            input_manifest = _input_manifest(record, tasks)
-            input_manifest_bytes = _canonical_json(input_manifest)
-            input_digest = hashlib.sha256(input_manifest_bytes).hexdigest()
+            if not _control_worker_enabled(capability, state):
+                raise ConfFlowClientError(
+                    "control backend requires the producer-owned worker-handoff capability"
+                )
+            if len(tasks) != 1:
+                raise ConfFlowClientError(
+                    "control worker handoff supports exactly one task; split the JobDesk batch before prepare"
+                )
+            task = tasks[0]
+            producer_executable = self._launcher_executable(record, state or {}, tasks)
+            worker_executable = (
+                _state_worker_executable(state) or _worker_executable_for(producer_executable)
+            )
             workflow_path = _workflow_config_path(tasks)
-            workflow_digest = self._remote_digest(request.run_id, state_locator, workflow_path)
+            if state is None:
+                state_locator = _worker_state_root(state_locator, request.run_id)
+                worker_attempt_root = posixpath.dirname(state_locator)
+                worker_input_dir = posixpath.join(worker_attempt_root, "input")
+                worker_results_dir = posixpath.join(worker_attempt_root, "results")
+                worker_input_path = posixpath.join(worker_input_dir, task.remote_task_files[0])
+                worker_work_dir = posixpath.join(
+                    worker_results_dir, _worker_work_dir_name(task)
+                )
+                worker_handoff_path = posixpath.join(worker_input_dir, "worker-handoff.json")
+                workflow_digest = self._remote_digest(request.run_id, state_locator, workflow_path)
+                input_digest = self._remote_digest(
+                    request.run_id, state_locator, _remote_input_path(task)
+                )
+                worker_handoff = _worker_handoff(
+                    run_id=request.run_id,
+                    workflow_path=posixpath.join(worker_attempt_root, "input", "workflow.yaml"),
+                    workflow_digest=workflow_digest,
+                    input_path=worker_input_path,
+                    input_digest=input_digest,
+                    work_dir=worker_work_dir,
+                    task_id=task.task_id,
+                )
+            else:
+                worker_handoff = _state_worker_handoff(state)
+                worker_handoff_path = _state_worker_handoff_path(state)
+                worker_attempt_root = _state_worker_attempt_root(state)
+                worker_work_dir = _state_worker_work_dir(state)
+                worker_input_path = _state_worker_input_path(worker_handoff)
+                if not all(
+                    isinstance(value, str) and value.startswith("/")
+                    for value in (worker_handoff_path, worker_attempt_root, worker_work_dir)
+                ):
+                    raise ConfFlowClientError("control state has incomplete worker-handoff paths")
+                workflow_digest = _worker_handoff_digest(worker_handoff, "workflow_config")
+                input_digest = _worker_handoff_digest(worker_handoff, "tasks")
+            input_manifest_bytes = _canonical_json(worker_handoff)
+            input_digest = hashlib.sha256(input_manifest_bytes).hexdigest()
             request_frame = build_prepare_request(
                 run_id=request.run_id,
                 idempotency_key=_state_key(state, request.run_id),
-                workflow_config={"path": PurePosixPath(workflow_path).name, "sha256": workflow_digest},
-                input_manifest={"path": "input-manifest.json", "sha256": input_digest},
+                workflow_config={"path": "workflow.yaml", "sha256": workflow_digest},
+                input_manifest={"path": "worker-handoff.json", "sha256": input_digest},
                 expected_executable_identity=_control_expected_identity(producer_identity),
             )
             if state is not None and state.get("request_digest") not in {None, request_frame["request_digest"]}:
@@ -254,15 +323,31 @@ class SSHConfFlowClient:
                     snapshot=ControlSnapshot(request.run_id, 0, "prepared"),
                     previous=None,
                     workflow_path=workflow_path,
-                    input_path=posixpath.join(record.remote_dir, ".jobdesk-control", "input-manifest.json"),
+                    input_path=worker_handoff_path,
+                    worker_handoff=worker_handoff,
+                    worker_attempt_root=worker_attempt_root,
+                    worker_work_dir=worker_work_dir,
+                    worker_executable=worker_executable,
                 )
                 save_state(self._coordinator.service, request.run_id, state)
 
             with self._control_session(request.run_id, state_locator, need_sftp=True) as (transport, sftp, ssh):
                 if sftp is None:
                     raise ConfFlowClientError("control launcher submission requires an SFTP session")
-                if sftp is not None:
-                    _upload_input_manifest(sftp, record.remote_dir, input_manifest_bytes)
+                _upload_control_worker_handoff(
+                    sftp,
+                    ssh,
+                    worker_handoff=worker_handoff,
+                    handoff_path=worker_handoff_path,
+                    attempt_root=worker_attempt_root,
+                    workflow_path=posixpath.join(worker_attempt_root, "input", "workflow.yaml"),
+                    input_path=worker_input_path,
+                    remote_workflow_path=workflow_path,
+                    remote_input_path=_remote_input_path(task),
+                    workflow_digest=workflow_digest,
+                    input_digest=_worker_task_digest(worker_handoff),
+                    handoff_bytes=input_manifest_bytes,
+                )
                 prepared = transport.prepare(request_frame)
                 durable = _control_state(
                     request.run_id,
@@ -273,10 +358,15 @@ class SSHConfFlowClient:
                     snapshot=prepared,
                     previous=state,
                     workflow_path=workflow_path,
-                    input_path=posixpath.join(record.remote_dir, ".jobdesk-control", "input-manifest.json"),
+                    input_path=worker_handoff_path,
+                    worker_handoff=worker_handoff,
+                    worker_attempt_root=worker_attempt_root,
+                    worker_work_dir=worker_work_dir,
+                    worker_executable=worker_executable,
                 )
                 save_state(self._coordinator.service, request.run_id, durable)
                 self._apply_control_snapshot(prepared)
+                self._persist_control_worker_paths(request.run_id, worker_work_dir)
 
                 scheduler_type, resources, env_init_scripts = self._launcher_scheduler_details(
                     record, request.resource_overrides
@@ -285,11 +375,14 @@ class SSHConfFlowClient:
                 script_path = posixpath.join(launcher_dir, f"{request.run_id}.sh")
                 metadata_path = posixpath.join(launcher_dir, f"{request.run_id}.json")
                 log_path = posixpath.join(launcher_dir, ".jobdesk_submit.log")
-                command = build_control_execute_command(
-                    self._launcher_executable(record, state, tasks), state_locator, request.run_id
+                command = (
+                    f"{build_control_execute_command(producer_executable, state_locator, request.run_id)}"
+                    f" && setsid --wait {build_control_worker_command(worker_executable, state_locator, request.run_id, worker_handoff_path)}"
                 )
                 script = build_control_launcher_script(
-                    executable=self._launcher_executable(record, state, tasks),
+                    executable=producer_executable,
+                    worker_executable=worker_executable,
+                    handoff_path=worker_handoff_path,
                     state_root=state_locator,
                     run_id=request.run_id,
                     metadata_path=metadata_path,
@@ -365,6 +458,33 @@ class SSHConfFlowClient:
         if self._backend_mode == LEGACY_BACKEND:
             self._selected_backend = LEGACY_BACKEND
             return
+        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        try:
+            validate_confflow_production_capability(
+                capabilities,
+                expected_executable=executable or None,
+            )
+            if not capabilities.control_worker:
+                raise ValueError(
+                    "ConfFlow production capability does not expose the producer worker handoff"
+                )
+        except ValueError as control_error:
+            if self._backend_mode == CONTROL_BACKEND:
+                raise
+            # Auto mode may still select the compatibility-period legacy
+            # backend, but only after the exact stable v1.4.6 provenance gate
+            # passes. A newer or unverified producer must fail closed.
+            try:
+                validate_confflow_production_capability(
+                    capabilities,
+                    expected_executable=executable or None,
+                    allow_legacy_stable=True,
+                )
+            except ValueError:
+                raise control_error
+            self._selected_backend = LEGACY_BACKEND
+            return
         if self._backend_mode == CONTROL_BACKEND and self._control_capability_factory is not None:
             self._selected_state_locator = self._control_capability_factory()
             self._selected_backend = CONTROL_BACKEND
@@ -373,8 +493,6 @@ class SSHConfFlowClient:
             self._selected_backend = CONTROL_BACKEND
             self._selected_state_locator = "/tmp/confflow-control"
             return
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
-        executable = str(getattr(server, "confflow_executable", "") or "")
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
         try:
             with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
@@ -550,6 +668,29 @@ class SSHConfFlowClient:
 
         service.repository.mutate_tasks(run_id, mutation)
 
+    def _persist_control_worker_paths(self, run_id: str, worker_work_dir: str) -> None:
+        """Project the producer-owned worker result root into JobDesk tasks."""
+        state_path = posixpath.normpath(worker_work_dir)
+        stats_path = posixpath.join(state_path, "workflow_stats.json")
+        workflow_state_path = posixpath.join(state_path, ".workflow_state.json")
+        log_path = posixpath.join(state_path, "confflow.log")
+
+        def mutation(tasks):
+            return [
+                task.model_copy(
+                    update={
+                        "remote_workflow_dir": state_path,
+                        "remote_state_path": workflow_state_path,
+                        "remote_stats_path": stats_path,
+                        "remote_log_path": log_path,
+                    },
+                    deep=True,
+                )
+                for task in tasks
+            ]
+
+        self._coordinator.service.repository.mutate_tasks(run_id, mutation)
+
     def _launcher_scheduler_details(self, record: Any, overrides: dict[str, object] | None):
         raw_resources = dict(getattr(record, "resources", {}) or {})
         scheduler_type = str(getattr(record, "scheduler_type", "nohup") or "nohup").lower()
@@ -655,14 +796,50 @@ class SSHConfFlowClient:
             str(state.get("scheduler_type", "nohup"))
         ):
             raise ConfFlowClientError("control launcher metadata scheduler type does not match durable state")
+        execution_state = marker.get("execution_state")
+        execute_rc = marker.get("execute_rc")
+        # Markers written by the first launcher implementation predate the
+        # explicit execution fields; retain their successful response-loss
+        # recovery semantics. New markers must prove completion before they
+        # become a submitted dispatch.
+        if execution_state is not None:
+            if not isinstance(execution_state, str) or execution_state not in {"started", "completed", "failed"}:
+                raise ConfFlowClientError("control launcher metadata has an invalid execution state")
+            worker_started = marker.get("worker_started")
+            worker_rc = marker.get("worker_rc")
+            if worker_started is not None and type(worker_started) is not bool:
+                raise ConfFlowClientError("control launcher metadata has an invalid worker_started flag")
+            if worker_rc is not None and (type(worker_rc) is not int or worker_rc < 0):
+                raise ConfFlowClientError("control launcher metadata has an invalid worker return code")
+            if execution_state == "started":
+                # A new worker marker is written after the producer execute
+                # succeeds and immediately before the worker starts. It is
+                # already a confirmed handoff; an old marker without this
+                # field remains unresolved.
+                if worker_started is not True or execute_rc != 0:
+                    return state
+            if type(execute_rc) is not int or execute_rc < 0:
+                raise ConfFlowClientError("control launcher metadata has no execution return code")
+            if execution_state == "completed" and execute_rc != 0:
+                raise ConfFlowClientError("control launcher metadata has inconsistent completion status")
+            if execution_state == "failed" and execute_rc == 0:
+                raise ConfFlowClientError("control launcher metadata has inconsistent failure status")
         scheduler_job_id = marker.get("scheduler_job_id") or marker.get("pid")
         if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
             raise ConfFlowClientError("control launcher metadata has no scheduler job id or pid")
         updated = deepcopy(state)
-        updated["dispatch_state"] = "submitted"
-        updated["scheduler_job_id"] = scheduler_job_id
         updated_launcher = dict(launcher)
         updated_launcher["scheduler_job_id"] = scheduler_job_id
+        if execution_state is not None:
+            updated_launcher["execution_state"] = execution_state
+            updated_launcher["execute_rc"] = execute_rc
+        if execution_state == "failed":
+            updated["dispatch_state"] = "failed"
+            updated["launcher"] = updated_launcher
+            save_state(self._coordinator.service, record.run_id, updated)
+            return updated
+        updated["dispatch_state"] = "submitted"
+        updated["scheduler_job_id"] = scheduler_job_id
         updated["launcher"] = updated_launcher
         save_state(self._coordinator.service, record.run_id, updated)
         self._mark_control_submitted(record.run_id, _canonical_scheduler_type(str(marker_scheduler)), scheduler_job_id)
@@ -966,6 +1143,10 @@ def _control_state(
     previous: dict[str, object] | None,
     workflow_path: str,
     input_path: str,
+    worker_handoff: dict[str, object] | None = None,
+    worker_attempt_root: str | None = None,
+    worker_work_dir: str | None = None,
+    worker_executable: str | None = None,
 ) -> dict[str, object]:
     value: dict[str, object] = deepcopy(previous or {})
     value.update(
@@ -986,21 +1167,176 @@ def _control_state(
             "state": snapshot.state,
         }
     )
+    if worker_handoff is not None:
+        value["worker_handoff"] = deepcopy(worker_handoff)
+    if worker_attempt_root is not None:
+        value["worker_attempt_root"] = worker_attempt_root
+    if worker_work_dir is not None:
+        value["worker_work_dir"] = worker_work_dir
+    if worker_executable is not None:
+        value["worker_executable"] = worker_executable
     return value
 
 
-def _input_manifest(record: Any, tasks: Iterable[Any]) -> dict[str, object]:
+def _worker_handoff(
+    *,
+    run_id: str,
+    workflow_path: str,
+    workflow_digest: str,
+    input_path: str,
+    input_digest: str,
+    work_dir: str,
+    task_id: str,
+) -> dict[str, object]:
+    """Build the exact producer-owned one-task worker handoff envelope."""
     return {
-        "content_schema": "jobdesk.confflow.input-manifest.v1",
-        "run_id": record.run_id,
-        "inputs": [
+        "content_schema": "confflow.control.worker-handoff.v1",
+        "run_id": run_id,
+        "workflow_config": {"path": workflow_path, "sha256": workflow_digest},
+        "tasks": [
             {
-                "task_id": task.task_id,
-                "paths": [task.remote_task_files, task.remote_config_path],
+                "task_id": task_id,
+                "input_xyz": input_path,
+                "work_dir": work_dir,
+                "sha256": input_digest,
             }
-            for task in tasks
         ],
     }
+
+
+def _worker_handoff_digest(value: dict[str, object], key: str) -> str:
+    """Return a validated digest from a persisted worker handoff."""
+    if key == "workflow_config":
+        locator = value.get("workflow_config")
+        if not isinstance(locator, dict):
+            raise ConfFlowClientError("control state worker handoff has no workflow configuration")
+    else:
+        tasks = value.get("tasks")
+        if not isinstance(tasks, list) or len(tasks) != 1 or not isinstance(tasks[0], dict):
+            raise ConfFlowClientError("control state worker handoff must contain exactly one task")
+        locator = tasks[0]
+    digest = locator.get("sha256")
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in "0123456789abcdefABCDEF" for char in digest)
+    ):
+        raise ConfFlowClientError("control state worker handoff has an invalid digest")
+    return digest.lower()
+
+
+def _worker_task_digest(value: dict[str, object]) -> str:
+    return _worker_handoff_digest(value, "tasks")
+
+
+def _state_worker_handoff(state: dict[str, object]) -> dict[str, object]:
+    value = state.get("worker_handoff")
+    if not isinstance(value, dict):
+        raise ConfFlowClientError("control state has no producer worker-handoff envelope")
+    return deepcopy(value)
+
+
+def _state_worker_handoff_path(state: dict[str, object]) -> str:
+    value = state.get("input_manifest_path")
+    if not isinstance(value, str) or not _is_safe_absolute_remote_path(value):
+        raise ConfFlowClientError("control state has no absolute worker-handoff path")
+    return value
+
+
+def _state_worker_attempt_root(state: dict[str, object]) -> str:
+    value = state.get("worker_attempt_root")
+    if not isinstance(value, str):
+        value = posixpath.dirname(posixpath.dirname(_state_worker_handoff_path(state)))
+    if not _is_safe_absolute_remote_path(value):
+        raise ConfFlowClientError("control state has an unsafe worker attempt root")
+    return value
+
+
+def _state_worker_work_dir(state: dict[str, object]) -> str:
+    value = state.get("worker_work_dir")
+    if not isinstance(value, str) or not _is_safe_absolute_remote_path(value):
+        raise ConfFlowClientError("control state has no absolute worker work directory")
+    return value
+
+
+def _state_worker_executable(state: dict[str, object] | None) -> str | None:
+    value = state.get("worker_executable") if state is not None else None
+    return value if isinstance(value, str) and value else None
+
+
+def _state_worker_input_path(handoff: dict[str, object]) -> str:
+    tasks = handoff.get("tasks")
+    if not isinstance(tasks, list) or len(tasks) != 1 or not isinstance(tasks[0], dict):
+        raise ConfFlowClientError("control state worker handoff must contain exactly one task")
+    value = tasks[0].get("input_xyz")
+    if not isinstance(value, str) or not _is_safe_absolute_remote_path(value):
+        raise ConfFlowClientError("control state worker handoff has no absolute input path")
+    return value
+
+
+def _control_worker_enabled(
+    capability: ConfFlowCapabilities | None, state: dict[str, object] | None
+) -> bool:
+    if capability is not None:
+        return capability.control_worker
+    raw = state.get("capability") if state else None
+    if not isinstance(raw, dict):
+        return False
+    values = raw.get("capabilities")
+    return isinstance(values, dict) and values.get("control_worker") is True
+
+
+def _worker_state_root(base_state_root: str, run_id: str) -> str:
+    if not isinstance(base_state_root, str) or not base_state_root.startswith("/"):
+        raise ConfFlowClientError("control backend state locator must be an absolute POSIX path")
+    _validate_safe_component(run_id, "run_id")
+    return posixpath.join(
+        posixpath.dirname(base_state_root.rstrip("/")), f"jobdesk-{run_id}", "state"
+    )
+
+
+def _worker_executable_for(executable: str) -> str:
+    value = (executable or "confflow").strip()
+    if value.startswith("/"):
+        return posixpath.join(posixpath.dirname(value), "confflow-control-worker")
+    return "confflow-control-worker"
+
+
+def _worker_work_dir_name(task: Any) -> str:
+    value = PurePosixPath(str(getattr(task, "remote_workflow_dir", ""))).name
+    if not value:
+        value = f"{task.task_id}_confflow_work"
+    _validate_safe_component(value, "worker work directory")
+    return value
+
+
+def _remote_input_path(task: Any) -> str:
+    names = getattr(task, "remote_task_files", None)
+    base = getattr(task, "remote_work_dir", "")
+    if not isinstance(names, list) or not names or not isinstance(base, str) or not base.startswith("/"):
+        raise ConfFlowClientError("control worker task has no absolute remote input path")
+    name = names[0]
+    if (
+        not isinstance(name, str)
+        or PurePosixPath(name).name != name
+        or name in {"", ".", ".."}
+        or not name.lower().endswith(".xyz")
+    ):
+        raise ConfFlowClientError("control worker input filename is unsafe")
+    return posixpath.join(base.rstrip("/"), name)
+
+
+def _validate_safe_component(value: str, label: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value[0] not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        or any(
+            char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+            for char in value
+        )
+    ):
+        raise ConfFlowClientError(f"{label} contains an unsafe path component")
 
 
 def _workflow_config_path(tasks: Iterable[Any]) -> str:
@@ -1010,13 +1346,164 @@ def _workflow_config_path(tasks: Iterable[Any]) -> str:
     return posixpath.normpath(paths[0])
 
 
-def _upload_input_manifest(sftp, remote_dir: str, content: bytes) -> None:
-    target = posixpath.join(remote_dir.rstrip("/"), ".jobdesk-control", "input-manifest.json")
-    sftp.mkdir_p(posixpath.dirname(target))
-    with tempfile.TemporaryDirectory(prefix="jobdesk-control-input-") as temp_dir:
-        local = Path(temp_dir) / "input-manifest.json"
-        local.write_bytes(content)
-        sftp.upload_file(local, target, overwrite=True)
+def _upload_control_worker_handoff(
+    sftp,
+    ssh,
+    *,
+    worker_handoff: dict[str, object],
+    handoff_path: str,
+    attempt_root: str,
+    workflow_path: str,
+    input_path: str,
+    remote_workflow_path: str,
+    remote_input_path: str,
+    workflow_digest: str,
+    input_digest: str,
+    handoff_bytes: bytes,
+) -> None:
+    """Stage and upload one verified producer worker-handoff envelope."""
+    _assert_path_under(attempt_root, handoff_path, "worker handoff")
+    _assert_path_under(attempt_root, workflow_path, "worker workflow")
+    _assert_path_under(attempt_root, input_path, "worker input")
+    if _worker_handoff_digest(worker_handoff, "workflow_config") != workflow_digest:
+        raise ConfFlowClientError("worker workflow digest changed before staging")
+    if _worker_task_digest(worker_handoff) != input_digest:
+        raise ConfFlowClientError("worker input digest changed before staging")
+    handoff_tasks = worker_handoff.get("tasks")
+    if not isinstance(handoff_tasks, list) or len(handoff_tasks) != 1 or not isinstance(handoff_tasks[0], dict):
+        raise ConfFlowClientError("worker handoff must contain exactly one task")
+    workflow_locator = worker_handoff.get("workflow_config")
+    if not isinstance(workflow_locator, dict) or workflow_locator.get("path") != workflow_path:
+        raise ConfFlowClientError("worker handoff workflow path does not match staged path")
+    if handoff_tasks[0].get("input_xyz") != input_path:
+        raise ConfFlowClientError("worker handoff input path does not match staged path")
+    worker_work_dir = handoff_tasks[0].get("work_dir")
+    if not isinstance(worker_work_dir, str) or not worker_work_dir.startswith("/"):
+        raise ConfFlowClientError("worker handoff work directory is invalid")
+    _assert_path_under(attempt_root, worker_work_dir, "worker work directory")
+    results_dir = posixpath.dirname(worker_work_dir)
+    _ensure_worker_remote_directories(
+        sftp,
+        ssh,
+        attempt_root,
+        posixpath.dirname(handoff_path),
+        posixpath.dirname(workflow_path),
+        posixpath.dirname(input_path),
+        results_dir,
+    )
+
+    # In-memory control transports intentionally have no remote byte source;
+    # they exercise request/state/launcher provenance only. The real SSH/SFTP
+    # path below always verifies source type, downloads, hashes, and reuploads.
+    if ssh is not None:
+        if not hasattr(sftp, "download_file") or not hasattr(sftp, "lstat"):
+            raise ConfFlowClientError("control worker staging requires full SFTP file primitives")
+        with tempfile.TemporaryDirectory(prefix="jobdesk-control-worker-") as temp_dir:
+            temp = Path(temp_dir)
+            _stage_remote_file(
+                sftp,
+                remote_workflow_path,
+                temp / "workflow.yaml",
+                workflow_path,
+                workflow_digest,
+            )
+            _stage_remote_file(
+                sftp,
+                remote_input_path,
+                temp / Path(input_path).name,
+                input_path,
+                input_digest,
+            )
+            sftp.upload_file(temp / "workflow.yaml", workflow_path, overwrite=True, skip_if_same_size=False)
+            sftp.upload_file(
+                temp / Path(input_path).name,
+                input_path,
+                overwrite=True,
+                skip_if_same_size=False,
+            )
+        for target_path in (workflow_path, input_path):
+            metadata = sftp.lstat(target_path)
+            mode = getattr(metadata, "st_mode", None) if metadata is not None else None
+            if type(mode) is not int or not stat.S_ISREG(mode):
+                raise ConfFlowClientError(f"control worker staged target is not a regular file: {target_path}")
+
+    with tempfile.TemporaryDirectory(prefix="jobdesk-control-worker-handoff-") as temp_dir:
+        local = Path(temp_dir) / "worker-handoff.json"
+        local.write_bytes(handoff_bytes)
+        sftp.upload_file(local, handoff_path, overwrite=True, skip_if_same_size=False)
+    if ssh is not None:
+        metadata = sftp.lstat(handoff_path)
+        mode = getattr(metadata, "st_mode", None) if metadata is not None else None
+        if type(mode) is not int or not stat.S_ISREG(mode):
+            raise ConfFlowClientError(f"control worker staged handoff is not a regular file: {handoff_path}")
+        mode_result = ssh.run(
+            "chmod 600 -- "
+            + " ".join(shlex.quote(path) for path in (workflow_path, input_path, handoff_path)),
+            timeout=30,
+        )
+        if mode_result.exit_code != 0:
+            detail = mode_result.stderr.strip() or mode_result.stdout.strip() or f"exit {mode_result.exit_code}"
+            raise ConfFlowClientError(f"control worker file permission setup failed: {detail}")
+
+
+def _ensure_worker_remote_directories(
+    sftp,
+    ssh,
+    attempt_root: str,
+    handoff_dir: str,
+    workflow_dir: str,
+    input_dir: str,
+    results_dir: str,
+) -> None:
+    directories = tuple(dict.fromkeys((attempt_root, handoff_dir, workflow_dir, input_dir, results_dir)))
+    for directory in directories:
+        sftp.mkdir_p(directory)
+    if ssh is None:
+        return
+    mode_result = ssh.run(
+        "chmod 700 -- " + " ".join(shlex.quote(directory) for directory in directories),
+        timeout=30,
+    )
+    if mode_result.exit_code != 0:
+        detail = mode_result.stderr.strip() or mode_result.stdout.strip() or f"exit {mode_result.exit_code}"
+        raise ConfFlowClientError(f"control worker private directory setup failed: {detail}")
+
+
+def _stage_remote_file(sftp, remote_path: str, local_path: Path, target_path: str, expected_digest: str) -> None:
+    metadata = sftp.lstat(remote_path)
+    mode = getattr(metadata, "st_mode", None) if metadata is not None else None
+    if type(mode) is not int or not stat.S_ISREG(mode):
+        raise ConfFlowClientError(f"control worker source is not a regular file: {remote_path}")
+    transfer = sftp.download_file(
+        remote_path,
+        local_path,
+        overwrite=True,
+        skip_if_same_size=False,
+    )
+    if getattr(getattr(transfer, "status", None), "value", getattr(transfer, "status", None)) == "failed":
+        raise ConfFlowClientError(
+            f"control worker source download failed: {remote_path}: {getattr(transfer, 'reason', '')}"
+        )
+    digest = _sha256_file(local_path)
+    if digest != expected_digest:
+        raise ConfFlowClientError(
+            f"control worker source digest mismatch for {target_path}: expected {expected_digest}, got {digest}"
+        )
+
+
+def _assert_path_under(root: str, candidate: str, label: str) -> None:
+    try:
+        root_path = PurePosixPath(root)
+        candidate_path = PurePosixPath(candidate)
+    except (TypeError, ValueError) as exc:
+        raise ConfFlowClientError(f"{label} path is malformed") from exc
+    if (
+        not _is_safe_absolute_remote_path(root)
+        or not _is_safe_absolute_remote_path(candidate)
+        or candidate_path == root_path
+        or not candidate_path.is_relative_to(root_path)
+    ):
+        raise ConfFlowClientError(f"{label} must remain below the worker attempt root")
 
 
 def _canonical_json(value: object) -> bytes:
@@ -1052,21 +1539,18 @@ def _is_local_terminal(status: TaskStatus) -> bool:
 def _validate_event_page_cursor(page: ControlEventPage, cursor: str | None) -> None:
     if cursor is not None and not is_valid_cursor(cursor):
         raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
+    # Cursor values are opaque by contract; only the producer can interpret
+    # them.  The parser already validates strict revision order within this
+    # page, while the producer applies ``after`` when serving the request.
     previous = -1
     for event in page.events:
         if event.revision <= previous:
             raise ControlProtocolError("events", "invalid_request", "event revisions are not strictly increasing")
-        if cursor is not None and event.revision <= _cursor_revision(cursor):
-            raise ControlProtocolError("events", "invalid_request", "event page repeats data before the cursor")
+        if cursor is not None and event.cursor == cursor:
+            raise ControlProtocolError("events", "invalid_request", "event page repeats the requested cursor")
         previous = event.revision
     if page.next_cursor is not None and page.events and page.next_cursor != page.events[-1].cursor:
         raise ControlProtocolError("events", "invalid_request", "next_cursor does not match the final event")
-
-
-def _cursor_revision(cursor: str) -> int:
-    if not is_valid_cursor(cursor):
-        raise ControlProtocolError("events", "invalid_request", "durable cursor is malformed")
-    return int(cursor[1:])
 
 
 def _artifact_entries(artifacts: Iterable[ControlArtifact]) -> tuple[ArtifactEntry, ...]:

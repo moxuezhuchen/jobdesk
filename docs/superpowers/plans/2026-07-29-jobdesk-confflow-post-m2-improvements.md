@@ -2,6 +2,165 @@
 
 **Date:** 2026-07-29
 
+## Execution status (2026-08-09 release continuation)
+
+ConfFlow worker-handoff release closure is now at the immutable producer
+release `v1.5.3`. The normal merge commit is
+`f37759954da2818d777ec4d06f81bd53aeafe6e3`, with parents
+`147ebfef884e0339b1ece00164e86f1d8202bf60` and the reviewed candidate
+`9fdeb7742c77cb2cf7bfebf63f4f4c8595d2f648`. The annotated tag `v1.5.3`
+peels to that merge commit and the GitHub Release assets were downloaded and
+verified from the tag. The formal wheel is
+`confflow-1.5.3-py3-none-any.whl`, SHA-256
+`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`;
+`provenance.json` and `attestation.json` bind the wheel to repository
+`moxuezhuchen/ConfFlow`, tag `v1.5.3`, and peeled commit `f377599`. The
+release `SHA256SUMS` verified all seven downloaded assets. The exact release
+inputs are also recorded by dependency-lock SHA-256
+`a389b56baeaf75d3567175fd0c7c6282423df04ddf42469160fc8b476a1cd376` and
+wheelhouse-manifest SHA-256
+`ab3a940525f0230dda58e8087dab2e33c29bee6183940f72aee66c4c999adc7c`.
+
+Remote CI passed at runs `31271946187` (full ConfFlow matrix),
+`31271946186` (coverage), and `31271946207` (JobDesk Consumer Contract).
+The release workflow `31272089279` completed successfully and published the
+seven release assets. The GitHub connector lacked PR-write scope and returned
+403; after the exact HEAD, checks, and independent review were revalidated,
+the user-authorized normal `--no-ff` merge was created in an isolated
+worktree and pushed. The remote push reported that the protected-ref PR rule
+was bypassed; this is recorded rather than presented as a connector merge.
+
+JobDesk's consumer reference is pinned to the formal v1.5.3 release
+commit and wheel digest. The final exact production venv verified the wheel,
+tag, attestation, build cleanliness, dependency lock, and wheelhouse
+manifest provenance. The worker-handoff path remains explicitly one-task
+(`maxItems=1`) and fail-closed; it never uses `confflow-agent` SQLite. One
+real released-v1.5.3 JobDesk control computation then completed through the
+supported `nohup` launcher and producer-owned worker on the authorized SSH
+server. Its durable state reached revision 6 and `completed`; launcher
+metadata recorded `execute_rc=0`, `worker_started=true`, and `worker_rc=0`.
+The idempotent resubmit assertion observed `submitted_task_count=0`, the
+reconnect/events/status/artifact/download probes advanced without an error,
+and the exact attempt root was removed. Evidence is retained at
+`C:\tmp\jobdesk-control-release-v153-20260809-a3\evidence.json`; the bundle
+explicitly marks the in-memory event/cancel/resume/raw-manifest responses as
+not persisted because the harness timed out only while deleting the large
+temporary runtime after the attempt root had already been removed. The formal
+compatibility counters are now `control_backend_runs=1` and
+`legacy_backend_runs=1`; candidate-only, synthetic, and historical samples
+remain excluded. A complete measured published compatibility cycle is still
+missing. Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not
+ready.
+
+The stable consumer contract now treats `worker-handoff.schema.json` as the
+formal fifth release member whenever the producer advertises `control_worker`.
+The dual-repository matrix compares all five v1.5.3 schema members and keeps
+the historical v1.5.0 comparison at the four-file core because that producer
+does not advertise the worker capability. The handoff is no longer classified
+as an unpublished candidate snapshot in the active consumer tests.
+
+## Execution status (2026-08-08 continuation)
+
+The current consumer reference is ConfFlow `v1.5.0`, producer commit
+`0fff6439a4614ec155959b1d0d3781fc5342d736`, wheel SHA-256
+`d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc`, with
+stable `v1.4.6` retained only as the exact legacy rollback exception. The
+isolated JobDesk continuation is verified at commit
+`60d97c7` (code/evidence plus compatibility-preserving parser/schema/test,
+request-path/download safety fixes, malformed-identifier regressions, and the current candidate evidence
+snapshot); commits after this boundary are documentation-only status/review
+updates. The
+ConfFlow contract workflow was green at
+run `31242460044` for PR #50 before the additional local provenance/schema
+parity steps (`cc4a401`, `fd2ea06`), which have not been rerun remotely. The JobDesk
+candidate matrix was also executed locally on 2026-08-08 in isolated Python
+3.13 environments: the exact stable v1.5.0 and next v1.5.1 wheels passed
+capability/build/schema parity and each pinned contract suite reported
+`88 passed`. The Windows run used command-presence stubs for Unix-only
+capability fields; the matrix has not been published, so its Ubuntu Actions
+result is still pending.
+
+Direct v1.5.0 Gaussian/g16 and ORCA probes completed, but they are not JobDesk
+SSH compatibility-period samples. After the authorized WSL restart, a real
+JobDesk legacy-backend batch (`confflow-batch`, water plus methane) completed
+through SSH upload, detached execution, refresh, manifest-driven download, and
+summary parsing. Both summaries had `confflow.run_summary.v1` and
+`final_conformers=1`; the exact local evidence is under
+`C:\tmp\jobdesk_pytest_real_legacy_20260808_b1`, and the remote root
+`/tmp/jobdesk_phasef_real_legacy_20260808_b1` was absent after the bounded
+cleanup. This counts as one real legacy-backend sample, but it uses the pinned
+v1.5.0 producer and is not the separate stable v1.4.6 rollback probe.
+
+A separate isolated stable v1.4.6 rollback probe then completed the same
+two-molecule JobDesk legacy path with the exact rollback executable
+`/opt/confflow-1.4.6-prod-venv/bin/confflow`; both summaries and manifests
+passed, and `/tmp/jobdesk_phasef_real_legacy146_20260808_a1` was absent after
+bounded cleanup. This closes the live rollback probe, but not the full Phase F
+gate: no real JobDesk control computation/worker handoff, published candidate
+CI, or complete measured compatibility period is established yet.
+
+A separate real JobDesk control launcher acceptance also completed capability
+negotiation, prepare, input-manifest upload, and `nohup` launcher dispatch over
+SSH/SFTP. The producer returned the expected queued state at revision 2 with
+two events; launcher metadata and the producer state root were confined to
+`/tmp/jobdesk_phasef_real_control_20260808_a1/attempt`, which was absent after
+bounded cleanup. This is non-compute evidence only: the pinned producer still
+requires an external worker handoff, so no g16/ORCA process was started and it
+does not count as a real control computation sample.
+
+A read-only WSL audit confirmed that the installed `confflow-agent` is an
+independent queue/AgentStateDB worker, while the pinned control executor does
+not enqueue control launch tokens there. Its separate request digest and state
+layout cannot be substituted for the JobDesk control request; no agent was
+started and no agent state was touched. The worker handoff is therefore a
+producer/release-scope prerequisite, not an omitted local command.
+
+The earlier SSH attempt remains recorded as a failed, non-counted attempt. The
+pinned producer's `control execute` currently returns a queued launch intent
+until an external worker handoff is supplied. Therefore the formal decision
+remains **COMPATIBILITY PERIOD CONTINUES**: keep both backends and the v1.4.6
+rollback path; do not mark Phase F ready or delete compatibility code. The
+2026-08-08 readiness recheck found the Ubuntu-24.04 `ssh.service` stuck in
+`deactivating`/`sshd -t` with `rtnl_dumpit`; an isolated 10022 sshd listener
+reproduced the same child-process stall before the restart. The temporary
+listener and its exact `/tmp/jobdesk_phasef_ssh_20260808_a1` root were stopped
+and removed; no `/opt` files or user state were modified.
+
+## 2026-08-08 producer candidate worker-handoff (candidate-only evidence)
+
+The producer-side worker gap was implemented in an isolated, unpublished
+ConfFlow candidate. The current candidate commit is
+`9a5f213`; its clean
+`confflow-1.5.1-py3-none-any.whl` has SHA-256
+`7c3bdfda3489fccdbd5b096d0ef170fddcd3988dc1f513740da39bdb782a634e` and
+`DIRTY=False` build provenance. It adds the producer-owned
+`worker-handoff.schema.json`, the `control_worker` capability flag, and the
+`confflow-control-worker` entrypoint. The worker consumes the existing queued
+launch token through `ExecutionService`; it does not call `prepare`, enqueue
+the legacy agent, or create a second state authority. The candidate contract
+also locks the UTF-8 canonical handoff digest profile, owner-private staging,
+dedicated-session recovery, and required fixed sidecars before `completed`.
+
+After the mandatory four-line g16 probe, one isolated Ubuntu-24.04 WSL run used
+that exact wheel and the `confflow-control-worker` console entrypoint to execute
+a real methane Gaussian 16 optimization. The run completed in 10.149 seconds;
+producer revisions advanced
+`prepared -> queued -> running -> checkpointed -> completed`, and the output
+manifest, `methane.txt`, `methanemin.xyz`, workflow summary/stats/state, G16
+identity, and file SHA-256 values were captured. The worker returned exactly one
+machine-readable JSON line with exit code 0. Evidence is retained at
+`C:\tmp\jobdesk-control-worker-real-9a5f213-evidence.json`; the exact remote
+attempt root `/tmp/jobdesk-control-worker-real-9a5f213` was absent after
+bounded cleanup. No `/opt` file was modified.
+
+This is producer candidate evidence, not a JobDesk compatibility-period sample:
+the candidate is not published or pinned by the stable JobDesk consumer, the
+JobDesk launcher has not been switched to the candidate worker entrypoint, and
+the remote dual-repository CI has not run for this commit. The compatibility
+decision therefore remains **COMPATIBILITY PERIOD CONTINUES**; Phase F still
+requires a published producer/consumer candidate, remote CI, a real JobDesk
+control computation sample, and one complete measured published cycle.
+
 ## Execution status (2026-08-01)
 
 The release-closure track in sections 3, 4, and 8.1 is **complete**, with the
@@ -786,6 +945,11 @@ RFC 必须包含 request/response JSON Schema、状态转换表、error code reg
 
 ### 8.1 ConfFlow 1.4.4 release closure
 
+This checklist is the historical 1.4.4/1.4.6 release-closure record. The
+current v1.5.0 consumer reference, v1.4.6 legacy exception, and review status
+are recorded at the top of this plan; the post-M2 control track is tracked in
+§8.2 below.
+
 以下项目全部完成后，才可宣布 M2-4 / 1.4.4 release closure：
 
 - [x] M2-1~M2-3 基线为 JobDesk `44719e9` + ConfFlow `10e457d`
@@ -815,9 +979,20 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [x] `run_id`、idempotency key、revision、event cursor 和 typed error contract 通过正反例测试
 - [x] CLI normal run、control CLI 与可选 agent backend 共用 `ExecutionService` 和状态转换语义（Phase C/D 已验证）
 - [x] JobDesk control backend 真实完成 reconnect、incremental events、manifest download、resume/cancel（Phase E；WSL 使用 pinned Phase D producer；artifact 为非计算 synthetic lifecycle fixture，未运行 g16）
-- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer
+- [ ] 双仓 CI 覆盖 producer candidate × JobDesk main，以及 JobDesk candidate × stable/next producer（ConfFlow PR #50 `730decf` green；JobDesk matrix workflow 已在本隔离分支提交并固定 stable/next wheel digest，2026-08-08 本地 Python 3.13 两矩阵各 `88 passed`，但 JobDesk feature branch 尚未发布，故第二方向尚未取得远端 CI 结果）
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
 - [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
+
+The remaining real-acceptance gate is intentionally open. The 2026-08-08 direct
+v1.5.0 g16 and ORCA probes completed, but they were not JobDesk SSH lifecycle
+samples. A pre-restart JobDesk SSH/SFTP attempt was blocked by the WSL SSH
+listener's `Exceeded MaxStartups`/`rtnl_dumpit` failure; after the authorized
+restart, one real v1.5.0 legacy batch, one stable v1.4.6 rollback probe, and a
+real control launcher handoff reaching queued were captured separately. The
+pinned producer's `control execute` still returns a queued launch intent until
+an external worker handoff is supplied, so there is no real control-computation
+sample. Keep both backends and the v1.4.6 rollback path; do not mark Phase F
+ready or delete compatibility code from these probes.
 
 ---
 
@@ -897,7 +1072,7 @@ python scripts/smoke_gui_offscreen.py
 git diff --check
 ```
 
-跨仓测试必须安装本轮最终 ConfFlow 1.4.4 wheel，不得误用旧 editable install 或 public PyPI 上的同名无关包。
+跨仓测试必须安装本轮最终 ConfFlow v1.5.3 wheel，不得误用旧 editable install 或 public PyPI 上的同名无关包。
 
 ### 跨仓 contract-parity gate
 
@@ -907,7 +1082,7 @@ git diff --check
 
 1. ConfFlow `contract.py` 的六个 artifact 字段与 JobDesk `ConfFlowArtifactContract` 逐字段一致
 2. ConfFlow 四个内容 schema 常量与 JobDesk 常量逐字符串一致
-3. JobDesk `.github/workflows/ci.yml` 的两处 producer checkout 及 `.github/workflows/optional-coverage.yml` 的 producer checkout 都使用精确 `v1.4.4`，相应 wheel glob/version assertion 同步；各 checkout HEAD 等于远端 `v1.4.4^{}`
+3. JobDesk `.github/workflows/ci.yml` 的两处 producer checkout 及 `.github/workflows/optional-coverage.yml` 的 producer checkout 都使用精确 `v1.5.3`，相应 wheel glob/version assertion 同步；各 checkout HEAD 等于远端 `v1.5.3^{}`
 4. 最终 wheel 中 `__build__.COMMIT` 等于该 peeled commit，wheel digest 等于 `SHA256SUMS` 和 attestation subject digest
 5. 该 wheel 安装后的真实 `confflow --capabilities --json` 能被 JobDesk producer/artifacts/executable parsers 和 production validator 接受
 6. test 输出记录 exact tag、peeled commit、wheel filename/digest 和 executable path，便于发布审计

@@ -1,0 +1,132 @@
+# ConfFlow control protocol v1 consumer record
+
+- **Status:** consumer snapshot of the released producer contract
+- **Producer release:** `v1.5.3`
+- **Producer commit:** `f37759954da2818d777ec4d06f81bd53aeafe6e3`
+- **Producer wheel:** `confflow-1.5.3-py3-none-any.whl`
+- **Wheel SHA-256:** `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`
+- **Protocol:** `confflow.control.v1`
+- **Schema dialect:** JSON Schema Draft 2020-12
+
+JobDesk does not define a second control protocol. The authoritative producer
+bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
+repository vendors the same four core JSON documents plus the released
+worker-handoff extension under
+`confflow/schemas/control/` so the consumer tests and CI can validate requests
+and responses without a checkout of the producer repository. The v1.5.3
+`control_worker` release contract contains all five documents; historical
+producers that do not advertise that capability retain only the four-file
+core. The snapshot is checked by `tests/test_control_protocol_schemas.py`
+using canonical JSON digests; changing a schema requires a new pinned producer
+release and a review of the cross-repository contract.
+
+## Bundle
+
+- `common.schema.json`: protocol identifiers, state, error, digest, locator,
+  and artifact definitions.
+- `requests.schema.json`: the eight operation request shapes (`capabilities`,
+  `prepare`, `execute`, `status`, `events`, `cancel`, `resume`, and
+  `artifacts`).
+- `responses.schema.json`: the corresponding response envelope with
+  `protocol_schema`, `operation`, `ok`, snapshots, typed errors, event pages,
+  and artifact manifests.
+- `input-manifest.schema.json`: the ordered input file manifest referenced by
+  `prepare`.
+- `worker-handoff.schema.json`: the producer-owned, one-task external-worker
+  envelope released with v1.5.3 and required when `control_worker` is
+  advertised.
+
+The producer response envelope uses `state` (not `status`) and advertises
+`supported_protocols` (not an operation list). A `prepare` request carries
+content locators (`workflow_config` and `input_manifest`) plus
+`expected_executable_identity`; the request digest binds the complete semantic
+frame. These names are intentionally mirrored by
+`jobdesk_app.services.confflow_control`.
+
+The current JobDesk `.jobdesk-control/input-manifest.json` is a private
+launcher journal (`jobdesk.confflow.input-manifest.v1`) because the consumer
+has only persisted remote names at this boundary. It is not the producer
+`confflow.control.input-manifest.v1` document. An external worker handoff must
+stage the files, compute their byte digests/sizes, and construct the producer
+manifest before invoking a real calculation.
+The released worker handoff also publishes fixed `{stem}.txt` and
+`{stem}min.xyz` sidecars beside the task work directory. The JobDesk
+adapter must retain the established `<stem>_confflow_work` work-directory
+name so the existing metadata bridge can map those sidecars; this naming rule
+is part of the v1.5.3 producer extension. The four-file core remains the
+stable operation snapshot, while the worker-handoff file is the formal fifth
+release member whenever the producer advertises `control_worker`.
+
+The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
+released ConfFlow worker extension. It is part of the pinned v1.5.3 release
+and is sent only after the producer capability advertises `control_worker`.
+The handoff envelope is one-task (`maxItems=1`); JobDesk rejects larger
+batches rather than truncating them.
+
+## Ownership and launcher boundary
+
+ConfFlow owns durable run state, revisions, event cursors, idempotency, typed
+errors, and the output manifest. JobDesk owns upload/prepare/launch journaling
+and its local projection. The control command is foreground; `nohup`, Slurm,
+and PBS are launcher concerns in JobDesk and invoke the same producer
+`control execute` operation.
+
+`prepared` is a durable producer record, not a running state. `execute` may
+return `queued` when an external worker owns the eventual calculation handoff;
+it must not be interpreted as a completed scientific calculation. JobDesk
+therefore keeps the legacy backend and the v1.4.6 rollback path until a real
+published compatibility cycle and launcher acceptance are complete.
+
+## State, revision, and recovery rules
+
+The producer is the sole state owner. Successful response states are
+constrained by the producer schema:
+
+| operation | allowed successful state |
+|---|---|
+| `prepare` | `prepared` |
+| `execute` | `queued`, `running`, `paused`, `completed`, `failed`, or `cancelled` |
+| `status`, `events` | any declared state |
+| `cancel` | `cancelled` |
+| `resume` | `queued` or `running` |
+| `artifacts` | `completed`, `failed`, or `cancelled` |
+
+`revision` is a non-negative producer sequence and never moves backward.
+JobDesk may keep a local projection, but it must not write producer state or
+replace a newer snapshot with an older one. Event revisions are strictly
+increasing within a page. Event cursors are opaque strings matching the
+producer cursor grammar; the current implementation happens to emit `r`
+followed by a zero-padded revision, but consumers must not decode that form.
+
+`prepare` binds `run_id`, `idempotency_key`, the complete request digest, both
+content locators, and the expected executable identity. A retry with the same
+semantic frame is idempotent; a different frame for the same key is an
+`idempotency_conflict`. Once `execute` has consumed the prepared record,
+JobDesk reconciles by `status`/launcher metadata rather than issuing a second
+`prepare`; this keeps a lost launcher response from becoming duplicate work.
+The launcher marker is only a submission proof after it records an explicit
+successful execute exit code.
+
+The stable error registry is owned by `common.schema.json` and consists of:
+`invalid_request`, `unsupported_protocol`, `unknown_run`,
+`idempotency_conflict`, `invalid_state_transition`, `invalid_checkpoint`,
+`already_running`, `terminal_run`, `executable_identity_mismatch`,
+`artifact_path_invalid`, `artifact_integrity_failed`,
+`repository_unavailable`, and `internal`. Error responses always carry
+`ok: false` and the typed `{code, message, retryable}` object; success
+responses must not include an error object.
+
+Artifact `path` values are relative POSIX paths with no empty, `.`, `..`,
+absolute, backslash, or repeated-slash segments. Artifact terminal names are
+single safe identifiers (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`). JobDesk verifies
+the manifest digest, size, path components, symlink status, and local target
+before downloading any selected file.
+
+## Compatibility and safety
+
+Readers may ignore future optional fields, but required-field, state,
+error-code, identity, and artifact-path changes are breaking contract changes.
+Artifact paths are relative POSIX paths below the producer run directory; both
+producer and consumer validate them before download. Control submission is
+accepted only for the exact v1.5.3 production provenance. The stable v1.4.6
+exception is restricted to the legacy backend's compatibility-period preflight.
