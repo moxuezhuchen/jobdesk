@@ -39,6 +39,37 @@
 
 ## 2026-08-09 authoritative published acceptance update
 
+### Quantitative post-contract window (current, open)
+
+The quantitative contract remains open; its machine-readable authority is
+the evidence index. The r5 window is blocked by a51 (failed denominator);
+a51 is acceptance_failed/non-counted and is not carried into r6. The newly
+authorized r6 window is post-contract-replacement-20260810-r6 with no
+inherited denominator and remains OPEN.
+
+Independent index review promoted a52 as r6 control success #1 and a53 as
+r6 legacy success #1. Their raw bundles remain supplemental with
+counts_as_real_run=false; promotion is only in the independent index.
+a53 evidence is:
+- main C:\tmp\jobdesk-legacy-release-v146-20260809-a53\evidence.json, SHA-256
+  182dbcc3fa6effa1d65f285a45f75490ec090c382616c6c70ad48e33eb5f7232;
+- pre-cleanup snapshot SHA-256
+  b6a3743a540008ff49a797ade28bed02b13c3fcc6376fcd1596c359e1844bd1e;
+- cleanup proof SHA-256
+  67457d334ba100eaf8d014692f854601d7ad7125f34c64834b162eccfd1e8576.
+
+The reviewed a53 legacy run selected v1.4.6 explicitly with
+fallback_used=false, submitted two tasks and idempotently resubmitted zero,
+reconnected in flight to the same run/locator, reached terminal completion,
+proved typed legacy events/resume boundaries and terminal cancel no-op,
+verified g16 identity/no-write and artifact/download SHA-256 integrity, and
+removed only its exact attempt root while retaining the shared published
+runtime. Current r6 metrics are attempted/submitted/terminal=2/2/2,
+eligible control/legacy 1/3 and 1/2, failed/cancelled/uncertain 0/0/0.
+The window still requires at least 72 hours, two additional eligible control
+successes, one additional eligible legacy success, and a retained-failure or
+non-counted negative probe; Phase F remains false.
+
 This section is the current decision record. It supersedes the earlier a3,
 v1.5.0, pre-release, candidate-only, synthetic, and historical status
 snapshots below; those sections remain for provenance and are not current
