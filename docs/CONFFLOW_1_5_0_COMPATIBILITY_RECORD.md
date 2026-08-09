@@ -29,6 +29,12 @@ compatibility evidence.
 
 The published pair is JobDesk `v0.5.1` and ConfFlow `v1.5.3`:
 
+The machine-readable aggregation boundary is
+[`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json).
+It keeps the immutable a10 raw bundle for provenance while explicitly marking
+it superseded/non-counted by canonical a32; a28 is also non-counted because
+its acceptance evidence file was not persisted.
+
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
 - ConfFlow release commit `f37759954da2818d777ec4d06f81bd53aeafe6e3`, wheel
