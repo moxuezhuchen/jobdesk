@@ -4,6 +4,54 @@
   "decision": "COMPATIBILITY PERIOD CONTINUES",
   "phase_f_ready": false,
   "aggregation_rule": "Only canonical_samples contribute to formal compatibility counters; superseded, candidate-only, synthetic, and historical evidence is excluded.",
+  "period_metric_contract": {
+    "policy_version": "jobdesk.confflow.compatibility-period.v1",
+    "status": "OPEN",
+    "observation_window": {
+      "start_rule": "Start at the first newly authorized real workload after this contract is published on the merged release pair; pre-contract release-boundary bundles remain provenance and do not become the window denominator.",
+      "minimum_duration_hours": 72,
+      "minimum_real_attempts": {
+        "control": 3,
+        "legacy": 2
+      },
+      "minimum_eligible_completed_successes": {
+        "control": 3,
+        "legacy": 2
+      },
+      "close_rule": "Close only after the minimum duration and both backend minima are met, every authorized attempt has a terminal classification, required recovery/cancel/retention scenarios are observed, and all hard thresholds below pass."
+    },
+    "denominator": {
+      "attempted": "Every newly authorized real published-pair workload with an immutable evidence bundle, including a failed or uncertain attempt; candidate-only, synthetic, historical, direct-producer, mock, and incomplete bundles are excluded from the stable sample counters.",
+      "submitted": "An attempt whose JobDesk submit boundary dispatched at least one task or recorded a documented typed submission failure.",
+      "terminal": "An attempt with a persisted completed, failed, cancelled, or typed fail-closed terminal outcome; unclassified attempts keep the window open.",
+      "fallback": "Record requested backend, selected backend, fallback_used, and reason for every attempt; expected rollback probes and unexpected selected-control-to-legacy fallback are separate counters."
+    },
+    "hard_thresholds": {
+      "unexpected_control_to_legacy_fallbacks": 0,
+      "duplicate_idempotency_conflicts": 0,
+      "protocol_reconnect_cursor_failures": 0,
+      "artifact_integrity_failures": 0,
+      "orphan_jobs_or_processes": 0,
+      "unclassified_attempts": 0,
+      "failed_attempts": 0,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0
+    },
+    "required_scenarios": {
+      "control_inflight_reconnect_recovery": 1,
+      "control_contract_cancel_or_typed_policy": 1,
+      "legacy_inflight_rollback_recovery": 1,
+      "failure_retention_or_non_counted_negative_probe": 1
+    },
+    "success_definition": "An eligible completed success is a real published-pair workload with verified producer/consumer provenance, terminal completed state, complete required lifecycle evidence, exact cleanup proof, and independent index promotion; failed, cancelled, uncertain, candidate-only, synthetic, historical, direct-producer, mock, and incomplete bundles do not satisfy this count.",
+    "phase_f_closeout": "phase_f_ready remains false until status is CLOSED, both backend minimum_eligible_completed_successes and all hard thresholds pass, legacy usage at close is measured, the retention/removal decision is recorded, and an independent review promotes only eligible bundles. Any failed, cancelled, or uncertain attempt blocks close and requires a newly authorized replacement window after review."
+  },
+  "release_boundary_observation": {
+    "pre_contract_control_runs": 4,
+    "pre_contract_legacy_runs": 1,
+    "counts_as_period_denominator": false,
+    "reason": "a32/a36/a37/a38 and a5 prove the published release boundary but were captured before this quantitative period contract; they remain canonical release evidence and formal aggregate counters."
+  },
   "canonical_samples": [
     {
       "sample_id": "control-v153-a32",

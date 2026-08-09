@@ -17,6 +17,30 @@ The proposed launcher acceptance is Route B compatibility observation work. The 
 
 The immutable cycle boundary and current sample statement are maintained in the [compatibility record](CONFFLOW_1_5_0_COMPATIBILITY_RECORD.md). The release and compatibility constraints come from the public post-M2 compatibility plan.
 
+## Quantitative compatibility-period gate
+
+The evidence index `period_metric_contract` defines the next observation window;
+this launcher design does not close it by itself. The window begins with the
+first newly authorized real workload after the contract is published on the
+merged `v0.5.1`/`v1.5.3` pair, stays open for at least 72 hours, and requires at
+least three real control attempts and two real legacy attempts, all eligible
+completed successes after independent index promotion. Every attempt needs a
+terminal classification and immutable provenance. Failed, cancelled, or
+uncertain attempts remain denominator evidence, cannot be promoted as stable
+samples, and block close until a replacement window is authorized after review;
+candidate-only, synthetic, historical, direct-producer, mock, and incomplete
+evidence remains excluded.
+
+The hard closeout thresholds are zero unexpected control-to-legacy fallbacks,
+duplicate idempotency conflicts, protocol/reconnect/cursor failures,
+artifact-integrity failures, orphan jobs/processes, unclassified attempts,
+failed attempts, cancelled attempts, and uncertain attempts.
+The window must include in-flight control reconnect recovery, a control cancel or
+typed policy observation, live legacy rollback/recovery, and retained failure or
+non-counted negative evidence. Legacy usage at close and the retain/remove
+decision are separate recorded metrics. Phase F stays false until the index
+contract is closed and independently reviewed.
+
 ## Current call chain and released worker handoff
 
 The current JobDesk symbols trace the control path as follows:
@@ -67,7 +91,26 @@ The smallest permitted workflow is a pinned ConfFlow v1.5.3 synthetic lifecycle 
 - does not enqueue an agent job, read agent SQLite, invoke a scheduler workload, spawn an external computational program, or depend on Gaussian, g16, ORCA, `iprog`, or any `/opt/g16` path;
 - has no claim about scientific or real-computation success rate.
 
-Fake transports remain useful for unit tests, but they do not count as launcher-path acceptance. The acceptance must use the real SSH/SFTP boundary once separately authorized.
+Fake transports remain useful for unit tests, but they do not count as launcher-path acceptance. This synthetic fixture is protocol-only preflight: it cannot start or satisfy the post-contract compatibility observation window, and it must never be counted as a stable real run. The real SSH/SFTP boundary is required for the separately authorized workload profile below.
+
+## Post-contract real published-pair workload profile
+
+To populate the quantitative compatibility window, use a separately authorized
+real JobDesk workload against the published JobDesk `v0.5.1` / ConfFlow `v1.5.3`
+pair (or the explicitly pinned stable `v1.4.6` legacy rollback profile). The
+profile must upload a real declared input/workflow, launch the released external
+worker through the supported scheduler boundary, and record the actual task and
+job lifecycle; it must not be described as synthetic or non-compute. Each
+attempt still uses one new exact remote root and isolated local evidence root,
+verified release provenance, requested/selected backend and fallback reason,
+idempotent resubmit, in-flight reconnect or rollback recovery, cancel/resume or
+typed policy, artifact manifest plus independent local SHA-256, and path-bound
+cleanup or failure retention. Existing `/opt` installations, agent SQLite, and
+producer state outside the exact attempt root remain read-only and untouched.
+
+The synthetic fixture above remains useful before a real workload for protocol
+preflight and negative contract checks, but it is non-counted evidence and cannot
+contribute to either `minimum_eligible_completed_successes` threshold.
 
 ## Isolated remote resources and safety boundary
 
@@ -92,7 +135,7 @@ The following safety checks are mandatory:
 - Reject any workflow, launcher script, or command containing `g16`, `gaussian`, `orca`, `iprog`, `/opt/g16`, `/opt/ConfFlow`, or a user run root.
 - Verify the remote command identity and resolved paths before `prepare` and before launcher submission.
 - Do not create or alter `/opt/g16`, `/opt/ConfFlow`, agent SQLite, or producer state outside the isolated attempt root.
-- Do not submit a user workflow or upload a real input. The only upload is the synthetic fixture and its manifest.
+- For the synthetic preflight, do not submit a user workflow or upload a real input; the only upload is the synthetic fixture and its manifest. The real published-pair workload profile is a separate explicit authorization and must use its own reviewed input and attempt root.
 - Cleanup may target only the exact attempt root after evidence capture. No broad `/tmp`, home, state-root, or user-run cleanup is permitted.
 
 ## Executable acceptance sequence
