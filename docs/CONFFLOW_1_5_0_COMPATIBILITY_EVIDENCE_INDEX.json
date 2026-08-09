@@ -14,6 +14,10 @@
         "control": 3,
         "legacy": 2
       },
+      "minimum_eligible_completed_successes": {
+        "control": 3,
+        "legacy": 2
+      },
       "close_rule": "Close only after the minimum duration and both backend minima are met, every authorized attempt has a terminal classification, required recovery/cancel/retention scenarios are observed, and all hard thresholds below pass."
     },
     "denominator": {
@@ -28,7 +32,10 @@
       "protocol_reconnect_cursor_failures": 0,
       "artifact_integrity_failures": 0,
       "orphan_jobs_or_processes": 0,
-      "unclassified_attempts": 0
+      "unclassified_attempts": 0,
+      "failed_attempts": 0,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0
     },
     "required_scenarios": {
       "control_inflight_reconnect_recovery": 1,
@@ -36,7 +43,8 @@
       "legacy_inflight_rollback_recovery": 1,
       "failure_retention_or_non_counted_negative_probe": 1
     },
-    "phase_f_closeout": "phase_f_ready remains false until status is CLOSED, the window minima and hard thresholds pass, legacy usage at close is measured, the retention/removal decision is recorded, and an independent review promotes only eligible bundles."
+    "success_definition": "An eligible completed success is a real published-pair workload with verified producer/consumer provenance, terminal completed state, complete required lifecycle evidence, exact cleanup proof, and independent index promotion; failed, cancelled, uncertain, candidate-only, synthetic, historical, direct-producer, mock, and incomplete bundles do not satisfy this count.",
+    "phase_f_closeout": "phase_f_ready remains false until status is CLOSED, both backend minimum_eligible_completed_successes and all hard thresholds pass, legacy usage at close is measured, the retention/removal decision is recorded, and an independent review promotes only eligible bundles. Any failed, cancelled, or uncertain attempt blocks close and requires a newly authorized replacement window after review."
   },
   "release_boundary_observation": {
     "pre_contract_control_runs": 4,

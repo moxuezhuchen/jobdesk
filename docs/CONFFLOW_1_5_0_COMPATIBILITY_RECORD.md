@@ -34,18 +34,22 @@ the remaining compatibility gate. A new observation window starts only with the
 first newly authorized real workload after this contract is published on the
 merged JobDesk `v0.5.1` / ConfFlow `v1.5.3` pair. It must remain open for at
 least 72 hours and include at least three real `control` attempts and two real
-`legacy` attempts. Every authorized attempt must have a terminal classification;
-failed or uncertain attempts stay in the denominator but never become stable
-success samples.
+`legacy` attempts, all of which must be eligible completed successes after
+independent index promotion. Every authorized attempt must have a terminal
+classification; failed, cancelled, or uncertain attempts stay in the denominator,
+never become stable success samples, and block close until a replacement window
+is authorized after review.
 
 The closeout thresholds are zero unexpected selected-control-to-legacy
 fallbacks, duplicate idempotency conflicts, protocol/reconnect/cursor failures,
-artifact-integrity failures, orphan jobs/processes, and unclassified attempts.
+artifact-integrity failures, orphan jobs/processes, unclassified attempts,
+failed attempts, cancelled attempts, and uncertain attempts.
 The window also requires one in-flight control reconnect recovery, one control
 contract cancel or typed policy observation, one live legacy rollback/recovery
 probe, and one retained failure or explicitly non-counted negative probe. Legacy
 usage at close and the retain/remove decision must be recorded separately.
-The existing a32/a36/a37/a38/a5 bundles remain canonical release-boundary
+The synthetic fixture workflow below is protocol-only preflight and cannot start
+or satisfy this real-workload window. The existing a32/a36/a37/a38/a5 bundles remain canonical release-boundary
 evidence and formal aggregate counters, but are explicitly excluded from this
 new window denominator. Phase F remains false until the contract is closed and
 independently reviewed.
