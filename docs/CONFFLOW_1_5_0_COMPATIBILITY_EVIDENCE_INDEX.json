@@ -384,6 +384,43 @@
           "reason": "Harness failed at initializing_jobdesk_run with TypeError: ConfFlowAdapter.build_spec() got an unexpected keyword argument 'confflow_executable'. The persisted failure bundle is non-counted and cannot satisfy the r4 success or negative-probe scenario. A new authorized replacement window and unique root/run are required."
         }
       ]
+    },
+    {
+      "window_id": "post-contract-replacement-20260809-r5",
+      "status": "OPEN",
+      "authorized_at": "2026-08-09T16:33:49.3203913Z",
+      "authorization": "User continuation authorization after r4/a50 acceptance failure; new real published-pair window with fresh unique roots and independent promotion.",
+      "failed_attempts": 0,
+      "cancelled_attempts": 0,
+      "uncertain_attempts": 0,
+      "replacement_required": false,
+      "phase_f_ready": false,
+      "attempted": 0,
+      "submitted": 0,
+      "terminal": 0,
+      "eligible_completed_successes": {
+        "control": 0,
+        "legacy": 0
+      },
+      "required_scenarios_observed": {
+        "control_inflight_reconnect_recovery": 0,
+        "control_contract_cancel_or_typed_policy": 0,
+        "legacy_inflight_rollback_recovery": 0,
+        "failure_retention_or_non_counted_negative_probe": 0
+      },
+      "hard_thresholds_observed": {
+        "unexpected_control_to_legacy_fallbacks": 0,
+        "duplicate_idempotency_conflicts": 0,
+        "protocol_reconnect_cursor_failures": 0,
+        "artifact_integrity_failures": 0,
+        "orphan_jobs_or_processes": 0,
+        "unclassified_attempts": 0,
+        "failed_attempts": 0,
+        "cancelled_attempts": 0,
+        "uncertain_attempts": 0
+      },
+      "reason": "New r5 replacement window opened after r4/a50 failed-denominator review. It starts with no inherited denominator and requires at least 72 hours, three eligible completed control successes, two eligible completed legacy successes, live legacy recovery, a retained-failure or non-counted negative probe, and all hard thresholds. The prepared a51 harness has passed independent static/API review but has not yet produced an attempt.",
+      "attempts": []
     }
   ],
   "canonical_samples": [

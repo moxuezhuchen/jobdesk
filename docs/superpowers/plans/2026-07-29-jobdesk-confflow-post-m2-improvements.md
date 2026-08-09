@@ -174,6 +174,16 @@ bundle and is outside the denominator. A newly authorized r5 window with a
 new unique root/run is required; r3/r2, a40/a41/a45/a46, candidate, synthetic,
 historical, and incomplete evidence do not satisfy r4. Phase F remains false.
 
+The user-authorized replacement window
+`post-contract-replacement-20260809-r5` is now **OPEN** with no inherited
+denominator. The prepared a51 harness targets a new exact remote/local root
+and ordinal `1`; its public API/import/create-run path, cleanup proof, g16
+identity/no-write checks, and in-flight reconnect path have passed independent
+static review. No r5 workload has run yet. The r5 window still requires at
+least 72 hours, three eligible completed control successes, two eligible
+completed legacy successes, live legacy rollback/recovery, a retained-failure
+or non-counted negative probe, and all hard thresholds. Phase F remains false.
+
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer
