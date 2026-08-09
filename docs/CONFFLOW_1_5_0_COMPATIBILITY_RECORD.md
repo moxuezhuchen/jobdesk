@@ -1,5 +1,22 @@
 # ConfFlow / JobDesk 兼容发布周期记录
 
+> Current authoritative summary (2026-08-09): use
+> [`CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`](CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json)
+> as the machine-readable aggregation boundary. The canonical released
+> control samples are a32, a36, a37, and a38; the canonical stable legacy
+> closeout is a5. All four control samples use ConfFlow v1.5.3 and JobDesk
+> v0.5.1, select `control` explicitly, record `fallback_used=false`, complete
+> at revision 6, and prove reconnect, idempotent submit 1/0, fixed-cursor
+> replay, terminal empty page, terminal cancel/resume fail-closed, and
+> artifact/download SHA-256 integrity. Exact per-attempt roots are absent;
+> the shared published runtime is intentionally retained.
+> The a34 and a35 bundles remain `acceptance_failed=true`, supplemental, and
+> non-counted. The formal counters are `control_backend_runs=4` and
+> `legacy_backend_runs=1`; candidate-only, synthetic, historical, and failed
+> evidence remains excluded. The formal decision is
+> **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`; period-wide
+> fallback, recovery/retention, and closeout metrics remain open.
+
 ## 原始 v1.5.0 周期边界与不可变 provenance（historical; superseded below）
 
 - 兼容周期真实 UTC 起始时间：`2026-08-01T15:57:13Z`
@@ -42,13 +59,17 @@ had not persisted a JobDesk cursor. Its read-only terminal capture is
 `C:\tmp\jobdesk-control-release-v153-20260809-a35\post-failure-readonly.json`;
 it is `acceptance_failed=true`, `synthetic=false`, and non-counted.
 
-The separately authorized a36 run at
-`C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json` is the
-independently indexed second canonical released control computation. It reached
-revision `6` and `completed` with `fallback_used=false`, and recorded reconnect,
-idempotent submit `1` then `0`, fixed-cursor replay, terminal empty next page,
-typed terminal cancel/resume rejection, and manifest/download SHA-256 integrity.
-Its exact remote attempt root was absent after bounded cleanup.
+The separately authorized a36, a37, and a38 runs at
+`C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`,
+`C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and
+`C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json` are the
+independently indexed second, third, and fourth canonical released control
+computations. Each reached revision `6` and `completed` with
+`fallback_used=false`, and recorded reconnect, idempotent submit `1` then `0`,
+fixed-cursor replay, terminal empty next page, typed terminal cancel/resume
+rejection, and manifest/download SHA-256 integrity. Each exact per-attempt root
+was absent after bounded cleanup; the shared published runtime remains
+intentionally retained.
 
 - JobDesk release commit `ebb719b2b67d2095f2199a30c9b97d7f88ac8820`, wheel
   SHA-256 `892efb156e1d59c10018d25107ec54932625a9238067d125cec61801cd3a279e`.
@@ -59,23 +80,22 @@ Its exact remote attempt root was absent after bounded cleanup.
   Contract `31271946207`, and release workflow `31272089279`. Candidate-only,
   synthetic, and historical results remain excluded.
 
-The authoritative control sample is
-`C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`.
-It is one real JobDesk control computation through the released worker-handoff
-and supported launcher: producer state reached revision `6` and `completed`,
-the first submit dispatched one task, the idempotent resubmit dispatched zero
-duplicates, and the evidence explicitly records `requested_mode=control`,
-`selected_backend=control`, `fallback_used=false`, reconnect identity, one
-events/status page, typed terminal cancel/resume rejection, and
-manifest/download/hash integrity. It publishes `next_cursor`, but the
-canonical bundle does not contain a same-cursor replay or next-page
-request/response trace. The separately retained read-only trace at
-`C:\tmp\jobdesk-control-release-v153-20260809-a34\events-readonly-trace.json`
-proves fixed-cursor replay and the terminal empty-page response against the
-completed released workflow. The a34 harness failure is explicitly
-`acceptance_failed=true`, `synthetic=false`, and non-counted. The exact a32
-attempt and runtime roots are absent after cleanup. a32 remains one counted
-real control run.
+The authoritative control samples are
+`C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`,
+`C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`,
+`C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and
+`C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json`.
+Together they are four real JobDesk control computations through the released
+worker-handoff and supported launcher. a32 records the initial durable
+selection, submit, reconnect, status/events, cancel/resume, artifact and
+cleanup trace; a36/a37/a38 add independently reviewed complete lifecycle
+traces, including fixed-cursor replay and terminal empty pages. All four
+record `requested_mode=control`, `selected_backend=control`, and
+`fallback_used=false`; all complete at producer revision `6`. The separately
+retained a34 read-only trace proves fixed-cursor replay and the terminal
+empty-page response but is `acceptance_failed=true`, `synthetic=false`, and
+non-counted. The exact attempt roots for all four canonical bundles are absent;
+the shared published runtime remains intentionally retained.
 
 The authoritative legacy closeout sample is
 `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`.
@@ -88,10 +108,10 @@ legacy boundaries. It is counted as one real legacy run.
 
 | Metric | Control v1.5.3 | Legacy v1.4.6 |
 | --- | --- | --- |
-| counted real runs | 2 | 1 |
-| fallback | `false` (a32 machine-readable evidence) | `false` |
+| counted real runs | 4 | 1 |
+| fallback | `false` (all four control bundles) | `false` |
 | idempotent duplicate submissions | 0 | 0 |
-| reconnect / status | identity and first events/status page passed; supplemental fixed-cursor replay/next page trace passed, but a34 acceptance bundle is non-counted | identity and refresh trace passed |
+| reconnect / status | all four control bundles prove identity; a36/a37/a38 also persist fixed-cursor replay and terminal empty next-page traces; a34 remains supplemental/non-counted | identity and refresh trace passed |
 | cancel / resume | typed terminal-state rejection expected | terminal cancel no-op; resume unsupported expected |
 | artifact integrity | manifest, download, size and SHA-256 passed | two manifests, downloads, size and SHA-256 passed |
 | agent SQLite / producer double-write | none | none |
@@ -101,15 +121,15 @@ The rejected post-release v1.5.0 attempt at
 the approved-release validator and is explicitly non-counted. It is not a
 compatibility success and does not justify widening the consumer gate.
 
-Published releases, dual-repository CI, released worker-handoff, two real
-control computations, and a second canonical run with reconnect, idempotency,
-cursor replay/empty-page, terminal cancel/resume, and artifact-download
-integrity are evidenced. A complete measured published
+Published releases, dual-repository CI, released worker-handoff, four real
+control computations, and three canonical complete lifecycle traces with
+reconnect, idempotency, cursor replay/empty-page, terminal cancel/resume, and
+artifact-download integrity are evidenced. A complete measured published
 compatibility cycle with period-wide fallback, reconnect, idempotency,
 resume/cancel, artifact-integrity, and legacy-closeout metrics is still open.
 Formal decision: **COMPATIBILITY PERIOD CONTINUES**; Phase F is not ready.
 Retain both backends, the stable `v1.4.6` rollback path, and all fail-closed
-gates. Both release evidence bundles retain `phase_f_ready=false`.
+gates. All five canonical release evidence bundles retain `phase_f_ready=false`.
 No `/opt` or agent state was modified.
 
 ## 原始 v1.5.0 Gate 与双 backend 验收（historical; superseded above）
