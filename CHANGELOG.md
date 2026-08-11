@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.6.0] - 2026-08-11
+
+This breaking owner-exception release follows the formally published
+ConfFlow v2.0.0 producer release. JobDesk now pins the control-only producer
+contract to the v2.0.0 wheel and removes the old compatibility backend from
+the production path.
+
+### Compatibility boundary
+- The current producer window is `confflow>=2.0,<3.0` with exact v2.0.0
+  build and wheel provenance.
+- ConfFlow v1.5.3 and v1.4.6 records remain historical release evidence and
+  are not counted as current stable compatibility evidence.
+- This owner exception does not rewrite the historical evidence index or
+  claim that the measured compatibility period completed; its formal status
+  remains `COMPATIBILITY PERIOD CONTINUES`.
+
 ## [0.5.1] - 2026-08-09
 
 This controlled consumer release pins and validates the formal ConfFlow
@@ -144,7 +160,8 @@ The schema at v0.5.0 was **schema v4** (introduced in v0.2.x and retained by v0.
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.6.0
 [0.5.1]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.4.0

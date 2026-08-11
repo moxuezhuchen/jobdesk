@@ -1,10 +1,10 @@
 # ConfFlow control protocol v1 consumer record
 
 - **Status:** consumer snapshot of the released producer contract
-- **Producer release:** `v1.5.3`
-- **Producer commit:** `f37759954da2818d777ec4d06f81bd53aeafe6e3`
-- **Producer wheel:** `confflow-1.5.3-py3-none-any.whl`
-- **Wheel SHA-256:** `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`
+- **Producer release:** `v2.0.0`
+- **Producer commit:** `69819350d340a6aeccf95aa175edfd1c3f63404b`
+- **Producer wheel:** `confflow-2.0.0-py3-none-any.whl`
+- **Wheel SHA-256:** `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`
 - **Protocol:** `confflow.control.v1`
 - **Schema dialect:** JSON Schema Draft 2020-12
 
@@ -13,7 +13,7 @@ bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
 repository vendors the same four core JSON documents plus the released
 worker-handoff extension under
 `confflow/schemas/control/` so the consumer tests and CI can validate requests
-and responses without a checkout of the producer repository. The v1.5.3
+and responses without a checkout of the producer repository. The v2.0.0
 `control_worker` release contract contains all five documents; historical
 producers that do not advertise that capability retain only the four-file
 core. The snapshot is checked by `tests/test_control_protocol_schemas.py`
@@ -33,7 +33,7 @@ release and a review of the cross-repository contract.
 - `input-manifest.schema.json`: the ordered input file manifest referenced by
   `prepare`.
 - `worker-handoff.schema.json`: the producer-owned, one-task external-worker
-  envelope released with v1.5.3 and required when `control_worker` is
+  envelope released with v2.0.0 and required when `control_worker` is
   advertised.
 
 The producer response envelope uses `state` (not `status`) and advertises
@@ -53,12 +53,12 @@ The released worker handoff also publishes fixed `{stem}.txt` and
 `{stem}min.xyz` sidecars beside the task work directory. The JobDesk
 adapter must retain the established `<stem>_confflow_work` work-directory
 name so the existing metadata bridge can map those sidecars; this naming rule
-is part of the v1.5.3 producer extension. The four-file core remains the
+is part of the v2.0.0 producer extension. The four-file core remains the
 stable operation snapshot, while the worker-handoff file is the formal fifth
 release member whenever the producer advertises `control_worker`.
 
 The JobDesk tree also carries a `worker-handoff.schema.json` snapshot for the
-released ConfFlow worker extension. It is part of the pinned v1.5.3 release
+released ConfFlow worker extension. It is part of the pinned v2.0.0 release
 and is sent only after the producer capability advertises `control_worker`.
 The handoff envelope is one-task (`maxItems=1`); JobDesk rejects larger
 batches rather than truncating them.
@@ -74,8 +74,9 @@ and PBS are launcher concerns in JobDesk and invoke the same producer
 `prepared` is a durable producer record, not a running state. `execute` may
 return `queued` when an external worker owns the eventual calculation handoff;
 it must not be interpreted as a completed scientific calculation. JobDesk
-therefore kept the legacy backend and the v1.4.6 rollback path until a real
-published compatibility cycle and launcher acceptance are complete.
+therefore removed the legacy backend from the production path. The v1.4.6
+rollback record remains historical evidence and does not authorize a current
+control run.
 
 ## State, revision, and recovery rules
 
@@ -128,5 +129,5 @@ Readers may ignore future optional fields, but required-field, state,
 error-code, identity, and artifact-path changes are breaking contract changes.
 Artifact paths are relative POSIX paths below the producer run directory; both
 producer and consumer validate them before download. Control submission is
-accepted only for the exact v1.5.3 production provenance. The stable v1.4.6
-exception was restricted to the legacy backend's compatibility-period preflight.
+accepted only for the exact v2.0.0 production provenance. The v1.4.6 record is
+historical and the retired legacy backend is not a current submission path.

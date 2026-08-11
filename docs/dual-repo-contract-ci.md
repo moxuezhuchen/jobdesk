@@ -17,9 +17,11 @@ JobDesk pins the exact producer tag and wheel digest. Its matrix installs that
 release, checks the capability payload with the JobDesk parser, requires clean
 build/producer provenance, compares the installed control schema bundle with
 the checked snapshot, and runs consumer golden/negative fixtures. The stable
-v1.5.3 path compares all five release members, including
-`worker-handoff.schema.json`; historical producers without `control_worker`
-are checked against the four-file core. The release
+v2.0.0 path compares all five release members, including
+`worker-handoff.schema.json`; historical v1.5.3 and v1.5.0 producers are
+explicitly labeled non-stable and checked fail-closed against the current
+major-version window. Historical producers without `control_worker` are
+checked against the four-file core. The release
 and deployment gates additionally verify the external attestation and install
 provenance; a plain pip install in the matrix deliberately reports a missing
 install record as candidate-only. The producer bundle remains authoritative;
@@ -61,15 +63,15 @@ commit, wheel digest, or schema digest is inconsistent.
 5. The matrix runs without WSL or Gaussian dependencies; real SSH/WSL
    acceptance remains a separate integration gate.
 
-## Current execution boundary (2026-08-09)
+## Current execution boundary (2026-08-11)
 
-The producer candidate was followed by the corrected v1.5.3 release. Main is
-now at the normal merge commit `f377599`, tag `v1.5.3` is immutable, and the
-formal release wheel digest is
-`213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6`.
-The JobDesk compatibility matrix now labels v1.5.3 as `stable` and keeps the
-old v1.5.0 wheel only as `historical-v1.5.0`; the old 1.5.1 candidate digest
-is not referenced. The JobDesk consumer pin and the formal five-member
+The producer candidate was followed by the formally published v2.0.0 release.
+Main is now at the normal merge commit `69819350`, tag `v2.0.0` is immutable,
+and the formal release wheel digest is
+`04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
+The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
+and v1.5.0 only as explicitly historical comparisons; old candidate digests
+are not referenced. The JobDesk consumer pin and the formal five-member
 worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
