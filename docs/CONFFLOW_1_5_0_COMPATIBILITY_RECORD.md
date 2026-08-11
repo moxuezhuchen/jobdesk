@@ -26,33 +26,25 @@
 > must not be used as current counters. The formal decision remains
 > **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`. The current
 > formal counters are `control_backend_runs=4` and `legacy_backend_runs=1`.
+> The user explicitly waived the 72-hour observation minimum at 2026-08-11T01:16:53.4065317Z because the project has no intended use. The current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: the reviewed r6 metrics remain evidence, but this record makes no complete measured compatibility-period claim and does not authorize Phase F.
 
-## Period-wide metric contract (authoritative; currently open)
+## Compatibility-period metric contract (authoritative; full period intentionally not claimed)
 
-The machine-readable `period_metric_contract` in the evidence index now defines
-the remaining compatibility gate. A new observation window starts only with the
-first newly authorized real workload after this contract is published on the
-merged JobDesk `v0.5.1` / ConfFlow `v1.5.3` pair. It must remain open for at
-least 72 hours and include at least three real `control` attempts and two real
-`legacy` attempts, all of which must be eligible completed successes after
-independent index promotion. Every authorized attempt must have a terminal
-classification; failed, cancelled, or uncertain attempts stay in the denominator,
-never become stable success samples, and block close until a replacement window
-is authorized after review.
+The machine-readable period_metric_contract remains the authority for any full
+compatibility-period claim. The user-authorized duration waiver recorded in the
+index applies to r6 because the project has no intended use. This record
+therefore finalizes only RELEASE_BOUNDARY_VALIDATION_ONLY; the 72-hour minimum
+is not applicable to that scope. The r6 attempts and required lifecycle metrics
+remain immutable evidence, but this record does not claim a complete measured
+compatibility period and phase_f_ready stays false.
 
-The closeout thresholds are zero unexpected selected-control-to-legacy
-fallbacks, duplicate idempotency conflicts, protocol/reconnect/cursor failures,
-artifact-integrity failures, orphan jobs/processes, unclassified attempts,
-failed attempts, cancelled attempts, and uncertain attempts.
-The window also requires one in-flight control reconnect recovery, one control
-contract cancel or typed policy observation, one live legacy rollback/recovery
-probe, and one retained failure or explicitly non-counted negative probe. Legacy
-usage at close and the retain/remove decision must be recorded separately.
-The synthetic fixture workflow below is protocol-only preflight and cannot start
-or satisfy this real-workload window. The existing a32/a36/a37/a38/a5 bundles remain canonical release-boundary
-evidence and formal aggregate counters, but are explicitly excluded from this
-new window denominator. Phase F remains false until the contract is closed and
-independently reviewed.
+A full-period claim would still require the contract's terminal classification,
+eligible-success minima, required recovery/cancel/retention scenarios, and zero
+hard-threshold violations. Failed, cancelled, or uncertain attempts remain
+denominator evidence and cannot be promoted as stable samples. Candidate-only,
+synthetic, historical, direct-producer, mock, and incomplete evidence remains
+excluded. The waiver never satisfies Phase F and does not change the formal
+canonical counters.
 
 ### Post-contract window observation (blocked; replacement required)
 
@@ -127,6 +119,43 @@ in place. a49 was an earlier pre-execution import failure with no root or
 bundle and is outside the denominator. A newly authorized r5 window with a
 new unique root/run is required; r3/r2, a40/a41/a45/a46, candidate, synthetic,
 historical, and incomplete evidence do not satisfy r4. Phase F remains false.
+
+The user-authorized replacement window
+`post-contract-replacement-20260809-r5` is now **BLOCKED** by a51. The attempt
+entered local JobDesk run initialization and durably recorded an acceptance
+failure before submit or SSH: the harness was executed against the
+legacy-only `jobdesk-dev` checkout and passed unsupported
+`SSHConfFlowClient(..., backend_mode=...)` arguments. Its evidence SHA-256 is
+`ef5701fb24294b36628998564d061292c52857255cace7c75ad9bccb9f73dded`;
+`acceptance_failed=true`, `failed_denominator=true`, and it is non-counted with
+the exact local evidence/workspace root retained. It cannot be retried in
+place. The control harness must run against the control-enabled published
+JobDesk source in a newly authorized replacement window with a fresh root/run.
+The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
+`failed_attempts=1`, eligible control/legacy `0/0`; Phase F remains false.
+
+The newly authorized replacement window
+`post-contract-replacement-20260810-r6` is **WAIVED_NOT_APPLICABLE** for the
+explicitly authorized `RELEASE_BOUNDARY_VALIDATION_ONLY` scope, with no inherited
+denominator. Its authorization is recorded at
+`2026-08-09T16:54:00.8101466Z`. Independent index review promoted a52 as r6
+control success #1 and a53 as r6 legacy success #1; a54 is r6 legacy success
+#2 and a55/a56 are r6 control successes #2/#3. All raw bundles remain
+`counts_as_real_run=false`/supplemental; promotion is only in the independent
+index. The a53/a54/a55/a56 main, pre-cleanup, and cleanup-proof SHA-256 values
+are recorded in the machine-readable evidence index. The reviewed runs prove
+explicit backend selection without fallback, submit/idempotency boundaries,
+in-flight reconnect/recovery, event/cursor behavior, typed terminal policy,
+g16 identity/no-write, artifact SHA integrity, and exact attempt-root cleanup
+with shared runtime retention. Current r6 metrics are
+`attempted=5`, `submitted=5`, `terminal=5`, eligible control/legacy `3/3` and
+`2/2`, with failed/cancelled/uncertain `0/0/0`. The independently reviewed n1
+non-counted negative probe observed typed `unsupported_protocol` without a
+workload and retained its exact root; its main SHA-256 is
+`9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da` and it
+does not increment period counters. The negative/retention scenario is observed. The user-authorized duration
+waiver finalizes r6 only as release-boundary validation; no full-period claim or
+Phase F readiness is made.
 
 ## 周期边界与不可变 provenance（historical; superseded below）
 

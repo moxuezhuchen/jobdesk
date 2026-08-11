@@ -78,30 +78,26 @@ Retain both backends, stable `v1.4.6` rollback, and all fail-closed gates.
 All four immutable control evidence bundles and the legacy closeout bundle retain `phase_f_ready=false`.
 No `/opt` or agent state was modified.
 
-### Quantitative compatibility-period gate (authoritative; open)
+The user explicitly waived the 72-hour observation minimum at 2026-08-11T01:16:53.4065317Z because the project has no intended use. The current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: r6's real published-pair evidence and metrics are retained, but no complete measured compatibility-period claim is made and Phase F remains false.
 
-The evidence index `period_metric_contract` is the sole definition of the next
-measurement window. The window starts with the first newly authorized real
-workload after this contract is published on the merged `v0.5.1`/`v1.5.3`
-release pair, remains open for at least 72 hours, and requires at least three
-real control attempts plus two real legacy attempts, all eligible completed
-successes after independent index promotion. The denominator includes every
-authorized real attempt with an immutable bundle, including failures or
-uncertainty; candidate-only, synthetic, historical, direct-producer, mock, and
-incomplete evidence never counts as a stable compatibility run.
+### Quantitative compatibility-period gate (authoritative; full-period claim waived)
 
-Closeout requires terminal classification for every attempt and zero
-unexpected control-to-legacy fallbacks, duplicate idempotency conflicts,
-protocol/reconnect/cursor failures, artifact-integrity failures, orphan jobs or
-processes, unclassified attempts, failed attempts, cancelled attempts, and
-uncertain attempts. It also requires in-flight control
-reconnect recovery, a control cancel or typed policy observation, live legacy
-rollback/recovery, and retained failure or non-counted negative evidence. The
-legacy usage and retain/remove decision at close must be recorded. The synthetic
-fixture workflow below is protocol-only preflight and cannot start or satisfy
-this real-workload window. The existing a32/a36/a37/a38/a5 release-boundary evidence remains canonical but is excluded
-from this post-contract denominator; Phase F remains false until independent
-review closes the contract.
+The evidence index remains the authority for any full-period measurement. The
+user explicitly waived the 72-hour minimum because the project has no intended
+use. The current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: r6's real
+published-pair evidence and metrics are retained, but no complete measured
+compatibility-period claim is made and Phase F remains false.
+
+A full-period close would still require terminal classification for every
+attempt, both backend success minima, zero unexpected control-to-legacy
+fallbacks, duplicate idempotency conflicts, protocol/reconnect/cursor failures,
+artifact-integrity failures, orphan jobs or processes, unclassified attempts,
+failed attempts, cancelled attempts, and uncertain attempts. It also requires
+in-flight control reconnect recovery, a control cancel or typed policy
+observation, live legacy rollback/recovery, and retained failure or non-counted negative evidence. Candidate-only,
+synthetic, historical, direct-producer, mock, and incomplete evidence never
+counts. The waiver applies only to the release-boundary scope and never
+authorizes Phase F.
 
 ### Post-contract window observation (blocked; replacement required)
 
@@ -173,6 +169,57 @@ in place. a49 was an earlier pre-execution import failure with no root or
 bundle and is outside the denominator. A newly authorized r5 window with a
 new unique root/run is required; r3/r2, a40/a41/a45/a46, candidate, synthetic,
 historical, and incomplete evidence do not satisfy r4. Phase F remains false.
+
+The user-authorized replacement window
+`post-contract-replacement-20260809-r5` is now **BLOCKED** by a51. The attempt
+entered local JobDesk run initialization and durably recorded an acceptance
+failure before submit or SSH: the harness was executed against the
+legacy-only `jobdesk-dev` checkout and passed unsupported
+`SSHConfFlowClient(..., backend_mode=...)` arguments. Its evidence SHA-256 is
+`ef5701fb24294b36628998564d061292c52857255cace7c75ad9bccb9f73dded`;
+`acceptance_failed=true`, `failed_denominator=true`, and it is non-counted with
+the exact local evidence/workspace root retained. It cannot be retried in
+place. The control harness must run against the control-enabled published
+JobDesk source in a newly authorized replacement window with a fresh root/run.
+The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
+`failed_attempts=1`, eligible control/legacy `0/0`; Phase F remains false.
+
+The newly authorized replacement window
+`post-contract-replacement-20260810-r6` is **WAIVED_NOT_APPLICABLE** for the
+explicitly authorized `RELEASE_BOUNDARY_VALIDATION_ONLY` scope, with no inherited
+denominator. Its authorization is recorded at
+`2026-08-09T16:54:00.8101466Z`. Independent review promoted a52 as its first
+eligible completed control success and a53 as its first eligible completed
+legacy success; both raw bundles remain
+`counts_as_real_run=false`/supplemental. The a52 main/pre-cleanup/cleanup-proof
+SHA-256 values are respectively
+`cd8d47569c3edc6fd3d0820ee4245395527603a388f26c2bbe84f11b437d680c`,
+`993ebee728320bba90b3b7db38f66db62bf2392217ce7ef522fdb702fac853af`, and
+`5c73a16f53f4473fe1e3f1f026ea1eb1059a2f1961986bd6bd2690d278400b6a`.
+The a53 main/pre-cleanup/cleanup-proof SHA-256 values are respectively
+`182dbcc3fa6effa1d65f285a45f75490ec090c382616c6c70ad48e33eb5f7232`,
+`b6a3743a540008ff49a797ade28bed02b13c3fcc6376fcd1596c359e1844bd1e`, and
+`67457d334ba100eaf8d014692f854601d7ad7125f34c64834b162eccfd1e8576`.
+The reviewed a52 evidence proves explicit control selection without fallback,
+submit `1`/idempotent resubmit `0`, queued-to-completed in-flight reconnect,
+fixed-cursor replay and terminal empty page, typed terminal policy, g16
+identity/no-write, artifact SHA integrity, and exact attempt-root cleanup with
+shared runtime retention. The reviewed a53 evidence proves explicit legacy
+selection without fallback, two-task submit `2`/idempotent resubmit `0`,
+in-flight reconnect and legacy rollback boundaries, terminal completion,
+g16 identity/no-write, artifact SHA integrity, and the same attempt-only
+cleanup proof. Independent review promoted a54 as the second eligible legacy success; its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence index.
+Independent review promoted a55 as the second eligible control success; its
+main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
+index. Independent review promoted a56 as the third eligible control success;
+its main/pre-cleanup/cleanup-proof SHA-256 values are recorded in the evidence
+index. The independently reviewed n1 non-counted negative probe observed a
+typed unsupported-protocol failure with no workload and retained its exact
+root; its evidence SHA-256 is recorded in the evidence index and it does not
+increment period counters. `attempted=5`, `submitted=5`, `terminal=5`, eligible
+control/legacy `3/3` and `2/2`, with failed/cancelled/uncertain `0/0/0`. The negative/retention scenario is now observed. The user-authorized duration
+waiver finalizes r6 only as release-boundary validation; no full-period claim or
+Phase F readiness is made.
 
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
