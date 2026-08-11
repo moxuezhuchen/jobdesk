@@ -135,7 +135,8 @@ The r5 window therefore remains at `attempted=1`, `submitted=0`, `terminal=1`,
 `failed_attempts=1`, eligible control/legacy `0/0`; Phase F remains false.
 
 The newly authorized replacement window
-`post-contract-replacement-20260810-r6` is **OPEN** with no inherited
+`post-contract-replacement-20260810-r6` is **WAIVED_NOT_APPLICABLE** for the
+explicitly authorized `RELEASE_BOUNDARY_VALIDATION_ONLY` scope, with no inherited
 denominator. Its authorization is recorded at
 `2026-08-09T16:54:00.8101466Z`. Independent index review promoted a52 as r6
 control success #1 and a53 as r6 legacy success #1; a54 is r6 legacy success
