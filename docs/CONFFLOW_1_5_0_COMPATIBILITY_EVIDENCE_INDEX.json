@@ -1,15 +1,29 @@
 {
   "schema": "jobdesk.confflow.compatibility-evidence-index.v1",
-  "updated": "2026-08-10",
+  "updated": "2026-08-11",
   "decision": "COMPATIBILITY PERIOD CONTINUES",
   "phase_f_ready": false,
+  "current_scope": "RELEASE_BOUNDARY_VALIDATION_ONLY",
+  "full_compatibility_period_claim": false,
+  "duration_waiver": {
+    "status": "AUTHORIZED",
+    "authorized_at": "2026-08-11T01:16:53.4065317Z",
+    "authorized_by": "user",
+    "applies_to_window_id": "post-contract-replacement-20260810-r6",
+    "scope": "RELEASE_BOUNDARY_VALIDATION_ONLY",
+    "reason": "The user stated that the project has no intended use; elapsed observation time would not add intended-use evidence.",
+    "effect": "Waives only the 72-hour duration requirement for this release-boundary-only validation. It does not claim a complete measured compatibility period and cannot set phase_f_ready=true."
+  },
   "aggregation_rule": "Only canonical_samples contribute to formal compatibility counters; superseded, candidate-only, synthetic, and historical evidence is excluded.",
   "period_metric_contract": {
     "policy_version": "jobdesk.confflow.compatibility-period.v1",
-    "status": "OPEN",
+    "status": "WAIVED_NOT_APPLICABLE",
+    "scope": "RELEASE_BOUNDARY_VALIDATION_ONLY",
+    "full_period_claim": false,
     "observation_window": {
       "start_rule": "Start at the first newly authorized real workload after this contract is published on the merged release pair; pre-contract release-boundary bundles remain provenance and do not become the window denominator.",
       "minimum_duration_hours": 72,
+      "duration_policy": "The 72-hour minimum applies to a full measured compatibility period. It is not applicable only to an explicitly authorized RELEASE_BOUNDARY_VALIDATION_ONLY scope and a waiver can never satisfy Phase F.",
       "minimum_real_attempts": {
         "control": 3,
         "legacy": 2
@@ -18,7 +32,8 @@
         "control": 3,
         "legacy": 2
       },
-      "close_rule": "Close only after the minimum duration and both backend minima are met, every authorized attempt has a terminal classification, required recovery/cancel/retention scenarios are observed, and all hard thresholds below pass."
+      "close_rule": "A full measured compatibility period may close only after the minimum duration and both backend minima are met, every authorized attempt has a terminal classification, required recovery/cancel/retention scenarios are observed, and all hard thresholds below pass.",
+      "waiver_close_rule": "For an explicitly authorized RELEASE_BOUNDARY_VALIDATION_ONLY scope, finalize only the independently reviewed release-boundary metrics; do not claim a complete measured compatibility period or Phase F readiness."
     },
     "denominator": {
       "attempted": "Every newly authorized real published-pair workload with an immutable evidence bundle, including a failed or uncertain attempt; candidate-only, synthetic, historical, direct-producer, mock, and incomplete bundles are excluded from the stable sample counters.",
@@ -44,7 +59,7 @@
       "failure_retention_or_non_counted_negative_probe": 1
     },
     "success_definition": "An eligible completed success is a real published-pair workload with verified producer/consumer provenance, terminal completed state, complete required lifecycle evidence, exact cleanup proof, and independent index promotion; failed, cancelled, uncertain, candidate-only, synthetic, historical, direct-producer, mock, and incomplete bundles do not satisfy this count.",
-    "phase_f_closeout": "phase_f_ready remains false until status is CLOSED, both backend minimum_eligible_completed_successes and all hard thresholds pass, legacy usage at close is measured, the retention/removal decision is recorded, and an independent review promotes only eligible bundles. Any failed, cancelled, or uncertain attempt blocks close and requires a newly authorized replacement window after review."
+    "phase_f_closeout": "phase_f_ready remains false until a full-period status is CLOSED, both backend minimum_eligible_completed_successes and all hard thresholds pass, legacy usage at close is measured, the retention/removal decision is recorded, and an independent review promotes only eligible bundles. A duration waiver is never sufficient for Phase F; any failed, cancelled, or uncertain attempt blocks a full-period close and requires a newly authorized replacement window after review."
   },
   "release_boundary_observation": {
     "pre_contract_control_runs": 4,
@@ -449,7 +464,9 @@
     },
     {
       "window_id": "post-contract-replacement-20260810-r6",
-      "status": "OPEN",
+      "status": "WAIVED_NOT_APPLICABLE",
+      "duration_waived": true,
+      "duration_waiver_scope": "RELEASE_BOUNDARY_VALIDATION_ONLY",
       "authorized_at": "2026-08-09T16:54:00.8101466Z",
       "authorization": "User continuation authorization after r5/a51 acceptance failure; new real published-pair window with control-enabled JobDesk source, fresh unique roots, and independent promotion.",
       "failed_attempts": 0,
@@ -481,7 +498,7 @@
         "cancelled_attempts": 0,
         "uncertain_attempts": 0
       },
-      "reason": "Independent review promoted a52/a55/a56 as the three r6 eligible completed control successes and a53/a54 as the two r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. The retained n1 non-counted negative probe observed typed unsupported_protocol fail-closed behavior without a workload and does not increment attempted/submitted/terminal or stable counters. r6 has attempted/submitted/terminal=5/5/5, eligible control/legacy=3/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The window remains open: it still requires at least 72 hours and all hard thresholds. Phase F remains false.",
+      "reason": "Independent review promoted a52/a55/a56 as the three r6 eligible completed control successes and a53/a54 as the two r6 eligible completed legacy successes; all raw bundles remain supplemental/counts=false. The retained n1 non-counted negative probe observed typed unsupported_protocol fail-closed behavior without a workload and does not increment attempted/submitted/terminal or stable counters. r6 has attempted/submitted/terminal=5/5/5, eligible control/legacy=3/3 and 2/2, zero failed/cancelled/uncertain attempts and zero observed hard-threshold violations. The user-authorized duration waiver finalizes r6 only as RELEASE_BOUNDARY_VALIDATION_ONLY; it makes no complete measured compatibility-period claim and does not authorize Phase F.",
       "attempts": [
         {
           "attempt_id": "control-v153-a52",

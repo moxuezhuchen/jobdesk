@@ -1,6 +1,6 @@
 # ConfFlow 1.5.3 launcher-path control acceptance design
 
-> Status: design plus authoritative published acceptance evidence (2026-08-09). This document does not authorize Phase F. The current canonical evidence set is four released-v1.5.3 JobDesk control computations through the supported launcher and producer worker, plus one published-consumer v1.4.6 legacy closeout computation. The canonical control bundles are `C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`, `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`, `C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and `C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json`; the legacy bundle is `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`. The a36, a37, and a38 bundles add complete persisted reconnect, fixed-cursor replay, terminal-empty-page, idempotency, cancel/resume, manifest/download, and SHA-256 lifecycle traces; the evidence index is the machine-readable aggregation boundary. A complete measured published compatibility cycle is still open, so the formal decision remains **COMPATIBILITY PERIOD CONTINUES** and Phase F is not ready. All canonical bundles retain `phase_f_ready=false`; retain both backends, the v1.4.6 rollback path, and all fail-closed gates. The evidence below remains deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
+> Status: design plus authoritative published acceptance evidence (2026-08-09). This document does not authorize Phase F. The current canonical evidence set is four released-v1.5.3 JobDesk control computations through the supported launcher and producer worker, plus one published-consumer v1.4.6 legacy closeout computation. The canonical control bundles are `C:\tmp\jobdesk-control-release-v153-20260809-a32\evidence.json`, `C:\tmp\jobdesk-control-release-v153-20260809-a36\evidence.json`, `C:\tmp\jobdesk-control-release-v153-20260809-a37\evidence.json`, and `C:\tmp\jobdesk-control-release-v153-20260809-a38\evidence.json`; the legacy bundle is `C:\tmp\jobdesk-legacy-release-v146-20260809-a5\evidence.json`. The a36, a37, and a38 bundles add complete persisted reconnect, fixed-cursor replay, terminal-empty-page, idempotency, cancel/resume, manifest/download, and SHA-256 lifecycle traces; the evidence index is the machine-readable aggregation boundary. A complete measured published compatibility cycle is not claimed under the explicit user-authorized duration waiver; the current scope is RELEASE_BOUNDARY_VALIDATION_ONLY. The formal decision remains **COMPATIBILITY PERIOD CONTINUES** and Phase F is not ready. All canonical bundles retain `phase_f_ready=false`; retain both backends, the v1.4.6 rollback path, and all fail-closed gates. The evidence below remains deliberately separated into direct producer probes, real external-program probes, and JobDesk lifecycle samples.
 
 ## Scope and provenance
 
@@ -19,27 +19,34 @@ The immutable cycle boundary and current sample statement are maintained in the 
 
 ## Quantitative compatibility-period gate
 
-The evidence index `period_metric_contract` defines the next observation window;
-this launcher design does not close it by itself. The window begins with the
-first newly authorized real workload after the contract is published on the
-merged `v0.5.1`/`v1.5.3` pair, stays open for at least 72 hours, and requires at
-least three real control attempts and two real legacy attempts, all eligible
-completed successes after independent index promotion. Every attempt needs a
-terminal classification and immutable provenance. Failed, cancelled, or
-uncertain attempts remain denominator evidence, cannot be promoted as stable
-samples, and block close until a replacement window is authorized after review;
-candidate-only, synthetic, historical, direct-producer, mock, and incomplete
-evidence remains excluded.
+The evidence index period_metric_contract defines the next observation window;
+this launcher design does not close a full compatibility period by itself. A
+full-period window begins with the first newly authorized real workload after the
+contract is published on the merged v0.5.1/v1.5.3 pair, normally stays open
+for at least 72 hours, and requires at least three real control attempts and two
+real legacy attempts, all eligible completed successes after independent index
+promotion. Every attempt needs a terminal classification and immutable
+provenance. Failed, cancelled, or uncertain attempts remain denominator
+evidence, cannot be promoted as stable samples, and block a full-period close
+until a replacement window is authorized after review; candidate-only,
+synthetic, historical, direct-producer, mock, and incomplete evidence remains
+excluded.
 
 The hard closeout thresholds are zero unexpected control-to-legacy fallbacks,
 duplicate idempotency conflicts, protocol/reconnect/cursor failures,
 artifact-integrity failures, orphan jobs/processes, unclassified attempts,
-failed attempts, cancelled attempts, and uncertain attempts.
-The window must include in-flight control reconnect recovery, a control cancel or
-typed policy observation, live legacy rollback/recovery, and retained failure or
-non-counted negative evidence. Legacy usage at close and the retain/remove
-decision are separate recorded metrics. Phase F stays false until the index
-contract is closed and independently reviewed.
+failed attempts, cancelled attempts, and uncertain attempts. A full-period
+window must include in-flight control reconnect recovery, a control cancel or
+typed policy observation, live legacy rollback/recovery, and retained failure or non-counted negative evidence.
+Legacy usage at close and the retain/remove decision are separate recorded
+metrics.
+
+A user-authorized no-intended-use waiver may waive only the 72-hour duration for
+the explicitly recorded RELEASE_BOUNDARY_VALIDATION_ONLY scope. The waiver
+does not claim a complete measured compatibility period, does not change the
+formal canonical counters, and never sets phase_f_ready=true; any future
+full-period stability claim must use the original duration contract. The current
+formal decision remains COMPATIBILITY PERIOD CONTINUES and Phase F stays false.
 
 ## Current call chain and released worker handoff
 
