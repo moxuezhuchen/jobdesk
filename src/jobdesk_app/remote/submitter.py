@@ -575,7 +575,6 @@ class JobSubmitter:
             validate_confflow_production_capability(
                 capabilities,
                 expected_executable=configured_executable or None,
-                allow_legacy_stable=True,
             )
             self.accepted_capabilities = capabilities
             self.accepted_executable_identity = self._probe_executable_identity(capabilities)

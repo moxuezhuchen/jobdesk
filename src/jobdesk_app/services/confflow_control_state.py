@@ -26,8 +26,10 @@ def load_state(service, run_id: str) -> dict[str, object] | None:
     if not isinstance(value, dict):
         raise ValueError(f"invalid durable ConfFlow backend state for {run_id}: expected object")
     backend = value.get("backend")
-    if backend not in {"legacy", "control"}:
-        raise ValueError(f"invalid durable ConfFlow backend state for {run_id}: unknown backend")
+    if backend != "control":
+        raise ValueError(
+            f"run {run_id} uses retired ConfFlow backend {backend!r}; legacy runs cannot be resumed after Phase F"
+        )
     if value.get("run_id") != run_id:
         raise ValueError(f"invalid durable ConfFlow backend state for {run_id}: run_id mismatch")
     return deepcopy(value)
@@ -36,8 +38,8 @@ def load_state(service, run_id: str) -> dict[str, object] | None:
 def save_state(service, run_id: str, value: dict[str, object]) -> None:
     if value.get("run_id") != run_id:
         raise ValueError("durable ConfFlow backend state run_id mismatch")
-    if value.get("backend") not in {"legacy", "control"}:
-        raise ValueError("durable ConfFlow backend state backend must be legacy or control")
+    if value.get("backend") != "control":
+        raise ValueError("durable ConfFlow backend state backend must be control")
     atomic_write_text(
         state_path(service, run_id),
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

@@ -20,6 +20,11 @@
 > Current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: r6 is finalized only
 > as release-boundary validation; no complete measured compatibility-period
 > claim is made and Phase F remains false.
+>
+> On 2026-08-11 the owner separately authorized a Phase F product exception.
+> [`PHASE_F_OWNER_EXCEPTION.md`](PHASE_F_OWNER_EXCEPTION.md) records its
+> breaking-change scope. It does not change this evidence record or make
+> `phase_f_ready` evidence-proven.
 
 ## 原始 v1.5.0 周期边界与不可变 provenance（historical; superseded below）
 

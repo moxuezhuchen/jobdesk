@@ -7,10 +7,6 @@ import pytest
 from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
-    LEGACY_REFERENCE_BUILD_COMMIT,
-    LEGACY_REFERENCE_VERSION,
-    LEGACY_REFERENCE_WHEEL_FILENAME,
-    LEGACY_REFERENCE_WHEEL_SHA256,
     MIN_VERSION,
     REFERENCE_VERSION,
     REQUIRED_COMMANDS,
@@ -20,7 +16,6 @@ from jobdesk_app.core.confflow_preflight import (
     ConfFlowCapabilities,
     parse_confflow_capabilities,
     validate_confflow_capabilities,
-    validate_confflow_production_capability,
 )
 
 
@@ -93,34 +88,6 @@ def test_capability_positional_artifact_argument_remains_compatible():
 
     assert capabilities.artifacts == EXPECTED_ARTIFACTS
     assert capabilities.control_worker is False
-
-
-def test_legacy_stable_is_allowed_only_for_legacy_provenance_path():
-    payload = json.loads(_payload())
-    payload["version"] = LEGACY_REFERENCE_VERSION
-    payload["build"] = {"commit": LEGACY_REFERENCE_BUILD_COMMIT, "dirty": False}
-    payload["producer"] = {
-        "package": "confflow",
-        "version": LEGACY_REFERENCE_VERSION,
-        "build": {"commit": LEGACY_REFERENCE_BUILD_COMMIT, "dirty": False},
-        "wheel": {
-            "filename": LEGACY_REFERENCE_WHEEL_FILENAME,
-            "sha256": LEGACY_REFERENCE_WHEEL_SHA256,
-        },
-        "install_provenance": {"status": "verified"},
-    }
-    payload["executable"] = {
-        "path": "/opt/confflow/bin/confflow",
-        "sha256": "a" * 64,
-        "python": "/opt/confflow/bin/python3.12",
-    }
-    capabilities = parse_confflow_capabilities(json.dumps(payload))
-
-    with pytest.raises(ValueError, match=version_spec()):
-        validate_confflow_capabilities(capabilities, require_dag=True)
-    validate_confflow_capabilities(capabilities, require_dag=True, allow_legacy_stable=True)
-    identity = validate_confflow_production_capability(capabilities, allow_legacy_stable=True)
-    assert identity["path"] == "/opt/confflow/bin/confflow"
 
 
 @pytest.mark.parametrize(

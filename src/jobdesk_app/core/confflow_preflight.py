@@ -27,10 +27,6 @@ from packaging.version import InvalidVersion, Version
 from .confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
-    LEGACY_REFERENCE_BUILD_COMMIT,
-    LEGACY_REFERENCE_VERSION,
-    LEGACY_REFERENCE_WHEEL_FILENAME,
-    LEGACY_REFERENCE_WHEEL_SHA256,
     MAX_EXCLUSIVE,
     MIN_VERSION,
     REFERENCE_BUILD_COMMIT,
@@ -242,15 +238,12 @@ def validate_confflow_capabilities(
     capabilities: ConfFlowCapabilities,
     *,
     require_dag: bool,
-    allow_legacy_stable: bool = False,
 ) -> None:
     """Fail closed unless the remote supports JobDesk's workflow contract.
 
     The schema check fires first: v1 payloads are rejected outright,
     even when ``artifacts`` is ``None``, so there is no soft path
-    through the validator. ``allow_legacy_stable`` is reserved for the
-    compatibility-period backend probe and admits only the exact v1.4.6
-    stable release so backend negotiation can select legacy.
+    through the validator.
     """
     spec = version_spec()
     if capabilities.schema_version != CAPABILITY_SCHEMA_VERSION:
@@ -271,9 +264,7 @@ def validate_confflow_capabilities(
     version = _parse_version(capabilities.version)
     core = version.release
     prerelease = version.is_prerelease
-    legacy_core = _parse_version(LEGACY_REFERENCE_VERSION).release
-    legacy_allowed = allow_legacy_stable and core == legacy_core and not prerelease
-    if (core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT)) and not legacy_allowed:
+    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT):
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
     if core >= MAX_EXCLUSIVE:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
@@ -302,7 +293,6 @@ def validate_confflow_production_capability(
     capabilities: ConfFlowCapabilities,
     *,
     expected_executable: str | None = None,
-    allow_legacy_stable: bool = False,
 ) -> dict[str, object]:
     """Require the exact clean, attested Gate B producer identity.
 
@@ -317,7 +307,6 @@ def validate_confflow_production_capability(
     validate_confflow_capabilities(
         capabilities,
         require_dag=False,
-        allow_legacy_stable=allow_legacy_stable,
     )
     payload = capabilities.raw_payload
     if not isinstance(payload, dict):
@@ -326,10 +315,6 @@ def validate_confflow_production_capability(
         approved_commit = REFERENCE_BUILD_COMMIT
         approved_wheel_filename = REFERENCE_WHEEL_FILENAME
         approved_wheel_sha256 = REFERENCE_WHEEL_SHA256
-    elif allow_legacy_stable and capabilities.version == LEGACY_REFERENCE_VERSION:
-        approved_commit = LEGACY_REFERENCE_BUILD_COMMIT
-        approved_wheel_filename = LEGACY_REFERENCE_WHEEL_FILENAME
-        approved_wheel_sha256 = LEGACY_REFERENCE_WHEEL_SHA256
     else:
         raise ValueError("ConfFlow production version does not match an approved release")
 
