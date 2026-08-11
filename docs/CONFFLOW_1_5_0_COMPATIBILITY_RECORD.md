@@ -16,6 +16,10 @@
 > evidence remains excluded. The formal decision is
 > **COMPATIBILITY PERIOD CONTINUES** and `phase_f_ready=false`; period-wide
 > fallback, recovery/retention, and closeout metrics remain open.
+> The user explicitly waived the 72-hour observation minimum at 2026-08-11T01:16:53.4065317Z because the project has no intended use.
+> Current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: r6 is finalized only
+> as release-boundary validation; no complete measured compatibility-period
+> claim is made and Phase F remains false.
 
 ## 原始 v1.5.0 周期边界与不可变 provenance（historical; superseded below）
 
@@ -39,13 +43,14 @@
 
 ## 2026-08-09 authoritative published acceptance update
 
-### Quantitative post-contract window (current, open)
+### Quantitative post-contract window (current; release-boundary-only waiver)
 
-The quantitative contract remains open; its machine-readable authority is
-the evidence index. The r5 window is blocked by a51 (failed denominator);
-a51 is acceptance_failed/non-counted and is not carried into r6. The newly
-authorized r6 window is post-contract-replacement-20260810-r6 with no
-inherited denominator and remains OPEN.
+The quantitative contract remains the machine-readable authority for any full
+compatibility-period claim. The user-authorized duration waiver applies to r6
+because the project has no intended use. r6 is therefore finalized only as
+RELEASE_BOUNDARY_VALIDATION_ONLY; its reviewed metrics remain immutable evidence,
+but no complete measured compatibility-period claim is made and Phase F remains
+false.
 
 Independent index review promoted a52 as r6 control success #1 and a53 as
 r6 legacy success #1; a54 is now r6 legacy success #2 and a55/a56 are r6
@@ -100,10 +105,9 @@ The independently reviewed n1 non-counted negative probe observed a typed
 unsupported_protocol failure without submitting a workload and retained its
 exact root; its evidence SHA-256 is recorded in the evidence index and it does
 not increment period counters (main SHA
-`9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da`). The
-negative/retention scenario is observed;
-the window still requires at least 72 hours and all hard thresholds. Phase F
-remains false.
+`9ec731ae87abb1c07b284509a484e5f36bf65ba59a7b71297cd3bd5a162e28da`). The negative/retention scenario is observed. The user-authorized duration
+waiver finalizes r6 only as release-boundary validation; no full-period claim or
+Phase F readiness is made.
 
 This section is the current decision record. It supersedes the earlier a3,
 v1.5.0, pre-release, candidate-only, synthetic, and historical status
