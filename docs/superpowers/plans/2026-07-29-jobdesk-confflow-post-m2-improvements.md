@@ -1063,7 +1063,7 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 
 ### 8.2 Post-M2 collaboration architecture
 
-以下项目属于后续独立轨道，不阻塞 8.1；该历史清单保留原始状态，当前发布周期闭环见 §8.3：
+The current release-cycle status is defined by the Execution status section at the top and the machine-readable evidence index; this historical checklist retains its original state.
 
 - [x] GUI 不再 import `remote.*`；architecture test 固定依赖方向
 - [x] `ConfFlowClient` / `RemoteRunHandle` façade 覆盖 probe/submit/attach/status/events/cancel/resume/artifacts
@@ -1076,7 +1076,13 @@ M2-4B 未获授权时必须明确记录为“release closure 已完成，真实 
 - [ ] legacy shell/file backend 至少保留一个兼容发布周期后才删除
 - [x] JobDesk 不读取 agent SQLite，不与 producer 状态库双写
 
-### 8.3 Authoritative 2026-08-09 published compatibility-cycle closure
+### 8.3 Historical/superseded 2026-08-09 published compatibility snapshot
+
+> This section is a retained historical snapshot, not the current authority. Its
+> original 1/1 counters and a32/a5 references are preserved as provenance. The
+> current release-boundary status, r6 metrics, canonical 4/1 release samples,
+> duration waiver, and Phase F decision are defined by the execution-status
+> section above and `docs/CONFFLOW_1_5_0_COMPATIBILITY_EVIDENCE_INDEX.json`.
 
 - [x] Published producer/consumer pair: ConfFlow `v1.5.3` × JobDesk `v0.5.1`, with release provenance and remote dual-repository CI verified.
 - [x] Released producer-owned worker-handoff completed one real JobDesk control computation; candidate worker evidence is not used for the count.
