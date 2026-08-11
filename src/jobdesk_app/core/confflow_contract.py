@@ -18,17 +18,18 @@ Structured version source of truth
 ``version_spec()`` derives the human-readable spec from. Every other
 surface (pyproject pin, CI wheel pin, README, validator error messages)
 must be a *mirror* of these tuples; never a free-floating literal.
-The legacy preflight has one explicit exception for the provenance-verified
-v1.4.6 rollback release; that exception is never used for control submission.
+The historical v1.5.3 and v1.4.6 release records remain archived separately;
+the Phase F owner exception removed the legacy backend from the production
+path. Current control submission requires the exact v2.0.0 reference below.
 
 Reference build artefact
 ------------------------
-The ConfFlow v1.5.3 wheel released from the clean tagged producer commit
+The ConfFlow v2.0.0 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-1.5.3-py3-none-any.whl
-    sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
-    commit: f37759954da2818d777ec4d06f81bd53aeafe6e3
+    confflow-2.0.0-py3-none-any.whl
+    sha256: 04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f
+    commit: 69819350d340a6aeccf95aa175edfd1c3f63404b
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -133,16 +134,15 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # Structured version source of truth. Any change here must be mirrored
 # into pyproject.toml's confflow pin, CI's checkout ref + wheel glob,
 # docs, and the package's expected reference build.
-MIN_VERSION: tuple[int, int, int] = (1, 5, 0)
-MAX_EXCLUSIVE: tuple[int, int, int] = (2, 0, 0)
-REFERENCE_VERSION: str = "1.5.3"
-REFERENCE_BUILD_COMMIT: str = "f37759954da2818d777ec4d06f81bd53aeafe6e3"
-REFERENCE_WHEEL_FILENAME: str = "confflow-1.5.3-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6"
+MIN_VERSION: tuple[int, int, int] = (2, 0, 0)
+MAX_EXCLUSIVE: tuple[int, int, int] = (3, 0, 0)
+REFERENCE_VERSION: str = "2.0.0"
+REFERENCE_BUILD_COMMIT: str = "69819350d340a6aeccf95aa175edfd1c3f63404b"
+REFERENCE_WHEEL_FILENAME: str = "confflow-2.0.0-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
 
-# The last released legacy producer remains an explicit rollback target during
-# the v1.5.3 compatibility period. It is accepted only by the legacy submit
-# preflight; control-mode production still requires the exact reference above.
+# Preserve the last legacy release metadata for historical/rollback evidence;
+# it is not a current production compatibility path after Phase F.
 LEGACY_REFERENCE_VERSION: str = "1.4.6"
 LEGACY_REFERENCE_BUILD_COMMIT: str = "4e9e74a8991338aec0f393182073c8c087b4fa63"
 LEGACY_REFERENCE_WHEEL_FILENAME: str = "confflow-1.4.6-py3-none-any.whl"
@@ -168,6 +168,6 @@ def _format_version_tuple(version: tuple[int, int, int]) -> str:
 def version_spec() -> str:
     """Return the human-readable PEP 440 spec derived from MIN/MAX.
 
-    Example: ``version_spec() == ">=1.5,<2.0"``.
+    Example: ``version_spec() == ">=2.0,<3.0"``.
     """
     return f">={_format_version_tuple(MIN_VERSION)},<{_format_version_tuple(MAX_EXCLUSIVE)}"

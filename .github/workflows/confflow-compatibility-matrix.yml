@@ -19,13 +19,20 @@ jobs:
       matrix:
         include:
           - label: stable
+            version: 2.0.0
+            wheel_sha256: 04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f
+            control_worker: true
+            expect_compatible: true
+          - label: historical-v1.5.3
             version: 1.5.3
             wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
             control_worker: true
+            expect_compatible: false
           - label: historical-v1.5.0
             version: 1.5.0
             wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc
             control_worker: false
+            expect_compatible: false
     steps:
       - name: Check out JobDesk
         uses: actions/checkout@v4
@@ -71,6 +78,7 @@ jobs:
           EXPECTED_VERSION: ${{ matrix.version }}
           EXPECTED_WHEEL_SHA256: ${{ matrix.wheel_sha256 }}
           EXPECTED_CONTROL_WORKER: ${{ matrix.control_worker }}
+          EXPECTED_COMPATIBLE: ${{ matrix.expect_compatible }}
         run: |
           python - <<'PY'
           import json
@@ -88,9 +96,19 @@ jobs:
           raw = subprocess.check_output(["confflow", "--capabilities", "--json"], text=True)
           payload = json.loads(raw)
           capabilities = parse_confflow_capabilities(raw)
-          validate_confflow_capabilities(capabilities, require_dag=False)
           expected = os.environ["EXPECTED_VERSION"]
           expected_wheel_sha = os.environ["EXPECTED_WHEEL_SHA256"]
+          expected_compatible = os.environ["EXPECTED_COMPATIBLE"].lower() == "true"
+          expected_error = f"incompatible ConfFlow version {expected}: require >=2.0,<3.0"
+          try:
+              validate_confflow_capabilities(capabilities, require_dag=False)
+          except ValueError as exc:
+              if expected_compatible or str(exc) != expected_error:
+                  raise
+              print(f"accepted expected historical fail-closed result: {exc}")
+          else:
+              if not expected_compatible:
+                  raise AssertionError(f"historical ConfFlow {expected} was unexpectedly accepted")
           if capabilities.version != expected:
               raise AssertionError(
                   f"capability version {capabilities.version!r} != wheel version {expected!r}"
@@ -141,8 +159,9 @@ jobs:
               "input-manifest.schema.json",
           )
           if expected_control_worker:
-              # v1.5.3 adds the producer-owned worker handoff as a fifth
-              # release member; historical v1.5.0 has only the four-file core.
+              # v2.0.0 and historical v1.5.3 carry the producer-owned
+              # worker handoff as a fifth release member; v1.5.0 has only
+              # the four-file core.
               required += ("worker-handoff.schema.json",)
           for name in required:
               producer_path = schema_root / name

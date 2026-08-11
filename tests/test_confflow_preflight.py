@@ -175,15 +175,15 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
             False,
             version_spec(),
         ),
-        # Schema==2 but version is 1.4.2 prerelease → rejected.
+        # Schema v4 but version is a minimum-boundary prerelease → rejected.
         (
-            ConfFlowCapabilities(4, "1.4.6-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "2.0.0-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             version_spec(),
         ),
-        # Schema==2 but version is >= MAX_EXCLUSIVE.
+        # Schema v4 but version is >= MAX_EXCLUSIVE.
         (
-            ConfFlowCapabilities(4, "2.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(4, "3.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
             False,
             version_spec(),
         ),
@@ -217,11 +217,11 @@ def test_validator_fails_closed_on_incompatible_contract(capabilities, require_d
 
 
 def test_linear_workflow_does_not_require_dag_capability():
-    """ConfFlow 1.x prerelease > MIN_VERSION is accepted when dag is not needed."""
+    """ConfFlow 2.x prerelease > MIN_VERSION is accepted when dag is not needed."""
     validate_confflow_capabilities(
         ConfFlowCapabilities(
             CAPABILITY_SCHEMA_VERSION,
-            "1.9.0-rc.1",
+            "2.1.0-rc.1",
             True,
             True,
             False,
@@ -232,7 +232,7 @@ def test_linear_workflow_does_not_require_dag_capability():
     )
 
 
-@pytest.mark.parametrize("version", ("1.9.0rc1", "1.9.0-rc.1"))
+@pytest.mark.parametrize("version", ("2.1.0rc1", "2.1.0-rc.1"))
 def test_validator_accepts_prerelease_above_minimum(version):
     validate_confflow_capabilities(
         ConfFlowCapabilities(
@@ -248,9 +248,9 @@ def test_validator_accepts_prerelease_above_minimum(version):
     )
 
 
-@pytest.mark.parametrize("version", ("1.4.6rc1", "1.4.6-rc.1"))
+@pytest.mark.parametrize("version", ("2.0.0rc1", "2.0.0-rc.1"))
 def test_validator_rejects_prerelease_at_minimum(version):
-    with pytest.raises(ValueError, match="1.4.6"):
+    with pytest.raises(ValueError, match="2.0.0"):
         validate_confflow_capabilities(
             ConfFlowCapabilities(
                 CAPABILITY_SCHEMA_VERSION,

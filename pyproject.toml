@@ -1,6 +1,6 @@
 [project]
 name = "jobdesk"
-version = "0.5.1"
+version = "0.6.0"
 description = "Windows-first scientific-computing job desk for local inputs, remote execution, result download, and local analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ jobdesk-gui = "jobdesk_app.gui.app:main"
 [project.optional-dependencies]
 chem = [
     "rdkit>=2023.9",
-    "confflow>=1.5,<2.0",
+    "confflow>=2.0,<3.0",
 ]
 package = [
     "pyinstaller>=6.0",
