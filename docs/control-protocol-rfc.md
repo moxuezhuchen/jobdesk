@@ -74,7 +74,7 @@ and PBS are launcher concerns in JobDesk and invoke the same producer
 `prepared` is a durable producer record, not a running state. `execute` may
 return `queued` when an external worker owns the eventual calculation handoff;
 it must not be interpreted as a completed scientific calculation. JobDesk
-therefore keeps the legacy backend and the v1.4.6 rollback path until a real
+therefore kept the legacy backend and the v1.4.6 rollback path until a real
 published compatibility cycle and launcher acceptance are complete.
 
 ## State, revision, and recovery rules
@@ -129,4 +129,4 @@ error-code, identity, and artifact-path changes are breaking contract changes.
 Artifact paths are relative POSIX paths below the producer run directory; both
 producer and consumer validate them before download. Control submission is
 accepted only for the exact v1.5.3 production provenance. The stable v1.4.6
-exception is restricted to the legacy backend's compatibility-period preflight.
+exception was restricted to the legacy backend's compatibility-period preflight.

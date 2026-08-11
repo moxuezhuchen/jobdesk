@@ -1,8 +1,7 @@
 """Stable application facade over JobDesk's existing ConfFlow lifecycle.
 
-This module deliberately does not introduce a second remote protocol.  The
-legacy adapter delegates to :class:`RunCoordinator`, which remains the owner
-of SSH/SFTP leases, durable submit operations, monitoring, and downloads.
+This module defines the control-protocol boundary used by JobDesk's ConfFlow
+lifecycle.  The Phase F owner exception retired the legacy SSH backend.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ class UnsupportedRemoteRunOperation(ConfFlowClientError):
 
     def __init__(self, operation: str) -> None:
         self.operation = operation
-        super().__init__(f"remote run operation is not supported by the legacy adapter: {operation}")
+        super().__init__(f"remote run operation is not supported by the control protocol: {operation}")
 
 
 @dataclass(frozen=True)
@@ -76,7 +75,7 @@ class RemoteRunSnapshot:
     status_summary: dict[str, object]
     tasks: tuple[TaskSnapshot, ...]
     revision: int | None = None
-    backend: str = "legacy"
+    backend: str = "control"
     producer_state: str | None = None
 
     def __post_init__(self) -> None:
@@ -90,7 +89,7 @@ class RemoteRunSnapshot:
 
 @dataclass(frozen=True)
 class RemoteRunReference:
-    """The complete serializable state needed to reattach a legacy handle.
+    """The complete serializable state needed to reattach a control handle.
 
     ``identity_snapshot`` is copied from the durable provenance record accepted
     during submit.  It deliberately contains data only: neither a coordinator
@@ -101,7 +100,7 @@ class RemoteRunReference:
     run_id: str
     accepted_protocol: str | None
     identity_snapshot: dict[str, object]
-    backend: str = "legacy"
+    backend: str = "control"
     state_locator: str | None = None
 
     def __post_init__(self) -> None:
@@ -114,9 +113,8 @@ class RemoteRunReference:
             "accepted_protocol": self.accepted_protocol,
             "identity_snapshot": deepcopy(self.identity_snapshot),
         }
-        if self.backend != "legacy" or self.state_locator is not None:
-            data["backend"] = self.backend
-            data["state_locator"] = self.state_locator
+        data["backend"] = self.backend
+        data["state_locator"] = self.state_locator
         return data
 
     @classmethod
@@ -127,9 +125,9 @@ class RemoteRunReference:
             raise ValueError("accepted_protocol must be a string or null")
         if not isinstance(identity, dict):
             raise ValueError("identity_snapshot must be an object")
-        backend = value.get("backend", "legacy")
-        if not isinstance(backend, str) or backend not in {"legacy", "control"}:
-            raise ValueError("backend must be 'legacy' or 'control'")
+        backend = value.get("backend")
+        if backend != "control":
+            raise ValueError("backend must be 'control'; legacy serialized handles are no longer supported")
         state_locator = value.get("state_locator")
         if state_locator is not None and (not isinstance(state_locator, str) or not state_locator):
             raise ValueError("state_locator must be a non-empty string or null")
@@ -145,7 +143,7 @@ class RemoteRunReference:
 
 @dataclass(frozen=True)
 class EventPage:
-    """Future-compatible event page shape; legacy SSH monitoring has no page API."""
+    """Future-compatible event page shape for the control protocol."""
 
     events: tuple[dict[str, object], ...]
     next_cursor: str | None
@@ -164,7 +162,7 @@ class ArtifactEntry:
 
 @dataclass(frozen=True)
 class ArtifactManifest:
-    """Legacy projection of persisted declared result paths.
+    """Projection of persisted declared result paths.
 
     It is intentionally not a replacement for ConfFlow's versioned
     ``output_manifest.json``.  Parsing that producer artifact remains in the
@@ -173,7 +171,7 @@ class ArtifactManifest:
 
     run_id: str
     entries: tuple[ArtifactEntry, ...]
-    source: str = "legacy-task-records"
+    source: str = "control-manifest"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

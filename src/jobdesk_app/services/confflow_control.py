@@ -18,7 +18,6 @@ from typing import Any, Protocol
 
 PROTOCOL_SCHEMA = "confflow.control.v1"
 CONTROL_BACKEND = "control"
-LEGACY_BACKEND = "legacy"
 
 _STATES = frozenset({"prepared", "queued", "running", "paused", "completed", "failed", "cancelled"})
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -378,7 +377,6 @@ __all__ = [
     "ControlSnapshot",
     "ControlTransport",
     "ControlUnsupported",
-    "LEGACY_BACKEND",
     "PROTOCOL_SCHEMA",
     "build_prepare_request",
     "is_terminal_state",

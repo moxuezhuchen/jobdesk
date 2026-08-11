@@ -80,6 +80,13 @@ No `/opt` or agent state was modified.
 
 The user explicitly waived the 72-hour observation minimum at 2026-08-11T01:16:53.4065317Z because the project has no intended use. Current scope is RELEASE_BOUNDARY_VALIDATION_ONLY: the reviewed r6 metrics remain evidence, but no complete measured compatibility-period claim is made and Phase F remains false.
 
+On 2026-08-11 the owner separately authorized Phase F as a direct product
+exception. The exception is documented in
+[`docs/PHASE_F_OWNER_EXCEPTION.md`](../../PHASE_F_OWNER_EXCEPTION.md): it is
+not an evidence-based readiness claim, does not change the evidence index, and
+authorizes retirement of the legacy backend without a further compatibility
+period. Main merge, release, and deployment remain separate approvals.
+
 ## 2026-08-09 release continuation (historical; superseded by closure above)
 
 ConfFlow worker-handoff release closure is now at the immutable producer

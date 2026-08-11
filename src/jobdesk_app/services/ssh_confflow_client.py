@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import posixpath
 import shlex
 import stat
@@ -25,7 +24,6 @@ from jobdesk_app.application.confflow_client import (
     RemoteRunSnapshot,
     SubmitRequest,
     TaskSnapshot,
-    UnsupportedRemoteRunOperation,
 )
 from jobdesk_app.core.confflow_executable import (
     build_executable_identity_probe,
@@ -41,7 +39,6 @@ from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError, 
 from jobdesk_app.remote.scheduler import ResourceSpec, SchedulerAdapter, make_adapter
 from jobdesk_app.services.confflow_control import (
     CONTROL_BACKEND,
-    LEGACY_BACKEND,
     PROTOCOL_SCHEMA,
     ControlArtifact,
     ControlArtifactManifest,
@@ -49,7 +46,6 @@ from jobdesk_app.services.confflow_control import (
     ControlProtocolError,
     ControlSnapshot,
     ControlTransport,
-    ControlUnsupported,
     build_prepare_request,
     is_terminal_state,
     is_valid_cursor,
@@ -83,19 +79,17 @@ class SSHConfFlowClient:
         self._control_transport_factory = control_transport_factory
         self._control_capability_factory = control_capability_factory
         self._scheduler_factory = scheduler_factory or make_adapter
-        self._selected_backend: str | None = None
+        self._selected_backend = CONTROL_BACKEND
         self._selected_state_locator: str | None = None
         self._selected_capability: ConfFlowCapabilities | None = None
-        self._backend_mode = (backend_mode or os.environ.get("JOBDESK_CONFFLOW_BACKEND", "auto")).strip().lower()
-        if self._backend_mode not in {"auto", LEGACY_BACKEND, CONTROL_BACKEND}:
-            raise ValueError("JOBDESK_CONFFLOW_BACKEND must be auto, legacy, or control")
+        if backend_mode not in {None, CONTROL_BACKEND}:
+            raise ValueError("only the control ConfFlow backend is supported after Phase F")
 
     def probe(self, *, require_dag: bool = False) -> ConfFlowCapabilities:
         try:
             capabilities = self._coordinator.probe_capabilities(self._server_id, require_dag=require_dag)
             if not isinstance(capabilities, ConfFlowCapabilities):
-                self._selected_backend = LEGACY_BACKEND
-                return capabilities
+                raise ConfFlowClientError("ConfFlow capability probe did not return the required control capability")
             self._selected_capability = capabilities
             self._negotiate_backend(capabilities)
             return capabilities
@@ -108,20 +102,17 @@ class SSHConfFlowClient:
         except ConfFlowCapabilityPreflightError as exc:
             raise ConfFlowClientError(str(exc)) from exc
 
-    def attach(self, run_id: str) -> SSHRemoteRunHandle | SSHControlRunHandle:
+    def attach(self, run_id: str) -> SSHControlRunHandle:
         record = self._coordinator.service.load_run(run_id)
         if record.server_id != self._server_id:
             raise ConfFlowClientError(
                 f"run {run_id!r} belongs to server {record.server_id!r}, not {self._server_id!r}"
             )
         state = load_state(self._coordinator.service, run_id)
-        if state is not None and state.get("backend") == CONTROL_BACKEND:
-            state = self._reconcile_control_dispatch(record, state)
-            return SSHControlRunHandle(self, _reference_for(record, self._provenance(run_id), state))
-        return SSHRemoteRunHandle(
-            self._coordinator,
-            _reference_for(record, self._provenance(run_id), state),
-        )
+        if state is None:
+            raise ConfFlowClientError(f"run {run_id} has no durable control state; legacy runs are retired")
+        state = self._reconcile_control_dispatch(record, state)
+        return SSHControlRunHandle(self, _reference_for(record, self._provenance(run_id), state))
 
     def restore_handle(self, value: dict[str, object]):
         saved = RemoteRunReference.from_dict(value)
@@ -155,39 +146,17 @@ class SSHConfFlowClient:
                 )
             except ConfFlowClientError as exc:
                 return None, SubmitResult(request.run_id, 0, record.remote_dir, errors=[str(exc)])
-        backend = state.get("backend") if state is not None else self._selected_backend or LEGACY_BACKEND
-        if backend == CONTROL_BACKEND:
-            return self._submit_control(request, record, state)
-        if state is None:
-            save_state(
-                self._coordinator.service,
-                request.run_id,
-                {
-                    "content_schema": "jobdesk.confflow.backend.v1",
-                    "run_id": request.run_id,
-                    "backend": LEGACY_BACKEND,
-                },
-            )
-        outcome = self._coordinator.submit(request.run_id, resource_overrides=request.resource_overrides)
-        if outcome.errors:
-            return None, outcome
-        return self.attach(request.run_id), outcome
+        if state is not None and state.get("backend") != CONTROL_BACKEND:
+            return None, SubmitResult(request.run_id, 0, record.remote_dir, errors=["legacy ConfFlow backend is retired"])
+        return self._submit_control(request, record, state)
 
     def refresh_outcome(self, handle, patterns: list[str], *, download: bool):
-        if isinstance(handle, SSHControlRunHandle):
-            return handle.refresh_outcome(patterns, download=download)
-        if download:
-            return self._coordinator.refresh_and_download(handle.run_id, patterns)
-        return self._coordinator.refresh(handle.run_id)
+        return handle.refresh_outcome(patterns, download=download)
 
     def download_outcome(self, handle, patterns: list[str]):
-        if isinstance(handle, SSHControlRunHandle):
-            return handle.download_outcome(patterns)
-        return self._coordinator.download(handle.run_id, patterns)
+        return handle.download_outcome(patterns)
 
     def cancel_outcome(self, handle) -> RunOperationOutcome:
-        if not isinstance(handle, SSHControlRunHandle):
-            return self._coordinator.cancel(handle.run_id)
         try:
             handle.cancel()
             return RunOperationOutcome(
@@ -455,64 +424,35 @@ class SSHConfFlowClient:
             )
 
     def _negotiate_backend(self, capabilities: ConfFlowCapabilities) -> None:
-        if self._backend_mode == LEGACY_BACKEND:
-            self._selected_backend = LEGACY_BACKEND
-            return
         server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
         executable = str(getattr(server, "confflow_executable", "") or "")
-        try:
-            validate_confflow_production_capability(
-                capabilities,
-                expected_executable=executable or None,
+        validate_confflow_production_capability(
+            capabilities,
+            expected_executable=executable or None,
+        )
+        if not capabilities.control_worker:
+            raise ValueError(
+                "ConfFlow production capability does not expose the producer worker handoff"
             )
-            if not capabilities.control_worker:
-                raise ValueError(
-                    "ConfFlow production capability does not expose the producer worker handoff"
-                )
-        except ValueError as control_error:
-            if self._backend_mode == CONTROL_BACKEND:
-                raise
-            # Auto mode may still select the compatibility-period legacy
-            # backend, but only after the exact stable v1.4.6 provenance gate
-            # passes. A newer or unverified producer must fail closed.
-            try:
-                validate_confflow_production_capability(
-                    capabilities,
-                    expected_executable=executable or None,
-                    allow_legacy_stable=True,
-                )
-            except ValueError:
-                raise control_error
-            self._selected_backend = LEGACY_BACKEND
-            return
-        if self._backend_mode == CONTROL_BACKEND and self._control_capability_factory is not None:
+        if self._control_capability_factory is not None:
             self._selected_state_locator = self._control_capability_factory()
             self._selected_backend = CONTROL_BACKEND
             return
-        if self._backend_mode == CONTROL_BACKEND and self._control_transport_factory is not None:
+        if self._control_transport_factory is not None:
             self._selected_backend = CONTROL_BACKEND
             self._selected_state_locator = "/tmp/confflow-control"
             return
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
-        try:
-            with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
-                if self._control_capability_factory is not None:
-                    state_locator = self._control_capability_factory()
-                else:
-                    transport = SSHControlTransport(
-                        ssh,
-                        None,
-                        executable=executable,
-                        state_root="/tmp/confflow-control",
-                        env_init_scripts=env_init_scripts,
-                    )
-                    transport.capabilities()
-                    state_locator = resolve_control_state_root(ssh, env_init_scripts=env_init_scripts)
-        except ControlUnsupported:
-            if self._backend_mode == CONTROL_BACKEND:
-                raise
-            self._selected_backend = LEGACY_BACKEND
-            return
+        with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
+            transport = SSHControlTransport(
+                ssh,
+                None,
+                executable=executable,
+                state_root="/tmp/confflow-control",
+                env_init_scripts=env_init_scripts,
+            )
+            transport.capabilities()
+            state_locator = resolve_control_state_root(ssh, env_init_scripts=env_init_scripts)
         self._selected_backend = CONTROL_BACKEND
         self._selected_state_locator = state_locator
 
@@ -575,14 +515,6 @@ class SSHConfFlowClient:
             detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
             raise ConfFlowClientError(f"control workflow config digest failed: {detail}")
         return digest.lower()
-
-    def _backend_for_state(self, run_id: str, state: dict[str, object] | None) -> str:
-        if state is not None:
-            backend = state.get("backend")
-            if backend not in {LEGACY_BACKEND, CONTROL_BACKEND}:
-                raise ConfFlowClientError(f"run {run_id} has invalid durable backend {backend!r}")
-            return str(backend)
-        return self._selected_backend or LEGACY_BACKEND
 
     def _apply_control_snapshot(self, snapshot: ControlSnapshot) -> ControlSnapshot:
         service = self._coordinator.service
@@ -977,54 +909,6 @@ class ControlRefreshResult:
         self.warnings = warnings
 
 
-class SSHRemoteRunHandle:
-    def __init__(self, coordinator: RunCoordinator, reference: RemoteRunReference) -> None:
-        self._coordinator = coordinator
-        self._reference = reference
-
-    @property
-    def run_id(self) -> str:
-        return self._reference.run_id
-
-    def to_dict(self) -> dict[str, object]:
-        return self._reference.to_dict()
-
-    def status(self) -> RemoteRunSnapshot:
-        record = self._coordinator.service.load_run(self.run_id)
-        return _snapshot(record, self._coordinator.service.repository.load_tasks(self.run_id))
-
-    def snapshot(self) -> RemoteRunSnapshot:
-        return self.status()
-
-    def events(self, *, after: str | None = None) -> EventPage:
-        del after
-        raise UnsupportedRemoteRunOperation("events")
-
-    def cancel(self) -> RemoteRunSnapshot:
-        outcome = self._coordinator.cancel(self.run_id)
-        if outcome.errors:
-            raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.status()
-
-    def artifacts(self) -> ArtifactManifest:
-        tasks = self._coordinator.service.repository.load_tasks(self.run_id)
-        return ArtifactManifest(self.run_id, tuple(ArtifactEntry(t.task_id, tuple(t.remote_result_paths)) for t in tasks))
-
-    def download(self, patterns: list[str]) -> RemoteRunSnapshot:
-        outcome = self._coordinator.download(self.run_id, patterns)
-        if outcome.errors:
-            raise ConfFlowClientError("; ".join(outcome.errors))
-        return self.status()
-
-    def resume(self, *, checkpoint: str | None = None) -> RemoteRunSnapshot:
-        del checkpoint
-        raise UnsupportedRemoteRunOperation("resume")
-
-
-LegacyConfFlowClient = SSHConfFlowClient
-LegacyRemoteRunHandle = SSHRemoteRunHandle
-
-
 def _reference_for(record: Any, provenance: dict[str, object] | None, state: dict[str, object] | None) -> RemoteRunReference:
     identity = dict(provenance or {})
     if state is not None and state.get("backend") == CONTROL_BACKEND:
@@ -1037,9 +921,7 @@ def _reference_for(record: Any, provenance: dict[str, object] | None, state: dic
             backend=CONTROL_BACKEND,
             state_locator=_state_locator(state),
         )
-    capability = identity.get("capability")
-    protocol = "confflow.capabilities.v4" if isinstance(capability, dict) and capability.get("schema_version") == 4 else None
-    return RemoteRunReference(record.server_id, record.run_id, protocol, identity)
+    raise ConfFlowClientError(f"run {record.run_id} has no durable control state; legacy runs are retired")
 
 
 def _snapshot(record: Any, tasks: list[Any]) -> RemoteRunSnapshot:
@@ -1700,9 +1582,6 @@ def _sha256_file(path: Path) -> str:
 
 
 __all__ = [
-    "LegacyConfFlowClient",
-    "LegacyRemoteRunHandle",
     "SSHConfFlowClient",
     "SSHControlRunHandle",
-    "SSHRemoteRunHandle",
 ]

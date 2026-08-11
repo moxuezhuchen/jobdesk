@@ -210,17 +210,16 @@ def test_cli_run_cancel_invokes_remote_cancellation(capsys):
         from jobdesk_app.services.run_service import RunService
 
         run_id = RunService(workspace).list_runs()[0].run_id
-        client = MagicMock()
-        client.attach.return_value = MagicMock()
-        client.cancel_outcome.return_value = SimpleNamespace(changed_count=1, errors=[])
+        coordinator = MagicMock()
+        coordinator.service = RunService(workspace)
+        coordinator.cancel.return_value = SimpleNamespace(changed_count=1, errors=[])
         with (
-            patch("jobdesk_app.cli.SSHConfFlowClient", return_value=client),
+            patch("jobdesk_app.cli._run_coordinator", return_value=coordinator),
         ):
             rc = main(["run", "cancel", workspace, run_id])
 
         assert rc == 0
-        client.attach.assert_called_once_with(run_id)
-        client.cancel_outcome.assert_called_once()
+        coordinator.cancel.assert_called_once_with(run_id)
         assert "cancelled 1 task(s)" in capsys.readouterr().out
 
 
@@ -230,7 +229,9 @@ def test_cli_run_download_returns_failure_for_coordinator_error(capsys, tmp_path
     client.attach.return_value = MagicMock()
     client.download_outcome.return_value = outcome
 
-    with patch("jobdesk_app.cli._run_client", return_value=(client, MagicMock())):
+    record = MagicMock()
+    record.workflow_kind.value = "confflow"
+    with patch("jobdesk_app.cli._run_client", return_value=(client, record, MagicMock())):
         rc = main(["run", "download", str(tmp_path), "run-1", "--patterns", "*.out"])
 
     assert rc == 2
