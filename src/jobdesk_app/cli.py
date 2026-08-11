@@ -202,7 +202,7 @@ def _cmd_run_submit(args) -> int:
                 file=sys.stderr,
             )
             return 2
-    client, _record = _run_client(args, args.workspace)
+    client, _record, _coordinator = _run_client(args, args.workspace)
     _handle, outcome = client.submit_with_outcome(
         SubmitRequest(args.run_id, resource_overrides=overrides or None)
     )
