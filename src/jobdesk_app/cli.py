@@ -223,8 +223,11 @@ def _cmd_run_submit(args) -> int:
 
 
 def _cmd_run_refresh(args) -> int:
-    client, _record = _run_client(args, args.workspace)
-    outcome = client.refresh_outcome(client.attach(args.run_id), [], download=False)
+    client, record, coordinator = _run_client(args, args.workspace)
+    if _requires_control_protocol(record):
+        outcome = client.refresh_outcome(client.attach(args.run_id), [], download=False)
+    else:
+        outcome = coordinator.refresh(args.run_id)
     if outcome.refresh_result is None:
         for error in outcome.errors:
             print(f"  ERROR: {error}")
@@ -236,8 +239,11 @@ def _cmd_run_refresh(args) -> int:
 
 def _cmd_run_download(args) -> int:
     patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
-    client, _record = _run_client(args, args.workspace)
-    outcome = client.download_outcome(client.attach(args.run_id), patterns)
+    client, record, coordinator = _run_client(args, args.workspace)
+    if _requires_control_protocol(record):
+        outcome = client.download_outcome(client.attach(args.run_id), patterns)
+    else:
+        outcome = coordinator.download(args.run_id, patterns)
     if outcome.errors and not outcome.failures:
         for error in outcome.errors:
             print(f"  ERROR: {error}")
@@ -250,8 +256,11 @@ def _cmd_run_download(args) -> int:
 
 
 def _cmd_run_cancel(args) -> int:
-    client, _record = _run_client(args, args.workspace)
-    outcome = client.cancel_outcome(client.attach(args.run_id))
+    client, record, coordinator = _run_client(args, args.workspace)
+    if _requires_control_protocol(record):
+        outcome = client.cancel_outcome(client.attach(args.run_id))
+    else:
+        outcome = coordinator.cancel(args.run_id)
     changed = outcome.changed_count
     errors = outcome.errors
     print(f"cancelled {changed} task(s)")
@@ -414,10 +423,15 @@ def _run_coordinator(args, workspace: Path) -> RunCoordinator:
     )
 
 
-def _run_client(args, workspace: Path) -> tuple[SSHConfFlowClient, object]:
+def _run_client(args, workspace: Path) -> tuple[SSHConfFlowClient, object, RunCoordinator]:
     coordinator = _run_coordinator(args, workspace)
     record = coordinator.service.load_run(args.run_id)
-    return SSHConfFlowClient(coordinator, record.server_id), record
+    return SSHConfFlowClient(coordinator, record.server_id), record, coordinator
+
+
+def _requires_control_protocol(record: object) -> bool:
+    workflow_kind = getattr(record, "workflow_kind", None)
+    return getattr(workflow_kind, "value", None) in {"confflow", "dag"}
 
 
 def _get_server_by_id(args, server_id: str):
