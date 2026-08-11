@@ -672,6 +672,7 @@
     {
       "sample_id": "control-v153-a32",
       "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a32\\evidence.json",
+      "evidence_sha256": "bd5250ca956cf0888c169c848b096d44306b931d20b3b477355c5fb542289d61",
       "backend": "control",
       "producer": "confflow-v1.5.3",
       "consumer": "jobdesk-v0.5.1",
@@ -688,6 +689,7 @@
     {
       "sample_id": "control-v153-a36-complete-lifecycle",
       "evidence_path": "C:\\tmp\\jobdesk-control-release-v153-20260809-a36\\evidence.json",
+      "evidence_sha256": "00e576ba30eeff387b76cba6cf0374f9181f4ec7c4a8e396d97e62a86c6a7b50",
       "backend": "control",
       "producer": "confflow-v1.5.3",
       "consumer": "jobdesk-v0.5.1",
@@ -750,6 +752,7 @@
     {
       "sample_id": "legacy-v146-a5",
       "evidence_path": "C:\\tmp\\jobdesk-legacy-release-v146-20260809-a5\\evidence.json",
+      "evidence_sha256": "265c93e7ff216db23647dcb27b6da5ff02078a8abad6e2faff105ff3e7230ef4",
       "backend": "legacy",
       "producer": "confflow-v1.4.6",
       "consumer": "jobdesk-v0.5.1",
