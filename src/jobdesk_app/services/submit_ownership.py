@@ -33,6 +33,7 @@ class _SubmitOwnershipGuard:
     operation_ids: list[str]
     owner_id: str
     lease_seconds: float = SUBMIT_LEASE_SECONDS
+    heartbeat_interval: float = SUBMIT_HEARTBEAT_INTERVAL
 
     _stop_heartbeat: threading.Event = field(default_factory=threading.Event, init=False)
     _lost: bool = field(default=False, init=False)
@@ -58,12 +59,8 @@ class _SubmitOwnershipGuard:
         return self._lost
 
     def __enter__(self) -> "_SubmitOwnershipGuard":
-        # Lazy read of the interval so that tests can patch
-        # run_service.SUBMIT_HEARTBEAT_INTERVAL before the thread starts.
-        import jobdesk_app.services.run_service as _rs
-
         def heartbeat() -> None:
-            while not self._stop_heartbeat.wait(_rs.SUBMIT_HEARTBEAT_INTERVAL):
+            while not self._stop_heartbeat.wait(self.heartbeat_interval):
                 if not self.renew():
                     return
 

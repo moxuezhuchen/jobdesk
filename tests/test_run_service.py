@@ -2526,12 +2526,17 @@ def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(tmp_path, runs_dir, 
             assert entered.wait(10)
             return SubmitResult("blocked_heartbeat", 0, "/remote/jobs")
 
-    monkeypatch.setattr(run_service_module, "SUBMIT_HEARTBEAT_INTERVAL", 0.01)
     monkeypatch.setattr(service.repository, "renew_submit_lease", blocking_renew)
     monkeypatch.setattr(run_service_module, "JobSubmitter", WaitingSubmitter)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
-        submitting = pool.submit(service.submit_run, "blocked_heartbeat", object(), object())
+        submitting = pool.submit(
+            service.submit_run,
+            "blocked_heartbeat",
+            object(),
+            object(),
+            heartbeat_interval=0.01,
+        )
         assert entered.wait(10)
         assert not submitting.done()
         threading.Event().wait(2.2)

@@ -7,6 +7,7 @@ creates this object in ``__init__`` and forwards every user action to it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from ...config.schema import ServerConfig
@@ -21,6 +22,17 @@ class _ConnectionFactory(Protocol):
     """Callable that produces a connected (ssh, sftp) pair."""
 
     def __call__(self) -> object: ...
+
+
+@dataclass(frozen=True, slots=True)
+class FileConnectionSnapshot:
+    """Immutable connection state exposed to the application shell."""
+
+    connected: bool
+    server_id: str | None
+    server_label: str
+    remote_directory: str
+    generation: int
 
 
 class ConnectionsCoordinator:
@@ -44,6 +56,7 @@ class ConnectionsCoordinator:
         self._service: FileTransferService | None = None
         self._connected_server_id: str | None = None
         self._connected_server: ServerConfig | None = None
+        self._generation = 0
 
     # -- Properties mirroring the page's old attributes ----------------------
 
@@ -62,6 +75,23 @@ class ConnectionsCoordinator:
     @property
     def connected_server(self) -> ServerConfig | None:
         return self._connected_server
+
+    @property
+    def generation(self) -> int:
+        return self._generation
+
+    def snapshot(self, remote_directory: str = "/") -> FileConnectionSnapshot:
+        server = self._connected_server
+        label = ""
+        if server is not None:
+            label = server.display_name or server.server_id or self._connected_server_id or ""
+        return FileConnectionSnapshot(
+            connected=self._service is not None,
+            server_id=self._connected_server_id,
+            server_label=label,
+            remote_directory=remote_directory,
+            generation=self._generation,
+        )
 
     # -- Server list ----------------------------------------------------------
 
@@ -98,6 +128,12 @@ class ConnectionsCoordinator:
         service: FileTransferService | None,
     ) -> None:
         """Set connection state without triggering connect/teardown."""
+        if (
+            server_id != self._connected_server_id
+            or server is not self._connected_server
+            or service is not self._service
+        ):
+            self._generation += 1
         self._connected_server_id = server_id
         self._connected_server = server
         self._service = service

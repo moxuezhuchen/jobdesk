@@ -5,17 +5,23 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
+from typing import Protocol, TypeAlias
 
 from jobdesk_app.core.atomic_write import atomic_write_text
 
 CONTROL_STATE_FILENAME = "control_backend.json"
+ControlState: TypeAlias = dict[str, object]
 
 
-def state_path(service, run_id: str) -> Path:
+class _RunStateService(Protocol):
+    def _run_dir(self, run_id: str) -> Path: ...
+
+
+def state_path(service: _RunStateService, run_id: str) -> Path:
     return service._run_dir(run_id) / CONTROL_STATE_FILENAME  # noqa: SLF001 - service owns run-dir validation
 
 
-def load_state(service, run_id: str) -> dict[str, object] | None:
+def load_state(service: _RunStateService, run_id: str) -> ControlState | None:
     path = state_path(service, run_id)
     if not isinstance(path, Path) or not path.is_file():
         return None
@@ -35,7 +41,7 @@ def load_state(service, run_id: str) -> dict[str, object] | None:
     return deepcopy(value)
 
 
-def save_state(service, run_id: str, value: dict[str, object]) -> None:
+def save_state(service: _RunStateService, run_id: str, value: ControlState) -> None:
     if value.get("run_id") != run_id:
         raise ValueError("durable ConfFlow backend state run_id mismatch")
     if value.get("backend") != "control":
@@ -46,4 +52,4 @@ def save_state(service, run_id: str, value: dict[str, object]) -> None:
     )
 
 
-__all__ = ["CONTROL_STATE_FILENAME", "load_state", "save_state", "state_path"]
+__all__ = ["CONTROL_STATE_FILENAME", "ControlState", "load_state", "save_state", "state_path"]

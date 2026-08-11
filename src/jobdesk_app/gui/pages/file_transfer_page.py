@@ -45,7 +45,7 @@ from ..worker_utils import WorkerContext, start_context_worker, start_tracked_wo
 from ..workers import BackgroundWorker
 from .file_transfer_config import ConfigUnreadable, load_existing_servers_data
 from .file_transfer_config import _load_existing_servers_data as _load_existing_servers_data
-from .file_transfer_connections import ConnectionsCoordinator
+from .file_transfer_connections import ConnectionsCoordinator, FileConnectionSnapshot
 from .file_transfer_helpers import (
     _remote_list_error_allows_fallback,
     build_input_sources,
@@ -97,6 +97,7 @@ class FileTransferPage(QWidget):
     # MainWindow wires this in a later phase; pages are responsible only for
     # raising the signal — never for calling a navigator directly.
     open_settings_requested = Signal()
+    connection_snapshot_changed = Signal(object)
 
     def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None, session_pool=None):
         super().__init__()
@@ -210,6 +211,7 @@ class FileTransferPage(QWidget):
         # relying on a transient status-bar message.
         self.connection_label.setVisible(True)
         self.remote_path = QLineEdit(self._gui_settings.default_remote_dir)
+        self.remote_path.textChanged.connect(self._emit_connection_snapshot)
         self.remote_path.setMinimumWidth(80)
         self.remote_path.returnPressed.connect(self._refresh_remote)
         for label in (self.server_label,):
@@ -569,6 +571,20 @@ class FileTransferPage(QWidget):
         self._no_server_hint.apply_language(language)
         self._empty_dir_hint.apply_language(language)
 
+    def connection_snapshot(self) -> FileConnectionSnapshot:
+        """Return immutable connection state for the application shell."""
+        remote_directory = "/"
+        if hasattr(self, "remote_path"):
+            remote_directory = normalize_remote_path(self.remote_path.text().strip() or "/")
+        return self._connections.snapshot(remote_directory)
+
+    def transfer_service(self) -> FileTransferService | None:
+        """Return the current transfer service through a public page port."""
+        return self._service
+
+    def _emit_connection_snapshot(self, *_args: object) -> None:
+        self.connection_snapshot_changed.emit(self.connection_snapshot())
+
     def _load_servers(self):
         """Reload servers (used by tab switches after first init)."""
         self.server_combo.blockSignals(True)
@@ -660,6 +676,7 @@ class FileTransferPage(QWidget):
         self._connections.set_server(server_id, server, service)
         self._connected_server_id = server_id
         self._connected_server = server
+        self._emit_connection_snapshot()
         self._set_connection_status(
             connection_status_text(server_id, True, language=self._language),
             state="success",
@@ -693,7 +710,7 @@ class FileTransferPage(QWidget):
             return []
         workspace = Path(getattr(self.state, "current_project_root", None) or Path.cwd())
         try:
-            return RunService(workspace).repository.load_tasks(run_id)
+            return RunService(workspace).load_tasks(run_id)
         except (KeyError, OSError):
             return []
 
@@ -1534,11 +1551,13 @@ class FileTransferPage(QWidget):
                     worker.quit()
                     worker.wait(3000)
             if self._service is not None:
-                self._connections._service = self._service
-                self._connections._connected_server_id = None
-                self._connections._connected_server = None
+                self._connections.set_server(self._connected_server_id, self._connected_server, self._service)
                 self._connections.teardown()
+                self._connections.set_server(None, None, None)
                 self._service = None
+                self._connected_server_id = None
+                self._connected_server = None
+                self._emit_connection_snapshot()
 
     def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
         # Delegate to RemoteEditSessionManager so the dirty-tracking logic
