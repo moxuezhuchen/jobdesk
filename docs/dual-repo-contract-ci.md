@@ -57,7 +57,8 @@ candidate catches schema and capability drift before producer release.
 The candidate-side two-direction gate is exposed by
 `.github/workflows/post-phase-f-contract.yml`. It is intentionally a manual
 workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
-ConfFlow stable tag or final candidate ref as `confflow_ref`. It runs the
+ConfFlow final-candidate ref as `confflow_ref`; the stable matrix rows always
+checkout the released `v2.0.0` tag. It runs the
 `base` and `chem` installations against both the released v2.0.0 wheel and the
 selected candidate, checks capability/configuration-contract provenance and
 schema bindings, verifies non-editable installed-wheel package data and

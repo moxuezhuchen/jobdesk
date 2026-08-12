@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confflow_ref:
-        description: "ConfFlow stable tag or final producer-candidate ref"
+        description: "Exact final ConfFlow producer-candidate ref; stable rows use v2.0.0"
         required: true
         type: string
 
@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       QT_QPA_PLATFORM: offscreen
-      CONFLOW_REF: ${{ inputs.confflow_ref }}
     strategy:
       fail-fast: false
       matrix:
@@ -31,10 +30,20 @@ jobs:
           fetch-depth: 0
 
       - name: Check out selected ConfFlow producer
+        if: matrix.producer == 'candidate'
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
           ref: ${{ inputs.confflow_ref }}
+          path: .ci/confflow
+          fetch-depth: 0
+
+      - name: Check out released ConfFlow producer metadata
+        if: matrix.producer == 'stable'
+        uses: actions/checkout@v4
+        with:
+          repository: moxuezhuchen/ConfFlow
+          ref: v2.0.0
           path: .ci/confflow
           fetch-depth: 0
 
