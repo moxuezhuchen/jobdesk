@@ -76,12 +76,15 @@ jobs:
           wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
           python -m pip install "$wheel"
 
-      - name: Install JobDesk chem wheel
+      - name: Install JobDesk base wheel for chemistry row
         if: matrix.install == 'chem'
         run: |
           set -euo pipefail
           wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
-          python -m pip install "${wheel}[chem]"
+          # Install the base distribution first.  The chemistry extra pins
+          # ConfFlow <3, so its released wheel must be installed below before
+          # pip resolves the optional dependency from the public index.
+          python -m pip install "$wheel"
 
       - name: Verify selected published candidate tag
         if: matrix.producer == 'candidate'
@@ -131,6 +134,16 @@ jobs:
           test "$(sha256sum "$wheel" | awk '{print $1}')" = \
             "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
           python -m pip install "$wheel"
+
+      - name: Install JobDesk contract test dependencies
+        run: |
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          if [ "${{ matrix.install }}" = "chem" ]; then
+            python -m pip install "${wheel}[chem,dev]"
+          else
+            python -m pip install "${wheel}[dev]"
+          fi
 
       - name: Verify producer identity and configuration contract
         env:

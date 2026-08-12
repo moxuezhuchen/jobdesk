@@ -127,6 +127,20 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     )
     assert "releases/download/v2.0.0/confflow-2.0.0-py3-none-any.whl" in stable_install["run"]
 
+    chem_install = next(
+        step for step in steps if step["name"] == "Install JobDesk base wheel for chemistry row"
+    )
+    assert 'python -m pip install "$wheel"' in chem_install["run"]
+    assert "[chem]" not in chem_install["run"]
+
+    contract_dependencies = next(
+        step for step in steps if step["name"] == "Install JobDesk contract test dependencies"
+    )
+    assert 'python -m pip install "${wheel}[chem,dev]"' in contract_dependencies["run"]
+    assert 'python -m pip install "${wheel}[dev]"' in contract_dependencies["run"]
+    assert steps.index(contract_dependencies) > steps.index(candidate_install)
+    assert steps.index(contract_dependencies) > steps.index(stable_install)
+
     verification = next(
         step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"
     )
