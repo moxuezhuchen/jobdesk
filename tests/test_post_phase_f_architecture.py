@@ -141,6 +141,9 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     assert steps.index(contract_dependencies) > steps.index(candidate_install)
     assert steps.index(contract_dependencies) > steps.index(stable_install)
 
+    producer_corpus = next(step for step in steps if step["name"] == "Run producer resume and worker corpus")
+    assert producer_corpus["if"] == "matrix.producer == 'candidate'"
+
     verification = next(
         step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"
     )

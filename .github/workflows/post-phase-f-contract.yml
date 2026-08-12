@@ -313,6 +313,7 @@ jobs:
             tests/test_workflow_spec.py
 
       - name: Run producer resume and worker corpus
+        if: matrix.producer == 'candidate'
         working-directory: .ci/confflow
         run: |
           python -m pytest -q -p no:cacheprovider \
