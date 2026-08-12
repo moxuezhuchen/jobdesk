@@ -178,6 +178,8 @@ class RunService:
         resolved_executable: str,
         resolved_realpath: str = "",
         executable_identity: dict[str, object] | None = None,
+        config_contract: dict[str, object] | None = None,
+        remote_identity: dict[str, object] | None = None,
     ) -> None:
         """Persist accepted producer identity in SQLite and the run directory."""
         record = self.load_run(run_id)
@@ -186,6 +188,8 @@ class RunService:
             capability,
             resolved_executable=resolved_executable,
             resolved_realpath=resolved_realpath,
+            config_contract=config_contract,
+            remote_identity=remote_identity,
         )
         manifest = {
             "content_schema": "confflow.provenance.v1",
@@ -193,6 +197,8 @@ class RunService:
             "resolved_executable": resolved_executable,
             "resolved_realpath": resolved_realpath,
             "executable_identity": executable_identity or {},
+            "config_contract": config_contract,
+            "remote_identity": remote_identity,
             "capability": capability,
         }
         atomic_write_text(

@@ -112,6 +112,7 @@ def submit_run(
                 scheduler=scheduler,
                 resources=resources,
                 max_cores=max_cores,
+                server_id=record.server_id,
                 task_update_callback=sink.update_tasks,
                 remote_started_callback=sink.mark_remote_started,
             )
@@ -122,6 +123,13 @@ def submit_run(
                 executable_data = accepted.executable if isinstance(accepted.executable, dict) else {}
                 accepted_identity = getattr(submitter, "accepted_executable_identity", None)
                 identity_data = accepted_identity.as_dict() if accepted_identity is not None else {}
+                accepted_contract = getattr(submitter, "accepted_config_contract", None)
+                contract_data = accepted_contract.as_dict() if accepted_contract is not None else None
+                remote_identity = (
+                    accepted_contract.remote_identity.as_dict()
+                    if accepted_contract is not None
+                    else None
+                )
                 resolved = executable_data.get("path") or next(
                     (task.confflow_executable for task in tasks if task.confflow_executable),
                     "confflow",
@@ -133,6 +141,8 @@ def submit_run(
                     resolved_executable=str(resolved),
                     resolved_realpath=str(realpath),
                     executable_identity=identity_data,
+                    config_contract=contract_data,
+                    remote_identity=remote_identity,
                 )
     except Exception as exc:
         primary_error = exc

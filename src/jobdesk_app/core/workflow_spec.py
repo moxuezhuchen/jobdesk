@@ -23,6 +23,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .workflow_codec import WorkflowCodec
+from .workflow_document import WorkflowDocument, normalise_workflow_mapping
+from .workflow_editor import (
+    MigrationPolicy,
+    WorkflowDiagnostic,
+    WorkflowSemanticValidator,
+    lint_workflow,
+    require_migration_policy,
+)
+from .workflow_migration import LegacyWorkflowMigrationAdapter
+from .workflow_validation import ConfFlowCompatibilityValidator
+
 
 @functools.lru_cache(maxsize=1)
 def _load_confflow_models() -> tuple[Any, Any] | None:
@@ -122,28 +134,28 @@ def require_confflow() -> None:
         )
 
 
-def _validate_confflow_semantics(payload: dict[str, Any], *, allow_legacy_confgen_placeholder: bool = False) -> None:
-    """Apply ConfFlow's step validation without probing remote executables.
+def _validate_confflow_semantics(
+    payload: dict[str, Any],
+    *,
+    allow_legacy_confgen_placeholder: bool = False,
+    validator: WorkflowSemanticValidator | None = None,
+) -> None:
+    """Compatibility-facade call into the producer semantic validator."""
+    if validator is None:
+        # Keep the existing private fallback import as a compatibility seam;
+        # the adapter prefers the installed producer validator when present.
+        from ..core._confflow_validation import validate_yaml_config
 
-    A workflow can legitimately contain an executable path that only exists
-    on the selected remote server.  The editor must validate task types,
-    programs and conformer settings locally, but must not reject such a
-    remote path merely because it is absent on this Windows machine.
-    """
-    from ..core._confflow_validation import validate_yaml_config
-
-    validation_payload = deepcopy(payload)
-    global_config = validation_payload.get("global")
-    if isinstance(global_config, dict):
-        global_config.pop("gaussian_path", None)
-        global_config.pop("orca_path", None)
-    errors = validate_yaml_config(validation_payload)
-    # A pre-schema token list could contain a bare ``confgen`` planning
-    # placeholder.  Keep only that *source format* readable.  Canonical
-    # ``global``/``steps`` workflow YAML is user-authored and must retain the
-    # ConfFlow requirement for a real torsion chain.
-    if allow_legacy_confgen_placeholder:
-        errors = [error for error in errors if "confgen step requires 'chains'" not in error]
+        validator = ConfFlowCompatibilityValidator(fallback_validator=validate_yaml_config)
+    diagnostics = validator.validate(
+        payload,
+        allow_legacy_placeholder=allow_legacy_confgen_placeholder,
+    )
+    errors = [
+        item.message if isinstance(item, WorkflowDiagnostic) else str(item)
+        for item in diagnostics
+        if not isinstance(item, WorkflowDiagnostic) or item.severity == "error"
+    ]
     if errors:
         raise ValueError("Invalid workflow YAML: " + "; ".join(errors))
 
@@ -264,43 +276,9 @@ def _itask_token(value: str) -> str:
     return s
 
 
-_STEP_TOKEN_TO_TYPE: dict[str, tuple[str, dict[str, Any]]] = {
-    "confgen": (
-        "confgen",
-        {"chains": ["1-2-3-4"], "angle_step": 120, "bond_multiplier": 1.15},
-    ),
-    "preopt": ("calc", {"itask": "opt"}),
-    "opt": ("calc", {"itask": "opt"}),
-    "opt_freq": ("calc", {"itask": "opt_freq"}),
-    "sp": ("calc", {"itask": "sp"}),
-    "freq": ("calc", {"itask": "freq"}),
-    "ts": ("calc", {"itask": "ts"}),
-    "refine": ("calc", {"itask": "sp"}),
-}
-
-
 def _token_to_step(token: str, *, idx: int | None = None) -> dict[str, Any]:
-    """Convert a wizard token (``opt_freq``/``sp``/...) into a step dict.
-
-    The output is ``{name, type, params}``. ``iprog``/``keyword`` are
-    injected later by :meth:`WorkflowSpec.from_form` because they are
-    the same across steps.
-    """
-    tok = str(token or "").strip().lower()
-    if not tok:
-        return {
-            "name": f"step_{(idx or 1):02d}",
-            "type": "calc",
-            "params": {"itask": "sp"},
-        }
-    step_type, base_params = _STEP_TOKEN_TO_TYPE.get(tok, ("calc", {"itask": tok}))
-    # Name: prefer the token; fall back to a deterministic step_xx.
-    name = tok if tok in {"confgen", "preopt", "opt_freq", "refine"} else tok
-    return {
-        "name": name,
-        "type": step_type,
-        "params": dict(base_params),
-    }
+    """Compatibility wrapper for the historical wizard token conversion."""
+    return LegacyWorkflowMigrationAdapter.step_from_token(token, index=idx)
 
 
 def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
@@ -391,49 +369,14 @@ def _lift_legacy_resource_keys(global_dict: dict[str, Any]) -> None:
 
 
 def _normalise_steps_list(raw_steps: Any) -> list[dict[str, Any]]:
-    """Coerce whatever ``steps:`` looks like into ``[{name, type, params}]``."""
-    if not raw_steps:
-        return []
-    if not isinstance(raw_steps, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for idx, step in enumerate(raw_steps, start=1):
-        if isinstance(step, str):
-            out.append(_token_to_step(step, idx=idx))
-            continue
-        if not isinstance(step, dict):
-            continue
-        # Already a step dict — pass through, filling in defaults.
-        name = str(step.get("name") or f"step_{idx:02d}")
-        step_type = str(step.get("type") or "calc")
-        params = dict(step.get("params") or {})
-        # If the legacy ``keyword`` / ``iprog`` ended up at the step's
-        # top level instead of inside ``params``, hoist them.
-        for k in (
-            "iprog",
-            "itask",
-            "keyword",
-            "energy_window",
-            "cores_per_task",
-            "total_memory",
-            "max_parallel_jobs",
-            "blocks",
-        ):
-            if k in step and k not in params:
-                params[k] = step[k]
-        if step_type == "calc":
-            params.setdefault("itask", "sp")
-        normalised = {"name": name, "type": step_type, "params": params}
-        # Dependencies are workflow-owned, but they are still part of the
-        # final document.  Preserve them when loading a saved workflow so a
-        # graph projection or submit preview cannot silently flatten a DAG.
-        if "inputs" in step:
-            inputs = step["inputs"]
-            if not isinstance(inputs, list) or not all(isinstance(item, str) for item in inputs):
-                raise ValueError("step inputs must be a list of step names")
-            normalised["inputs"] = list(inputs)
-        out.append(normalised)
-    return out
+    """Compatibility name retained for callers and tests."""
+    return LegacyWorkflowMigrationAdapter.normalise_steps(raw_steps)
+
+
+# Compatibility name retained for callers and tests.  The implementation now
+# lives in the Qt-/producer-model-free document module; the facade no longer
+# owns a fixed-field reconstruction that could discard saved extensions.
+_normalise_yaml_to_schema = normalise_workflow_mapping
 
 
 def _validate_via_global_model(raw: dict[str, Any]) -> None:
@@ -468,6 +411,7 @@ class WorkflowSpec:
     # ownership, R-M4 / P-M4).  ``to_yaml`` strips this; ``to_form``
     # reads ``work_dir`` from here when populating the form.
     _wizard_metadata: dict[str, Any] = field(default_factory=dict)
+    _document: WorkflowDocument | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_form(
@@ -578,10 +522,16 @@ class WorkflowSpec:
             global_config=GlobalConfigModel.model_validate(global_payload or {}),
             _raw=raw,
             _wizard_metadata=wizard_metadata,
+            _document=WorkflowDocument.from_mapping(raw),
         )
 
     @classmethod
-    def from_yaml(cls, yaml_text: str) -> "WorkflowSpec":
+    def from_yaml(
+        cls,
+        yaml_text: str,
+        *,
+        validator: WorkflowSemanticValidator | None = None,
+    ) -> "WorkflowSpec":
         """Parse the canonical confflow YAML shape.
 
         Accepts::
@@ -594,33 +544,35 @@ class WorkflowSpec:
         rely on one shape.
         """
         require_confflow()
-        import yaml
-
-        data = yaml.safe_load(yaml_text)
-        if not isinstance(data, dict):
-            raise ValueError("workflow YAML must be a mapping at the top level")
-        is_legacy_token_layout = not ("global" in data and "steps" in data)
-        normalised = _normalise_yaml_to_schema(data)
+        document = WorkflowCodec.loads(yaml_text)
+        structural_diagnostics = lint_workflow(document)
+        structural_errors = [item.message for item in structural_diagnostics if item.severity == "error"]
+        if structural_errors:
+            raise ValueError("Invalid workflow YAML: " + "; ".join(structural_errors))
+        is_legacy_token_layout = document.migration.requires_migration
+        normalised = document.canonical_mapping()
         _validate_confflow_semantics(
             normalised,
             allow_legacy_confgen_placeholder=is_legacy_token_layout,
+            validator=validator,
         )
         # Populate the typed global model for callers that want it
         # (engine integration, default-supplementation).
-        global_dict = normalised.get("global", {}) or {}
+        global_dict = deepcopy(normalised.get("global", {}) or {})
         # P-M4: hoist ``work_dir`` out of ``global`` into wizard
         # metadata.  Older YAML files (pre-R-M4) wrote it there; we
         # preserve the value for the form without leaking it into the
         # next ``to_yaml`` output.
         wizard_metadata: dict[str, Any] = {}
         if "work_dir" in global_dict:
-            wizard_metadata["work_dir"] = global_dict.pop("work_dir")
+            wizard_metadata["work_dir"] = global_dict["work_dir"]
         _, GlobalConfigModel = _confflow_models()
         model = GlobalConfigModel.model_validate(global_dict)
         return cls(
             global_config=model,
             _raw=normalised,
             _wizard_metadata=wizard_metadata,
+            _document=document,
         )
 
     def to_yaml(self) -> str:
@@ -650,8 +602,6 @@ class WorkflowSpec:
         memory in case the engine ever needs the resolved defaults.
         """
         require_confflow()
-        import yaml
-
         raw = getattr(self, "_raw", None)
         if not raw:
             # Legacy flat-shape models built before _raw existed —
@@ -668,7 +618,7 @@ class WorkflowSpec:
         global_block = out.get("global") if isinstance(out, dict) else None
         if isinstance(global_block, dict) and "work_dir" in global_block:
             global_block.pop("work_dir", None)
-        return yaml.safe_dump(out, sort_keys=False, allow_unicode=True, default_flow_style=False)
+        return WorkflowCodec.dumps_mapping(out)
 
     def to_user_yaml(self) -> str:
         """Wizard-side YAML rendering — leaner than :meth:`to_yaml`.
@@ -705,8 +655,6 @@ class WorkflowSpec:
         and ``global`` from the source ``WorkflowSpec``).
         """
         require_confflow()
-        import yaml
-
         raw = getattr(self, "_raw", None)
         if not raw:
             raw = self._reconstruct_raw()
@@ -719,12 +667,29 @@ class WorkflowSpec:
             omit_type_calc=True,
         )
         out: dict[str, Any] = {"steps": steps_list} if steps_list else {}
-        return yaml.safe_dump(
-            out,
-            sort_keys=False,
-            allow_unicode=True,
-            default_flow_style=False,
-        )
+        return WorkflowCodec.dumps_mapping(out)
+
+    @property
+    def workflow_document(self) -> WorkflowDocument:
+        """Return the authoring document retained by this compatibility facade."""
+        if self._document is not None:
+            return self._document
+        return WorkflowDocument.from_mapping(self._raw or self._reconstruct_raw())
+
+    @property
+    def migration_decision(self):
+        """Expose the explicit legacy-format migration decision."""
+        return self.workflow_document.migration
+
+    def lint(self):
+        """Return bounded authoring diagnostics without producer semantics."""
+        return lint_workflow(self.workflow_document)
+
+    def migrate(self, policy: MigrationPolicy) -> "WorkflowSpec":
+        """Return a canonical facade only after an explicit backup decision."""
+        require_migration_policy(self.workflow_document, policy)
+        canonical = self.workflow_document.canonical_mapping()
+        return type(self).from_yaml(WorkflowCodec.dumps_mapping(canonical))
 
     @staticmethod
     def _filter_user_facing_global(global_dict: dict[str, Any]) -> dict[str, Any]:
@@ -995,19 +960,14 @@ class WorkflowSpec:
 def write_workflow_yaml(spec: WorkflowSpec, path: str | Path) -> Path:
     """Convenience: serialize ``spec`` and write atomically to ``path``."""
     require_confflow()
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = spec.to_yaml()
-    # Atomic write so a half-written workflow.yaml never reaches the remote.
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(target)
-    return target
+    return WorkflowCodec.write_atomic(path, spec.to_yaml())
 
 
 __all__ = [
     "ConfFlowUnavailableError",
     "DryRunReport",
+    "MigrationPolicy",
+    "WorkflowDocument",
     "WorkflowSpec",
     "assemble_orca_keyword",
     "require_confflow",

@@ -58,7 +58,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jobdesk_app = ["gui/resources/*.svg", "resources/**/*.yaml"]
+jobdesk_app = ["gui/resources/*.svg", "resources/**/*.yaml", "resources/**/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

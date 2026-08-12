@@ -229,6 +229,8 @@ class RunRepository:
         *,
         resolved_executable: str,
         resolved_realpath: str = "",
+        config_contract: dict[str, object] | None = None,
+        remote_identity: dict[str, object] | None = None,
     ) -> None:
         with self._connection() as connection:
             record_run_provenance(
@@ -237,6 +239,8 @@ class RunRepository:
                 capability,
                 resolved_executable=resolved_executable,
                 resolved_realpath=resolved_realpath,
+                config_contract=config_contract,
+                remote_identity=remote_identity,
             )
 
     def load_run_provenance(self, run_id: str) -> dict | None:

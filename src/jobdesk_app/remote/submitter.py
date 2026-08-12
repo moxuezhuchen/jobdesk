@@ -15,6 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from ..application.confflow_config_contract import (
+    ConfigContractResolutionError,
+    ConfigContractResolver,
+    ConfigContractResult,
+)
 from ..core.confflow_executable import (
     ConfFlowExecutableIdentity,
     build_executable_identity_guard,
@@ -106,6 +111,8 @@ class JobSubmitter:
         tasks: list[TaskRecord] | None = None,
         task_update_callback: Callable[[list[TaskRecord]], None] | None = None,
         remote_started_callback: Callable[[list[str]], None] | None = None,
+        server_id: str = "",
+        config_contract_resolver: ConfigContractResolver | None = None,
     ):
         if tasks is None:
             raise ValueError("tasks is required")
@@ -126,8 +133,14 @@ class JobSubmitter:
         self._max_cores = max_cores
         self._task_update_callback = task_update_callback
         self._remote_started_callback = remote_started_callback
+        # Direct unit-level construction historically had no server profile.
+        # RunService always supplies the durable record.server_id; the
+        # sentinel keeps that old in-memory construction non-persistent.
+        self._server_id = server_id.strip() or "direct-submit"
+        self._config_contract_resolver = config_contract_resolver or ConfigContractResolver()
         self.accepted_capabilities: ConfFlowCapabilities | None = None
         self.accepted_executable_identity: ConfFlowExecutableIdentity | None = None
+        self.accepted_config_contract: ConfigContractResult | None = None
 
     # ---- task selection -------------------------------------------------------
 
@@ -578,7 +591,15 @@ class JobSubmitter:
             )
             self.accepted_capabilities = capabilities
             self.accepted_executable_identity = self._probe_executable_identity(capabilities)
-        except (ConfFlowCapabilityPreflightError, ValueError) as exc:
+            self.accepted_config_contract = self._config_contract_resolver.resolve(
+                self._ssh,
+                server_id=self._server_id,
+                executable=configured_executable or None,
+                capabilities=capabilities,
+                executable_identity=self.accepted_executable_identity,
+                env_init_scripts=self._env_init_scripts,
+            )
+        except (ConfFlowCapabilityPreflightError, ConfigContractResolutionError, ValueError) as exc:
             result.errors.append(str(exc))
             return False
         return True

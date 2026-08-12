@@ -15,6 +15,8 @@ def record_run_provenance(
     *,
     resolved_executable: str,
     resolved_realpath: str = "",
+    config_contract: dict[str, object] | None = None,
+    remote_identity: dict[str, object] | None = None,
 ) -> None:
     """Upsert the exact capability payload accepted for a run."""
     producer = capability.get("producer")
@@ -27,6 +29,13 @@ def record_run_provenance(
     commit = producer.get("build_commit", build.get("commit"))
     dirty = producer.get("dirty", build.get("dirty"))
     wheel_sha256 = producer.get("wheel_sha256")
+    stored_capability: dict[str, Any] = capability
+    if config_contract is not None or remote_identity is not None:
+        stored_capability = {
+            "capability": capability,
+            "_jobdesk_config_contract": config_contract,
+            "_jobdesk_remote_identity": remote_identity,
+        }
     connection.execute(
         """
         INSERT INTO run_provenance(
@@ -46,7 +55,7 @@ def record_run_provenance(
         """,
         (
             run_id,
-            json.dumps(capability, ensure_ascii=False, sort_keys=True),
+            json.dumps(stored_capability, ensure_ascii=False, sort_keys=True),
             resolved_executable,
             resolved_realpath,
             str(version or ""),
@@ -62,10 +71,20 @@ def load_run_provenance(connection: sqlite3.Connection, run_id: str) -> dict[str
     row = connection.execute("SELECT * FROM run_provenance WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         return None
-    capability = json.loads(row["capability_json"])
-    if not isinstance(capability, dict):
-        capability = {}
-    return {
+    stored_capability = json.loads(row["capability_json"])
+    if not isinstance(stored_capability, dict):
+        stored_capability = {}
+    config_contract = None
+    remote_identity = None
+    if isinstance(stored_capability.get("capability"), dict) and (
+        "_jobdesk_config_contract" in stored_capability or "_jobdesk_remote_identity" in stored_capability
+    ):
+        capability = stored_capability["capability"]
+        config_contract = stored_capability.get("_jobdesk_config_contract")
+        remote_identity = stored_capability.get("_jobdesk_remote_identity")
+    else:
+        capability = stored_capability
+    result = {
         "capability": capability,
         "resolved_executable": str(row["resolved_executable"]),
         "resolved_realpath": str(row["resolved_realpath"]),
@@ -75,3 +94,8 @@ def load_run_provenance(connection: sqlite3.Connection, run_id: str) -> dict[str
         "wheel_sha256": row["wheel_sha256"],
         "recorded_at": str(row["recorded_at"]),
     }
+    if config_contract is not None:
+        result["config_contract"] = config_contract
+    if remote_identity is not None:
+        result["remote_identity"] = remote_identity
+    return result

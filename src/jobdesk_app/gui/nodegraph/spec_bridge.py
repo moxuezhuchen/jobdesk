@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from jobdesk_app.core.workflow_codec import WorkflowCodec
 from jobdesk_app.core.workflow_spec import (
     WorkflowSpec,
     require_confflow,
@@ -114,17 +115,15 @@ class WorkflowGraphPayload:
         stitch in any ``steps`` overrides the editor may have added
         on top of what ``WorkflowSpec.from_form`` produced.
         """
-        import yaml
-
         spec_yaml = self.spec.to_yaml()
-        base = yaml.safe_load(spec_yaml) or {}
+        base = WorkflowCodec.loads(spec_yaml).mapping() or {}
         if not isinstance(base, dict):
             base = {}
         # Honour any editor-supplied steps if they're richer than the
         # wizard's view (e.g. the nodegraph may add confgen params).
         if self.steps:
             base["steps"] = list(self.steps)
-        return yaml.safe_dump(base, sort_keys=False, allow_unicode=True)
+        return WorkflowCodec.dumps_mapping(base)
 
 
 __all__ = [

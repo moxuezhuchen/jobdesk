@@ -6,6 +6,10 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from jobdesk_app.application.confflow_config_contract import (
+        ConfigContractResult,
+        RemoteIdentityCacheKey,
+    )
     from jobdesk_app.core.manifest import TaskRecord
     from jobdesk_app.services.run_repository import RunRecord
 
@@ -62,9 +66,35 @@ class ControlArtifactDownloader(Protocol):
         ...
 
 
+class ConfigContractResolver(Protocol):
+    """Resolve the producer-owned ConfFlow configuration contract."""
+
+    def resolve(
+        self,
+        ssh: object,
+        *,
+        server_id: str,
+        executable: str | None,
+        capabilities: object,
+        executable_identity: object,
+        env_init_scripts: list[str] | None = None,
+    ) -> ConfigContractResult:
+        ...
+
+
+class ConfigContractProvenance(Protocol):
+    """Serializable identity selected for config-contract caching."""
+
+    @property
+    def remote_identity(self) -> RemoteIdentityCacheKey:
+        ...
+
+
 __all__ = [
     "ControlArtifactDownloader",
     "ControlLauncher",
+    "ConfigContractProvenance",
+    "ConfigContractResolver",
     "RunProjectionStore",
     "WorkerHandoffStager",
 ]

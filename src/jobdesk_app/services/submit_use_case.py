@@ -41,6 +41,7 @@ from typing import Callable
 from ..core.manifest import ResourceBudget
 from ..core.run import RunMode, RunSource, RunSpec, WorkflowKind, chunk_sources
 from ..core.submit_payload import SubmitPayload
+from ..core.workflow_codec import WorkflowCodec
 from ..core.workflow_spec import (
     ConfFlowUnavailableError,
     WorkflowSpec,
@@ -467,12 +468,10 @@ def _render_dag_yaml(spec: WorkflowSpec, steps: list[dict]) -> str:
     confflow engine reads ``StepConfig.inputs`` since Phase 3 to
     walk the DAG via ``graphlib.TopologicalSorter``.
     """
-    import yaml
-
     require_confflow()
     data = spec.global_config.model_dump(mode="json", exclude_none=True)
     data["steps"] = list(steps)
-    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    return WorkflowCodec.dumps_mapping(data)
 
 
 def _resolve_yaml_dir(payload: SubmitPayload) -> Path:
