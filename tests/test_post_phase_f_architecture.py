@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import yaml
+
 _SRC = Path(__file__).parents[1] / "src" / "jobdesk_app"
 
 
@@ -88,3 +90,25 @@ def test_phase_f_jobdesk_debt_allowlist_is_explicit_and_narrow() -> None:
     }
     for name, paths in observed.items():
         assert paths <= allowed[name], f"new {name} violation(s): {sorted(paths - allowed[name])}"
+
+
+def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
+    """The clean base consumer row must still be able to run producer tests."""
+    workflow_path = _SRC.parents[1] / ".github" / "workflows" / "post-phase-f-contract.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    matrix = workflow["jobs"]["consumer-matrix"]["strategy"]["matrix"]
+    assert matrix["install"] == ["base", "chem"]
+    assert matrix["producer"] == ["stable", "candidate"]
+
+    steps = workflow["jobs"]["consumer-matrix"]["steps"]
+    candidate_install = next(
+        step for step in steps if step["name"] == "Build and install the ConfFlow candidate wheel"
+    )
+    candidate_run = candidate_install["run"]
+    assert 'python -m pip install "$wheel"' in candidate_run
+    assert "--no-deps" not in candidate_run
+
+    verification = next(
+        step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"
+    )
+    assert "python -m pip check" in verification["run"]
