@@ -17,6 +17,7 @@ from jobdesk_app.core.workflow_editor import (
     require_migration_policy,
 )
 from jobdesk_app.core.workflow_spec import WorkflowSpec
+from jobdesk_app.core.workflow_validation import ConfFlowCompatibilityValidator
 
 
 def _rich_canonical_yaml() -> str:
@@ -96,6 +97,25 @@ def test_editor_lint_is_bounded_and_reports_migration_without_semantic_rule_list
     assert not any("itask" in item.code or "iprog" in item.code for item in diagnostics)
 
 
+def test_editor_producer_diagnostics_are_warning_only() -> None:
+    document = WorkflowCodec.loads(
+        """\
+global: {}
+steps:
+  - name: authoring
+    type: calc
+    params: {}
+"""
+    )
+    validator = ConfFlowCompatibilityValidator(
+        producer_validator=lambda payload: ["producer semantic mismatch"]
+    )
+
+    diagnostics = document.lint(validator)
+
+    assert [(item.code, item.severity) for item in diagnostics] == [("producer.semantic", "warning")]
+
+
 def test_legacy_migration_requires_explicit_backup_policy() -> None:
     document = WorkflowCodec.loads("calc:\n  steps: [opt]\n")
 
@@ -142,21 +162,42 @@ def test_workflow_document_layers_do_not_import_qt_or_producer_models() -> None:
 
 def test_producer_model_and_legacy_validator_are_confined_to_facade() -> None:
     root = Path(__file__).parents[1] / "src" / "jobdesk_app" / "core"
-    facade = ast.parse((root / "workflow_spec.py").read_text(encoding="utf-8"))
-    facade_imports = []
-    for node in ast.walk(facade):
-        if isinstance(node, ast.Import):
-            facade_imports.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            facade_imports.append(node.module or "")
-    assert "confflow.core.models" in facade_imports
-    assert any(
+    workflow_spec_path = root / "workflow_spec.py"
+    workflow_spec_source = workflow_spec_path.read_text(encoding="utf-8")
+    facade = ast.parse(workflow_spec_source)
+    model_imports = [
+        node
+        for node in ast.walk(facade)
+        if isinstance(node, ast.ImportFrom) and node.module == "confflow.core.models"
+    ]
+    assert len(model_imports) == 1
+    loader = next(node for node in ast.walk(facade) if isinstance(node, ast.FunctionDef) and node.name == "_load_confflow_models")
+    assert model_imports[0] in ast.walk(loader)
+    assert not any(
         isinstance(node, ast.ImportFrom) and node.module == "core._confflow_validation"
         for node in ast.walk(facade)
     )
-    for name in ("workflow_document.py", "workflow_codec.py", "workflow_editor.py"):
+
+    spec_class = next(node for node in ast.walk(facade) if isinstance(node, ast.ClassDef) and node.name == "WorkflowSpec")
+    methods = {node.name: node for node in spec_class.body if isinstance(node, ast.FunctionDef)}
+    for method_name in ("from_yaml", "to_yaml", "to_form"):
+        method_source = ast.get_source_segment(workflow_spec_source, methods[method_name]) or ""
+        assert "require_confflow" not in method_source
+        assert "GlobalConfigModel" not in method_source
+        assert "_validate_confflow_semantics" not in method_source
+
+    for name in ("workflow_document.py", "workflow_codec.py", "workflow_editor.py", "workflow_validation.py"):
         tree = ast.parse((root / name).read_text(encoding="utf-8"))
         assert not any(
             isinstance(node, ast.ImportFrom) and node.module == "core._confflow_validation"
             for node in ast.walk(tree)
         )
+
+    compatibility = ast.parse((root / "_confflow_validation.py").read_text(encoding="utf-8"))
+    assert any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "COMPATIBILITY_ONLY" for target in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value is True
+        for node in compatibility.body
+    )

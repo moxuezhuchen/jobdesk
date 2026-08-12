@@ -3,6 +3,10 @@
 """
 Offline stable subset of ConfFlow YAML configuration validation.
 
+This module is **compatibility-only characterization code**.  It is not part
+of WorkflowDocument/WorkflowSpec authoring acceptance and must not be used as
+the submission gate.  The remote producer contract validation is authoritative.
+
 This module is the **offline stable subset** of ConfFlow's validator.
 It is intentionally a strict subset of what ConfFlow's own
 ``confflow.shared.config_validation.validate_yaml_config`` accepts:
@@ -27,6 +31,8 @@ from __future__ import annotations
 
 import re
 from typing import Any
+
+COMPATIBILITY_ONLY = True
 
 
 def validate_yaml_config(config: dict[str, Any], required_sections: list[str] | None = None) -> list[str]:
@@ -177,4 +183,4 @@ def _validate_step_config(step: dict[str, Any], index: int) -> list[str]:
     return errors
 
 
-__all__ = ["validate_yaml_config"]
+__all__ = ["COMPATIBILITY_ONLY", "validate_yaml_config"]

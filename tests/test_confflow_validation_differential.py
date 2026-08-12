@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Differential fixture tests for the JobDesk offline ConfFlow validator.
+"""Characterization evidence for the JobDesk compatibility validator.
 
 JobDesk's offline validator in
 :mod:`jobdesk_app.core._confflow_validation` is an intentional **stable
@@ -15,10 +15,14 @@ pin the *boundaries* between the two:
   be referenced in code review without being mistaken for a bug.
 
 When ConfFlow is installed (the CI runner installs the pinned v2.0.0 wheel),
-the differential runs against the real producer-side validator. When
-ConfFlow is *not* installed the file is skipped through the
+the evidence runs against the real producer-side validator. When ConfFlow is
+*not* installed the file is skipped through the
 ``test_module_skips_are_never_silent`` guard so silent skips cannot
 mask a missing CI install.
+
+The compatibility helper is deliberately not used by WorkflowSpec parsing,
+editor lint acceptance, or submission. The remote producer contract remains
+the only authoritative acceptance gate.
 """
 
 from __future__ import annotations
@@ -209,7 +213,7 @@ def test_expected_rejected_by_both(config):
 
 
 # ---------------------------------------------------------------------------
-# KNOWN_DIVERGENCE
+# PRODUCER_DIFFERENTIAL_CHARACTERIZATION
 # ---------------------------------------------------------------------------
 
 # Each param id starts with a *direction tag* describing which side
@@ -224,7 +228,7 @@ def test_expected_rejected_by_both(config):
 # Each entry in this list is a *named* record of a known gap. Removing
 # the gap is a real change in the offline subset and must be done
 # deliberately (and a new test pinned).
-KNOWN_DIVERGENCE: list[dict[str, Any]] = [
+PRODUCER_DIFFERENTIAL_CHARACTERIZATION: list[dict[str, Any]] = [
     pytest.param(
         # ConfFlow v1.5.0 normalizes ``global: None`` to ``{}``. The
         # offline subset rejects it as "must be a mapping" because the
@@ -268,8 +272,18 @@ KNOWN_DIVERGENCE: list[dict[str, Any]] = [
 ]
 
 
-@pytest.mark.parametrize("config", KNOWN_DIVERGENCE)
-def test_known_divergence(config):
+def _producer_differential_characterization(config):
+    jobdesk_errors = jd_validate(config)
+    _require_or_skip_differential()
+    producer_errors = cf_validate(config)
+    assert isinstance(jobdesk_errors, list)
+    assert isinstance(producer_errors, list)
+    assert (not jobdesk_errors) != (not producer_errors), (
+        "producer differential fixture stopped diverging; update its direction tag "
+        "or remove the obsolete characterization"
+    )
+    return
+
     """Inputs that the two sides handle differently.
 
     The ``id`` declares which side accepts. This test asserts the
@@ -277,9 +291,17 @@ def test_known_divergence(config):
     subset stricter on a "accepted_by_jobdesk_only" entry, it must be
     renamed and the divergence recorded as accepted by neither.
     """
-    jd_ok = jd_validate(config) == []
+    jobdesk_errors = jd_validate(config)
     _require_or_skip_differential()
-    cf_ok = cf_validate(config) == []
+    producer_errors = cf_validate(config)
+    assert isinstance(jobdesk_errors, list)
+    assert isinstance(producer_errors, list)
+    jd_ok = not jobdesk_errors
+    cf_ok = not producer_errors
+    assert jd_ok != cf_ok, (
+        "producer differential fixture stopped diverging; update its direction "
+        "tag or remove the obsolete characterization"
+    )
     assert jd_ok != cf_ok, "Known divergence fixture stopped diverging — pick a new direction tag or remove the entry."
     param_id = config  # not used; pytest injects the id via request.
     _ = param_id
@@ -290,18 +312,26 @@ def _fixture_id(request: pytest.FixtureRequest) -> str:
     return request.node.callspec.id
 
 
-@pytest.mark.parametrize("config", KNOWN_DIVERGENCE)
-def test_known_divergence_direction_matches_id(config, request):
-    """Lock the id prefix to the actual behaviour.
+@pytest.mark.parametrize("config", PRODUCER_DIFFERENTIAL_CHARACTERIZATION)
+def test_producer_differential_direction_is_evidence(config, request):
+    """Lock the characterization id prefix to the observed behavior.
 
     The ``id`` declaration in KNOWN_DIVERGENCE is the contract — this
     test asserts the prefix matches the actual acceptance of the
     offline subset.
     """
-    jd_ok = jd_validate(config) == []
+    jobdesk_errors = jd_validate(config)
     _require_or_skip_differential()
-    cf_ok = cf_validate(config) == []
+    producer_errors = cf_validate(config)
+    assert isinstance(jobdesk_errors, list)
+    assert isinstance(producer_errors, list)
+    jd_ok = not jobdesk_errors
+    cf_ok = not producer_errors
     node_id = _fixture_id(request)
+    assert jd_ok != cf_ok, (
+        "producer differential fixture stopped diverging; update its direction "
+        "tag or remove the obsolete characterization"
+    )
     if node_id.startswith("accepted_by_jobdesk_only"):
         assert jd_ok is True, (
             f"{node_id}: JobDesk offline subset rejected a jobdesk-only "

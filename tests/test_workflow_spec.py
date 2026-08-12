@@ -78,10 +78,8 @@ def test_workflow_spec_loads_models_only_on_first_use():
         pytest.skip("ConfFlow not installed; lazy load cannot be exercised")
 
 
-def test_from_yaml_round_trip_when_confflow_available(tmp_path: Path):
-    """Round-trip serialization preserves shape when confflow is installed."""
-    if not workflow_spec._CONFFLOW_AVAILABLE:
-        pytest.skip("confflow package not installed in test env")
+def test_from_yaml_round_trip_does_not_require_confflow(tmp_path: Path):
+    """Authoring round-trip preserves shape without producer models."""
     yaml_text = (
         "work_dir: hexane_work\n"
         "calc:\n"
@@ -106,9 +104,7 @@ def test_from_yaml_round_trip_when_confflow_available(tmp_path: Path):
     assert again.to_yaml() == serialized
 
 
-def test_to_form_includes_known_fields_when_available():
-    if not workflow_spec._CONFFLOW_AVAILABLE:
-        pytest.skip("confflow package not installed in test env")
+def test_to_form_includes_known_fields_without_confflow():
     spec = WorkflowSpec.from_form(
         work_dir_name="hexane_work",
         program="gaussian",
@@ -125,6 +121,58 @@ def test_to_form_includes_known_fields_when_available():
     assert form["method"] == "B3LYP"
     assert form["nproc"] == 8
     assert form["steps"] == ["confgen", "opt"]
+
+
+def test_authoring_path_is_chem_free(monkeypatch, tmp_path: Path):
+    """Parsing, serialization and form projection do not load producer models."""
+    monkeypatch.setattr(workflow_spec, "_load_confflow_models", lambda: None)
+    yaml_text = """\
+global:
+  future_producer_flag:
+    keep: true
+steps:
+  - name: future
+    type: calc
+    params:
+      itask: producer_specific_task
+      keyword: CUSTOM
+"""
+
+    spec = WorkflowSpec.from_yaml(yaml_text)
+    import yaml
+
+    assert yaml.safe_load(spec.to_yaml()) == yaml.safe_load(yaml_text)
+    assert spec.to_form()["keyword"] == "CUSTOM"
+    assert spec.global_config.model_dump(mode="json") == {
+        "future_producer_flag": {"keep": True}
+    }
+
+    target = tmp_path / "workflow.yaml"
+    write_workflow_yaml(spec, target)
+    assert yaml.safe_load(target.read_text(encoding="utf-8")) == yaml.safe_load(yaml_text)
+
+
+def test_producer_diagnostics_are_warnings_and_never_acceptance():
+    class RejectingProducer:
+        def validate(self, payload, *, allow_legacy_placeholder=False):
+            del payload, allow_legacy_placeholder
+            return ["producer would reject this at submit time"]
+
+    spec = WorkflowSpec.from_yaml(
+        """\
+global: {}
+steps:
+  - name: authoring
+    type: calc
+    params:
+      producer_only: true
+""",
+        validator=RejectingProducer(),
+    )
+
+    assert spec.to_yaml().find("producer_only: true") >= 0
+    assert spec.diagnostics
+    assert all(item.severity == "warning" for item in spec.diagnostics if item.code.startswith("producer."))
 
 
 def test_dry_run_ok_when_round_trip_works(tmp_path: Path):
@@ -149,45 +197,40 @@ def test_dry_run_ok_when_round_trip_works(tmp_path: Path):
 def test_write_workflow_yaml_is_atomic(tmp_path: Path):
     """write_workflow_yaml replaces the target atomically."""
     target = tmp_path / "nested" / "workflow.yaml"
-    if workflow_spec._CONFFLOW_AVAILABLE:
-        spec = WorkflowSpec.from_form(
-            work_dir_name="x",
-            program="gaussian",
-            method="HF",
-            basis="3-21G",
-            charge=0,
-            multiplicity=1,
-            nproc=1,
-            memory_mb=1024,
-        )
-        write_workflow_yaml(spec, target)
-        # Final file must exist; .tmp sidecar must not leak.
-        assert target.exists()
-        assert not target.with_suffix(target.suffix + ".tmp").exists()
-        # The payload is YAML, not JSON; assert it parses as YAML and contains
-        # the work_dir we set on the form. Pre-fix, this assertion used
-        # ``json.loads`` which never matched the YAML output.
-        import yaml
+    spec = WorkflowSpec.from_form(
+        work_dir_name="x",
+        program="gaussian",
+        method="HF",
+        basis="3-21G",
+        charge=0,
+        multiplicity=1,
+        nproc=1,
+        memory_mb=1024,
+    )
+    write_workflow_yaml(spec, target)
+    # Final file must exist; .tmp sidecar must not leak.
+    assert target.exists()
+    assert not target.with_suffix(target.suffix + ".tmp").exists()
+    # The payload is YAML, not JSON; assert it parses as YAML and contains
+    # the work_dir we set on the form. Pre-fix, this assertion used
+    # ``json.loads`` which never matched the YAML output.
+    import yaml
 
-        parsed = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-        assert parsed != {}
-        # P-M4 (R-M4): ``work_dir`` is single-owned by the CLI
-        # (``-w``).  The engine-facing ``to_yaml()`` must NOT emit it
-        # under ``global``; the form value is only available to the
-        # wizard via ``_wizard_metadata``.
-        assert "work_dir" not in parsed.get("global", {})
-        # Each step has a ``name``; ``type`` is omitted when it is the
-        # default value ``calc`` (the wizard's only wizard-visible
-        # step type).
-        steps = parsed.get("steps") or []
-        assert isinstance(steps, list) and steps
-        assert all("name" in s for s in steps)
-        for s in steps:
-            assert s.get("type") in (None, "calc", "confgen", "gen", "task")
-    else:
-        # Graceful path: missing confflow raises a typed error.
-        with pytest.raises(ConfFlowUnavailableError):
-            write_workflow_yaml(WorkflowSpec(global_config=None), target)
+    parsed = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+    assert parsed != {}
+    # P-M4 (R-M4): ``work_dir`` is single-owned by the CLI
+    # (``-w``).  The engine-facing ``to_yaml()`` must NOT emit it
+    # under ``global``; the form value is only available to the
+    # wizard via ``_wizard_metadata``.
+    assert "work_dir" not in parsed.get("global", {})
+    # Each step has a ``name``; ``type`` is omitted when it is the
+    # default value ``calc`` (the wizard's only wizard-visible
+    # step type).
+    steps = parsed.get("steps") or []
+    assert isinstance(steps, list) and steps
+    assert all("name" in s for s in steps)
+    for s in steps:
+        assert s.get("type") in (None, "calc", "confgen", "gen", "task")
 
 
 # ----------------------------------------------------------------------------
@@ -307,12 +350,9 @@ def test_from_form_gaussian_does_not_force_keyword():
     assert "iprog: gaussian" in yaml_text
 
 
-def test_from_yaml_rejects_invalid_step_task():
-    if not workflow_spec._CONFFLOW_AVAILABLE:
-        pytest.skip("confflow package not installed in test env")
-    with pytest.raises(ValueError, match="invalid itask"):
-        WorkflowSpec.from_yaml(
-            """\
+def test_from_yaml_does_not_accept_producer_semantics_as_authoring_errors():
+    spec = WorkflowSpec.from_yaml(
+        """\
 global: {}
 steps:
   - name: invalid
@@ -322,22 +362,23 @@ steps:
       itask: not_a_task
       keyword: B3LYP def2-SVP
 """
-        )
+    )
+    assert spec.lint() == []
+    assert "itask: not_a_task" in spec.to_yaml()
 
 
-def test_from_yaml_rejects_canonical_confgen_without_chains():
-    if not workflow_spec._CONFFLOW_AVAILABLE:
-        pytest.skip("confflow package not installed in test env")
-    with pytest.raises(ValueError, match="requires 'chains'"):
-        WorkflowSpec.from_yaml(
-            """\
+def test_from_yaml_does_not_accept_legacy_semantics_as_authoring_errors():
+    spec = WorkflowSpec.from_yaml(
+        """\
 global: {}
 steps:
   - name: invalid_confgen
     type: confgen
     params: {}
 """
-        )
+    )
+    assert spec.lint() == []
+    assert "type: confgen" in spec.to_yaml()
 
 
 def test_from_form_orca_step_emits_iprog_override():

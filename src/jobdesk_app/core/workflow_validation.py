@@ -1,4 +1,10 @@
-"""Producer-validation adapter for the workflow authoring boundary."""
+"""Non-authoritative producer diagnostics for workflow authoring.
+
+This module is a diagnostics port only.  It must never be used to accept or
+reject a saved workflow; the remote producer contract validation at submit
+time is the sole acceptance gate.  The fallback callable remains only for
+legacy compatibility tests and chem-less diagnostics.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +16,11 @@ from .workflow_editor import WorkflowDiagnostic
 
 
 class ConfFlowCompatibilityValidator:
-    """Call ConfFlow's validator through an injectable compatibility port.
+    """Call ConfFlow's validator through an injectable diagnostic port.
 
     The installed producer validator is preferred.  The optional fallback is
-    retained for chem-less development and for the existing JobDesk private
-    compatibility API; neither document parsing nor editor lint imports it.
+    retained for chem-less development and the existing private compatibility
+    API; it is never an authoring acceptance path.
     """
 
     def __init__(
@@ -49,7 +55,7 @@ class ConfFlowCompatibilityValidator:
         if validator is None:
             return [
                 WorkflowDiagnostic(
-                    "error",
+                    "warning",
                     "producer.validator_unavailable",
                     "ConfFlow workflow validator is unavailable",
                 )
@@ -69,7 +75,7 @@ class ConfFlowCompatibilityValidator:
                 for error in errors
                 if "confgen step requires 'chains'" not in str(error)
             ]
-        return [WorkflowDiagnostic("error", "producer.semantic", str(error)) for error in errors]
+        return [WorkflowDiagnostic("warning", "producer.semantic", str(error)) for error in errors]
 
 
 __all__ = ["ConfFlowCompatibilityValidator"]

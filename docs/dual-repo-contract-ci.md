@@ -54,6 +54,16 @@ JobDesk pull requests run `JobDesk candidate × current stable producer × next
 producer candidate`. The stable producer protects released behavior; the next
 candidate catches schema and capability drift before producer release.
 
+The candidate-side two-direction gate is exposed by
+`.github/workflows/post-phase-f-contract.yml`. It is intentionally a manual
+workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
+ConfFlow stable tag or final candidate ref as `confflow_ref`. It runs the
+`base` and `chem` installations against both the released v2.0.0 wheel and the
+selected candidate, checks capability/configuration-contract provenance and
+schema bindings, and runs the saved-workflow/resume/worker fixture corpus.
+It does not run Gaussian, ORCA, SSH, or a production endpoint. A local run or
+an unpushed candidate is not remote CI evidence.
+
 ## Automation
 
 A release or PR automation job opens an update PR when the pinned producer tag,

@@ -18,6 +18,7 @@ from __future__ import annotations
 import functools
 import importlib.util
 import re
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,7 +34,6 @@ from .workflow_editor import (
     require_migration_policy,
 )
 from .workflow_migration import LegacyWorkflowMigrationAdapter
-from .workflow_validation import ConfFlowCompatibilityValidator
 
 
 @functools.lru_cache(maxsize=1)
@@ -65,6 +65,48 @@ def _confflow_models() -> tuple[Any, Any]:
 def _confflow_available() -> bool:
     """True when the ConfFlow pydantic models import successfully."""
     return _load_confflow_models() is not None
+
+
+class _AuthoringGlobalConfig(Mapping[str, Any]):
+    """Chem-free compatibility view of the workflow ``global`` mapping.
+
+    The authoring path is owned by :class:`WorkflowDocument`, not by
+    ConfFlow's Pydantic models.  This small mapping-backed view preserves the
+    legacy conveniences used by the GUI and submit bridge without validating
+    or normalising producer-owned fields.
+    """
+
+    def __init__(self, data: Mapping[str, Any] | None = None) -> None:
+        self._data = deepcopy(dict(data or {}))
+        self.model_fields_set = set(self._data)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self._data[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def model_dump(self, *, mode: str = "python", exclude_none: bool = False, **_: Any) -> dict[str, Any]:
+        """Return a Pydantic-shaped copy for existing GUI callers."""
+        del mode
+        data = deepcopy(self._data)
+        if exclude_none:
+            data = {key: value for key, value in data.items() if value is not None}
+        return data
+
+
+def _authoring_global_view(global_payload: Mapping[str, Any] | None) -> _AuthoringGlobalConfig:
+    """Build the non-authoritative legacy ``global_config`` view."""
+    return _AuthoringGlobalConfig(global_payload)
 
 
 # Backwards-compatible module attribute. find_spec only inspects the
@@ -132,32 +174,6 @@ def require_confflow() -> None:
             "Reinstall with `pip install -e .[chem]` on the same Python that "
             "runs JobDesk, and on the Linux server as well."
         )
-
-
-def _validate_confflow_semantics(
-    payload: dict[str, Any],
-    *,
-    allow_legacy_confgen_placeholder: bool = False,
-    validator: WorkflowSemanticValidator | None = None,
-) -> None:
-    """Compatibility-facade call into the producer semantic validator."""
-    if validator is None:
-        # Keep the existing private fallback import as a compatibility seam;
-        # the adapter prefers the installed producer validator when present.
-        from ..core._confflow_validation import validate_yaml_config
-
-        validator = ConfFlowCompatibilityValidator(fallback_validator=validate_yaml_config)
-    diagnostics = validator.validate(
-        payload,
-        allow_legacy_placeholder=allow_legacy_confgen_placeholder,
-    )
-    errors = [
-        item.message if isinstance(item, WorkflowDiagnostic) else str(item)
-        for item in diagnostics
-        if not isinstance(item, WorkflowDiagnostic) or item.severity == "error"
-    ]
-    if errors:
-        raise ValueError("Invalid workflow YAML: " + "; ".join(errors))
 
 
 @functools.lru_cache(maxsize=1)
@@ -391,14 +407,15 @@ def _validate_via_global_model(raw: dict[str, Any]) -> None:
 
 @dataclass(frozen=True)
 class WorkflowSpec:
-    """A validated ConfFlow workflow YAML document.
+    """An authoring workflow document with a legacy global-config view.
 
-    Holds the parsed ``GlobalConfigModel`` instance. ``to_yaml`` serializes it
-    back through Pydantic so round-trip is lossless. The wizard constructs one
-    of these from form input and passes it to the run service.
+    Parsing and serialization are owned by :class:`WorkflowDocument` and
+    preserve the canonical mapping without importing producer models.
+    ``global_config`` is retained as a mapping-compatible legacy view for GUI
+    callers; remote producer validation remains the submission gate.
     """
 
-    global_config: Any  # GlobalConfigModel when confflow is installed
+    global_config: Any  # Mapping-backed legacy view; never the acceptance gate
     # The full canonical schema (``{global, steps}``) ready for the
     # confflow engine to consume.  Kept alongside the typed model so we
     # can round-trip without losing the steps list or any non-typed
@@ -412,6 +429,7 @@ class WorkflowSpec:
     # reads ``work_dir`` from here when populating the form.
     _wizard_metadata: dict[str, Any] = field(default_factory=dict)
     _document: WorkflowDocument | None = field(default=None, repr=False, compare=False)
+    _diagnostics: tuple[WorkflowDiagnostic, ...] = field(default_factory=tuple, repr=False, compare=False)
 
     @classmethod
     def from_form(
@@ -456,7 +474,6 @@ class WorkflowSpec:
         ``max_parallel_jobs`` are also global because they describe the
         whole conformer search.
         """
-        require_confflow()
         keyword = assemble_orca_keyword(method, basis, extra_keyword)
         if program in ("gaussian", "g16") and not keyword.strip():
             keyword = f"{method} {basis}".strip()
@@ -506,20 +523,8 @@ class WorkflowSpec:
             "global": global_payload,
             "steps": step_dicts,
         }
-        # We keep the model_validate step so we get pydantic's nice
-        # error reporting on garbage input, but the canonical
-        # serialization is the ``raw`` dict (which IS the schema
-        # confflow actually consumes).
-        try:
-            _validate_via_global_model(raw)
-        except Exception:
-            # Fall back to a permissive model_validate of just the
-            # global part so users still get typed defaults.
-            _, GlobalConfigModel = _confflow_models()
-            GlobalConfigModel.model_validate(global_payload or {})
-        _, GlobalConfigModel = _confflow_models()
         return cls(
-            global_config=GlobalConfigModel.model_validate(global_payload or {}),
+            global_config=_authoring_global_view(global_payload),
             _raw=raw,
             _wizard_metadata=wizard_metadata,
             _document=WorkflowDocument.from_mapping(raw),
@@ -543,21 +548,30 @@ class WorkflowSpec:
         normalise them on the way in so the rest of the pipeline can
         rely on one shape.
         """
-        require_confflow()
         document = WorkflowCodec.loads(yaml_text)
         structural_diagnostics = lint_workflow(document)
         structural_errors = [item.message for item in structural_diagnostics if item.severity == "error"]
         if structural_errors:
             raise ValueError("Invalid workflow YAML: " + "; ".join(structural_errors))
-        is_legacy_token_layout = document.migration.requires_migration
         normalised = document.canonical_mapping()
-        _validate_confflow_semantics(
-            normalised,
-            allow_legacy_confgen_placeholder=is_legacy_token_layout,
-            validator=validator,
-        )
-        # Populate the typed global model for callers that want it
-        # (engine integration, default-supplementation).
+        diagnostics = list(structural_diagnostics)
+        if validator is not None:
+            try:
+                diagnostics = list(document.lint(validator))
+            except Exception as exc:  # producer diagnostics are never acceptance
+                diagnostics.append(
+                    WorkflowDiagnostic(
+                        "warning",
+                        "producer.validator_error",
+                        f"producer diagnostic unavailable: {type(exc).__name__}: {exc}",
+                    )
+                )
+            diagnostics = [
+                WorkflowDiagnostic("warning", item.code, item.message, item.path)
+                if item.code.startswith("producer.") and item.severity == "error"
+                else item
+                for item in diagnostics
+            ]
         global_dict = deepcopy(normalised.get("global", {}) or {})
         # P-M4: hoist ``work_dir`` out of ``global`` into wizard
         # metadata.  Older YAML files (pre-R-M4) wrote it there; we
@@ -566,13 +580,12 @@ class WorkflowSpec:
         wizard_metadata: dict[str, Any] = {}
         if "work_dir" in global_dict:
             wizard_metadata["work_dir"] = global_dict["work_dir"]
-        _, GlobalConfigModel = _confflow_models()
-        model = GlobalConfigModel.model_validate(global_dict)
         return cls(
-            global_config=model,
+            global_config=_authoring_global_view(global_dict),
             _raw=normalised,
             _wizard_metadata=wizard_metadata,
             _document=document,
+            _diagnostics=tuple(diagnostics),
         )
 
     def to_yaml(self) -> str:
@@ -601,7 +614,6 @@ class WorkflowSpec:
         they actually picked. The full model state is still kept in
         memory in case the engine ever needs the resolved defaults.
         """
-        require_confflow()
         raw = getattr(self, "_raw", None)
         if not raw:
             # Legacy flat-shape models built before _raw existed —
@@ -654,7 +666,6 @@ class WorkflowSpec:
         via :meth:`from_yaml` (which can recover the missing ``type``
         and ``global`` from the source ``WorkflowSpec``).
         """
-        require_confflow()
         raw = getattr(self, "_raw", None)
         if not raw:
             raw = self._reconstruct_raw()
@@ -685,6 +696,11 @@ class WorkflowSpec:
         """Return bounded authoring diagnostics without producer semantics."""
         return lint_workflow(self.workflow_document)
 
+    @property
+    def diagnostics(self) -> tuple[WorkflowDiagnostic, ...]:
+        """Diagnostics captured while parsing; producer entries are warnings."""
+        return self._diagnostics
+
     def migrate(self, policy: MigrationPolicy) -> "WorkflowSpec":
         """Return a canonical facade only after an explicit backup decision."""
         require_migration_policy(self.workflow_document, policy)
@@ -700,9 +716,9 @@ class WorkflowSpec:
         defaults and the user didn't pick them. ``freeze`` is shown
         when non-empty (a non-trivial constraint).
         """
-        _, GlobalConfigModel = _confflow_models()
         defaults = {
-            fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None
+            "charge": 0,
+            "multiplicity": 1,
         }
         ordered_keys = [
             "gaussian_path",
@@ -847,7 +863,13 @@ class WorkflowSpec:
         the typed model.  Used when ``_raw`` wasn't populated (e.g. a
         legacy ``GlobalConfigModel``-only instance from before v6).
         """
-        data = self.global_config.model_dump(mode="json", exclude_none=True)
+        global_config = self.global_config
+        if hasattr(global_config, "model_dump"):
+            data = global_config.model_dump(mode="json", exclude_none=True)
+        elif isinstance(global_config, Mapping):
+            data = deepcopy(dict(global_config))
+        else:
+            data = {}
         return {
             "global": data,
             "steps": data.pop("steps", []) or [],
@@ -863,7 +885,6 @@ class WorkflowSpec:
         ``multiplicity``, ``freeze``, ``max_parallel_jobs``) come
         from ``global``.
         """
-        require_confflow()
         raw = getattr(self, "_raw", None) or self._reconstruct_raw()
         global_dict = raw.get("global") or {}
         steps_list = raw.get("steps") or []
@@ -959,7 +980,6 @@ class WorkflowSpec:
 
 def write_workflow_yaml(spec: WorkflowSpec, path: str | Path) -> Path:
     """Convenience: serialize ``spec`` and write atomically to ``path``."""
-    require_confflow()
     return WorkflowCodec.write_atomic(path, spec.to_yaml())
 
 
