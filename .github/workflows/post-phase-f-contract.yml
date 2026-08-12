@@ -48,24 +48,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0
 
-      - name: Install JobDesk base package
+      - name: Build JobDesk candidate wheel
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir "$RUNNER_TEMP/jobdesk-dist"
+          wheel="$(find "$RUNNER_TEMP/jobdesk-dist" -maxdepth 1 -name 'jobdesk-*.whl' -print -quit)"
+          test -n "$wheel"
+          printf '%s\n' "$wheel" > "$RUNNER_TEMP/jobdesk-wheel-path"
+
+      - name: Install JobDesk base wheel
         if: matrix.install == 'base'
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          python -m pip install "$wheel"
 
-      - name: Install JobDesk chem package
+      - name: Install JobDesk chem wheel
         if: matrix.install == 'chem'
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,chem]"
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          python -m pip install "${wheel}[chem]"
 
       - name: Build and install the ConfFlow candidate wheel
         if: matrix.producer == 'candidate'
         working-directory: .ci/confflow
         run: |
           set -euo pipefail
-          python -m pip install -e ".[dev]"
+          python -m pip install --upgrade build
           python -m build --wheel --outdir "$RUNNER_TEMP/confflow-dist"
           wheel="$(find "$RUNNER_TEMP/confflow-dist" -maxdepth 1 -name 'confflow-*.whl' -print -quit)"
           test -n "$wheel"
@@ -120,11 +131,62 @@ jobs:
               if contract_payload.get("response_schema") != "confflow.config.contract.v1":
                   raise AssertionError(f"configuration contract schema drift: {contract_payload!r}")
               workflow_schema = contract_payload.get("workflow_schema")
-              if not isinstance(workflow_schema, dict) or len(workflow_schema.get("sha256", "")) != 64:
+              if not isinstance(workflow_schema, dict) or workflow_schema.get("sha256") != "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427":
                   raise AssertionError(f"configuration workflow schema binding is malformed: {contract_payload!r}")
               print(json.dumps({"producer": producer, "build": build, "contract": contract_payload}))
           else:
               print(json.dumps({"producer": producer, "build": build}))
+          PY
+
+      - name: Verify installed wheels, package data, and dependency closure
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import subprocess
+          import sys
+          from importlib.resources import files
+          from pathlib import Path
+
+          expected_schema_sha256 = "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427"
+          jobdesk_module = Path(__import__("jobdesk_app").__file__).resolve()
+          prefix = Path(sys.prefix).resolve()
+          if prefix not in jobdesk_module.parents:
+              raise AssertionError(f"JobDesk is not installed under the isolated environment: {jobdesk_module}")
+          jobdesk_schema = files("jobdesk_app").joinpath(
+              "resources/workflow_config/v1/workflow_config_v1.schema.json"
+          )
+          schema_bytes = jobdesk_schema.read_bytes()
+          schema = json.loads(schema_bytes.decode("utf-8"))
+          canonical = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+          if hashlib.sha256(canonical).hexdigest() != expected_schema_sha256:
+              raise AssertionError("installed JobDesk workflow schema digest mismatch")
+
+          producer_module = Path(__import__("confflow").__file__).resolve()
+          if prefix not in producer_module.parents:
+              raise AssertionError(f"ConfFlow is not installed under the isolated environment: {producer_module}")
+          producer_schema = files("confflow").joinpath("config/workflow_config_v1.schema.json")
+          if not producer_schema.is_file():
+              raise AssertionError("installed ConfFlow wheel omitted workflow schema")
+          control_root = prefix / "share" / "confflow" / "control_protocol" / "v1"
+          required_control = (
+              "common.schema.json",
+              "requests.schema.json",
+              "responses.schema.json",
+              "input-manifest.schema.json",
+              "worker-handoff.schema.json",
+          )
+          missing = [name for name in required_control if not (control_root / name).is_file()]
+          if missing:
+              raise AssertionError(f"installed ConfFlow wheel omitted schema members: {missing}")
+          contract = json.loads(subprocess.check_output(["confflow", "config", "contract", "--json"], text=True))
+          if contract["workflow_schema"]["sha256"] != expected_schema_sha256:
+              raise AssertionError("installed producer contract is not bound to the approved schema digest")
+          print(json.dumps({"jobdesk_schema_sha256": expected_schema_sha256, "control_schema_members": list(required_control)}))
           PY
 
       - name: Run JobDesk contract and saved-workflow corpus
