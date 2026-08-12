@@ -89,7 +89,10 @@ jobs:
           python -m build --wheel --outdir "$RUNNER_TEMP/confflow-dist"
           wheel="$(find "$RUNNER_TEMP/confflow-dist" -maxdepth 1 -name 'confflow-*.whl' -print -quit)"
           test -n "$wheel"
-          python -m pip install --no-deps "$wheel"
+          # The base JobDesk install intentionally has no ConfFlow dependency.
+          # Install the candidate with its declared runtime dependencies so
+          # producer-side worker/schema tests run on a clean Ubuntu runner.
+          python -m pip install "$wheel"
 
       - name: Download and install the current stable producer wheel
         if: matrix.producer == 'stable'
