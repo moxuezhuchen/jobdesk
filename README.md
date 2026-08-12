@@ -12,10 +12,13 @@ and has not been published, installed as a production endpoint, or promoted.
 
 | Role | Ref / identity | State |
 |---|---|---|
+| Dirty historical JobDesk checkout | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved user-owned worktree and package metadata; not a release source |
+| Dirty historical ConfFlow checkout | `/opt/ConfFlow` @ `10e457d` | preserved historical source; not a release source |
 | JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
 | JobDesk architecture candidate | `908b153` | isolated, not released |
 | ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
-| ConfFlow paired candidate | `7ef0df3` | isolated, not released |
+| ConfFlow paired candidate | `1a0d760` | isolated, not released |
+| Production/promotion endpoint | v0.6.0 + v2.0.0 configured pairing | unchanged; no candidate endpoint authorized |
 
 Workflow authoring is handled by the Qt-free `WorkflowDocument`/`WorkflowCodec`
 boundary and an explicit legacy migration policy. Local editor lint is
