@@ -7,6 +7,8 @@ on:
         description: "Exact published ConfFlow producer tag; candidate artifact is the v2.1.1 release and stable rows use v2.0.0"
         required: true
         type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -27,6 +29,7 @@ jobs:
       - name: Check out JobDesk candidate
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Check out selected ConfFlow producer
@@ -34,7 +37,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: ${{ inputs.confflow_ref }}
+          ref: ${{ inputs.confflow_ref || 'v2.1.1' }}
           path: .ci/confflow
           fetch-depth: 0
 
@@ -84,9 +87,9 @@ jobs:
         if: matrix.producer == 'candidate'
         run: |
           set -euo pipefail
-          test "${{ inputs.confflow_ref }}" = "v2.1.1"
+          test "${{ inputs.confflow_ref || 'v2.1.1' }}" = "v2.1.1"
           expected_commit="338b53b3a34593271b926fc9e96010186141a386"
-          tag_commit="$(git -C .ci/confflow rev-parse "${{ inputs.confflow_ref }}^{commit}")"
+          tag_commit="$(git -C .ci/confflow rev-parse "${{ inputs.confflow_ref || 'v2.1.1' }}^{commit}")"
           head_commit="$(git -C .ci/confflow rev-parse HEAD)"
           test "$tag_commit" = "$expected_commit"
           test "$tag_commit" = "$head_commit"

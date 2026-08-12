@@ -96,6 +96,9 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     """The clean base consumer row must still be able to run producer tests."""
     workflow_path = _SRC.parents[1] / ".github" / "workflows" / "post-phase-f-contract.yml"
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    # PyYAML's YAML 1.1 loader treats the GitHub Actions ``on`` key as a boolean.
+    on_config = workflow.get("on", workflow.get(True))
+    assert on_config["pull_request"]["types"] == ["opened", "synchronize", "reopened"]
     matrix = workflow["jobs"]["consumer-matrix"]["strategy"]["matrix"]
     assert matrix["install"] == ["base", "chem"]
     assert matrix["producer"] == ["stable", "candidate"]
@@ -113,7 +116,7 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     assert "python -m build" not in candidate_run
 
     candidate_tag = next(step for step in steps if step["name"] == "Verify selected published candidate tag")
-    assert 'test "${{ inputs.confflow_ref }}" = "v2.1.1"' in candidate_tag["run"]
+    assert 'test "${{ inputs.confflow_ref || \'v2.1.1\' }}" = "v2.1.1"' in candidate_tag["run"]
     assert "338b53b3a34593271b926fc9e96010186141a386" in candidate_tag["run"]
 
     stable_tag = next(step for step in steps if step["name"] == "Verify selected stable tag")
