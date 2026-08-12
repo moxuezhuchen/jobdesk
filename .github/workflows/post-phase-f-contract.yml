@@ -85,8 +85,20 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ inputs.confflow_ref }}" = "v2.1.1"
+          expected_commit="338b53b3a34593271b926fc9e96010186141a386"
           tag_commit="$(git -C .ci/confflow rev-parse "${{ inputs.confflow_ref }}^{commit}")"
           head_commit="$(git -C .ci/confflow rev-parse HEAD)"
+          test "$tag_commit" = "$expected_commit"
+          test "$tag_commit" = "$head_commit"
+
+      - name: Verify selected stable tag
+        if: matrix.producer == 'stable'
+        run: |
+          set -euo pipefail
+          expected_commit="69819350d340a6aeccf95aa175edfd1c3f63404b"
+          tag_commit="$(git -C .ci/confflow rev-parse 'v2.0.0^{commit}')"
+          head_commit="$(git -C .ci/confflow rev-parse HEAD)"
+          test "$tag_commit" = "$expected_commit"
           test "$tag_commit" = "$head_commit"
 
       - name: Download and install the published candidate producer wheel
@@ -145,6 +157,16 @@ jobs:
               raise AssertionError(f"producer build is not clean: {build!r}")
           if payload.get("capabilities", {}).get("control_worker") is not True:
               raise AssertionError("selected POSIX producer does not advertise control_worker")
+          expected_commit = (
+              "338b53b3a34593271b926fc9e96010186141a386"
+              if producer == "candidate"
+              else "69819350d340a6aeccf95aa175edfd1c3f63404b"
+          )
+          expected_version = "2.1.1" if producer == "candidate" else "2.0.0"
+          if build.get("commit") != expected_commit:
+              raise AssertionError(f"producer build commit drift: {build!r}")
+          if payload.get("version") != expected_version:
+              raise AssertionError(f"producer version drift: {payload!r}")
           if producer == "candidate":
               expected_commit = subprocess.check_output(
                   ["git", "-C", ".ci/confflow", "rev-parse", "HEAD"], text=True
@@ -188,6 +210,7 @@ jobs:
           import os
           import subprocess
           import sys
+          from importlib.resources import files
           from pathlib import Path
 
           expected_schema_sha256 = "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427"

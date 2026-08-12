@@ -49,16 +49,18 @@ release publication, side-by-side acceptance, real-launcher acceptance, and
 promotion remain independent gates; this candidate has not switched any
 production endpoint.
 
-## ConfFlow contract update (2026-07-28)
+## ConfFlow contract update (2026-08-12)
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
 Workflow method presets are supplied by `jobdesk_app.services.method_presets`,
 while the editable local `WorkflowSpec` and the remote `confflow` CLI form a
 two-part contract. JobDesk accepts ConfFlow in the compatibility window
-`>=2.0,<3.0`; control submission is pinned to the exact clean `v2.0.0`
-provenance. The Phase F owner exception removed the legacy backend from the
-production path; v1.5.3 and v1.4.6 remain historical release evidence only.
-This is a capability window, not an exact shared model pin.
+`>=2.0,<3.0`; the active control submission is pinned to the exact clean
+published `v2.1.1` provenance shown above, while the explicit v2.0.0 identity
+remains the rollback pairing. The Phase F owner exception removed the legacy
+backend from the production path; v1.5.3 and v1.4.6 remain historical release
+evidence only. The compatibility window is not permission to accept an
+arbitrary producer or an unpaired wheel.
 
 An executable DAG must have one semantic terminal step. The OUTPUT node
 visualizes that one result and does not aggregate independent branches; add a

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 import pytest
@@ -211,6 +212,48 @@ def test_stable_v2_without_command_has_explicit_compatibility_result() -> None:
     )
     assert result.mode == "approved-identity-compatibility"
     assert "approved rollback v2.0.0" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("package", "not-confflow"),
+        ("version", REFERENCE_VERSION),
+        ("wheel_filename", "confflow-tampered.whl"),
+    ],
+)
+def test_compatibility_requires_exact_rollback_producer_pairing(field: str, value: str) -> None:
+    capabilities = _capabilities(config_command=False, approved_identity=True)
+    producer = dict(capabilities.producer or {})
+    wheel = dict(producer.get("wheel") or {})
+    if field == "wheel_filename":
+        wheel["filename"] = value
+        producer["wheel"] = wheel
+    else:
+        producer[field] = value
+    capabilities = replace(capabilities, producer=producer, commands={"config_contract": False})
+
+    with pytest.raises(ConfigContractResolutionError, match="unknown producer identity"):
+        ConfigContractResolver().resolve(
+            MagicMock(),
+            server_id="server-a",
+            executable=None,
+            capabilities=capabilities,
+            executable_identity=_IDENTITY,
+        )
+
+
+def test_current_v211_without_config_command_cannot_use_rollback_compatibility() -> None:
+    ssh = MagicMock()
+    ssh.run.return_value = SSHResult("config contract", 127, "", "command not found", 0.01)
+    with pytest.raises(ConfigContractResolutionError, match="not the approved rollback v2.0.0"):
+        ConfigContractResolver().resolve(
+            ssh,
+            server_id="server-a",
+            executable=None,
+            capabilities=_capabilities(config_command=False),
+            executable_identity=_IDENTITY,
+        )
 
 
 def test_unknown_identity_cannot_use_compatibility() -> None:

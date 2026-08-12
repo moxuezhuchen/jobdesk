@@ -111,7 +111,23 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     assert "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3" in candidate_run
     assert "python -m build" not in candidate_run
 
+    candidate_tag = next(step for step in steps if step["name"] == "Verify selected published candidate tag")
+    assert 'test "${{ inputs.confflow_ref }}" = "v2.1.1"' in candidate_tag["run"]
+    assert "338b53b3a34593271b926fc9e96010186141a386" in candidate_tag["run"]
+
+    stable_tag = next(step for step in steps if step["name"] == "Verify selected stable tag")
+    assert "69819350d340a6aeccf95aa175edfd1c3f63404b" in stable_tag["run"]
+
     verification = next(
         step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"
     )
     assert "python -m pip check" in verification["run"]
+    assert "from importlib.resources import files" in verification["run"]
+
+    for step_name in (
+        "Verify producer identity and configuration contract",
+        "Verify installed wheels, package data, and dependency closure",
+    ):
+        run = next(step for step in steps if step["name"] == step_name)["run"]
+        script = run.split("python - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        ast.parse(script, filename=f"post-phase-f-contract:{step_name}")

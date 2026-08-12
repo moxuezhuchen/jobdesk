@@ -349,8 +349,11 @@ class ConfigContractResolver:
         if (
             build.get("commit") != ROLLBACK_REFERENCE_BUILD_COMMIT
             or build.get("dirty") is not False
+            or producer.get("package") != "confflow"
+            or producer.get("version") != ROLLBACK_REFERENCE_VERSION
             or producer_build.get("commit") != ROLLBACK_REFERENCE_BUILD_COMMIT
             or producer_build.get("dirty") is not False
+            or wheel.get("filename") != ROLLBACK_REFERENCE_WHEEL_FILENAME
             or wheel.get("sha256") != ROLLBACK_REFERENCE_WHEEL_SHA256
         ):
             raise ConfigContractResolutionError("unknown producer identity cannot use config contract compatibility")
