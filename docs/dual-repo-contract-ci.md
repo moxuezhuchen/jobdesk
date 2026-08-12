@@ -2,7 +2,7 @@
 
 ## Current candidate pairing (2026-08-12)
 
-The current isolated pairing is JobDesk `37df815` against ConfFlow `cdf0247`.
+The current isolated pairing is JobDesk `cf3fe30` against ConfFlow `907b69e`.
 The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
 `6981935` / v2.0.0. Candidate compatibility is evidence only; it does not
 authorize publication, installation over the stable environment, endpoint
@@ -60,7 +60,8 @@ workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
 ConfFlow stable tag or final candidate ref as `confflow_ref`. It runs the
 `base` and `chem` installations against both the released v2.0.0 wheel and the
 selected candidate, checks capability/configuration-contract provenance and
-schema bindings, and runs the saved-workflow/resume/worker fixture corpus.
+schema bindings, verifies non-editable installed-wheel package data and
+`pip check`, and runs the saved-workflow/resume/worker fixture corpus.
 It does not run Gaussian, ORCA, SSH, or a production endpoint. A local run or
 an unpushed candidate is not remote CI evidence.
 
