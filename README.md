@@ -6,16 +6,16 @@ JobDesk is currently a preview project. It is suitable for source review and con
 
 ## Current architecture candidate (2026-08-12)
 
-The current isolated architecture candidate is commit `91b8932` on
+The current isolated architecture candidate is commit `37df815` on
 `codex/post-phase-f-architecture-phase0`. It is still package version `0.6.0`
 and has not been published, installed as a production endpoint, or promoted.
 
 | Role | Ref / identity | State |
 |---|---|---|
 | JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
-| JobDesk architecture candidate | `91b8932` | isolated, not released |
+| JobDesk architecture candidate | `37df815` | isolated, not released |
 | ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
-| ConfFlow paired candidate | `4952031` | isolated, not released |
+| ConfFlow paired candidate | `cdf0247` | isolated, not released |
 
 Workflow authoring is handled by the Qt-free `WorkflowDocument`/`WorkflowCodec`
 boundary and an explicit legacy migration policy. Local editor lint is
