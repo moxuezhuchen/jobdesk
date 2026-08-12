@@ -5,19 +5,22 @@
 ### 当前候选与发布边界（2026-08-12）
 
 当前 JobDesk 隔离候选为 commit
-`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d`，包版本元数据为 `0.7.0`。
-其下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.1`，tag peeled commit
-为 `338b53b3a34593271b926fc9e96010186141a386`。发布 wheel
-`confflow-2.1.1-py3-none-any.whl` 的 SHA-256 为
-`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`，
+`c01b082151aaab180a6e973e3282c4f1ef9f23d9`，包版本元数据为 `0.7.0`。
+其下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.2`，tag peeled commit
+为 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`。发布 wheel
+`confflow-2.1.2-py3-none-any.whl` 的 SHA-256 为
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`，
 workflow schema 的 SHA-256 为
 `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`。
 
-ConfFlow v2.1.1 已发布，但发布本身不等于端点升级。side-by-side 验收、
+ConfFlow v2.1.2 已发布，但发布本身不等于端点升级。side-by-side 验收、
 真实 launcher 验收、JobDesk 发布以及生产 promotion 仍是独立门禁；当前稳定
 回滚配对保持 JobDesk v0.6.0 / `e4d8f74` 与 ConfFlow v2.0.0 / `6981935`，
 其旧 wheel digest 为
 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`。
+已取代的 v2.1.1 配对（peeled commit
+`338b53b3a34593271b926fc9e96010186141a386`，wheel SHA-256
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`）仅保留为历史证据。
 ConfFlow `1a0d760` / 计划版本 2.1.0 仅作为发布前的历史候选证据，已被
 v2.1.1 正式发布取代，不能当作当前验收证据。
 
@@ -60,11 +63,11 @@ JobDesk **不通过 subprocess 调用本地 ConfFlow**。ConfFlow 的执行路�
 
 JobDesk no longer vendors ConfFlow source. The `chem` optional dependency keeps
 `confflow>=2.0,<3.0`; the current architecture candidate is evaluated against
-the formally published ConfFlow `v2.1.1` wheel
-`confflow-2.1.1-py3-none-any.whl` with SHA-256
-`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`.
+the formally published ConfFlow `v2.1.2` wheel
+`confflow-2.1.2-py3-none-any.whl` with SHA-256
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`.
 The stable rollback remains the exact clean `v2.0.0` provenance. Publication
-of v2.1.1 does not by itself authorize a control endpoint switch; side-by-side,
+of v2.1.2 does not by itself authorize a control endpoint switch; side-by-side,
 real-launcher, and promotion gates remain separate. The Phase F owner exception
 removed the legacy backend from the production path; v1.5.3 and v1.4.6 remain
 historical evidence only.

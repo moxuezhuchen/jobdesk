@@ -1,6 +1,6 @@
-# Pinned control schema snapshot
+# Historical pinned control schema snapshot
 
-These five files are a canonical-JSON snapshot of the producer bundle from
+These five files are a canonical-JSON snapshot of the superseded producer bundle from
 the published ConfFlow `v2.1.1` tag, peeled commit
 `338b53b3a34593271b926fc9e96010186141a386`:
 

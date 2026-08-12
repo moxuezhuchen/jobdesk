@@ -1,6 +1,6 @@
 # ConfFlow control protocol v1 consumer record
 
-- **Status:** consumer snapshot of the released producer contract
+- **Status:** historical consumer snapshot of the superseded producer contract
 - **Producer release:** `v2.1.1`
 - **Producer commit:** `338b53b3a34593271b926fc9e96010186141a386`
 - **Producer wheel:** `confflow-2.1.1-py3-none-any.whl`

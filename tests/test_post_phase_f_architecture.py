@@ -110,14 +110,14 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     candidate_run = candidate_install["run"]
     assert 'python -m pip install "$wheel"' in candidate_run
     assert "--no-deps" not in candidate_run
-    assert "releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl" in candidate_run
+    assert "releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl" in candidate_run
     assert "gh release download" not in candidate_run
-    assert "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3" in candidate_run
+    assert "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92" in candidate_run
     assert "python -m build" not in candidate_run
 
     candidate_tag = next(step for step in steps if step["name"] == "Verify selected published candidate tag")
-    assert 'test "${{ inputs.confflow_ref || \'v2.1.1\' }}" = "v2.1.1"' in candidate_tag["run"]
-    assert "338b53b3a34593271b926fc9e96010186141a386" in candidate_tag["run"]
+    assert 'test "${{ inputs.confflow_ref || \'v2.1.2\' }}" = "v2.1.2"' in candidate_tag["run"]
+    assert "b13a10f59b5817dbb218f51c7e232f43c9bdc996" in candidate_tag["run"]
 
     stable_tag = next(step for step in steps if step["name"] == "Verify selected stable tag")
     assert "69819350d340a6aeccf95aa175edfd1c3f63404b" in stable_tag["run"]

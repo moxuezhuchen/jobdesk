@@ -18,7 +18,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: current-v2.1.1
+          - label: current-v2.1.2
+            version: 2.1.2
+            peeled_commit: b13a10f59b5817dbb218f51c7e232f43c9bdc996
+            wheel_sha256: 80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92
+            control_worker: true
+            expect_compatible: true
+          - label: superseded-v2.1.1
             version: 2.1.1
             peeled_commit: 338b53b3a34593271b926fc9e96010186141a386
             wheel_sha256: 3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3

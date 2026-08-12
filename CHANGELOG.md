@@ -12,7 +12,7 @@ No unreleased changes.
 ## [0.7.0] - 2026-08-12
 
 This release candidate completes the post-Phase-F architecture remediation
-against the separately released ConfFlow 2.1.1 producer release. It keeps
+against the separately released ConfFlow 2.1.2 producer release. It keeps
 the control-only production boundary and adds the configuration-contract,
 workflow-schema, installed-wheel, and saved-workflow compatibility gates
 needed before promotion.
@@ -26,6 +26,8 @@ needed before promotion.
 - Preserved v0.6.0/v2.0.0 as the rollback pairing; publication, side-by-side
   acceptance, real-launcher acceptance, and endpoint promotion remain
   separate gates.
+- Retained the superseded ConfFlow v2.1.1 tag, commit, and wheel digest as
+  historical evidence rather than rewriting the prior release record.
 
 ## [0.6.0] - 2026-08-11
 

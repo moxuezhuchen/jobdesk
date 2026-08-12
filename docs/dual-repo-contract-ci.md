@@ -3,10 +3,10 @@
 ## Current candidate pairing (2026-08-12)
 
 The current isolated pairing is JobDesk
-`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` (package `0.7.0`) against the
-formally published ConfFlow `v2.1.1` tag, peeled at
-`338b53b3a34593271b926fc9e96010186141a386`. The published wheel digest is
-`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and the
+`c01b082151aaab180a6e973e3282c4f1ef9f23d9` (package `0.7.0`) against the
+formally published ConfFlow `v2.1.2` tag, peeled at
+`b13a10f59b5817dbb218f51c7e232f43c9bdc996`. The published wheel digest is
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
 published workflow-schema digest is
 `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
 The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
@@ -66,10 +66,10 @@ candidate catches schema and capability drift before producer release.
 The candidate-side two-direction gate is exposed by
 `.github/workflows/post-phase-f-contract.yml`. It is intentionally a manual
 workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
-ConfFlow release ref `v2.1.1` as `confflow_ref`; the stable matrix rows always
+ConfFlow release ref `v2.1.2` as `confflow_ref`; the stable matrix rows always
 checkout the released `v2.0.0` tag. The current candidate rows checkout the
 supplied producer tag for peeled-commit provenance and install the exact
-published v2.1.1 wheel after digest verification; they do not build a local
+published v2.1.2 wheel after digest verification; they do not build a local
 substitute. It runs the
 `base` and `chem` installations against both the released v2.0.0 wheel and the
 selected candidate, checks capability/configuration-contract provenance and
@@ -105,10 +105,10 @@ commit, wheel digest, or schema digest is inconsistent.
 ## Current execution boundary (2026-08-12)
 
 The producer candidate `1a0d760` / planned `2.1.0` was superseded before
-publication. ConfFlow `v2.1.1` is now formally published at immutable tag
-`v2.1.1`, peeled at commit
-`338b53b3a34593271b926fc9e96010186141a386`; its formal release wheel digest is
-`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and the
+publication. ConfFlow `v2.1.2` is now formally published at immutable tag
+`v2.1.2`, peeled at commit
+`b13a10f59b5817dbb218f51c7e232f43c9bdc996`; its formal release wheel digest is
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
 published workflow-schema digest is
 `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
 The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
@@ -117,11 +117,11 @@ The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
 and v1.5.0 only as explicitly historical comparisons; old candidate digests
 are not acceptance evidence. The JobDesk candidate at
-`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` remains package version `0.7.0` and
+`c01b082151aaab180a6e973e3282c4f1ef9f23d9` remains package version `0.7.0` and
 is not a published JobDesk release. The JobDesk consumer pin and the formal
 five-member worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
-cycle remain separate gates; publishing ConfFlow v2.1.1 alone does not authorize
+cycle remain separate gates; publishing ConfFlow v2.1.2 alone does not authorize
 an endpoint switch or production promotion, and no candidate-only or historical
 run is counted.

@@ -243,7 +243,7 @@ def test_compatibility_requires_exact_rollback_producer_pairing(field: str, valu
         )
 
 
-def test_current_v211_without_config_command_cannot_use_rollback_compatibility() -> None:
+def test_current_v212_without_config_command_cannot_use_rollback_compatibility() -> None:
     ssh = MagicMock()
     ssh.run.return_value = SSHResult("config contract", 127, "", "command not found", 0.01)
     with pytest.raises(ConfigContractResolutionError, match="not the approved rollback v2.0.0"):
