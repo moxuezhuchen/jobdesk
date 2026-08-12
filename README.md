@@ -4,6 +4,30 @@ JobDesk is a Windows-first desktop and CLI tool for managing single scientific-c
 
 JobDesk is currently a preview project. It is suitable for source review and controlled local use, but not yet a stable public package release.
 
+## Current architecture candidate (2026-08-12)
+
+The current isolated architecture candidate is commit `91b8932` on
+`codex/post-phase-f-architecture-phase0`. It is still package version `0.6.0`
+and has not been published, installed as a production endpoint, or promoted.
+
+| Role | Ref / identity | State |
+|---|---|---|
+| JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
+| JobDesk architecture candidate | `91b8932` | isolated, not released |
+| ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
+| ConfFlow paired candidate | `4952031` | isolated, not released |
+
+Workflow authoring is handled by the Qt-free `WorkflowDocument`/`WorkflowCodec`
+boundary and an explicit legacy migration policy. Local editor lint is
+structure/schema-oriented; producer semantic acceptance remains remote and is
+checked by the selected server's configuration contract and canonical dry-run.
+The `chem` extra is optional for base-install authoring and startup.
+
+Publishing, side-by-side installation, candidate acceptance, real-launcher
+acceptance, and production endpoint promotion are separate gates. The current
+candidate has not passed or been authorized for the final real Gaussian/ORCA
+launcher gate.
+
 ## Scope
 
 - Submit, monitor, cancel, refresh, download, and retry single-task Gaussian/ORCA runs.
@@ -130,15 +154,23 @@ loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
 submitter branches become available only after `pip install -e ".[chem]"`
 on the same Python that runs JobDesk, and after the matching ConfFlow
 wheel is installed on the remote Linux compute node. The current JobDesk
-contract is `confflow>=2.0,<3.0`; CI validates against the released 2.0.0 wheel. Versions must
-match between Windows and Linux because the GUI imports the same Pydantic models
-(`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
-remote `confflow` binary consumes.
+contract is `confflow>=2.0,<3.0`; CI validates against the released 2.0.0 wheel.
+The optional typed compatibility facade should match the remote producer, but
+the base install can parse and preserve workflow documents without local
+ConfFlow models. Local editor/schema lint is non-authoritative; the selected
+remote producer's configuration contract and canonical dry-run decide
+semantic acceptance.
+
+> Historical evidence; superseded for current product behavior: the old
+> Pydantic-model-sharing description and legacy backend notes below describe
+> earlier compatibility work. Current submission uses the frozen control
+> contract plus the additive per-server configuration contract.
 The Phase F owner exception removed the legacy backend from the production path.
 The provenance-verified v1.4.6 rollback remains historical evidence only and
 never authorizes a current control run.
 
-The cross-repository contract is the **CLI capability JSON** only:
+The cross-repository contract is the **CLI capability JSON plus the producer
+configuration contract**:
 JobDesk never imports ConfFlow's contract module. ConfFlow 2.0.0 emits
 schema_version=4 and producer/executable provenance blocks plus an artifacts block that names all six on-disk files JobDesk is allowed to discover: run_summary.json, workflow_stats.json, .workflow_state.json, output_manifest.json, {basename}.txt, and {basename}min.xyz. ConfFlow workflow result download is fail-closed: JobDesk first validates output_manifest.json and then accepts only the relative paths it declares.
 The required remote commands are bash, nohup, setsid, xargs, sha256sum, mktemp, and base64; the build, producer, and executable blocks report commit, wheel, interpreter, and executable provenance.

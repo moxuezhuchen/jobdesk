@@ -1,5 +1,35 @@
 # JobDesk Architecture
 
+## Current candidate boundary (2026-08-12)
+
+The isolated candidate is `91b8932` (base `e4d8f74`); the paired ConfFlow
+candidate is `4952031` (base `6981935`). Neither candidate is published or
+configured as a production endpoint. The dirty shared checkout at
+`C:\dft\tool\jobdesk-dev` remains historical/user-owned state at `89d232a`.
+
+The current workflow path is:
+
+```text
+GUI -> WorkflowDocument / WorkflowCodec
+    -> explicit migration policy + bounded structural lint
+    -> per-server config-contract resolver
+    -> remote canonical dry-run
+    -> control submission and provenance-bound run projection
+```
+
+`WorkflowDocument`, `WorkflowCodec`, and `WorkflowMigrationPort` preserve
+unknown saved fields and do not import Qt or producer Python models. The
+compatibility facade may use a producer validator when available, but remote
+canonical validation is authoritative. A config contract records the producer
+schema/version/hash and binds the result to the server and immutable
+executable identity before upload. Stable v2.0.0 may use only its explicit,
+identity-pinned compatibility fallback because that release predates the
+additive `config contract --json` command.
+
+Release publication, side-by-side acceptance, real-launcher acceptance, and
+promotion remain independent gates; this candidate has not switched any
+production endpoint.
+
 ## ConfFlow contract update (2026-07-28)
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.

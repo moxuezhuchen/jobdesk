@@ -1,5 +1,21 @@
 # JobDesk User Guide
 
+## Current producer compatibility (2026-08-12)
+
+The released pairing remains JobDesk v0.6.0 with ConfFlow v2.0.0. The current
+architecture candidate is JobDesk `91b8932` paired with ConfFlow `4952031` in
+isolated worktrees; it is not a production install.
+
+Before a workflow upload, JobDesk discovers the selected server's ConfFlow
+configuration contract, verifies the workflow-schema hash and executable
+provenance, and runs the producer's canonical dry-run. Local editor lint helps
+with shape and migration diagnostics but does not override remote semantic
+validation. Legacy saved workflows require an explicit migration/backup
+decision, and unknown fields are preserved.
+
+Do not treat a candidate build as released or switch the configured/default
+endpoint until the separate side-by-side and acceptance gates have passed.
+
 JobDesk 是 Windows 本地的科研计算工作台，通过 SSH 管理远程 Linux 服务器上的
 Gaussian/ORCA 等计算任务。
 

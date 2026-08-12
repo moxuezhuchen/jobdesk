@@ -1,5 +1,20 @@
 # Dual-Repository Contract CI Design
 
+## Current candidate pairing (2026-08-12)
+
+The current isolated pairing is JobDesk `91b8932` against ConfFlow `4952031`.
+The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
+`6981935` / v2.0.0. Candidate compatibility is evidence only; it does not
+authorize publication, installation over the stable environment, endpoint
+switching, or production promotion.
+
+The Phase 4 consumer gate additionally checks the per-server
+`confflow.config.contract.v1` response, the packaged workflow-schema digest
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`, and the
+binding to the selected executable identity. The v2.0.0 stable producer uses
+the explicit approved-identity compatibility path because it has no additive
+config-contract command; unknown identity or hash values fail closed.
+
 ConfFlow is the sole owner of the control-protocol JSON Schema and the
 capability/artifact contract constants exposed by its capability payload.
 JobDesk consumes a release schema bundle and never hand-edits a second
