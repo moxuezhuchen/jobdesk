@@ -3,7 +3,7 @@
 ## Current producer compatibility (2026-08-12)
 
 The released pairing remains JobDesk v0.6.0 with ConfFlow v2.0.0. The current
-architecture candidate is JobDesk `87475f5` paired with ConfFlow `0037c04` in
+architecture candidate is JobDesk `4593b5f` paired with ConfFlow `0037c04` in
 isolated worktrees; it is not a production install.
 
 Before a workflow upload, JobDesk discovers the selected server's ConfFlow
