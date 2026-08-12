@@ -2,8 +2,8 @@
 
 This module is a diagnostics port only.  It must never be used to accept or
 reject a saved workflow; the remote producer contract validation at submit
-time is the sole acceptance gate.  The fallback callable remains only for
-legacy compatibility tests and chem-less diagnostics.
+time is the sole acceptance gate.  There is deliberately no local fallback
+validator: keeping a second semantic rule list would create producer drift.
 """
 
 from __future__ import annotations
@@ -18,19 +18,17 @@ from .workflow_editor import WorkflowDiagnostic
 class ConfFlowCompatibilityValidator:
     """Call ConfFlow's validator through an injectable diagnostic port.
 
-    The installed producer validator is preferred.  The optional fallback is
-    retained for chem-less development and the existing private compatibility
-    API; it is never an authoring acceptance path.
+    The installed producer validator is optional and diagnostic-only.  When
+    it is unavailable, the editor reports that fact as a warning instead of
+    applying a JobDesk-owned semantic mirror.
     """
 
     def __init__(
         self,
         *,
         producer_validator: Callable[[dict[str, Any]], Sequence[str]] | None = None,
-        fallback_validator: Callable[[dict[str, Any]], Sequence[str]] | None = None,
     ) -> None:
         self._producer_validator = producer_validator
-        self._fallback_validator = fallback_validator
 
     @staticmethod
     def _load_producer_validator() -> Callable[[dict[str, Any]], Sequence[str]] | None:
@@ -41,7 +39,7 @@ class ConfFlowCompatibilityValidator:
         return validate_yaml_config
 
     def _validator(self) -> Callable[[dict[str, Any]], Sequence[str]] | None:
-        return self._producer_validator or self._load_producer_validator() or self._fallback_validator
+        return self._producer_validator or self._load_producer_validator()
 
     def validate(
         self,
@@ -51,6 +49,7 @@ class ConfFlowCompatibilityValidator:
     ) -> list[WorkflowDiagnostic]:
         """Return producer-owned semantic diagnostics for one canonical map."""
 
+        del allow_legacy_placeholder
         validator = self._validator()
         if validator is None:
             return [
@@ -69,12 +68,6 @@ class ConfFlowCompatibilityValidator:
             global_config.pop("gaussian_path", None)
             global_config.pop("orca_path", None)
         errors = list(validator(validation_payload))
-        if allow_legacy_placeholder:
-            errors = [
-                error
-                for error in errors
-                if "confgen step requires 'chains'" not in str(error)
-            ]
         return [WorkflowDiagnostic("warning", "producer.semantic", str(error)) for error in errors]
 
 

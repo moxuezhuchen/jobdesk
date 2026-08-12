@@ -19,8 +19,9 @@ GUI -> WorkflowDocument / WorkflowCodec
 
 `WorkflowDocument`, `WorkflowCodec`, and `WorkflowMigrationPort` preserve
 unknown saved fields and do not import Qt or producer Python models. The
-compatibility facade may use a producer validator when available, but remote
-canonical validation is authoritative. A config contract records the producer
+the compatibility facade may expose producer diagnostics when available, but
+it never owns a semantic rule list and remote canonical validation is
+authoritative. A config contract records the producer
 schema/version/hash and binds the result to the server and immutable
 executable identity before upload. Stable v2.0.0 may use only its explicit,
 identity-pinned compatibility fallback because that release predates the

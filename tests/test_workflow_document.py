@@ -116,6 +116,21 @@ steps:
     assert [(item.code, item.severity) for item in diagnostics] == [("producer.semantic", "warning")]
 
 
+def test_producer_diagnostics_do_not_filter_known_semantic_messages() -> None:
+    validator = ConfFlowCompatibilityValidator(
+        producer_validator=lambda payload: ["confgen step requires 'chains'"],
+    )
+
+    diagnostics = validator.validate(
+        {"global": {}, "steps": []},
+        allow_legacy_placeholder=True,
+    )
+
+    assert [(item.code, item.severity, item.message) for item in diagnostics] == [
+        ("producer.semantic", "warning", "confgen step requires 'chains'")
+    ]
+
+
 def test_legacy_migration_requires_explicit_backup_policy() -> None:
     document = WorkflowCodec.loads("calc:\n  steps: [opt]\n")
 
@@ -160,23 +175,16 @@ def test_workflow_document_layers_do_not_import_qt_or_producer_models() -> None:
         assert not any(name == "confflow.core.models" for name in imports)
 
 
-def test_producer_model_and_legacy_validator_are_confined_to_facade() -> None:
+def test_authoring_boundary_has_no_producer_model_or_semantic_mirror() -> None:
     root = Path(__file__).parents[1] / "src" / "jobdesk_app" / "core"
     workflow_spec_path = root / "workflow_spec.py"
     workflow_spec_source = workflow_spec_path.read_text(encoding="utf-8")
     facade = ast.parse(workflow_spec_source)
-    model_imports = [
-        node
-        for node in ast.walk(facade)
-        if isinstance(node, ast.ImportFrom) and node.module == "confflow.core.models"
-    ]
-    assert len(model_imports) == 1
-    loader = next(node for node in ast.walk(facade) if isinstance(node, ast.FunctionDef) and node.name == "_load_confflow_models")
-    assert model_imports[0] in ast.walk(loader)
     assert not any(
-        isinstance(node, ast.ImportFrom) and node.module == "core._confflow_validation"
+        isinstance(node, ast.ImportFrom) and node.module == "confflow.core.models"
         for node in ast.walk(facade)
     )
+    assert "_confflow_validation" not in workflow_spec_source
 
     spec_class = next(node for node in ast.walk(facade) if isinstance(node, ast.ClassDef) and node.name == "WorkflowSpec")
     methods = {node.name: node for node in spec_class.body if isinstance(node, ast.FunctionDef)}
@@ -192,12 +200,6 @@ def test_producer_model_and_legacy_validator_are_confined_to_facade() -> None:
             isinstance(node, ast.ImportFrom) and node.module == "core._confflow_validation"
             for node in ast.walk(tree)
         )
-
-    compatibility = ast.parse((root / "_confflow_validation.py").read_text(encoding="utf-8"))
-    assert any(
-        isinstance(node, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "COMPATIBILITY_ONLY" for target in node.targets)
-        and isinstance(node.value, ast.Constant)
-        and node.value.value is True
-        for node in compatibility.body
-    )
+    validation_source = (root / "workflow_validation.py").read_text(encoding="utf-8")
+    assert "fallback_validator" not in validation_source
+    assert not (root / "_confflow_validation.py").exists()

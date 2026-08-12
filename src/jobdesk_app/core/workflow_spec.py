@@ -1,12 +1,11 @@
-"""Pydantic wrapper around the optional ConfFlow workflow schema.
+"""Producer-neutral authoring facade for the optional ConfFlow workflow.
 
-ConfFlow exposes ``core.models.GlobalConfigModel`` and ``CalcConfigModel`` as
-its top-level YAML schema. We import them lazily so that:
+JobDesk serializes the canonical workflow mapping without importing ConfFlow
+implementation modules.  The producer owns semantic validation.
 
-* ``import jobdesk_app.core.workflow_spec`` always succeeds (even when the
-  ``chem`` extra is not installed — GUI still loads).
-* Only methods that actually validate YAML (``from_yaml``, ``to_yaml``,
-  ``dry_run``) need the package.
+* importing this module and editing a saved workflow never needs the
+  optional ``chem`` extra;
+* the remote producer, not this facade, decides semantic acceptance.
 
 The wizard and ``program_adapters.ConfFlowAdapter`` use this module to convert
 between form input and the on-disk ``workflow.yaml`` that the remote
@@ -36,35 +35,9 @@ from .workflow_editor import (
 from .workflow_migration import LegacyWorkflowMigrationAdapter
 
 
-@functools.lru_cache(maxsize=1)
-def _load_confflow_models() -> tuple[Any, Any] | None:
-    """Return the ConfFlow pydantic models used by the workflow schema.
-
-    Imported lazily and cached so that:
-
-    * ``import jobdesk_app.core.workflow_spec`` always succeeds (even when
-      the ``confflow`` package is not installed — the GUI still loads).
-    * Only the first call pays the import cost; subsequent calls return
-      the same objects without re-importing.
-    """
-    try:
-        from confflow.core.models import CalcConfigModel, GlobalConfigModel
-    except ImportError:
-        return None
-    return CalcConfigModel, GlobalConfigModel
-
-
-def _confflow_models() -> tuple[Any, Any]:
-    """Return ``(CalcConfigModel, GlobalConfigModel)`` or raise ImportError."""
-    loaded = _load_confflow_models()
-    if loaded is None:
-        raise ImportError("confflow is not installed (chem extra was skipped)")
-    return loaded
-
-
-def _confflow_available() -> bool:
-    """True when the ConfFlow pydantic models import successfully."""
-    return _load_confflow_models() is not None
+def _confflow_package_available() -> bool:
+    """Return whether the optional producer package is discoverable."""
+    return importlib.util.find_spec("confflow") is not None
 
 
 class _AuthoringGlobalConfig(Mapping[str, Any]):
@@ -109,10 +82,9 @@ def _authoring_global_view(global_payload: Mapping[str, Any] | None) -> _Authori
     return _AuthoringGlobalConfig(global_payload)
 
 
-# Backwards-compatible module attribute. find_spec only inspects the
-# import path; it does not import confflow.core.models. Actual model
-# loading remains exclusively inside _load_confflow_models.
-# Runtime checks should use _load_confflow_models directly.
+# Backwards-compatible availability flag for callers that need to decide
+# whether the optional local producer executable is installed.  It is never
+# used to parse or semantically accept a workflow.
 _CONFFLOW_AVAILABLE: bool = importlib.util.find_spec("confflow") is not None
 
 
@@ -168,7 +140,7 @@ class ConfFlowUnavailableError(RuntimeError):
 
 
 def require_confflow() -> None:
-    if _load_confflow_models() is None:
+    if not _confflow_package_available():
         raise ConfFlowUnavailableError(
             "confflow package is not installed. "
             "Reinstall with `pip install -e .[chem]` on the same Python that "
@@ -184,7 +156,7 @@ def _kb_to_mb(n: float) -> int:
 def _parse_mem_mb_local(value: Any) -> int:
     """Parse a memory value into MB.
 
-    ``GlobalConfigModel`` accepts ``"4GB"``/``"500MB"`` strings, but our
+    ConfFlow accepts ``"4GB"``/``"500MB"`` strings, but our
     legacy form / YAML editor stored an integer in MB.  This helper
     handles both shapes so the YAML editor can pre-populate the
     ``memory_mb`` field cleanly.
@@ -248,7 +220,7 @@ def _format_mem_mb(memory_mb: int) -> str:
 
     Picks GB when divisible / round, else MB. The wizard supplies MB
     because that's the form-friendly unit; confflow's
-    ``GlobalConfigModel`` insists on a unit-bearing string.
+    the producer expects a unit-bearing string.
     """
     if memory_mb is None:
         return "4GB"
@@ -395,16 +367,6 @@ def _normalise_steps_list(raw_steps: Any) -> list[dict[str, Any]]:
 _normalise_yaml_to_schema = normalise_workflow_mapping
 
 
-def _validate_via_global_model(raw: dict[str, Any]) -> None:
-    """Best-effort validation using ``GlobalConfigModel`` for the
-    ``global`` section.  Raises on garbage input.  The typed
-    :class:`GlobalConfigModel` only covers the ``global`` half of the
-    schema — it knows nothing about ``steps``.
-    """
-    _, GlobalConfigModel = _confflow_models()
-    GlobalConfigModel.model_validate(raw.get("global") or {})
-
-
 @dataclass(frozen=True)
 class WorkflowSpec:
     """An authoring workflow document with a legacy global-config view.
@@ -417,9 +379,9 @@ class WorkflowSpec:
 
     global_config: Any  # Mapping-backed legacy view; never the acceptance gate
     # The full canonical schema (``{global, steps}``) ready for the
-    # confflow engine to consume.  Kept alongside the typed model so we
+    # confflow engine to consume.  Kept alongside the legacy view so we
     # can round-trip without losing the steps list or any non-typed
-    # fields the engine understands but ``GlobalConfigModel`` ignores.
+    # fields the engine understands but the editor does not interpret.
     _raw: dict[str, Any] = field(default_factory=dict)
     # Wizard-only metadata that must NOT leak into the engine-facing YAML.
     # Currently holds ``work_dir``: the wizard records the user-picked
@@ -860,8 +822,8 @@ class WorkflowSpec:
 
     def _reconstruct_raw(self) -> dict[str, Any]:
         """Best-effort recovery of the ``{global, steps}`` payload from
-        the typed model.  Used when ``_raw`` wasn't populated (e.g. a
-        legacy ``GlobalConfigModel``-only instance from before v6).
+        the legacy facade.  Used when ``_raw`` wasn't populated (e.g. a
+        legacy authoring-only instance from before v6).
         """
         global_config = self.global_config
         if hasattr(global_config, "model_dump"):
@@ -960,11 +922,10 @@ class WorkflowSpec:
         """Best-effort local dry-run.
 
         ConfFlow's ``--dry-run`` needs an XYZ file and a work dir; here we
-        just validate the YAML and report whether ``GlobalConfigModel``
-        parsed cleanly. The wizard shows this as a green/red indicator
-        before the user clicks Submit. A full remote dry-run happens on the
-        server when the user clicks Submit (``confflow --dry-run`` is
-        called there).
+        report whether the optional producer package is available for the
+        authoring path.  Authoring and serialization remain usable without
+        it; the remote producer's dry-run is authoritative at submission
+        time.
         """
         try:
             require_confflow()

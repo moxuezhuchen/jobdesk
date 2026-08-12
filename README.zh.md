@@ -112,7 +112,7 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 按已发布的 2.0.0 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载、编辑并无损保存工作流；需要本地 producer 执行路径时才安装 `pip install -e ".[chem]"`，并且远端 Linux 计算节点必须安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 按已发布的 2.0.0 wheel 验证。JobDesk 不导入或镜像 ConfFlow 的 Python 语义模型，结构/迁移提示仅供编辑器使用，远端 canonical dry-run 和配置合约才是语义接受门。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
 
 ```powershell
 # Windows（JobDesk 端）

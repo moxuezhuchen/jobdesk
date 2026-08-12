@@ -553,8 +553,9 @@ def test_run_workflow_dag_linear_backward_compatibility(methane_xyz: Path, tmp_p
     assert step_names == {"step1", "step2"}
 
 
-# Config validation is covered by tests/test_workflow_spec.py and
-# jobdesk_app.core._confflow_validation.
+# Authoring shape checks are covered by tests/test_workflow_spec.py; semantic
+# acceptance remains producer-owned and is exercised through the remote
+# contract path.
 
 # ---------------------------------------------------------------------------
 # ConfFlow CLI build_parser and stop_all_confflow_processes

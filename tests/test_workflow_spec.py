@@ -1,15 +1,7 @@
-"""Tests for ``jobdesk_app.core.workflow_spec``.
-
-The ConfFlow Pydantic models are an optional dependency. These tests verify
-the wrapper behaves correctly regardless: graceful degradation when the
-package is missing, round-trip serialization when it is available.
-"""
+"""Tests for the producer-neutral workflow authoring facade."""
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -31,51 +23,6 @@ def test_require_confflow_raises_when_unavailable():
         pytest.skip("confflow package is installed; behavior is covered by other tests")
     with pytest.raises(ConfFlowUnavailableError):
         require_confflow()
-
-
-def test_workflow_spec_import_does_not_load_confflow_models():
-    """Importing the module keeps the optional model dependency lazy."""
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys; import jobdesk_app.core.workflow_spec; assert 'confflow.core.models' not in sys.modules",
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert probe.returncode == 0, probe.stderr or probe.stdout
-
-
-def test_workflow_spec_loads_models_only_on_first_use():
-    """The first model operation, not module import, loads ConfFlow models."""
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys; "
-            "from jobdesk_app.core import workflow_spec; "
-            "assert 'confflow.core.models' not in sys.modules; "
-            "assert workflow_spec._load_confflow_models() is not None; "
-            "assert 'confflow.core.models' in sys.modules",
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if probe.returncode != 0 and "confflow" not in probe.stderr.lower():
-        pytest.fail(probe.stderr or probe.stdout)
-    if probe.returncode != 0:
-        pytest.skip("ConfFlow not installed; lazy load cannot be exercised")
 
 
 def test_from_yaml_round_trip_does_not_require_confflow(tmp_path: Path):
@@ -123,9 +70,8 @@ def test_to_form_includes_known_fields_without_confflow():
     assert form["steps"] == ["confgen", "opt"]
 
 
-def test_authoring_path_is_chem_free(monkeypatch, tmp_path: Path):
+def test_authoring_path_is_chem_free(tmp_path: Path):
     """Parsing, serialization and form projection do not load producer models."""
-    monkeypatch.setattr(workflow_spec, "_load_confflow_models", lambda: None)
     yaml_text = """\
 global:
   future_producer_flag:
@@ -521,13 +467,8 @@ def test_user_yaml_round_trip_via_jobdesk_validation():
     )
     rebuilt = WorkflowSpec.from_yaml(merged_text)
 
-    # Validate using JobDesk's own workflow-editor validator.
-    from jobdesk_app.core._confflow_validation import validate_yaml_config
-
     rebuilt_yaml = rebuilt.to_yaml()
     rebuilt_data = yamllib.safe_load(rebuilt_yaml)
-    errors = validate_yaml_config(rebuilt_data)
-    assert errors == [], f"Round-tripped YAML failed validation: {errors}"
     assert isinstance(rebuilt_data, dict)
     assert "steps" in rebuilt_data
     assert len(rebuilt_data["steps"]) >= 1
