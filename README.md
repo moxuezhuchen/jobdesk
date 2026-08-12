@@ -7,7 +7,7 @@ JobDesk is currently a preview project. It is suitable for source review and con
 ## Current architecture candidate (2026-08-12)
 
 The current isolated architecture candidate is commit
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd` on
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` on
 `codex/post-phase-f-architecture-phase0`, with package metadata version
 `0.7.0`. It is being evaluated against the formally published ConfFlow
 `v2.1.1` tag peeled at
@@ -23,7 +23,7 @@ published, installed as a production endpoint, or promoted.
 | Dirty historical JobDesk checkout | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved user-owned worktree and package metadata; not a release source |
 | Dirty historical ConfFlow checkout | `/opt/ConfFlow` @ `10e457d` | preserved historical source; not a release source |
 | JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
-| JobDesk architecture candidate | `e6003beb31a925ef9bc11c322b5751ef910e4bdd` / package v0.7.0 | isolated, not released |
+| JobDesk architecture candidate | `6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` / package v0.7.0 | isolated, not released |
 | ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
 | ConfFlow current paired producer | `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | formally released; candidate acceptance still pending |
 | Superseded ConfFlow candidate evidence | `1a0d760` / planned v2.1.0 | historical only; superseded before publication |

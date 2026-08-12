@@ -3,7 +3,7 @@
 ## Current candidate pairing (2026-08-12)
 
 The current isolated pairing is JobDesk
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd` (package `0.7.0`) against the
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` (package `0.7.0`) against the
 formally published ConfFlow `v2.1.1` tag, peeled at
 `338b53b3a34593271b926fc9e96010186141a386`. The published wheel digest is
 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and the
@@ -117,7 +117,7 @@ The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
 and v1.5.0 only as explicitly historical comparisons; old candidate digests
 are not acceptance evidence. The JobDesk candidate at
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd` remains package version `0.7.0` and
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` remains package version `0.7.0` and
 is not a published JobDesk release. The JobDesk consumer pin and the formal
 five-member worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,

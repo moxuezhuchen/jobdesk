@@ -6,7 +6,7 @@ The released producer is ConfFlow v2.1.1 at peeled commit
 `338b53b3a34593271b926fc9e96010186141a386`, with the published wheel
 SHA-256 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`.
 The JobDesk v0.7.0 candidate is isolated at
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd`; it is not a production install
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d`; it is not a production install
 and the v2.1.1 release does not switch an endpoint. The rollback pairing
 remains JobDesk v0.6.0 with ConfFlow v2.0.0.
 

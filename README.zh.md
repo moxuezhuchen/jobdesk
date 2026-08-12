@@ -7,7 +7,7 @@ JobDesk 当前为公开预览项目，适合源代码评审与受控本地使用
 ## 当前架构候选（2026-08-12）
 
 当前隔离的 JobDesk 架构候选为 commit
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd`，包版本元数据为 `0.7.0`。
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d`，包版本元数据为 `0.7.0`。
 下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.1`，tag peeled commit
 为 `338b53b3a34593271b926fc9e96010186141a386`。发布 wheel 的 SHA-256 为
 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`，
@@ -17,7 +17,7 @@ workflow schema 的 SHA-256 为
 | 角色 | 引用 / 身份 | 状态 |
 |---|---|---|
 | JobDesk 稳定基线 | `e4d8f74` / v0.6.0 | 已发布的生产基线 |
-| JobDesk 架构候选 | `e6003beb31a925ef9bc11c322b5751ef910e4bdd` / v0.7.0 | 隔离，尚未发布 |
+| JobDesk 架构候选 | `6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` / v0.7.0 | 隔离，尚未发布 |
 | ConfFlow 稳定回滚 | `6981935` / v2.0.0 | 保持不变；wheel digest 为 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` |
 | ConfFlow 当前配对 producer | `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | 已正式发布；候选验收仍待完成 |
 | 生产 / promotion endpoint | v0.6.0 + v2.0.0 | 未切换 |

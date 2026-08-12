@@ -5,7 +5,7 @@
 ### 当前候选与发布边界（2026-08-12）
 
 当前 JobDesk 隔离候选为 commit
-`e6003beb31a925ef9bc11c322b5751ef910e4bdd`，包版本元数据为 `0.7.0`。
+`6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d`，包版本元数据为 `0.7.0`。
 其下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.1`，tag peeled commit
 为 `338b53b3a34593271b926fc9e96010186141a386`。发布 wheel
 `confflow-2.1.1-py3-none-any.whl` 的 SHA-256 为

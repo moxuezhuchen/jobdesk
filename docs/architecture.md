@@ -2,7 +2,7 @@
 
 ## Current candidate boundary (2026-08-12)
 
-The isolated JobDesk candidate is `e6003beb31a925ef9bc11c322b5751ef910e4bdd`
+The isolated JobDesk candidate is `6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d`
 (base `e4d8f74`), with package metadata version `0.7.0`. The producer paired
 for the next acceptance cycle is the formally published ConfFlow `v2.1.1`
 tag, peeled at commit `338b53b3a34593271b926fc9e96010186141a386`. Its released
@@ -20,7 +20,7 @@ checkout at `C:\dft\tool\jobdesk-dev` remains historical/user-owned state at
 | Dirty historical JobDesk worktree | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved; package metadata and user changes remain untouched |
 | Dirty historical ConfFlow worktree | `/opt/ConfFlow` @ `10e457d` | preserved; not used as the candidate source |
 | Released baseline | JobDesk `e4d8f74` / v0.6.0 + ConfFlow `6981935` / v2.0.0 | current configured pairing |
-| Architecture candidate pairing | JobDesk `e6003beb31a925ef9bc11c322b5751ef910e4bdd` / package `0.7.0` + ConfFlow `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | JobDesk candidate isolated and unpublished; producer release published |
+| Architecture candidate pairing | JobDesk `6b3af7704a9e6107016ec308b0c1b1b33a9a4a1d` / package `0.7.0` + ConfFlow `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | JobDesk candidate isolated and unpublished; producer release published |
 | Superseded producer candidate evidence | ConfFlow `1a0d760` / planned `2.1.0` | historical evidence only; superseded before publication |
 | Promotion endpoint | v0.6.0/v2.0.0 configured identity | unchanged until separately authorized |
 
