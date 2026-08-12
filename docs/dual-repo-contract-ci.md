@@ -2,12 +2,20 @@
 
 ## Current candidate pairing (2026-08-12)
 
-The current isolated pairing is JobDesk `908b153` (planned v0.7.0) against
-ConfFlow `1a0d760` (planned v2.1.0).
+The current isolated pairing is JobDesk
+`e6003beb31a925ef9bc11c322b5751ef910e4bdd` (package `0.7.0`) against the
+formally published ConfFlow `v2.1.1` tag, peeled at
+`338b53b3a34593271b926fc9e96010186141a386`. The published wheel digest is
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and the
+published workflow-schema digest is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
 The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
 `6981935` / v2.0.0. Candidate compatibility is evidence only; it does not
 authorize publication, installation over the stable environment, endpoint
 switching, or production promotion.
+
+The earlier ConfFlow `1a0d760` / planned `2.1.0` candidate is retained as
+historical evidence only and was superseded before publication.
 
 The Phase 4 consumer gate additionally checks the per-server
 `confflow.config.contract.v1` response, the packaged workflow-schema digest
@@ -58,8 +66,11 @@ candidate catches schema and capability drift before producer release.
 The candidate-side two-direction gate is exposed by
 `.github/workflows/post-phase-f-contract.yml`. It is intentionally a manual
 workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
-ConfFlow final-candidate ref as `confflow_ref`; the stable matrix rows always
-checkout the released `v2.0.0` tag. It runs the
+ConfFlow release ref `v2.1.1` as `confflow_ref`; the stable matrix rows always
+checkout the released `v2.0.0` tag. The current candidate rows checkout the
+supplied producer tag for peeled-commit provenance and install the exact
+published v2.1.1 wheel after digest verification; they do not build a local
+substitute. It runs the
 `base` and `chem` installations against both the released v2.0.0 wheel and the
 selected candidate, checks capability/configuration-contract provenance and
 schema bindings, verifies non-editable installed-wheel package data and
@@ -91,16 +102,26 @@ commit, wheel digest, or schema digest is inconsistent.
 5. The matrix runs without WSL or Gaussian dependencies; real SSH/WSL
    acceptance remains a separate integration gate.
 
-## Current execution boundary (2026-08-11)
+## Current execution boundary (2026-08-12)
 
-The producer candidate was followed by the formally published v2.0.0 release.
-Main is now at the normal merge commit `69819350`, tag `v2.0.0` is immutable,
-and the formal release wheel digest is
+The producer candidate `1a0d760` / planned `2.1.0` was superseded before
+publication. ConfFlow `v2.1.1` is now formally published at immutable tag
+`v2.1.1`, peeled at commit
+`338b53b3a34593271b926fc9e96010186141a386`; its formal release wheel digest is
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and the
+published workflow-schema digest is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
+`6981935` / v2.0.0; the stable wheel digest is
 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
 and v1.5.0 only as explicitly historical comparisons; old candidate digests
-are not referenced. The JobDesk consumer pin and the formal five-member
-worker-handoff schema contract are advanced together. Real WSL
+are not acceptance evidence. The JobDesk candidate at
+`e6003beb31a925ef9bc11c322b5751ef910e4bdd` remains package version `0.7.0` and
+is not a published JobDesk release. The JobDesk consumer pin and the formal
+five-member worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
-cycle remain separate gates; no candidate-only or historical run is counted.
+cycle remain separate gates; publishing ConfFlow v2.1.1 alone does not authorize
+an endpoint switch or production promotion, and no candidate-only or historical
+run is counted.

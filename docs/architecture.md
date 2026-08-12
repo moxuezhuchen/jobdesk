@@ -2,18 +2,26 @@
 
 ## Current candidate boundary (2026-08-12)
 
-The isolated JobDesk candidate is `908b153` (base `e4d8f74`), planned for
-package version `0.7.0`; the paired ConfFlow candidate is `1a0d760` (base
-`6981935`), planned for producer version `2.1.0`. Neither candidate is
-published or configured as a production endpoint. The dirty shared checkout at
-`C:\dft\tool\jobdesk-dev` remains historical/user-owned state at `89d232a`.
+The isolated JobDesk candidate is `e6003beb31a925ef9bc11c322b5751ef910e4bdd`
+(base `e4d8f74`), with package metadata version `0.7.0`. The producer paired
+for the next acceptance cycle is the formally published ConfFlow `v2.1.1`
+tag, peeled at commit `338b53b3a34593271b926fc9e96010186141a386`. Its released
+wheel is `confflow-2.1.1-py3-none-any.whl` with SHA-256
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`, and its
+workflow-schema SHA-256 is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+ConfFlow publication is complete, but the JobDesk candidate remains
+unpublished and no candidate endpoint has been configured. The dirty shared
+checkout at `C:\dft\tool\jobdesk-dev` remains historical/user-owned state at
+`89d232a`.
 
 | State boundary | Identity | Treatment |
 |---|---|---|
 | Dirty historical JobDesk worktree | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved; package metadata and user changes remain untouched |
 | Dirty historical ConfFlow worktree | `/opt/ConfFlow` @ `10e457d` | preserved; not used as the candidate source |
 | Released baseline | JobDesk `e4d8f74` / v0.6.0 + ConfFlow `6981935` / v2.0.0 | current configured pairing |
-| Implementation candidates | JobDesk `908b153` + ConfFlow `1a0d760` | isolated and unpublished |
+| Architecture candidate pairing | JobDesk `e6003beb31a925ef9bc11c322b5751ef910e4bdd` / package `0.7.0` + ConfFlow `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | JobDesk candidate isolated and unpublished; producer release published |
+| Superseded producer candidate evidence | ConfFlow `1a0d760` / planned `2.1.0` | historical evidence only; superseded before publication |
 | Promotion endpoint | v0.6.0/v2.0.0 configured identity | unchanged until separately authorized |
 
 The current workflow path is:
@@ -28,7 +36,7 @@ GUI -> WorkflowDocument / WorkflowCodec
 
 `WorkflowDocument`, `WorkflowCodec`, and `WorkflowMigrationPort` preserve
 unknown saved fields and do not import Qt or producer Python models. The
-the compatibility facade may expose producer diagnostics when available, but
+compatibility facade may expose producer diagnostics when available, but
 it never owns a semantic rule list and remote canonical validation is
 authoritative. A config contract records the producer
 schema/version/hash and binds the result to the server and immutable
@@ -36,7 +44,8 @@ executable identity before upload. Stable v2.0.0 may use only its explicit,
 identity-pinned compatibility fallback because that release predates the
 additive `config contract --json` command.
 
-Release publication, side-by-side acceptance, real-launcher acceptance, and
+ConfFlow `v2.1.1` publication does not itself promote an endpoint. JobDesk
+release publication, side-by-side acceptance, real-launcher acceptance, and
 promotion remain independent gates; this candidate has not switched any
 production endpoint.
 

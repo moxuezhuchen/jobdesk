@@ -102,11 +102,14 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
 
     steps = workflow["jobs"]["consumer-matrix"]["steps"]
     candidate_install = next(
-        step for step in steps if step["name"] == "Build and install the ConfFlow candidate wheel"
+        step for step in steps if step["name"] == "Download and install the published candidate producer wheel"
     )
     candidate_run = candidate_install["run"]
     assert 'python -m pip install "$wheel"' in candidate_run
     assert "--no-deps" not in candidate_run
+    assert "gh release download v2.1.1" in candidate_run
+    assert "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3" in candidate_run
+    assert "python -m build" not in candidate_run
 
     verification = next(
         step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"

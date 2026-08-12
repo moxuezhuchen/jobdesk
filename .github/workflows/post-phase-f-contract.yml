@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confflow_ref:
-        description: "Exact final ConfFlow producer-candidate ref; stable rows use v2.0.0"
+        description: "Exact published ConfFlow producer tag; candidate artifact is the v2.1.1 release and stable rows use v2.0.0"
         required: true
         type: string
 
@@ -80,17 +80,32 @@ jobs:
           wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
           python -m pip install "${wheel}[chem]"
 
-      - name: Build and install the ConfFlow candidate wheel
+      - name: Verify selected published candidate tag
         if: matrix.producer == 'candidate'
-        working-directory: .ci/confflow
         run: |
           set -euo pipefail
-          python -m pip install --upgrade build
-          python -m build --wheel --outdir "$RUNNER_TEMP/confflow-dist"
-          wheel="$(find "$RUNNER_TEMP/confflow-dist" -maxdepth 1 -name 'confflow-*.whl' -print -quit)"
-          test -n "$wheel"
+          test "${{ inputs.confflow_ref }}" = "v2.1.1"
+          tag_commit="$(git -C .ci/confflow rev-parse "${{ inputs.confflow_ref }}^{commit}")"
+          head_commit="$(git -C .ci/confflow rev-parse HEAD)"
+          test "$tag_commit" = "$head_commit"
+
+      - name: Download and install the published candidate producer wheel
+        if: matrix.producer == 'candidate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/confflow-dist"
+          gh release download v2.1.1 \
+            --repo moxuezhuchen/ConfFlow \
+            --pattern 'confflow-2.1.1-py3-none-any.whl' \
+            --dir "$RUNNER_TEMP/confflow-dist"
+          wheel="$RUNNER_TEMP/confflow-dist/confflow-2.1.1-py3-none-any.whl"
+          test -f "$wheel"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = \
+            "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3"
           # The base JobDesk install intentionally has no ConfFlow dependency.
-          # Install the candidate with its declared runtime dependencies so
+          # Install the published candidate with its declared dependencies so
           # producer-side worker/schema tests run on a clean Ubuntu runner.
           python -m pip install "$wheel"
 
@@ -142,6 +157,15 @@ jobs:
               contract_payload = json.loads(contract)
               if contract_payload.get("response_schema") != "confflow.config.contract.v1":
                   raise AssertionError(f"configuration contract schema drift: {contract_payload!r}")
+              if contract_payload.get("semantic_contract_version") != "1.0":
+                  raise AssertionError(f"configuration contract version drift: {contract_payload!r}")
+              producer_binding = contract_payload.get("producer")
+              if producer_binding != {
+                  "distribution": "confflow",
+                  "version": "2.1.1",
+                  "configuration_contract": "1.0",
+              }:
+                  raise AssertionError(f"configuration contract producer binding drift: {contract_payload!r}")
               workflow_schema = contract_payload.get("workflow_schema")
               if not isinstance(workflow_schema, dict) or workflow_schema.get("sha256") != "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427":
                   raise AssertionError(f"configuration workflow schema binding is malformed: {contract_payload!r}")

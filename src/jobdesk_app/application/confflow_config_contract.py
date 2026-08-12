@@ -3,8 +3,8 @@
 The config contract is deliberately separate from ``confflow.control.v1``.
 The control protocol describes a run; this contract describes the producer
 configuration semantics JobDesk is about to submit to.  A producer either
-returns the exact JSON contract or is accepted through the explicit,
-versioned compatibility exception for the approved v2.0.0 identity.
+returns the exact JSON contract or the released v2.0.0 rollback identity is
+accepted through its explicit versioned compatibility exception.
 """
 
 from __future__ import annotations
@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from jobdesk_app.core.confflow_contract import (
-    REFERENCE_BUILD_COMMIT,
-    REFERENCE_VERSION,
-    REFERENCE_WHEEL_SHA256,
+    ROLLBACK_REFERENCE_BUILD_COMMIT,
+    ROLLBACK_REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_WHEEL_FILENAME,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
 )
 from jobdesk_app.core.confflow_executable import ConfFlowExecutableIdentity
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
@@ -233,21 +234,21 @@ def _producer_identity(capabilities: ConfFlowCapabilities) -> tuple[str, ...]:
 
 
 def _is_approved_stable_identity(capabilities: ConfFlowCapabilities) -> bool:
-    """Return whether capability v4 is the exact released v2.0.0 identity."""
+    """Return whether capability v4 is the exact released v2.0.0 rollback identity."""
     producer = _mapping(capabilities.producer)
     build = _mapping(capabilities.build)
     producer_build = _mapping(producer.get("build"))
     wheel = _mapping(producer.get("wheel"))
     return (
-        capabilities.version == REFERENCE_VERSION
-        and build.get("commit") == REFERENCE_BUILD_COMMIT
+        capabilities.version == ROLLBACK_REFERENCE_VERSION
+        and build.get("commit") == ROLLBACK_REFERENCE_BUILD_COMMIT
         and build.get("dirty") is False
         and producer.get("package") == "confflow"
-        and producer.get("version") == REFERENCE_VERSION
-        and producer_build.get("commit") == REFERENCE_BUILD_COMMIT
+        and producer.get("version") == ROLLBACK_REFERENCE_VERSION
+        and producer_build.get("commit") == ROLLBACK_REFERENCE_BUILD_COMMIT
         and producer_build.get("dirty") is False
-        and wheel.get("filename") == "confflow-2.0.0-py3-none-any.whl"
-        and wheel.get("sha256") == REFERENCE_WHEEL_SHA256
+        and wheel.get("filename") == ROLLBACK_REFERENCE_WHEEL_FILENAME
+        and wheel.get("sha256") == ROLLBACK_REFERENCE_WHEEL_SHA256
     )
 
 
@@ -333,9 +334,9 @@ class ConfigContractResolver:
         capabilities: ConfFlowCapabilities,
         identity_key: RemoteIdentityCacheKey,
     ) -> ConfigContractResult:
-        if capabilities.version != REFERENCE_VERSION:
+        if capabilities.version != ROLLBACK_REFERENCE_VERSION:
             raise ConfigContractResolutionError(
-                "ConfFlow config contract command is unavailable and producer version is not the approved v2.0.0"
+                "ConfFlow config contract command is unavailable and producer version is not the approved rollback v2.0.0"
             )
         producer = capabilities.producer or {}
         build = capabilities.build or {}
@@ -346,11 +347,11 @@ class ConfigContractResolver:
         if not isinstance(wheel, dict):
             raise ConfigContractResolutionError("approved compatibility requires producer wheel provenance")
         if (
-            build.get("commit") != REFERENCE_BUILD_COMMIT
+            build.get("commit") != ROLLBACK_REFERENCE_BUILD_COMMIT
             or build.get("dirty") is not False
-            or producer_build.get("commit") != REFERENCE_BUILD_COMMIT
+            or producer_build.get("commit") != ROLLBACK_REFERENCE_BUILD_COMMIT
             or producer_build.get("dirty") is not False
-            or wheel.get("sha256") != REFERENCE_WHEEL_SHA256
+            or wheel.get("sha256") != ROLLBACK_REFERENCE_WHEEL_SHA256
         ):
             raise ConfigContractResolutionError("unknown producer identity cannot use config contract compatibility")
         declared_sha = (capabilities.executable or {}).get("sha256")
@@ -363,12 +364,12 @@ class ConfigContractResolver:
             response_version=None,
             workflow_schema_version=WORKFLOW_SCHEMA_VERSION,
             producer_package="confflow",
-            producer_version=REFERENCE_VERSION,
+            producer_version=ROLLBACK_REFERENCE_VERSION,
             semantic_contract_version=SEMANTIC_CONTRACT_VERSION,
             workflow_schema_sha256=self._workflow_schema_sha256,
             schema_bundle_sha256=self._schema_bundle.digest,
             remote_identity=identity_key,
-            reason="approved stable v2.0.0 producer has no config contract command",
+            reason="approved rollback v2.0.0 producer has no config contract command",
         )
 
     def _validate_payload(

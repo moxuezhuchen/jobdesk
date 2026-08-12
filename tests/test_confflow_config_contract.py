@@ -7,7 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jobdesk_app.core.confflow_contract import REFERENCE_BUILD_COMMIT, REFERENCE_WHEEL_SHA256
+from jobdesk_app.core.confflow_contract import (
+    REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_BUILD_COMMIT,
+    ROLLBACK_REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_WHEEL_FILENAME,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
+)
 from jobdesk_app.core.confflow_executable import ConfFlowExecutableIdentity
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.lifecycle import TaskStatus
@@ -47,19 +53,23 @@ def _capabilities(
         "config_contract": True,
         "bash": True,
     } if config_command else {}
-    build = {"commit": REFERENCE_BUILD_COMMIT if approved_identity else "commit-2", "dirty": False}
+    version = ROLLBACK_REFERENCE_VERSION if approved_identity else REFERENCE_VERSION
+    build = {
+        "commit": ROLLBACK_REFERENCE_BUILD_COMMIT if approved_identity else "commit-2",
+        "dirty": False,
+    }
     producer = {
         "package": "confflow",
-        "version": "2.0.0",
+        "version": version,
         "build": build,
         "wheel": {
-            "filename": "confflow-2.0.0-py3-none-any.whl" if approved_identity else "confflow.whl",
-            "sha256": REFERENCE_WHEEL_SHA256 if approved_identity else _DIGEST,
+            "filename": ROLLBACK_REFERENCE_WHEEL_FILENAME if approved_identity else "confflow.whl",
+            "sha256": ROLLBACK_REFERENCE_WHEEL_SHA256 if approved_identity else _DIGEST,
         },
     }
     return ConfFlowCapabilities(
         schema_version=4,
-        version="2.0.0",
+        version=version,
         workflow_state=True,
         resume=True,
         dag=True,
@@ -82,7 +92,7 @@ def _contract_payload(resolver: ConfigContractResolver) -> dict[str, object]:
         "semantic_contract_version": SEMANTIC_CONTRACT_VERSION,
         "producer": {
             "distribution": "confflow",
-            "version": "2.0.0",
+            "version": REFERENCE_VERSION,
             "configuration_contract": SEMANTIC_CONTRACT_VERSION,
         },
     }
@@ -200,7 +210,7 @@ def test_stable_v2_without_command_has_explicit_compatibility_result() -> None:
         executable_identity=_IDENTITY,
     )
     assert result.mode == "approved-identity-compatibility"
-    assert "approved stable v2.0.0" in result.reason
+    assert "approved rollback v2.0.0" in result.reason
 
 
 def test_unknown_identity_cannot_use_compatibility() -> None:

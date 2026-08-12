@@ -119,13 +119,13 @@ def _capability_result(
 ) -> SSHResult:
     from jobdesk_app.core.confflow_contract import (
         EXPECTED_ARTIFACTS,
-        REFERENCE_BUILD_COMMIT,
-        REFERENCE_VERSION,
-        REFERENCE_WHEEL_FILENAME,
-        REFERENCE_WHEEL_SHA256,
+        ROLLBACK_REFERENCE_BUILD_COMMIT,
+        ROLLBACK_REFERENCE_VERSION,
+        ROLLBACK_REFERENCE_WHEEL_FILENAME,
+        ROLLBACK_REFERENCE_WHEEL_SHA256,
     )
 
-    build = build if build is not None else {"commit": REFERENCE_BUILD_COMMIT, "dirty": False}
+    build = build if build is not None else {"commit": ROLLBACK_REFERENCE_BUILD_COMMIT, "dirty": False}
 
     return SSHResult(
         command="confflow --capabilities --json",
@@ -133,7 +133,7 @@ def _capability_result(
         stdout=json.dumps(
             {
                 "schema_version": 4,
-                "version": REFERENCE_VERSION,
+                "version": ROLLBACK_REFERENCE_VERSION,
                 "capabilities": {
                     "workflow_state": True,
                     "resume": True,
@@ -151,11 +151,11 @@ def _capability_result(
                 "build": build,
                 "producer": {
                     "package": "confflow",
-                    "version": REFERENCE_VERSION,
+                    "version": ROLLBACK_REFERENCE_VERSION,
                     "build": build,
                     "wheel": {
-                        "filename": wheel_filename or REFERENCE_WHEEL_FILENAME,
-                        "sha256": wheel_sha256 or REFERENCE_WHEEL_SHA256,
+                        "filename": wheel_filename or ROLLBACK_REFERENCE_WHEEL_FILENAME,
+                        "sha256": wheel_sha256 or ROLLBACK_REFERENCE_WHEEL_SHA256,
                     },
                     "install_provenance": {"status": install_status},
                 },

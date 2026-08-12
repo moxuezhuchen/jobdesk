@@ -1,11 +1,24 @@
-> **Current release:** ConfFlow 2.0.0 is the certified producer for this JobDesk branch. The filename is retained for deployment-history compatibility.
+> **Current published producer:** ConfFlow `v2.1.1` is formally published at
+> tag `v2.1.1`, peeled commit
+> `338b53b3a34593271b926fc9e96010186141a386`. The filename of this guide is
+> retained for deployment-history compatibility.
 
-> **Current 2.0.0 contract:** use `confflow>=2.0,<3.0` and the released
-> `confflow-2.0.0-py3-none-any.whl` whose SHA-256 is
+> **Current v2.1.1 artifact:** use `confflow>=2.0,<3.0` and the released
+> `confflow-2.1.1-py3-none-any.whl` whose SHA-256 is
+> `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`.
+> Its published workflow-schema SHA-256 is
+> `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+> The stable rollback remains `confflow-2.0.0-py3-none-any.whl` with SHA-256
 > `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
+> Publication is an artifact/provenance gate only; side-by-side acceptance,
+> real-launcher acceptance, endpoint switching, and production promotion remain
+> separate gates.
 > The older 1.4.5 command examples below are retained only as deployment
 > history; substitute the current approved wheel and preserve the controlled
 > dependency lock/wheelhouse procedure.
+
+The 1.4.x instructions below are historical deployment evidence. They do not
+describe the current v2.1.1 contract and do not authorize a production run.
 
 # ConfFlow 1.4.5 Wheel 构建与部署指南
 
