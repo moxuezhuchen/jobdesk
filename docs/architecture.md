@@ -2,9 +2,10 @@
 
 ## Current candidate boundary (2026-08-12)
 
-The isolated candidate is `908b153` (base `e4d8f74`); the paired ConfFlow
-candidate is `1a0d760` (base `6981935`). Neither candidate is published or
-configured as a production endpoint. The dirty shared checkout at
+The isolated JobDesk candidate is `908b153` (base `e4d8f74`), planned for
+package version `0.7.0`; the paired ConfFlow candidate is `1a0d760` (base
+`6981935`), planned for producer version `2.1.0`. Neither candidate is
+published or configured as a production endpoint. The dirty shared checkout at
 `C:\dft\tool\jobdesk-dev` remains historical/user-owned state at `89d232a`.
 
 | State boundary | Identity | Treatment |
