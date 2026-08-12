@@ -151,6 +151,8 @@ jobs:
           PY
 
       - name: Verify installed wheels, package data, and dependency closure
+        env:
+          EXPECTED_PRODUCER: ${{ matrix.producer }}
         run: |
           set -euo pipefail
           python -m pip check
@@ -159,9 +161,9 @@ jobs:
 
           import hashlib
           import json
+          import os
           import subprocess
           import sys
-          from importlib.resources import files
           from pathlib import Path
 
           expected_schema_sha256 = "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427"
@@ -181,9 +183,19 @@ jobs:
           producer_module = Path(__import__("confflow").__file__).resolve()
           if prefix not in producer_module.parents:
               raise AssertionError(f"ConfFlow is not installed under the isolated environment: {producer_module}")
-          producer_schema = files("confflow").joinpath("config/workflow_config_v1.schema.json")
-          if not producer_schema.is_file():
-              raise AssertionError("installed ConfFlow wheel omitted workflow schema")
+          producer = os.environ["EXPECTED_PRODUCER"]
+          if producer == "candidate":
+              producer_schema = prefix / "share" / "confflow" / "workflow_config" / "v1" / "workflow_config_v1.schema.json"
+              if not producer_schema.is_file():
+                  raise AssertionError("installed candidate ConfFlow wheel omitted workflow schema")
+              producer_schema_obj = json.loads(producer_schema.read_text(encoding="utf-8"))
+              producer_canonical = json.dumps(
+                  producer_schema_obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              ).encode("utf-8")
+              if hashlib.sha256(producer_canonical).hexdigest() != expected_schema_sha256:
+                  raise AssertionError("installed candidate workflow schema digest mismatch")
+              if producer_canonical != canonical:
+                  raise AssertionError("installed candidate/consumer workflow schema content drift")
           control_root = prefix / "share" / "confflow" / "control_protocol" / "v1"
           required_control = (
               "common.schema.json",
@@ -195,10 +207,36 @@ jobs:
           missing = [name for name in required_control if not (control_root / name).is_file()]
           if missing:
               raise AssertionError(f"installed ConfFlow wheel omitted schema members: {missing}")
-          contract = json.loads(subprocess.check_output(["confflow", "config", "contract", "--json"], text=True))
-          if contract["workflow_schema"]["sha256"] != expected_schema_sha256:
-              raise AssertionError("installed producer contract is not bound to the approved schema digest")
-          print(json.dumps({"jobdesk_schema_sha256": expected_schema_sha256, "control_schema_members": list(required_control)}))
+          consumer_control_root = Path("confflow") / "schemas" / "control"
+          for name in required_control:
+              consumer_path = consumer_control_root / name
+              producer_path = control_root / name
+              if not consumer_path.is_file():
+                  raise AssertionError(f"JobDesk candidate omitted pinned control schema: {consumer_path}")
+              consumer_control = json.loads(consumer_path.read_text(encoding="utf-8"))
+              producer_control = json.loads(producer_path.read_text(encoding="utf-8"))
+              consumer_canonical = json.dumps(
+                  consumer_control, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              producer_control_canonical = json.dumps(
+                  producer_control, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              if consumer_canonical != producer_control_canonical:
+                  raise AssertionError(f"producer/consumer control schema content drift: {name}")
+          if producer == "candidate":
+              contract = json.loads(
+                  subprocess.check_output(["confflow", "config", "contract", "--json"], text=True)
+              )
+              if contract.get("response_schema") != "confflow.config.contract.v1":
+                  raise AssertionError(f"installed candidate contract schema drift: {contract!r}")
+              workflow_schema = contract.get("workflow_schema")
+              if not isinstance(workflow_schema, dict) or workflow_schema.get("sha256") != expected_schema_sha256:
+                  raise AssertionError("installed candidate contract is not bound to the approved schema digest")
+          print(json.dumps({
+              "producer": producer,
+              "jobdesk_schema_sha256": expected_schema_sha256,
+              "control_schema_members": list(required_control),
+          }))
           PY
 
       - name: Run JobDesk contract and saved-workflow corpus
@@ -209,7 +247,13 @@ jobs:
             tests/test_confflow_config_contract.py \
             tests/test_confflow_executable_binding.py \
             tests/test_confflow_results.py \
+            tests/test_confflow_control_backend.py \
+            tests/test_confflow_control_artifacts_boundary.py \
+            tests/test_confflow_control_state_boundary.py \
             tests/test_control_protocol_schemas.py \
+            tests/test_method_presets.py \
+            tests/test_packaging_config.py \
+            tests/test_workflow_submit_gui_regression.py \
             tests/test_workflow_document.py \
             tests/test_workflow_spec.py
 
@@ -218,7 +262,14 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider \
             tests/test_workflow_resume_boundary.py \
+            tests/test_workflow_resume_after_disconnect.py \
+            tests/test_workflow_state.py \
             tests/test_workflow_execution_adapter.py \
+            tests/test_control_adapter.py \
+            tests/test_workflow_entry_facade.py \
+            tests/test_workflow_executor_boundary.py \
+            tests/test_workflow_finalizer_boundary.py \
+            tests/test_workflow_planner_boundary.py \
             tests/test_execution_policy.py \
             tests/test_control_protocol_schema.py \
             tests/test_control_worker.py
