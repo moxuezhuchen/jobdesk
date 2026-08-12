@@ -107,7 +107,8 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
     candidate_run = candidate_install["run"]
     assert 'python -m pip install "$wheel"' in candidate_run
     assert "--no-deps" not in candidate_run
-    assert "gh release download v2.1.1" in candidate_run
+    assert "releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl" in candidate_run
+    assert "gh release download" not in candidate_run
     assert "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3" in candidate_run
     assert "python -m build" not in candidate_run
 
@@ -117,6 +118,11 @@ def test_post_phase_f_matrix_installs_candidate_producer_dependencies() -> None:
 
     stable_tag = next(step for step in steps if step["name"] == "Verify selected stable tag")
     assert "69819350d340a6aeccf95aa175edfd1c3f63404b" in stable_tag["run"]
+
+    stable_install = next(
+        step for step in steps if step["name"] == "Download and install the current stable producer wheel"
+    )
+    assert "releases/download/v2.0.0/confflow-2.0.0-py3-none-any.whl" in stable_install["run"]
 
     verification = next(
         step for step in steps if step["name"] == "Verify installed wheels, package data, and dependency closure"

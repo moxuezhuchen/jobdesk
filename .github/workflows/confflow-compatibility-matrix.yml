@@ -64,16 +64,12 @@ jobs:
 
       - name: Download and verify the exact producer wheel
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/confflow-dist"
-          gh release download "v${{ matrix.version }}" \
-            --repo moxuezhuchen/ConfFlow \
-            --pattern "confflow-${{ matrix.version }}-py3-none-any.whl" \
-            --dir "$RUNNER_TEMP/confflow-dist"
           wheel="$RUNNER_TEMP/confflow-dist/confflow-${{ matrix.version }}-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v${{ matrix.version }}/confflow-${{ matrix.version }}-py3-none-any.whl"
           test -f "$wheel"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = "${{ matrix.wheel_sha256 }}"
           # Install the producer runtime dependencies as well as the exact

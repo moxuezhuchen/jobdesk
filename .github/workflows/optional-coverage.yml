@@ -39,12 +39,9 @@ jobs:
 
       - name: Install released ConfFlow v2.1.1 wheel
         run: |
-          gh release download v2.1.1 --repo moxuezhuchen/ConfFlow --pattern "confflow-2.1.1-py3-none-any.whl" --dir .ci/confflow-dist
-          wheel=$(ls .ci/confflow-dist/confflow-2.1.1-*.whl | head -n1)
-          if [ -z "$wheel" ]; then
-            echo "ConfFlow v2.1.1 release wheel was not downloaded."
-            exit 1
-          fi
+          mkdir -p .ci/confflow-dist
+          wheel=.ci/confflow-dist/confflow-2.1.1-py3-none-any.whl
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3"
           python -m pip install --no-deps "$wheel"
           python -c "import confflow; assert confflow.__version__ == '2.1.1'; print(confflow.__version__)"

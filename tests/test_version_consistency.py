@@ -60,15 +60,15 @@ def test_ci_yaml_uses_version_in_all_four_slots():
     content = _read(".github/workflows/ci.yml")
     assert "1.4.1" not in content, "ci.yml must not contain any 1.4.1 reference"
     assert content.count("ref: v2.1.1") == 2
-    assert content.count("confflow-2.1.1-*.whl") == 2
+    assert content.count("releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl") == 2
     assert content.count("confflow.__version__ == '2.1.1'") == 2
     assert content.count(REFERENCE_WHEEL_SHA256) == 2
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
-    """PowerShell wheel glob must match the version literal in the assert."""
+    """The Windows CI jobs must download the exact published wheel asset."""
     content = _read(".github/workflows/ci.yml")
-    assert content.count("confflow-2.1.1-*.whl") == 2
+    assert content.count("releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl") == 2
     assert content.count("confflow.__version__ == '2.1.1'") == 2
 
 
@@ -76,8 +76,8 @@ def test_optional_coverage_uses_the_same_released_wheel():
     """The optional Linux job must not silently exercise an older producer."""
     content = _read(".github/workflows/optional-coverage.yml")
     assert content.count("ref: v2.1.1") == 1
-    assert content.count("gh release download v2.1.1") == 1
-    assert content.count("confflow-2.1.1-*.whl") == 1
+    assert content.count("releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl") == 1
+    assert "gh release download" not in content
     assert REFERENCE_WHEEL_SHA256 in content
     assert "confflow.__version__ == '2.1.1'" in content
 

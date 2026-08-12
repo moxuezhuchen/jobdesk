@@ -103,16 +103,12 @@ jobs:
 
       - name: Download and install the published candidate producer wheel
         if: matrix.producer == 'candidate'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/confflow-dist"
-          gh release download v2.1.1 \
-            --repo moxuezhuchen/ConfFlow \
-            --pattern 'confflow-2.1.1-py3-none-any.whl' \
-            --dir "$RUNNER_TEMP/confflow-dist"
           wheel="$RUNNER_TEMP/confflow-dist/confflow-2.1.1-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.1/confflow-2.1.1-py3-none-any.whl"
           test -f "$wheel"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = \
             "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3"
@@ -123,16 +119,12 @@ jobs:
 
       - name: Download and install the current stable producer wheel
         if: matrix.producer == 'stable'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/confflow-dist"
-          gh release download v2.0.0 \
-            --repo moxuezhuchen/ConfFlow \
-            --pattern 'confflow-2.0.0-py3-none-any.whl' \
-            --dir "$RUNNER_TEMP/confflow-dist"
           wheel="$RUNNER_TEMP/confflow-dist/confflow-2.0.0-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.0.0/confflow-2.0.0-py3-none-any.whl"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = \
             "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
           python -m pip install "$wheel"
