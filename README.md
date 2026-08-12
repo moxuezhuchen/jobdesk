@@ -15,7 +15,7 @@ and has not been published, installed as a production endpoint, or promoted.
 | JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
 | JobDesk architecture candidate | `6122ecc` | isolated, not released |
 | ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
-| ConfFlow paired candidate | `907b69e` | isolated, not released |
+| ConfFlow paired candidate | `0037c04` | isolated, not released |
 
 Workflow authoring is handled by the Qt-free `WorkflowDocument`/`WorkflowCodec`
 boundary and an explicit legacy migration policy. Local editor lint is
