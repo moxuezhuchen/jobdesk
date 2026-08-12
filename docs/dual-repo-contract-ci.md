@@ -2,7 +2,7 @@
 
 ## Current candidate pairing (2026-08-12)
 
-The current isolated pairing is JobDesk `a63f2e9` against ConfFlow `0037c04`.
+The current isolated pairing is JobDesk `908b153` against ConfFlow `7ef0df3`.
 The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
 `6981935` / v2.0.0. Candidate compatibility is evidence only; it does not
 authorize publication, installation over the stable environment, endpoint
