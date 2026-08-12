@@ -2,7 +2,7 @@
 
 ## Current candidate boundary (2026-08-12)
 
-The isolated candidate is `4593b5f` (base `e4d8f74`); the paired ConfFlow
+The isolated candidate is `a63f2e9` (base `e4d8f74`); the paired ConfFlow
 candidate is `0037c04` (base `6981935`). Neither candidate is published or
 configured as a production endpoint. The dirty shared checkout at
 `C:\dft\tool\jobdesk-dev` remains historical/user-owned state at `89d232a`.
