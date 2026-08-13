@@ -16,17 +16,21 @@ commit, wheel digest, and attestation subject.
 JobDesk pins the exact producer tag and wheel digest. Its matrix installs that
 release, checks the capability payload with the JobDesk parser, requires clean
 build/producer provenance, compares the installed control schema bundle with
-the checked snapshot, and runs consumer golden/negative fixtures. The stable
-v2.0.0 path compares all five release members, including
-`worker-handoff.schema.json`; historical v1.5.3 and v1.5.0 producers are
-explicitly labeled non-stable and checked fail-closed against the current
-major-version window. Historical producers without `control_worker` are
-checked against the four-file core. The release
+the matching immutable snapshot under
+`confflow/schemas/control/releases/v<version>/`, and runs consumer
+golden/negative fixtures. The stable v2.0.0 path compares all five release
+members, including `worker-handoff.schema.json`; historical v1.5.3 and v1.5.0
+producers are explicitly labeled non-stable and checked fail-closed against
+the current major-version window. Historical producers without
+`control_worker` are checked against the four-file core. The release
 and deployment gates additionally verify the external attestation and install
 provenance; a plain pip install in the matrix deliberately reports a missing
 install record as candidate-only. The producer bundle remains authoritative;
-the JobDesk copy is a checked snapshot whose canonical content must match the
-pinned release.
+the versioned JobDesk copy is a checked snapshot whose canonical content must
+match that pinned release. The files directly under
+`confflow/schemas/control/` are the current candidate snapshot and are kept
+separate so candidate semantics cannot silently rewrite an immutable release
+contract.
 
 ## Pull-request matrices
 
@@ -65,13 +69,16 @@ commit, wheel digest, or schema digest is inconsistent.
 ## Current execution boundary (2026-08-11)
 
 The producer candidate was followed by the formally published v2.0.0 release.
-Main is now at the normal merge commit `69819350`, tag `v2.0.0` is immutable,
-and the formal release wheel digest is
+The release main is at the normal merge commit `69819350`, tag `v2.0.0` is
+immutable, and the formal release wheel digest is
 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
-and v1.5.0 only as explicitly historical comparisons; old candidate digests
-are not referenced. The JobDesk consumer pin and the formal five-member
-worker-handoff schema contract are advanced together. Real WSL
+and v1.5.0 only as explicitly historical comparisons; each row uses its
+matching immutable release snapshot. The current root snapshot may carry an
+unreleased candidate semantic (including asynchronous cancel intent), but it
+is not counted as stable and does not rewrite the v2.0.0 evidence. A formal
+producer release and a matching reviewed JobDesk pin are required before that
+candidate can become stable. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
 cycle remain separate gates; no candidate-only or historical run is counted.

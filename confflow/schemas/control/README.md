@@ -1,16 +1,22 @@
-# Pinned control schema snapshot
+# Control schema snapshots
 
-These four files are a canonical-JSON snapshot of the producer bundle from
-ConfFlow `v1.5.0` commit
-`0fff6439a4614ec155959b1d0d3781fc5342d736`:
+ConfFlow owns the control-protocol schemas. The JSON files directly in this
+directory are the current JobDesk candidate snapshot. They intentionally may
+contain unreleased compatibility work, including the asynchronous cancel
+intent response states; they are not a claim that the immutable v2.0.0
+release has changed.
 
-| file | canonical JSON SHA-256 |
-| --- | --- |
-| `common.schema.json` | `494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1` |
-| `requests.schema.json` | `72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3` |
-| `responses.schema.json` | `312e7b88047a20015080877903b63aa52df850c07a2a45fb023a30179e7d86b3` |
-| `input-manifest.schema.json` | `b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97` |
+The compatibility matrix uses the immutable, wheel-derived snapshots under
+`releases/` instead:
 
-The parity test compares canonical JSON, not formatting. Do not edit one file
-in isolation; update the producer release reference, the snapshot, the
-consumer parser, and the dual-repository CI gate together.
+| release | snapshot | wheel SHA-256 |
+| --- | --- | --- |
+| `v2.0.0` | `releases/v2.0.0/` | `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` |
+| `v1.5.3` | `releases/v1.5.3/` | `213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6` |
+| `v1.5.0` | `releases/v1.5.0/` | `d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc` |
+
+Each release directory is extracted from the exact wheel named by the matrix
+and records canonical JSON hashes in its README. Do not edit a release
+snapshot or use the candidate root as a release substitute. A producer schema
+change requires a new producer release and a reviewed update to the matching
+release snapshot and matrix pin.
