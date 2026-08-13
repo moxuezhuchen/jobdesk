@@ -53,7 +53,10 @@ _OPERATION_STATES = {
     "execute": frozenset({"queued", "running", "paused", "completed", "failed", "cancelled"}),
     "status": _STATES,
     "events": _STATES,
-    "cancel": frozenset({"cancelled"}),
+    # Cancellation is an asynchronous durable intent.  The producer may
+    # acknowledge the request with the current non-terminal snapshot before
+    # a later status call converges it to ``cancelled``.
+    "cancel": frozenset({"queued", "running", "paused", "cancelled"}),
     "resume": frozenset({"queued", "running"}),
     "artifacts": _TERMINAL_STATES,
 }

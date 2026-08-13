@@ -196,6 +196,7 @@ def build_control_launcher_script(
     scheduler_type: str,
     resources: ResourceSpec,
     env_init_scripts: Iterable[str] = (),
+    worker_only: bool = False,
 ) -> str:
     """Build a scheduler script for execute followed by the producer worker.
 
@@ -211,7 +212,11 @@ def build_control_launcher_script(
     scheduler = (scheduler_type or "nohup").lower()
     execute_command = build_control_execute_command(executable, state_root, run_id)
     worker_command = build_control_worker_command(worker_executable, state_root, run_id, handoff_path)
-    command = f"{execute_command} && setsid --wait {worker_command}"
+    command = (
+        f"setsid --wait {worker_command}"
+        if worker_only
+        else f"{execute_command} && setsid --wait {worker_command}"
+    )
     marker = json.dumps(
         {
             "content_schema": "jobdesk.confflow.launcher.v1",
@@ -222,9 +227,9 @@ def build_control_launcher_script(
             "command": command,
             "state_root": state_root,
             "execution_state": "started",
-            "execute_rc": None,
+            "execute_rc": 0 if worker_only else None,
             "worker_rc": None,
-            "worker_started": False,
+            "worker_started": worker_only,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -251,6 +256,29 @@ def build_control_launcher_script(
             'marker=${marker//__JOBDESK_PID__/$$}',
             f"printf '%s\\n' \"$marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
+        ]
+    )
+    if worker_only:
+        lines.extend(
+            [
+                "set +e",
+                build_confflow_preflight_shell(f"setsid --wait {worker_command}", env_init_scripts),
+                "worker_rc=$?",
+                "set -e",
+                "old_fragment='\"execution_state\":\"started\"'",
+                "new_fragment='\"execution_state\":\"completed\"'",
+                'completed_marker="${marker//$old_fragment/$new_fragment}"',
+                "old_worker_rc='\"worker_rc\":null'",
+                "new_worker_rc='\"worker_rc\":'\"$worker_rc\"''",
+                'completed_marker="${completed_marker//$old_worker_rc/$new_worker_rc}"',
+                f"printf '%s\\n' \"$completed_marker\" > {tmp_q}",
+                f"mv -f {tmp_q} {metadata_q}",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+    lines.extend(
+        [
             "set +e",
             build_confflow_preflight_shell(execute_command, env_init_scripts),
             "execute_rc=$?",

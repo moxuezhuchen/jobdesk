@@ -316,10 +316,27 @@ def test_control_parser_enforces_producer_operation_states_and_run_binding() -> 
             "prepare",
             _response("prepare", run_id="run-1", revision=1, state="running"),
         )
+    for state in ("queued", "running", "paused", "cancelled"):
+        snapshot = parse_snapshot_response(
+            "cancel",
+            _response("cancel", run_id="run-1", revision=1, state=state),
+            expected_run_id="run-1",
+        )
+        assert snapshot.state == state
     with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
         parse_snapshot_response(
             "cancel",
-            _response("cancel", run_id="run-1", revision=1, state="running"),
+            _response("cancel", run_id="run-1", revision=1, state="prepared"),
+        )
+    with pytest.raises(ControlProtocolError, match="snapshot fields are malformed"):
+        parse_snapshot_response(
+            "cancel",
+            _response("cancel", run_id="run-1", revision=1, state="unknown"),
+        )
+    with pytest.raises(ControlProtocolError, match="snapshot fields are malformed"):
+        parse_snapshot_response(
+            "cancel",
+            _response("cancel", run_id="run-1", revision=True, state="running"),
         )
     with pytest.raises(ControlProtocolError, match="state is invalid for operation"):
         parse_snapshot_response(

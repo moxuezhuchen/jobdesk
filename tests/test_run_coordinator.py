@@ -7,9 +7,10 @@ from unittest.mock import MagicMock
 
 from jobdesk_app.config.schema import ServerConfig
 from jobdesk_app.core.lifecycle import TaskStatus
+from jobdesk_app.core.models import FailureRecord
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.core.submit import SubmitResult
-from jobdesk_app.services.run_coordinator import RunCoordinator
+from jobdesk_app.services.run_coordinator import OperationFailure, RunCoordinator, RunOperationOutcome
 from jobdesk_app.services.run_service import RunService
 
 
@@ -26,6 +27,47 @@ def _spec() -> RunSpec:
 
 def _server(_server_id: str) -> ServerConfig:
     return ServerConfig(server_id="server", host="example", username="user")
+
+
+def test_operation_outcome_errors_expose_structured_metadata_and_legacy_text() -> None:
+    outcome = RunOperationOutcome(errors=["database locked"])
+
+    assert isinstance(outcome.errors[0], OperationFailure)
+    assert outcome.errors == ["database locked"]
+    assert outcome.errors[0].message == "database locked"
+    assert outcome.error_messages == ["database locked"]
+    assert outcome.structured_failures[0].stage == "operation"
+
+
+def test_refresh_converts_typed_status_failures_to_operation_failures(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    record = service.create_run(_spec(), run_id="typed-refresh")
+    refresh_result = SimpleNamespace(
+        changed_count=0,
+        warnings=[],
+        failures=[
+            FailureRecord(
+                batch_id=record.run_id,
+                task_id="a",
+                stage="remote_status",
+                reason="status marker unavailable",
+            )
+        ],
+    )
+    monkeypatch.setattr(service, "refresh_run", MagicMock(return_value=refresh_result))
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=_server,
+        ssh_factory=lambda _config: MagicMock(),
+        sftp_factory=MagicMock(),
+    )
+
+    outcome = coordinator.refresh(record.run_id)
+
+    assert outcome.errors[0].stage == "remote_status"
+    assert outcome.errors[0].code == "remote_status_failed"
+    assert outcome.errors[0].task_id == "a"
+    assert outcome.errors[0].retryable is True
 
 
 def test_create_and_submit_preserves_created_run_when_connect_fails(tmp_path) -> None:
