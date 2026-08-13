@@ -26,6 +26,20 @@ class RunProjectionStore(Protocol):
     def load_run_provenance(self, run_id: str) -> dict[str, object] | None:
         ...
 
+    def persist_confflow_provenance(
+        self,
+        run_id: str,
+        capability: dict[str, object],
+        *,
+        resolved_executable: str,
+        resolved_realpath: str = "",
+        executable_identity: dict[str, object] | None = None,
+        config_contract: dict[str, object] | None = None,
+        remote_identity: dict[str, object] | None = None,
+    ) -> None:
+        """Persist accepted producer identity before a control dispatch."""
+        ...
+
     def mutate_tasks(
         self,
         run_id: str,

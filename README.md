@@ -2,14 +2,16 @@
 
 JobDesk is a Windows-first desktop and CLI tool for managing single scientific-computing jobs over SSH/SFTP. It helps prepare Gaussian and ORCA inputs, submit jobs to a remote machine or local WSL environment, monitor status, download outputs, and preview parsed results.
 
-JobDesk is currently a preview project. It is suitable for source review and controlled local use, but not yet a stable public package release.
+JobDesk remains suitable for source review and controlled local use. The
+post-Phase-F remediation is published as the v0.7.1 patch release; the
+production endpoint remains on the separately approved v0.6.0/v2.0.0 pairing
+until the final acceptance gate completes.
 
-## Current architecture candidate (2026-08-12)
+## Current architecture candidate (2026-08-13)
 
-The current isolated architecture candidate is based on commit
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9` on
+The current architecture candidate is the JobDesk v0.7.1 patch release on
 `codex/post-phase-f-architecture-phase0`, with package metadata version
-`0.7.0`. It is being evaluated against the formally published ConfFlow
+`0.7.1`. It is being evaluated against the formally published ConfFlow
 `v2.1.2` tag peeled at
 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`. The published wheel SHA-256 is
 `80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
@@ -25,7 +27,7 @@ published, installed as a production endpoint, or promoted.
 | Dirty historical JobDesk checkout | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved user-owned worktree and package metadata; not a release source |
 | Dirty historical ConfFlow checkout | `/opt/ConfFlow` @ `10e457d` | preserved historical source; not a release source |
 | JobDesk stable baseline | `e4d8f74` / v0.6.0 | released production baseline |
-| JobDesk architecture candidate | `c01b082151aaab180a6e973e3282c4f1ef9f23d9` / package v0.7.0 | isolated, not released |
+| JobDesk architecture candidate | `v0.7.1` / package v0.7.1 | published patch release; endpoint promotion remains a separate gate |
 | ConfFlow stable producer | `6981935` / v2.0.0 | released production baseline |
 | ConfFlow current paired producer | `v2.1.2` / peeled `b13a10f59b5817dbb218f51c7e232f43c9bdc996` | formally released; candidate acceptance still pending |
 | Superseded ConfFlow producer evidence | `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | historical only; wheel SHA-256 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3` |
@@ -38,7 +40,7 @@ structure/schema-oriented; producer semantic acceptance remains remote and is
 checked by the selected server's configuration contract and canonical dry-run.
 The `chem` extra is optional for base-install authoring and startup.
 
-ConfFlow v2.1.2 publication is not endpoint promotion. Publishing JobDesk,
+ConfFlow v2.1.2 and JobDesk v0.7.1 publication are not endpoint promotion. Publishing JobDesk,
 side-by-side installation, candidate acceptance, real-launcher acceptance, and
 production endpoint promotion are separate gates. The current candidate has
 not passed or been authorized for the final real Gaussian/ORCA launcher gate.

@@ -4,10 +4,9 @@ JobDesk 是面向 Windows 的桌面与命令行工具，通过 SSH/SFTP 管理�
 
 JobDesk 当前为公开预览项目，适合源代码评审与受控本地使用，但尚未作为稳定的公开发行包。
 
-## 当前架构候选（2026-08-12）
+## 当前架构候选（2026-08-13）
 
-当前隔离的 JobDesk 架构候选为 commit
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9`，包版本元数据为 `0.7.0`。
+当前 JobDesk 架构候选为 v0.7.1 patch release，包版本元数据为 `0.7.1`。
 下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.2`，tag peeled commit
 为 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`。发布 wheel
 `confflow-2.1.2-py3-none-any.whl` 的 SHA-256 为
@@ -21,13 +20,13 @@ workflow schema 的 SHA-256 为
 | 角色 | 引用 / 身份 | 状态 |
 |---|---|---|
 | JobDesk 稳定基线 | `e4d8f74` / v0.6.0 | 已发布的生产基线 |
-| JobDesk 架构候选 | `c01b082151aaab180a6e973e3282c4f1ef9f23d9` / v0.7.0 | 隔离，尚未发布 |
+| JobDesk 架构候选 | `v0.7.1` / v0.7.1 | 已发布 patch release；endpoint promotion 仍是独立门禁 |
 | ConfFlow 稳定回滚 | `6981935` / v2.0.0 | 保持不变；wheel digest 为 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` |
 | ConfFlow 当前配对 producer | `v2.1.2` / peeled `b13a10f59b5817dbb218f51c7e232f43c9bdc996` | 已正式发布；候选验收仍待完成 |
 | 已取代的 ConfFlow producer 证据 | `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | 仅历史证据；wheel SHA-256 为 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3` |
 | 生产 / promotion endpoint | v0.6.0 + v2.0.0 | 未切换 |
 
-ConfFlow v2.1.2 已发布，但发布本身不等于 endpoint promotion。side-by-side
+ConfFlow v2.1.2 和 JobDesk v0.7.1 已发布，但发布本身不等于 endpoint promotion。side-by-side
 验收、真实 launcher 验收、JobDesk 发布和生产 promotion 仍是独立门禁；旧的
 ConfFlow `1a0d760` / 计划版本 2.1.0 仅保留为历史候选证据，不能当作当前验收证据。
 

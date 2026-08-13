@@ -1,13 +1,12 @@
 # JobDesk User Guide
 
-## Current producer compatibility (2026-08-12)
+## Current producer compatibility (2026-08-13)
 
 The released producer is ConfFlow v2.1.2 at peeled commit
 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`, with the published wheel
 SHA-256 `80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`.
-The JobDesk v0.7.0 candidate is isolated at
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9`; it is not a production install
-and the v2.1.2 release does not switch an endpoint. The superseded v2.1.1
+The JobDesk v0.7.1 patch release is published but is not yet the production
+endpoint, and the v2.1.2 release does not switch an endpoint. The superseded v2.1.1
 release remains historical evidence only. The rollback pairing
 remains JobDesk v0.6.0 with ConfFlow v2.0.0.
 

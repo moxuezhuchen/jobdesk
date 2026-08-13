@@ -1,9 +1,8 @@
 # Dual-Repository Contract CI Design
 
-## Current candidate pairing (2026-08-12)
+## Current candidate pairing (2026-08-13)
 
-The current isolated pairing is JobDesk
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9` (package `0.7.0`) against the
+The current pairing is the published JobDesk v0.7.1 patch release against the
 formally published ConfFlow `v2.1.2` tag, peeled at
 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`. The published wheel digest is
 `80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
@@ -116,9 +115,8 @@ The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
 and v1.5.0 only as explicitly historical comparisons; old candidate digests
-are not acceptance evidence. The JobDesk candidate at
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9` remains package version `0.7.0` and
-is not a published JobDesk release. The JobDesk consumer pin and the formal
+are not acceptance evidence. The JobDesk v0.7.1 patch release is published.
+The JobDesk consumer pin and the formal
 five-member worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility

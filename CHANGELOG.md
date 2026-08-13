@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.7.1] - 2026-08-13
+
+This patch release closes the post-Phase-F control-submission provenance gap.
+Fresh control launches now persist the accepted ConfFlow capability,
+executable identity, and configuration contract before any remote staging or
+dispatch. A persistence failure fails closed, and probe failures reset the
+client negotiation state so a retry cannot reuse a partial selection.
+
+### Fixed
+- Persisted control-path producer provenance in SQLite and `provenance.json`.
+- Bound the persisted configuration contract to the measured ConfFlow launcher
+  identity while preserving the control protocol's Python runtime identity.
+- Added fail-closed and same-client probe-retry regression coverage.
+
 ## [0.7.0] - 2026-08-12
 
 This release candidate completes the post-Phase-F architecture remediation
@@ -180,7 +194,8 @@ The schema at v0.5.0 was **schema v4** (introduced in v0.2.x and retained by v0.
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.7.1
 [0.7.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.7.0
 [0.6.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.6.0
 [0.5.1]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1

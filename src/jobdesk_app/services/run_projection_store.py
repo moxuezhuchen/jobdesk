@@ -27,6 +27,27 @@ class RunProjectionStoreAdapter:
     def load_run_provenance(self, run_id: str) -> dict[str, object] | None:
         return self._service.load_run_provenance(run_id)
 
+    def persist_confflow_provenance(
+        self,
+        run_id: str,
+        capability: dict[str, object],
+        *,
+        resolved_executable: str,
+        resolved_realpath: str = "",
+        executable_identity: dict[str, object] | None = None,
+        config_contract: dict[str, object] | None = None,
+        remote_identity: dict[str, object] | None = None,
+    ) -> None:
+        self._service.persist_confflow_provenance(
+            run_id,
+            capability,
+            resolved_executable=resolved_executable,
+            resolved_realpath=resolved_realpath,
+            executable_identity=executable_identity,
+            config_contract=config_contract,
+            remote_identity=remote_identity,
+        )
+
     def mutate_tasks(
         self,
         run_id: str,

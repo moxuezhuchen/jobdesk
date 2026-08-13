@@ -72,6 +72,12 @@ def test_pyproject_pin_matches_spec():
     assert expected in content, f"pyproject.toml must contain {expected!r}"
 
 
+def test_jobdesk_patch_release_version_is_pinned():
+    """The fix-forward wheel must not be rebuilt with the retired v0.7.0 metadata."""
+    content = _read("pyproject.toml")
+    assert re.search(r'^version\s*=\s*"0\.7\.1"\s*$', content, re.MULTILINE)
+
+
 def test_ci_yaml_uses_version_in_all_four_slots():
     """CI must reference the current v2.1.2 tag and wheel in all four slots."""
     content = _read(".github/workflows/ci.yml")

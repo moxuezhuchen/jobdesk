@@ -25,6 +25,9 @@ class _RecordingRunService:
         self.calls.append(("load_run_provenance", (run_id,)))
         return {"run_id": run_id}
 
+    def persist_confflow_provenance(self, run_id: str, capability: dict[str, object], **kwargs: object) -> None:
+        self.calls.append(("persist_confflow_provenance", (run_id, capability, kwargs)))
+
     def mutate_tasks(self, run_id: str, mutation: object) -> list[object]:
         self.calls.append(("mutate_tasks", (run_id, mutation)))
         return ["mutated"]
@@ -42,6 +45,19 @@ def test_adapter_delegates_the_complete_projection_surface() -> None:
     assert adapter.load_run("run-1") == "run"
     assert adapter.load_tasks("run-1") == ["task"]
     assert adapter.load_run_provenance("run-1") == {"run_id": "run-1"}
+    capability = {"version": "2.1.2"}
+    provenance = {
+        "resolved_executable": "/opt/confflow/bin/confflow",
+        "resolved_realpath": "",
+        "executable_identity": None,
+        "config_contract": None,
+        "remote_identity": None,
+    }
+    assert adapter.persist_confflow_provenance(
+        "run-1",
+        capability,
+        **provenance,
+    ) is None
     assert adapter.mutate_tasks("run-1", mutation) == ["mutated"]
     assert adapter.update_run(record) is None
 
@@ -49,6 +65,7 @@ def test_adapter_delegates_the_complete_projection_surface() -> None:
         ("load_run", ("run-1",)),
         ("load_tasks", ("run-1",)),
         ("load_run_provenance", ("run-1",)),
+        ("persist_confflow_provenance", ("run-1", capability, provenance)),
         ("mutate_tasks", ("run-1", mutation)),
         ("update_run", (record,)),
     ]

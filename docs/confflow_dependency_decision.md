@@ -2,10 +2,9 @@
 
 ## 当前状态
 
-### 当前候选与发布边界（2026-08-12）
+### 当前候选与发布边界（2026-08-13）
 
-当前 JobDesk 隔离候选为 commit
-`c01b082151aaab180a6e973e3282c4f1ef9f23d9`，包版本元数据为 `0.7.0`。
+当前 JobDesk 候选为已发布的 v0.7.1 patch release，包版本元数据为 `0.7.1`。
 其下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.2`，tag peeled commit
 为 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`。发布 wheel
 `confflow-2.1.2-py3-none-any.whl` 的 SHA-256 为
@@ -13,7 +12,7 @@
 workflow schema 的 SHA-256 为
 `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`。
 
-ConfFlow v2.1.2 已发布，但发布本身不等于端点升级。side-by-side 验收、
+ConfFlow v2.1.2 和 JobDesk v0.7.1 已发布，但发布本身不等于端点升级。side-by-side 验收、
 真实 launcher 验收、JobDesk 发布以及生产 promotion 仍是独立门禁；当前稳定
 回滚配对保持 JobDesk v0.6.0 / `e4d8f74` 与 ConfFlow v2.0.0 / `6981935`，
 其旧 wheel digest 为

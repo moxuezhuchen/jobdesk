@@ -25,8 +25,14 @@ from jobdesk_app.application.confflow_client import (
     SubmitRequest,
     TaskSnapshot,
 )
+from jobdesk_app.application.confflow_config_contract import (
+    ConfigContractResolutionError,
+    ConfigContractResolver,
+    ConfigContractResult,
+)
 from jobdesk_app.application.ports import RunProjectionStore
 from jobdesk_app.core.confflow_executable import (
+    ConfFlowExecutableIdentity,
     build_executable_identity_probe,
     parse_executable_identity_probe,
 )
@@ -97,6 +103,7 @@ class SSHConfFlowClient:
         scheduler_factory: Callable[[str], SchedulerAdapter] | None = None,
         backend_mode: str | None = None,
         projection_store: RunProjectionStore | None = None,
+        config_contract_resolver: ConfigContractResolver | None = None,
     ) -> None:
         self._coordinator = coordinator
         self._server_id = server_id
@@ -104,22 +111,48 @@ class SSHConfFlowClient:
         self._control_transport_factory = control_transport_factory
         self._control_capability_factory = control_capability_factory
         self._scheduler_factory = scheduler_factory or make_adapter
-        self._selected_backend = CONTROL_BACKEND
+        self._config_contract_resolver = config_contract_resolver or ConfigContractResolver()
+        self._selected_backend: str | None = None
         self._selected_state_locator: str | None = None
         self._selected_capability: ConfFlowCapabilities | None = None
+        self._selected_executable_identity: ConfFlowExecutableIdentity | None = None
+        self._selected_config_contract: ConfigContractResult | None = None
         if backend_mode not in {None, CONTROL_BACKEND}:
             raise ValueError("only the control ConfFlow backend is supported after Phase F")
+
+    def _reset_probe_selection(self) -> None:
+        self._selected_backend = None
+        self._selected_state_locator = None
+        self._selected_capability = None
+        self._selected_executable_identity = None
+        self._selected_config_contract = None
 
     def probe(self, *, require_dag: bool = False) -> ConfFlowCapabilities:
         try:
             capabilities = self._coordinator.probe_capabilities(self._server_id, require_dag=require_dag)
             if not isinstance(capabilities, ConfFlowCapabilities):
                 raise ConfFlowClientError("ConfFlow capability probe did not return the required control capability")
-            self._selected_capability = capabilities
             self._negotiate_backend(capabilities)
+            executable_identity = self._measure_producer_identity(capabilities)
+            config_contract = self._resolve_config_contract(capabilities, executable_identity)
+            self._selected_capability = capabilities
+            self._selected_executable_identity = executable_identity
+            self._selected_config_contract = config_contract
             return capabilities
-        except (ConfFlowCapabilityPreflightError, ControlProtocolError, ValueError) as exc:
+        except (
+            ConfFlowCapabilityPreflightError,
+            ConfigContractResolutionError,
+            ControlProtocolError,
+            ValueError,
+        ) as exc:
+            self._reset_probe_selection()
             raise ConfFlowClientError(str(exc)) from exc
+        except ConfFlowClientError:
+            self._reset_probe_selection()
+            raise
+        except Exception as exc:
+            self._reset_probe_selection()
+            raise ConfFlowClientError(f"ConfFlow probe failed: {exc}") from exc
 
     def probe_capabilities(self, server_id: str, *, require_dag: bool = False):
         try:
@@ -255,6 +288,12 @@ class SSHConfFlowClient:
                 )
             task = tasks[0]
             producer_executable = self._launcher_executable(record, state or {}, tasks)
+            if state is None:
+                self._persist_control_provenance(
+                    request.run_id,
+                    capability,
+                    resolved_executable=producer_executable,
+                )
             worker_executable = (
                 _state_worker_executable(state) or _worker_executable_for(producer_executable)
             )
@@ -480,6 +519,97 @@ class SSHConfFlowClient:
 
     def _provenance(self, run_id: str) -> dict[str, object] | None:
         return self._projection_store.load_run_provenance(run_id)
+
+    def _measure_producer_identity(
+        self,
+        capabilities: ConfFlowCapabilities,
+    ) -> ConfFlowExecutableIdentity:
+        """Capture the immutable identity of the configured ConfFlow launcher."""
+        executable = capabilities.executable
+        if not isinstance(executable, dict):
+            raise ConfFlowClientError("ConfFlow capability has no executable identity")
+        path = executable.get("path")
+        expected_sha256 = executable.get("sha256")
+        python_executable = executable.get("python")
+        if not isinstance(path, str) or not path:
+            raise ConfFlowClientError("ConfFlow capability executable path is incomplete")
+        if not isinstance(expected_sha256, str) or not expected_sha256:
+            raise ConfFlowClientError("ConfFlow capability executable digest is incomplete")
+        if not isinstance(python_executable, str) or not python_executable:
+            raise ConfFlowClientError("ConfFlow capability Python executable is incomplete")
+        server = self._coordinator.server_config(self._server_id)
+        env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
+        with self._coordinator.clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):
+            result = ssh.run(
+                build_confflow_preflight_shell(
+                    build_executable_identity_probe(path, python_executable), env_init_scripts
+                ),
+                timeout=30,
+            )
+        if result.exit_code != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
+            raise ConfFlowClientError(f"ConfFlow executable identity probe failed: {detail}")
+        try:
+            identity = parse_executable_identity_probe(
+                result.stdout,
+                path=path,
+                python_executable=python_executable,
+            )
+        except ValueError as exc:
+            raise ConfFlowClientError(str(exc)) from exc
+        if identity.sha256 != expected_sha256.lower():
+            raise ConfFlowClientError("ConfFlow executable digest does not match its capability")
+        declared_realpath = executable.get("realpath")
+        if declared_realpath is not None and identity.realpath != declared_realpath:
+            raise ConfFlowClientError("ConfFlow executable realpath does not match its capability")
+        return identity
+
+    def _resolve_config_contract(
+        self,
+        capabilities: ConfFlowCapabilities,
+        executable_identity: ConfFlowExecutableIdentity,
+    ) -> ConfigContractResult:
+        server = self._coordinator.server_config(self._server_id)
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
+        with self._coordinator.clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):
+            return self._config_contract_resolver.resolve(
+                ssh,
+                server_id=self._server_id,
+                executable=executable or None,
+                capabilities=capabilities,
+                executable_identity=executable_identity,
+                env_init_scripts=env_init_scripts,
+            )
+
+    def _persist_control_provenance(
+        self,
+        run_id: str,
+        capability: ConfFlowCapabilities | None,
+        *,
+        resolved_executable: str,
+    ) -> None:
+        """Persist accepted producer facts before a remote control side effect."""
+        raw_capability = _capability_payload(capability)
+        executable_identity = self._selected_executable_identity
+        config_contract = self._selected_config_contract
+        if raw_capability is None:
+            raise ConfFlowClientError("control backend has no accepted capability provenance")
+        if executable_identity is None:
+            raise ConfFlowClientError("control backend has no accepted executable provenance")
+        if config_contract is None or not config_contract.accepted:
+            raise ConfFlowClientError("control backend has no accepted config contract provenance")
+        if not isinstance(resolved_executable, str) or not resolved_executable:
+            raise ConfFlowClientError("control backend has no resolved ConfFlow executable")
+        self._projection_store.persist_confflow_provenance(
+            run_id,
+            raw_capability,
+            resolved_executable=resolved_executable,
+            resolved_realpath=executable_identity.realpath,
+            executable_identity=executable_identity.as_dict(),
+            config_contract=config_contract.as_dict(),
+            remote_identity=config_contract.remote_identity.as_dict(),
+        )
 
     def _measure_control_identity(self, capabilities: ConfFlowCapabilities) -> dict[str, object]:
         executable = capabilities.executable
