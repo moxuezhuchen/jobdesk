@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
 from jobdesk_app.core.atomic_write import atomic_write_text
+from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.run import RunPlan, RunSpec, build_run_plan
 
 # Explicit re-export for tests that monkeypatch run_service.JobSubmitter
@@ -118,6 +119,30 @@ class RunService:
     def load_run(self, run_id: str) -> RunRecord:
         self._run_dir(run_id)
         return self.repository.load_run(run_id)
+
+    def load_tasks(self, run_id: str) -> list[TaskRecord]:
+        """Return the persisted task snapshot through the service boundary."""
+        self._run_dir(run_id)
+        return self.repository.load_tasks(run_id)
+
+    def mutate_tasks(
+        self,
+        run_id: str,
+        mutation: Callable[[list[TaskRecord]], list[TaskRecord]],
+    ) -> list[TaskRecord]:
+        """Apply an atomic task mutation without exposing the repository."""
+        self._run_dir(run_id)
+        return self.repository.mutate_tasks(run_id, mutation)
+
+    def update_run(self, record: RunRecord) -> RunRecord:
+        """Persist a run-record update through the application service boundary."""
+        self._run_dir(record.run_id)
+        return self.repository.update_run(record)
+
+    def load_run_provenance(self, run_id: str) -> dict | None:
+        """Read accepted producer provenance without exposing SQLite internals."""
+        self._run_dir(run_id)
+        return self.repository.load_run_provenance(run_id)
 
     def migration_errors(self) -> list[MigrationError]:
         return self.repository.list_migration_errors()

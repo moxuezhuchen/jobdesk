@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -83,6 +84,20 @@ TRANSFER_PROGRESS_MIN_WIDTH = 320
 TRANSFER_PROGRESS_MAX_WIDTH = 560
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
+
+
+@dataclass(frozen=True, slots=True)
+class FileTransferConnectionSnapshot:
+    """Read-only view of the Files page connection for shell coordination."""
+
+    server_id: str | None
+    server: object | None
+    service: FileTransferService | None
+    remote_dir: str
+
+    @property
+    def connected(self) -> bool:
+        return self.service is not None
 
 
 class FileTransferPage(QWidget):
@@ -479,6 +494,15 @@ class FileTransferPage(QWidget):
         if self._gui_settings.auto_connect:
             QTimer.singleShot(0, self._auto_connect_selected_server)
 
+    def connection_snapshot(self) -> FileTransferConnectionSnapshot:
+        """Return an immutable connection view for the application shell."""
+        return FileTransferConnectionSnapshot(
+            server_id=self._connected_server_id,
+            server=self._connected_server,
+            service=self._service,
+            remote_dir=self.remote_path.text().strip() or "/",
+        )
+
     def _choose_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language))
         if not path:
@@ -693,7 +717,7 @@ class FileTransferPage(QWidget):
             return []
         workspace = Path(getattr(self.state, "current_project_root", None) or Path.cwd())
         try:
-            return RunService(workspace).repository.load_tasks(run_id)
+            return RunService(workspace).load_tasks(run_id)
         except (KeyError, OSError):
             return []
 
@@ -1534,11 +1558,11 @@ class FileTransferPage(QWidget):
                     worker.quit()
                     worker.wait(3000)
             if self._service is not None:
-                self._connections._service = self._service
-                self._connections._connected_server_id = None
-                self._connections._connected_server = None
+                self._connections.set_server(None, None, self._service)
                 self._connections.teardown()
                 self._service = None
+                self._connected_server_id = None
+                self._connected_server = None
 
     def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
         # Delegate to RemoteEditSessionManager so the dirty-tracking logic

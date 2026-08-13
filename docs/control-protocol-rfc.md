@@ -88,7 +88,7 @@ constrained by the producer schema:
 | `prepare` | `prepared` |
 | `execute` | `queued`, `running`, `paused`, `completed`, `failed`, or `cancelled` |
 | `status`, `events` | any declared state |
-| `cancel` | `cancelled` |
+| `cancel` | `queued`, `running`, `paused`, or `cancelled` |
 | `resume` | `queued` or `running` |
 | `artifacts` | `completed`, `failed`, or `cancelled` |
 
@@ -98,6 +98,12 @@ replace a newer snapshot with an older one. Event revisions are strictly
 increasing within a page. Event cursors are opaque strings matching the
 producer cursor grammar; the current implementation happens to emit `r`
 followed by a zero-padded revision, but consumers must not decode that form.
+
+`cancel` is an asynchronous durable intent. A successful response in
+`queued`, `running`, or `paused` means that the producer persisted the
+cancellation request; it is not a terminal cancellation result. The worker or
+a later `status` response must confirm the terminal `cancelled` state before
+JobDesk projects the run as cancelled.
 
 `prepare` binds `run_id`, `idempotency_key`, the complete request digest, both
 content locators, and the expected executable identity. A retry with the same

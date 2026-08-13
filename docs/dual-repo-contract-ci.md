@@ -30,21 +30,20 @@ pinned release.
 
 ## Pull-request matrices
 
-ConfFlow pull requests run `producer candidate × JobDesk main` compatibility
-tests. The candidate wheel and schema bundle are installed in an isolated
-environment, and JobDesk's parser, fixture, and contract suite run against
-them.
-
-JobDesk pull requests run `JobDesk candidate × current stable producer × next
-producer candidate`. The stable producer protects released behavior; the next
-candidate catches schema and capability drift before producer release.
+The repository workflow currently runs the consumer contract checks against
+the pinned stable v2.0.0 producer and retains v1.5.3/v1.5.0 as historical
+fail-closed comparisons. It does not yet run a producer-candidate matrix or a
+`JobDesk candidate x stable x next candidate` matrix. Those matrices remain a
+future design item and must not be described as present CI coverage.
 
 ## Automation
 
-A release or PR automation job opens an update PR when the pinned producer tag,
-peeled commit, wheel digest, or derived schema fixtures change. The update
-includes the producer provenance, schema bundle digest, and compatibility
-output. A manual one-sided version-string edit is not mergeable.
+The current workflow does not open update PRs or regenerate the pinned schema
+snapshot automatically. A future release/PR automation job may do so when the
+pinned producer tag, peeled commit, wheel digest, or derived schema fixtures
+change; until then, provenance and schema updates require an explicit,
+reviewed change to both repositories. A manual one-sided version-string edit
+is not mergeable.
 
 Breaking protocol/schema changes raise the major version. Forward-compatible
 optional fields raise the minor version and retain at least one consumer

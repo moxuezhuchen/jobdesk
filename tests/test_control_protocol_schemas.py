@@ -16,7 +16,7 @@ _SCHEMA_ROOT = Path(__file__).parents[1] / "confflow" / "schemas" / "control"
 _PINNED_SCHEMA_HASHES = {
     "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
     "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
-    "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
+    "responses.schema.json": "312e7b88047a20015080877903b63aa52df850c07a2a45fb023a30179e7d86b3",
     "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
     "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
 }
@@ -113,7 +113,7 @@ def test_prepare_request_uses_producer_locator_and_identity_shape(schemas) -> No
             "events": [{"cursor": "cursor-2", "revision": 2, "type": "run.paused"}],
             "next_cursor": "cursor-2",
         },
-        _snapshot("cancel", "cancelled"),
+        _snapshot("cancel", "running"),
         _snapshot("resume", "running"),
         {
             **_snapshot("artifacts", "completed"),

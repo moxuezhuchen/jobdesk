@@ -300,7 +300,7 @@ class TestRunsPage:
         ):
             service = service_class.return_value
             service.list_runs.return_value = [record]
-            service.repository.load_tasks.return_value = tasks
+            service.load_tasks.return_value = tasks
             server = MagicMock()
             load_servers.return_value.servers = {"wsl": server}
 

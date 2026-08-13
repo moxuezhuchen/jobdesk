@@ -183,10 +183,11 @@ class MainWindow(QMainWindow):
         # Keep WorkflowPage's server pill in sync with whatever Files page
         # is currently connected to.
         if index == 1 and page is self.workflow_page:
+            connection = self.files_page.connection_snapshot()
             if hasattr(page, "set_server_status"):
                 page.set_server_status(
-                    connected=self.files_page._service is not None,
-                    server_label=self.files_page._connected_server_id or "",
+                    connected=connection.connected,
+                    server_label=connection.server_id or "",
                 )
             if hasattr(page, "set_remote_dir") and hasattr(self.files_page, "remote_path"):
                 page.set_remote_dir(self.files_page.remote_path.text().strip() or "/")
@@ -319,13 +320,14 @@ class MainWindow(QMainWindow):
         )
         from ..services.submit_use_case import SubmitUseCase
 
-        if payload.server_id != (self.files_page._connected_server_id or ""):
+        connection = self.files_page.connection_snapshot()
+        if payload.server_id != (connection.server_id or ""):
             self.show_error(
                 tr("Submit", self.language),
                 tr("Connect to a server first.", self.language),
             )
             return
-        service = self.files_page._service
+        service = connection.service
         if service is None:
             self.show_error(
                 tr("Submit", self.language),
@@ -439,13 +441,9 @@ class MainWindow(QMainWindow):
             Pass ``False`` to keep the dialog on the dialog-side
             default (first builtin).
         """
-        server_id = self.files_page._connected_server_id or ""
-        remote_dir = "/"
-        try:
-            if hasattr(self.files_page, "remote_path"):
-                remote_dir = self.files_page.remote_path.text().strip() or "/"
-        except Exception:
-            pass
+        connection = self.files_page.connection_snapshot()
+        server_id = connection.server_id or ""
+        remote_dir = connection.remote_dir
         dialog = SubmitDialog(
             self.language,
             files=list(sources),
@@ -493,7 +491,7 @@ class MainWindow(QMainWindow):
         # Switch to Files first so the dialog reads Files-page toolbar
         # state (server_id + remote_dir). If the switch fails (page not
         # registered yet, test harness, etc.) we still try to open the
-        # dialog with whatever is on _files_page._connected_server_id.
+        # dialog with the Files page's public connection snapshot.
         try:
             self._switch_page(0)
         except Exception:

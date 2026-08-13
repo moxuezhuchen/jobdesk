@@ -80,6 +80,10 @@ def submit_run(
             [op.operation_id for op in operations],
             owner_id,
             lease_seconds=lease_seconds,
+            # Keep the historical ``run_service.SUBMIT_HEARTBEAT_INTERVAL``
+            # monkeypatch contract without making submit_ownership import its
+            # facade at runtime.
+            heartbeat_interval_provider=lambda: _rs.SUBMIT_HEARTBEAT_INTERVAL,
         ) as guard:
             operation_by_task: dict[str, OperationRecord] = {}
             for operation in operations:

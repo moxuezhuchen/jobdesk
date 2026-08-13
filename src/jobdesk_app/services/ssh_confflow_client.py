@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -36,7 +36,13 @@ from jobdesk_app.core.confflow_preflight import (
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError, build_confflow_preflight_shell
-from jobdesk_app.remote.scheduler import ResourceSpec, SchedulerAdapter, make_adapter
+from jobdesk_app.remote.errors import RemoteError
+from jobdesk_app.remote.scheduler import (
+    ResourceSpec,
+    SchedulerAdapter,
+    SchedulerSubmitRejected,
+    make_adapter,
+)
 from jobdesk_app.services.confflow_control import (
     CONTROL_BACKEND,
     PROTOCOL_SCHEMA,
@@ -59,6 +65,30 @@ from jobdesk_app.services.ssh_confflow_control import (
     build_control_worker_command,
     resolve_control_state_root,
 )
+
+_MAX_DISPATCH_RECONCILE_ATTEMPTS = 3
+
+
+def _audit_timestamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _record_unknown_dispatch(
+    service: Any,
+    run_id: str,
+    state: dict[str, object],
+    error: object,
+) -> None:
+    """Persist an unknown scheduler acceptance result before surfacing it."""
+    unknown = deepcopy(state)
+    unknown.update(
+        {
+            "dispatch_outcome": "unknown",
+            "dispatch_error": str(error),
+            "dispatch_updated_at": _audit_timestamp(),
+        }
+    )
+    save_state(service, run_id, unknown)
 
 
 class SSHConfFlowClient:
@@ -122,6 +152,37 @@ class SSHConfFlowClient:
         if handle.to_dict() != saved.to_dict():
             raise ConfFlowClientError("serialized handle identity no longer matches durable provenance")
         return handle
+
+    def confirm_unresolved_dispatch_not_accepted(self, run_id: str, *, evidence: str) -> None:
+        """Record an operator's scheduler-side non-acceptance proof for safe retry."""
+        record = self._coordinator.service.load_run(run_id)
+        state = load_state(self._coordinator.service, run_id)
+        if state is None:
+            raise ConfFlowClientError(f"run {run_id} has no durable control state")
+        state = self._reconcile_control_dispatch(record, state)
+        if state.get("dispatch_state") != "dispatching":
+            raise ConfFlowClientError("control dispatch is no longer unresolved")
+        if state.get("reconcile_attempts") != _MAX_DISPATCH_RECONCILE_ATTEMPTS:
+            raise ConfFlowClientError("control dispatch has not completed bounded reconciliation")
+        proof = evidence.strip()
+        if not proof or len(proof) > 2048:
+            raise ConfFlowClientError("scheduler non-acceptance evidence must be 1..2048 characters")
+        failed = deepcopy(state)
+        failed.update(
+            {
+                "dispatch_state": "failed",
+                "dispatch_outcome": "rejected",
+                "dispatch_error": "operator confirmed scheduler did not accept launcher",
+                "dispatch_resolution": {
+                    "kind": "scheduler_non_acceptance",
+                    "evidence": proof,
+                    "recorded_at": _audit_timestamp(),
+                },
+                "dispatch_updated_at": _audit_timestamp(),
+                "recovery_state": "retry_authorized",
+            }
+        )
+        save_state(self._coordinator.service, run_id, failed)
 
     def submit(self, request: SubmitRequest):
         handle, outcome = self.submit_with_outcome(request)
@@ -191,7 +252,13 @@ class SSHConfFlowClient:
                         "control launcher dispatch is unresolved; refusing duplicate submission"
                     )
                 retrying_failed_dispatch = dispatch_state == "failed"
-            tasks = self._coordinator.service.repository.load_tasks(request.run_id)
+            tasks = self._coordinator.service.load_tasks(request.run_id)
+            if (
+                retrying_failed_dispatch
+                and state is not None
+                and state.get("dispatch_outcome") == "worker_failed"
+            ):
+                return self._restart_control_worker(request, record, state, tasks)
             capability = self._selected_capability
             if capability is None and state is not None:
                 capability = _capability_from_state(state)
@@ -199,7 +266,11 @@ class SSHConfFlowClient:
             state_locator = _state_locator(state) or self._selected_state_locator
             if not state_locator:
                 raise ConfFlowClientError("control backend has no durable producer state locator")
-            if retrying_failed_dispatch:
+            if (
+                retrying_failed_dispatch
+                and state is not None
+                and state.get("dispatch_outcome") != "rejected"
+            ):
                 # A launcher can fail after the producer has already consumed
                 # the execute intent.  The producer's prepare response is
                 # required to remain ``prepared``, so blindly preparing again
@@ -378,9 +449,16 @@ class SSHConfFlowClient:
                     "script_size": len(script_bytes),
                 }
                 dispatching = deepcopy(durable)
+                previous_attempt = state.get("dispatch_attempt", 0) if state is not None else 0
+                if type(previous_attempt) is not int or previous_attempt < 0:
+                    raise ConfFlowClientError("control launcher has an invalid durable dispatch attempt")
                 dispatching.update(
                     {
                         "dispatch_state": "dispatching",
+                        "dispatch_outcome": "pending",
+                        "dispatch_attempt": previous_attempt + 1,
+                        "dispatch_updated_at": _audit_timestamp(),
+                        "reconcile_attempts": 0,
                         "scheduler_type": scheduler_type,
                         "launcher": launcher,
                     }
@@ -388,13 +466,47 @@ class SSHConfFlowClient:
                 save_state(self._coordinator.service, request.run_id, dispatching)
 
                 scheduler = self._scheduler_factory(scheduler_type)
-                scheduler_job_id = scheduler.submit(ssh, script_path, resources)
-                if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
-                    raise ConfFlowClientError("scheduler adapter returned an empty control launcher job id")
+                try:
+                    scheduler_job_id = scheduler.submit(ssh, script_path, resources)
+                except SchedulerSubmitRejected as exc:
+                    failed = deepcopy(dispatching)
+                    failed.update(
+                        {
+                            "dispatch_state": "failed",
+                            "dispatch_outcome": "rejected",
+                            "dispatch_error": str(exc),
+                            "dispatch_updated_at": _audit_timestamp(),
+                        }
+                    )
+                    save_state(self._coordinator.service, request.run_id, failed)
+                    raise ConfFlowClientError(str(exc)) from exc
+                except (RemoteError, OSError, RuntimeError, TimeoutError) as exc:
+                    _record_unknown_dispatch(
+                        self._coordinator.service,
+                        request.run_id,
+                        dispatching,
+                        exc,
+                    )
+                    raise ConfFlowClientError(str(exc)) from exc
+                if (
+                    not isinstance(scheduler_job_id, str)
+                    or not scheduler_job_id
+                    or scheduler_job_id != scheduler_job_id.strip()
+                ):
+                    error = "scheduler adapter returned an empty control launcher job id"
+                    _record_unknown_dispatch(
+                        self._coordinator.service,
+                        request.run_id,
+                        dispatching,
+                        error,
+                    )
+                    raise ConfFlowClientError(error)
                 submitted = deepcopy(dispatching)
                 submitted.update(
                     {
                         "dispatch_state": "submitted",
+                        "dispatch_outcome": "accepted",
+                        "dispatch_updated_at": _audit_timestamp(),
                         "scheduler_job_id": scheduler_job_id,
                     }
                 )
@@ -424,7 +536,7 @@ class SSHConfFlowClient:
             )
 
     def _negotiate_backend(self, capabilities: ConfFlowCapabilities) -> None:
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001 - negotiation uses the coordinator lease
+        server = self._coordinator.server_config(self._server_id)
         executable = str(getattr(server, "confflow_executable", "") or "")
         validate_confflow_production_capability(
             capabilities,
@@ -443,7 +555,7 @@ class SSHConfFlowClient:
             self._selected_state_locator = "/tmp/confflow-control"
             return
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
-        with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
+        with self._coordinator.session(self._server_id, need_sftp=False) as (ssh, _sftp):
             transport = SSHControlTransport(
                 ssh,
                 None,
@@ -462,10 +574,10 @@ class SSHConfFlowClient:
             transport = self._control_transport_factory(run_id, state_locator)
             yield transport, getattr(transport, "sftp", None), getattr(transport, "ssh", None)
             return
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001
+        server = self._coordinator.server_config(self._server_id)
         executable = str(getattr(server, "confflow_executable", "") or "")
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
-        with self._coordinator._clients(self._server_id, server, need_sftp=need_sftp) as (ssh, sftp):  # noqa: SLF001
+        with self._coordinator.session(self._server_id, need_sftp=need_sftp) as (ssh, sftp):
             yield SSHControlTransport(
                 ssh,
                 sftp,
@@ -475,16 +587,16 @@ class SSHConfFlowClient:
             ), sftp, ssh
 
     def _provenance(self, run_id: str) -> dict[str, object] | None:
-        return self._coordinator.service.repository.load_run_provenance(run_id)
+        return self._coordinator.service.load_run_provenance(run_id)
 
     def _measure_control_identity(self, capabilities: ConfFlowCapabilities) -> dict[str, object]:
         executable = capabilities.executable
         if not isinstance(executable, dict) or not isinstance(executable.get("python"), str):
             raise ConfFlowClientError("control backend capability has no Python executable identity")
         python_executable = str(executable["python"])
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001
+        server = self._coordinator.server_config(self._server_id)
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
-        with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
+        with self._coordinator.session(self._server_id, need_sftp=False) as (ssh, _sftp):
             result = ssh.run(
                 build_confflow_preflight_shell(
                     build_executable_identity_probe(python_executable, python_executable), env_init_scripts
@@ -505,10 +617,10 @@ class SSHConfFlowClient:
         del state_locator
         if not remote_path or not remote_path.startswith("/"):
             raise ConfFlowClientError("control backend workflow config path must be absolute")
-        server = self._coordinator._server_lookup(self._server_id)  # noqa: SLF001
+        server = self._coordinator.server_config(self._server_id)
         env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
         command = build_confflow_preflight_shell(f"sha256sum -- {shlex.quote(remote_path)} | awk '{{print $1}}'", env_init_scripts)
-        with self._coordinator._clients(self._server_id, server, need_sftp=False) as (ssh, _sftp):  # noqa: SLF001
+        with self._coordinator.session(self._server_id, need_sftp=False) as (ssh, _sftp):
             result = ssh.run(command, timeout=30)
         digest = result.stdout.strip()
         if result.exit_code != 0 or len(digest) != 64 or any(char not in "0123456789abcdefABCDEF" for char in digest):
@@ -551,11 +663,11 @@ class SSHConfFlowClient:
                 result.append(task.model_copy(update={"status": mapped}, deep=True))
             return result
 
-        service.repository.mutate_tasks(run_id, mutation)
+        service.mutate_tasks(run_id, mutation)
 
     def _snapshot_for_run(self, run_id: str, producer_snapshot: ControlSnapshot) -> RemoteRunSnapshot:
         record = self._coordinator.service.load_run(run_id)
-        tasks = self._coordinator.service.repository.load_tasks(run_id)
+        tasks = self._coordinator.service.load_tasks(run_id)
         kind = record.workflow_kind.value if record.workflow_kind is not None else None
         return RemoteRunSnapshot(
             record.run_id,
@@ -598,7 +710,7 @@ class SSHConfFlowClient:
                 for task in tasks
             ]
 
-        service.repository.mutate_tasks(run_id, mutation)
+        service.mutate_tasks(run_id, mutation)
 
     def _persist_control_worker_paths(self, run_id: str, worker_work_dir: str) -> None:
         """Project the producer-owned worker result root into JobDesk tasks."""
@@ -621,7 +733,7 @@ class SSHConfFlowClient:
                 for task in tasks
             ]
 
-        self._coordinator.service.repository.mutate_tasks(run_id, mutation)
+        self._coordinator.service.mutate_tasks(run_id, mutation)
 
     def _launcher_scheduler_details(self, record: Any, overrides: dict[str, object] | None):
         raw_resources = dict(getattr(record, "resources", {}) or {})
@@ -629,7 +741,7 @@ class SSHConfFlowClient:
         env_init_scripts = list(getattr(record, "env_init_scripts", []) or [])
         server = None
         try:
-            server = self._coordinator._server_lookup(record.server_id)  # noqa: SLF001
+            server = self._coordinator.server_config(record.server_id)
         except AttributeError:
             pass
         if server is not None:
@@ -663,12 +775,12 @@ class SSHConfFlowClient:
             "extra_directives": list(resources.extra_directives),
         }
         record.env_init_scripts = env_init_scripts
-        self._coordinator.service.repository.update_run(record)
+        self._coordinator.service.update_run(record)
         return scheduler_type, resources, env_init_scripts
 
     def _launcher_executable(self, record: Any, state: dict[str, object], tasks: Iterable[Any]) -> str:
         try:
-            server = self._coordinator._server_lookup(record.server_id)  # noqa: SLF001
+            server = self._coordinator.server_config(record.server_id)
         except AttributeError:
             server = None
         if server is not None:
@@ -689,7 +801,8 @@ class SSHConfFlowClient:
         return "confflow"
 
     def _reconcile_control_dispatch(self, record: Any, state: dict[str, object]) -> dict[str, object]:
-        if state.get("backend") != CONTROL_BACKEND or state.get("dispatch_state") != "dispatching":
+        dispatch_state = state.get("dispatch_state")
+        if state.get("backend") != CONTROL_BACKEND or dispatch_state not in {"dispatching", "submitted"}:
             return state
         launcher = state.get("launcher")
         if not isinstance(launcher, dict):
@@ -702,13 +815,25 @@ class SSHConfFlowClient:
             raise ConfFlowClientError("control launcher dispatch has no producer state locator")
         with self._control_session(record.run_id, state_locator, need_sftp=True) as (_transport, sftp, _ssh):
             if sftp is None:
-                return state
+                return (
+                    self._record_unresolved_dispatch(record.run_id, state)
+                    if dispatch_state == "dispatching"
+                    else state
+                )
             try:
                 if hasattr(sftp, "stat") and sftp.stat(metadata_path) is None:
-                    return state
+                    return (
+                        self._record_unresolved_dispatch(record.run_id, state)
+                        if dispatch_state == "dispatching"
+                        else state
+                    )
                 raw = sftp.read_file_bytes(metadata_path, max_bytes=65536)
             except (FileNotFoundError, KeyError):
-                return state
+                return (
+                    self._record_unresolved_dispatch(record.run_id, state)
+                    if dispatch_state == "dispatching"
+                    else state
+                )
         try:
             marker = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -756,6 +881,47 @@ class SSHConfFlowClient:
                 raise ConfFlowClientError("control launcher metadata has inconsistent completion status")
             if execution_state == "failed" and execute_rc == 0:
                 raise ConfFlowClientError("control launcher metadata has inconsistent failure status")
+        if dispatch_state == "submitted":
+            if execution_state != "completed":
+                return state
+            # The metadata read above owns a short-lived session.  Do not
+            # reuse its transport after the context exits: the coordinator
+            # may already have returned the SSH lease to the pool and closed
+            # the underlying channel.  Acquire a fresh SSH-only session for
+            # the authoritative producer status read instead.
+            with self._control_session(record.run_id, state_locator, need_sftp=False) as (
+                status_transport,
+                _status_sftp,
+                _status_ssh,
+            ):
+                producer_snapshot = status_transport.status(record.run_id)
+            if is_terminal_state(producer_snapshot.state):
+                self._apply_control_snapshot(producer_snapshot)
+                return state
+            worker_rc = marker.get("worker_rc")
+            failed = deepcopy(state)
+            failed.update(
+                {
+                    "dispatch_state": "failed",
+                    "dispatch_outcome": "worker_failed",
+                    "dispatch_error": (
+                        f"control worker exited with code {worker_rc} before producer terminal state"
+                    ),
+                    "dispatch_updated_at": _audit_timestamp(),
+                    "recovery_state": "worker_restart_required",
+                }
+            )
+            failed_launcher = dict(launcher)
+            failed_launcher.update(
+                {
+                    "execution_state": execution_state,
+                    "execute_rc": execute_rc,
+                    "worker_rc": worker_rc,
+                }
+            )
+            failed["launcher"] = failed_launcher
+            save_state(self._coordinator.service, record.run_id, failed)
+            return failed
         scheduler_job_id = marker.get("scheduler_job_id") or marker.get("pid")
         if not isinstance(scheduler_job_id, str) or not scheduler_job_id:
             raise ConfFlowClientError("control launcher metadata has no scheduler job id or pid")
@@ -776,6 +942,171 @@ class SSHConfFlowClient:
         save_state(self._coordinator.service, record.run_id, updated)
         self._mark_control_submitted(record.run_id, _canonical_scheduler_type(str(marker_scheduler)), scheduler_job_id)
         return updated
+
+    def _record_unresolved_dispatch(
+        self, run_id: str, state: dict[str, object]
+    ) -> dict[str, object]:
+        """Bound marker checks while retaining a fail-closed, auditable intent."""
+        raw_attempts = state.get("reconcile_attempts", 0)
+        if type(raw_attempts) is not int or raw_attempts < 0:
+            raise ConfFlowClientError("control launcher has invalid reconciliation history")
+        attempts = min(raw_attempts + 1, _MAX_DISPATCH_RECONCILE_ATTEMPTS)
+        updated = deepcopy(state)
+        updated["reconcile_attempts"] = attempts
+        updated["last_reconciled_at"] = _audit_timestamp()
+        if attempts >= _MAX_DISPATCH_RECONCILE_ATTEMPTS:
+            updated["recovery_state"] = "operator_review_required"
+        save_state(self._coordinator.service, run_id, updated)
+        return updated
+
+    def _restart_control_worker(
+        self,
+        request: SubmitRequest,
+        record: Any,
+        state: dict[str, object],
+        tasks: list[Any],
+    ):
+        """Restart only the producer worker after an audited premature exit."""
+        if len(tasks) != 1:
+            raise ConfFlowClientError("control worker recovery requires exactly one durable task")
+        state_locator = _state_locator(state)
+        if not state_locator:
+            raise ConfFlowClientError("control worker recovery has no producer state locator")
+        with self._control_session(request.run_id, state_locator, need_sftp=True) as (transport, sftp, ssh):
+            snapshot = transport.status(request.run_id)
+            if is_terminal_state(snapshot.state):
+                self._apply_control_snapshot(snapshot)
+                return self.attach(request.run_id), RunOperationOutcome(
+                    records=[self._coordinator.service.load_run(request.run_id)]
+                )
+            if sftp is None:
+                raise ConfFlowClientError("control worker recovery requires an SFTP session")
+            scheduler_type, resources, env_init_scripts = self._launcher_scheduler_details(
+                record, request.resource_overrides
+            )
+            previous_attempt = state.get("dispatch_attempt", 0)
+            if type(previous_attempt) is not int or previous_attempt < 1:
+                raise ConfFlowClientError("control worker recovery has invalid dispatch history")
+            worker_executable = _state_worker_executable(state)
+            handoff_path = _state_worker_handoff_path(state)
+            launcher_dir = posixpath.join(record.remote_dir.rstrip("/"), ".jobdesk-control", "launcher")
+            script_path = posixpath.join(launcher_dir, f"{request.run_id}.recovery-{previous_attempt + 1}.sh")
+            metadata_path = posixpath.join(launcher_dir, f"{request.run_id}.json")
+            log_path = posixpath.join(launcher_dir, ".jobdesk_submit.log")
+            worker_command = build_control_worker_command(
+                worker_executable, state_locator, request.run_id, handoff_path
+            )
+            command = f"setsid --wait {worker_command}"
+            script = build_control_launcher_script(
+                executable=None,
+                worker_executable=worker_executable,
+                handoff_path=handoff_path,
+                state_root=state_locator,
+                run_id=request.run_id,
+                metadata_path=metadata_path,
+                scheduler_type=scheduler_type,
+                resources=resources,
+                env_init_scripts=env_init_scripts,
+                worker_only=True,
+            )
+            sftp.mkdir_p(launcher_dir)
+            with tempfile.TemporaryDirectory(prefix="jobdesk-control-recovery-") as temp_dir:
+                local_script = Path(temp_dir) / f"{request.run_id}.sh"
+                script_bytes = script.encode("utf-8")
+                local_script.write_bytes(script_bytes)
+                sftp.upload_file(local_script, script_path, overwrite=True)
+            launcher = {
+                "content_schema": "jobdesk.confflow.launcher.v1",
+                "run_id": request.run_id,
+                "scheduler_type": scheduler_type,
+                "script_path": script_path,
+                "metadata_path": metadata_path,
+                "log_path": log_path,
+                "state_root": state_locator,
+                "command": command,
+                "script_sha256": hashlib.sha256(script_bytes).hexdigest(),
+                "script_size": len(script_bytes),
+                "recovery": "worker_restart",
+            }
+            dispatching = deepcopy(state)
+            dispatching.update(
+                {
+                    "dispatch_state": "dispatching",
+                    "dispatch_outcome": "pending",
+                    "dispatch_attempt": previous_attempt + 1,
+                    "dispatch_updated_at": _audit_timestamp(),
+                    "reconcile_attempts": 0,
+                    "scheduler_type": scheduler_type,
+                    "launcher": launcher,
+                }
+            )
+            dispatching.pop("recovery_state", None)
+            save_state(self._coordinator.service, request.run_id, dispatching)
+            scheduler = self._scheduler_factory(scheduler_type)
+            try:
+                scheduler_job_id = scheduler.submit(ssh, script_path, resources)
+            except SchedulerSubmitRejected as exc:
+                failed = deepcopy(dispatching)
+                failed.update(
+                    {
+                        "dispatch_state": "failed",
+                        "dispatch_outcome": "rejected",
+                        "dispatch_error": str(exc),
+                        "dispatch_updated_at": _audit_timestamp(),
+                    }
+                )
+                save_state(self._coordinator.service, request.run_id, failed)
+                raise ConfFlowClientError(str(exc)) from exc
+            except (RemoteError, OSError, RuntimeError, TimeoutError) as exc:
+                _record_unknown_dispatch(
+                    self._coordinator.service,
+                    request.run_id,
+                    dispatching,
+                    exc,
+                )
+                raise ConfFlowClientError(str(exc)) from exc
+            if (
+                not isinstance(scheduler_job_id, str)
+                or not scheduler_job_id
+                or scheduler_job_id != scheduler_job_id.strip()
+            ):
+                error = "scheduler adapter returned an empty recovery job id"
+                _record_unknown_dispatch(
+                    self._coordinator.service,
+                    request.run_id,
+                    dispatching,
+                    error,
+                )
+                raise ConfFlowClientError(error)
+            submitted = deepcopy(dispatching)
+            submitted.update(
+                {
+                    "dispatch_state": "submitted",
+                    "dispatch_outcome": "accepted",
+                    "dispatch_updated_at": _audit_timestamp(),
+                    "scheduler_job_id": scheduler_job_id,
+                }
+            )
+            submitted_launcher = dict(launcher)
+            submitted_launcher["scheduler_job_id"] = scheduler_job_id
+            submitted["launcher"] = submitted_launcher
+            save_state(self._coordinator.service, request.run_id, submitted)
+        self._mark_control_submitted(request.run_id, scheduler_type, scheduler_job_id)
+        return self.attach(request.run_id), RunOperationOutcome(
+            records=[self._coordinator.service.load_run(request.run_id)],
+            submit_results=[
+                SubmitResult(
+                    batch_id=request.run_id,
+                    submitted_task_count=1,
+                    remote_batch_dir=record.remote_dir,
+                    control_log_path=log_path,
+                    control_nohup_log_path=log_path if scheduler_type == "nohup" else "",
+                    control_script_path=script_path,
+                    nohup_command=command if scheduler_type == "nohup" else "",
+                    updated_task_ids=[tasks[0].task_id],
+                )
+            ],
+        )
 
 
 class SSHControlRunHandle:
@@ -1443,7 +1774,7 @@ def _artifact_entries(artifacts: Iterable[ControlArtifact]) -> tuple[ArtifactEnt
 
 
 def _download_control_artifacts(service, run_id: str, artifacts: tuple[ControlArtifact, ...], patterns: list[str], sftp):
-    tasks = service.repository.load_tasks(run_id)
+    tasks = service.load_tasks(run_id)
     selected = [
         artifact for artifact in artifacts if not patterns or any(_pattern_matches(artifact.path, pattern) for pattern in patterns)
     ]
@@ -1484,7 +1815,7 @@ def _download_control_artifacts(service, run_id: str, artifacts: tuple[ControlAr
             failures.append((artifact.terminal, f"{artifact.path}: {exc}"))
     if not failures and selected:
         selected_terminals = {artifact.terminal for artifact in selected}
-        service.repository.mutate_tasks(
+        service.mutate_tasks(
             run_id,
             lambda task_list: [
                 task.model_copy(

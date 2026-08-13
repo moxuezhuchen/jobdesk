@@ -117,6 +117,16 @@ def test_confflow_application_facade_does_not_import_gui_or_remote_implementatio
     assert not [imported for imported in imports if imported.startswith(forbidden)]
 
 
+def test_ssh_confflow_client_uses_public_service_and_coordinator_ports() -> None:
+    """Remote facades must not bypass lifecycle/service ownership boundaries."""
+
+    path = _SRC_ROOT / "services" / "ssh_confflow_client.py"
+    text = path.read_text(encoding="utf-8-sig")
+    assert "._server_lookup" not in text
+    assert "._clients" not in text
+    assert ".repository" not in text
+
+
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
     path = _SRC_ROOT / "services" / "run_service" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -198,3 +208,54 @@ def test_gui_does_not_import_remote_implementations_directly() -> None:
         if imported.startswith("jobdesk_app.remote")
     ]
     assert failures == [], f"GUI must use application clients instead of remote implementations: {failures}"
+
+
+def test_gui_does_not_access_run_repository_directly() -> None:
+    """GUI code must use public application/service queries, not persistence internals."""
+    failures: list[str] = []
+    for path in sorted((_SRC_ROOT / "gui").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "repository":
+                failures.append(f"{path.relative_to(_SRC_ROOT)}:{node.lineno}")
+    assert failures == [], f"GUI must query runs through RunService: {failures}"
+
+
+def test_main_window_does_not_read_files_page_private_connection_state() -> None:
+    path = _SRC_ROOT / "gui" / "main_window.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    forbidden = {"_service", "_connected_server_id", "_connected_server"}
+    failures: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or node.attr not in forbidden:
+            continue
+        owner = node.value
+        if isinstance(owner, ast.Attribute) and owner.attr == "files_page":
+            failures.append(f"main_window.py:{node.lineno}:{node.attr}")
+    assert failures == [], f"MainWindow must use the Files-page public snapshot: {failures}"
+
+
+def test_files_page_does_not_write_connection_coordinator_private_state() -> None:
+    path = _SRC_ROOT / "gui" / "pages" / "file_transfer_page.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    failures: list[str] = []
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.AugAssign):
+            targets = [node.target]
+        for target in targets:
+            if not isinstance(target, ast.Attribute) or not target.attr.startswith("_"):
+                continue
+            owner = target.value
+            if (
+                isinstance(owner, ast.Attribute)
+                and owner.attr == "_connections"
+                and isinstance(owner.value, ast.Name)
+                and owner.value.id == "self"
+            ):
+                failures.append(f"file_transfer_page.py:{target.lineno}:{target.attr}")
+    assert failures == [], f"Files page must use coordinator public lifecycle methods: {failures}"

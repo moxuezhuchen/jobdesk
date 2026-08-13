@@ -22,6 +22,14 @@ class JobState(str, Enum):
     unknown = "unknown"
 
 
+class SchedulerSubmitRejected(RuntimeError):
+    """The scheduler definitively rejected a request before accepting a job."""
+
+
+class SchedulerSubmitUncertain(RuntimeError):
+    """The submit command returned without enough evidence to identify a job."""
+
+
 @dataclass
 class ResourceSpec:
     """Resource requirements for a single task."""
@@ -96,7 +104,14 @@ class NohupAdapter:
             f"cd {dir_q} && nohup setsid bash {script_q} > .jobdesk_submit.log 2>&1 & echo $!",
             timeout=30,
         )
-        return r.stdout.strip() or "0"
+        if r.exit_code != 0:
+            raise SchedulerSubmitRejected(
+                f"nohup launcher rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
+            )
+        job_id = r.stdout.strip()
+        if not job_id:
+            raise SchedulerSubmitUncertain("nohup submit returned no process id")
+        return job_id
 
     def poll(self, ssh, job_id: str) -> JobState:
         # nohup: check if PID still alive
@@ -133,11 +148,15 @@ class SlurmAdapter:
 
     def submit(self, ssh, script_path: str, resources: ResourceSpec) -> str:
         r = ssh.run(f"sbatch {shlex.quote(script_path)}", timeout=30)
+        if r.exit_code != 0:
+            raise SchedulerSubmitRejected(
+                f"sbatch rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
+            )
         # sbatch output: "Submitted batch job 12345"
         for word in r.stdout.split():
             if word.isdigit():
                 return word
-        raise RuntimeError(f"sbatch failed: {r.stdout} {r.stderr}")
+        raise SchedulerSubmitUncertain(f"sbatch returned no job id: {r.stdout} {r.stderr}")
 
     def poll(self, ssh, job_id: str) -> JobState:
         try:
@@ -196,10 +215,14 @@ class PBSAdapter:
 
     def submit(self, ssh, script_path: str, resources: ResourceSpec) -> str:
         r = ssh.run(f"qsub {shlex.quote(script_path)}", timeout=30)
+        if r.exit_code != 0:
+            raise SchedulerSubmitRejected(
+                f"qsub rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
+            )
         # qsub output: "12345.hostname"
         job_id = r.stdout.strip().split(".")[0]
         if not job_id.isdigit():
-            raise RuntimeError(f"qsub failed: {r.stdout} {r.stderr}")
+            raise SchedulerSubmitUncertain(f"qsub returned no job id: {r.stdout} {r.stderr}")
         return job_id
 
     def poll(self, ssh, job_id: str) -> JobState:
