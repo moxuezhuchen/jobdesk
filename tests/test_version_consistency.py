@@ -91,6 +91,9 @@ def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     assert "wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6" in content
     assert "wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc" in content
     assert "EXPECTED_WHEEL_SHA256" in content
+    assert content.count("schema_snapshot: v") == 3
+    assert "EXPECTED_SCHEMA_SNAPSHOT" in content
+    assert '"releases" / expected_schema_snapshot' in content
     assert "pinned build provenance is not clean" in content
     assert "producer/consumer schema drift" in content
     assert 'python -m pip install "$wheel"' in content

@@ -1,6 +1,7 @@
 # ConfFlow control protocol v1 consumer record
 
-- **Status:** consumer snapshot of the released producer contract
+- **Status:** current consumer candidate record; immutable release evidence is
+  stored separately under `confflow/schemas/control/releases/`
 - **Producer release:** `v2.0.0`
 - **Producer commit:** `69819350d340a6aeccf95aa175edfd1c3f63404b`
 - **Producer wheel:** `confflow-2.0.0-py3-none-any.whl`
@@ -9,16 +10,18 @@
 - **Schema dialect:** JSON Schema Draft 2020-12
 
 JobDesk does not define a second control protocol. The authoritative producer
-bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
-repository vendors the same four core JSON documents plus the released
-worker-handoff extension under
-`confflow/schemas/control/` so the consumer tests and CI can validate requests
-and responses without a checkout of the producer repository. The v2.0.0
-`control_worker` release contract contains all five documents; historical
-producers that do not advertise that capability retain only the four-file
-core. The snapshot is checked by `tests/test_control_protocol_schemas.py`
-using canonical JSON digests; changing a schema requires a new pinned producer
-release and a review of the cross-repository contract.
+bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. The
+immutable v2.0.0 bundle is vendored under
+`confflow/schemas/control/releases/v2.0.0/`, while the files directly under
+`confflow/schemas/control/` are the current candidate snapshot used by local
+candidate tests. The candidate currently experiments with asynchronous cancel
+intent responses; it must not be described as a change to the immutable v2.0.0
+release. The v2.0.0 `control_worker` release contract contains all five
+documents; historical producers that do not advertise that capability retain
+only the four-file core. Both release and candidate snapshots are checked by
+`tests/test_control_protocol_schemas.py` using canonical JSON digests; changing
+a release schema requires a new pinned producer release and a review of the
+cross-repository contract.
 
 ## Bundle
 
@@ -81,7 +84,10 @@ control run.
 ## State, revision, and recovery rules
 
 The producer is the sole state owner. Successful response states are
-constrained by the producer schema:
+constrained by the producer schema. The table below is the current candidate
+contract. The immutable v2.0.0 release snapshot retains terminal-only cancel
+acknowledgements (`cancelled`); the compatibility matrix compares that release
+wheel only with `releases/v2.0.0/`.
 
 | operation | allowed successful state |
 |---|---|
@@ -134,6 +140,8 @@ before downloading any selected file.
 Readers may ignore future optional fields, but required-field, state,
 error-code, identity, and artifact-path changes are breaking contract changes.
 Artifact paths are relative POSIX paths below the producer run directory; both
-producer and consumer validate them before download. Control submission is
-accepted only for the exact v2.0.0 production provenance. The v1.4.6 record is
+producer and consumer validate them before download. Stable control submission
+is accepted only for the exact v2.0.0 production provenance. The current
+async-cancel candidate is not a stable release and requires a separately
+versioned producer contract before publication. The v1.4.6 record is
 historical and the retired legacy backend is not a current submission path.

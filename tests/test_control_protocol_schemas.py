@@ -21,11 +21,41 @@ _PINNED_SCHEMA_HASHES = {
     "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
 }
 _SCHEMA_NAMES = tuple(_PINNED_SCHEMA_HASHES)
+_RELEASE_SCHEMA_HASHES = {
+    "v2.0.0": {
+        "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
+        "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
+        "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
+        "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+        "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
+    },
+    "v1.5.3": {
+        "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
+        "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
+        "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
+        "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+        "worker-handoff.schema.json": "8c8bed4cc9550a466bc8fc7b010bd2857d4d34efc6b381f5a7a62573f3169459",
+    },
+    "v1.5.0": {
+        "common.schema.json": "494983e47ba7570c73e0d72b77df32b3ec877a2122ded40818c6369054830bc1",
+        "requests.schema.json": "72b0beab10e6cb380d66e11b5757a750efe1271d43be0098166e87b59af623c3",
+        "responses.schema.json": "11c70a0d40063409e1f6aff3a74a3951cda0c573fe0ea7f4850c38c000dd886b",
+        "input-manifest.schema.json": "b0a98bf2b758733de054c67baaf440d2839be37013ba40d09365d73f790daf97",
+    },
+}
 _DIGEST = "a" * 64
 
 
 def _load(name: str) -> dict[str, Any]:
     value = json.loads((_SCHEMA_ROOT / name).read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
+
+
+def _load_release(version: str, name: str) -> dict[str, Any]:
+    value = json.loads(
+        (_SCHEMA_ROOT / "releases" / version / name).read_text(encoding="utf-8")
+    )
     assert isinstance(value, dict)
     return value
 
@@ -76,6 +106,33 @@ def test_snapshot_matches_pinned_producer_bundle() -> None:
             _load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
         assert hashlib.sha256(canonical).hexdigest() == expected
+
+
+def test_release_snapshots_match_immutable_producer_bundles() -> None:
+    for version, expected_files in _RELEASE_SCHEMA_HASHES.items():
+        release_root = _SCHEMA_ROOT / "releases" / version
+        assert {path.name for path in release_root.glob("*.json")} == set(expected_files)
+        for name, expected in expected_files.items():
+            canonical = json.dumps(
+                _load_release(version, name),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            assert hashlib.sha256(canonical).hexdigest() == expected
+
+
+@pytest.mark.parametrize("version", tuple(_RELEASE_SCHEMA_HASHES))
+def test_release_snapshots_keep_terminal_cancel_contract(version: str) -> None:
+    cancel = _load_release(version, "responses.schema.json")["$defs"]["cancel"]
+    state = cancel["allOf"][2]["properties"]["state"]
+    assert state == {"const": "cancelled"}
+
+
+def test_candidate_snapshot_remains_async_cancel_contract() -> None:
+    cancel = _load("responses.schema.json")["$defs"]["cancel"]
+    state = cancel["allOf"][2]["properties"]["state"]
+    assert state == {"enum": ["queued", "running", "paused", "cancelled"]}
 
 
 def test_bundle_contains_pinned_release_schema_files() -> None:
