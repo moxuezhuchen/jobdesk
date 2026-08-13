@@ -34,11 +34,24 @@ from .confflow_contract import (
     REFERENCE_WHEEL_FILENAME,
     REFERENCE_WHEEL_SHA256,
     REQUIRED_COMMANDS,
+    ROLLBACK_REFERENCE_BUILD_COMMIT,
+    ROLLBACK_REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_WHEEL_FILENAME,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
     ConfFlowArtifactContract,
     version_spec,
 )
 
 PRERELEASE_AT_MIN_REJECT = True
+
+_APPROVED_PRODUCER_RELEASES: dict[str, tuple[str, str, str]] = {
+    REFERENCE_VERSION: (REFERENCE_BUILD_COMMIT, REFERENCE_WHEEL_FILENAME, REFERENCE_WHEEL_SHA256),
+    ROLLBACK_REFERENCE_VERSION: (
+        ROLLBACK_REFERENCE_BUILD_COMMIT,
+        ROLLBACK_REFERENCE_WHEEL_FILENAME,
+        ROLLBACK_REFERENCE_WHEEL_SHA256,
+    ),
+}
 PRERELEASE_ABOVE_MIN_ACCEPT = True
 
 _ACCEPTED_VERSION_SPELLING_RE = re.compile(
@@ -311,12 +324,10 @@ def validate_confflow_production_capability(
     payload = capabilities.raw_payload
     if not isinstance(payload, dict):
         raise ValueError("ConfFlow production capability requires raw provenance")
-    if capabilities.version == REFERENCE_VERSION:
-        approved_commit = REFERENCE_BUILD_COMMIT
-        approved_wheel_filename = REFERENCE_WHEEL_FILENAME
-        approved_wheel_sha256 = REFERENCE_WHEEL_SHA256
-    else:
+    approved_release = _APPROVED_PRODUCER_RELEASES.get(capabilities.version)
+    if approved_release is None:
         raise ValueError("ConfFlow production version does not match an approved release")
+    approved_commit, approved_wheel_filename, approved_wheel_sha256 = approved_release
 
     build = capabilities.build or {}
     if build.get("commit") != approved_commit:

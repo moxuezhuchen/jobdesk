@@ -27,7 +27,14 @@ from jobdesk_app.core import confflow_contract
 from jobdesk_app.core.confflow_contract import (
     MAX_EXCLUSIVE,
     MIN_VERSION,
+    REFERENCE_BUILD_COMMIT,
+    REFERENCE_VERSION,
+    REFERENCE_WHEEL_FILENAME,
     REFERENCE_WHEEL_SHA256,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
+    SUPERSEDED_REFERENCE_BUILD_COMMIT,
+    SUPERSEDED_REFERENCE_VERSION,
+    SUPERSEDED_REFERENCE_WHEEL_SHA256,
     ConfFlowArtifactContract,
     version_spec,
 )
@@ -47,6 +54,17 @@ def test_structured_source_of_truth():
     assert version_spec() == ">=2.0,<3.0"
 
 
+def test_current_and_superseded_reference_identities_are_explicit():
+    """Pin the live candidate identity without erasing prior evidence."""
+    assert REFERENCE_VERSION == "2.1.2"
+    assert REFERENCE_BUILD_COMMIT == "b13a10f59b5817dbb218f51c7e232f43c9bdc996"
+    assert REFERENCE_WHEEL_FILENAME == "confflow-2.1.2-py3-none-any.whl"
+    assert REFERENCE_WHEEL_SHA256 == "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92"
+    assert SUPERSEDED_REFERENCE_VERSION == "2.1.1"
+    assert SUPERSEDED_REFERENCE_BUILD_COMMIT == "338b53b3a34593271b926fc9e96010186141a386"
+    assert SUPERSEDED_REFERENCE_WHEEL_SHA256 == "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3"
+
+
 def test_pyproject_pin_matches_spec():
     """``pyproject.toml`` ``confflow`` pin must be the version spec."""
     content = _read("pyproject.toml")
@@ -54,40 +72,53 @@ def test_pyproject_pin_matches_spec():
     assert expected in content, f"pyproject.toml must contain {expected!r}"
 
 
+def test_jobdesk_patch_release_version_is_pinned():
+    """The fix-forward wheel must not be rebuilt with the retired v0.7.0 metadata."""
+    content = _read("pyproject.toml")
+    assert re.search(r'^version\s*=\s*"0\.7\.1"\s*$', content, re.MULTILINE)
+
+
 def test_ci_yaml_uses_version_in_all_four_slots():
-    """CI must reference the v2.0.0 tag and released wheel in all four slots."""
+    """CI must reference the current v2.1.2 tag and wheel in all four slots."""
     content = _read(".github/workflows/ci.yml")
     assert "1.4.1" not in content, "ci.yml must not contain any 1.4.1 reference"
-    assert content.count("ref: v2.0.0") == 2
-    assert content.count("confflow-2.0.0-*.whl") == 2
-    assert content.count("confflow.__version__ == '2.0.0'") == 2
-    assert content.count("04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f") == 2
+    assert content.count("ref: v2.1.2") == 2
+    assert content.count("releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl") == 2
+    assert content.count("confflow.__version__ == '2.1.2'") == 2
+    assert content.count(REFERENCE_WHEEL_SHA256) == 2
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
-    """PowerShell wheel glob must match the version literal in the assert."""
+    """The Windows CI jobs must download the exact published wheel asset."""
     content = _read(".github/workflows/ci.yml")
-    assert content.count("confflow-2.0.0-*.whl") == 2
-    assert content.count("confflow.__version__ == '2.0.0'") == 2
+    assert content.count("releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl") == 2
+    assert content.count("confflow.__version__ == '2.1.2'") == 2
 
 
 def test_optional_coverage_uses_the_same_released_wheel():
     """The optional Linux job must not silently exercise an older producer."""
     content = _read(".github/workflows/optional-coverage.yml")
-    assert content.count("ref: v2.0.0") == 1
-    assert content.count("gh release download v2.0.0") == 1
-    assert content.count("confflow-2.0.0-*.whl") == 1
-    assert "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f" in content
-    assert "confflow.__version__ == '2.0.0'" in content
+    assert content.count("ref: v2.1.2") == 1
+    assert content.count("releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl") == 1
+    assert "gh release download" not in content
+    assert REFERENCE_WHEEL_SHA256 in content
+    assert "confflow.__version__ == '2.1.2'" in content
 
 
 def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     """The candidate matrix must not silently drift from its wheel digests."""
     content = _read(".github/workflows/confflow-compatibility-matrix.yml")
     assert "version: 2.0.0" in content
+    assert "version: 2.1.2" in content
+    assert "peeled_commit: 69819350d340a6aeccf95aa175edfd1c3f63404b" in content
+    assert "peeled_commit: b13a10f59b5817dbb218f51c7e232f43c9bdc996" in content
+    assert f"label: superseded-v{SUPERSEDED_REFERENCE_VERSION}" in content
+    assert f"peeled_commit: {SUPERSEDED_REFERENCE_BUILD_COMMIT}" in content
+    assert f"wheel_sha256: {SUPERSEDED_REFERENCE_WHEEL_SHA256}" in content
     assert "label: historical-v1.5.3" in content
     assert "version: 1.5.0" in content
     assert f"wheel_sha256: {REFERENCE_WHEEL_SHA256}" in content
+    assert f"wheel_sha256: {ROLLBACK_REFERENCE_WHEEL_SHA256}" in content
     assert "wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6" in content
     assert "wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc" in content
     assert "EXPECTED_WHEEL_SHA256" in content
@@ -118,13 +149,13 @@ def test_chinese_readme_states_version_spec():
     """The Chinese README must mirror the current producer contract."""
     content = _read("README.zh.md")
     assert "confflow>=2.0,<3.0" in content
-    assert "confflow-2.0.0-py3-none-any.whl" in content
+    assert "confflow-2.1.2-py3-none-any.whl" in content
 
 
 def test_deployment_doc_mirrors_version_and_capability_contract():
     """The deployment guide must mirror the structured version contract."""
     content = _read("docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md")
-    assert "confflow-2.0.0-py3-none-any.whl" in content
+    assert "confflow-2.1.2-py3-none-any.whl" in content
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content

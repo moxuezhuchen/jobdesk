@@ -40,23 +40,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Check out ConfFlow v2.0.0
+      - name: Check out ConfFlow v2.1.2
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v2.0.0
+          ref: v2.1.2
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v2.0.0 wheel
+      - name: Install released ConfFlow v2.1.2 wheel
         shell: pwsh
         run: |
-          gh release download v2.0.0 --repo moxuezhuchen/ConfFlow --pattern "confflow-2.0.0-py3-none-any.whl" --dir .ci\confflow-dist
-          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-2.0.0-*.whl" | Select-Object -First 1
-          if ($null -eq $wheel) { throw "ConfFlow v2.0.0 release wheel was not downloaded." }
-          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f") { throw "ConfFlow release wheel digest mismatch." }
-          python -m pip install --no-deps $wheel.FullName
-          python -c "import confflow; assert confflow.__version__ == '2.0.0'; print(confflow.__version__)"
+          $dist = ".ci\confflow-dist"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          $wheel = Join-Path $dist "confflow-2.1.2-py3-none-any.whl"
+          curl.exe --fail --location --retry 3 --retry-delay 2 --output $wheel "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $wheel)) { throw "ConfFlow v2.1.2 release wheel was not downloaded." }
+          if ((Get-FileHash -Algorithm SHA256 $wheel).Hash.ToLower() -ne "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92") { throw "ConfFlow release wheel digest mismatch." }
+          python -m pip install --no-deps $wheel
+          python -c "import confflow; assert confflow.__version__ == '2.1.2'; print(confflow.__version__)"
 
       - name: MyPy type check
         run: python -m mypy src
@@ -102,23 +104,25 @@ jobs:
           pip install -e ".[dev]"
           pip install pytest-cov
 
-      - name: Check out ConfFlow v2.0.0
+      - name: Check out ConfFlow v2.1.2
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v2.0.0
+          ref: v2.1.2
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v2.0.0 wheel
+      - name: Install released ConfFlow v2.1.2 wheel
         shell: pwsh
         run: |
-          gh release download v2.0.0 --repo moxuezhuchen/ConfFlow --pattern "confflow-2.0.0-py3-none-any.whl" --dir .ci\confflow-dist
-          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-2.0.0-*.whl" | Select-Object -First 1
-          if ($null -eq $wheel) { throw "ConfFlow v2.0.0 release wheel was not downloaded." }
-          if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f") { throw "ConfFlow release wheel digest mismatch." }
-          python -m pip install --no-deps $wheel.FullName
-          python -c "import confflow; assert confflow.__version__ == '2.0.0'; print(confflow.__version__)"
+          $dist = ".ci\confflow-dist"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          $wheel = Join-Path $dist "confflow-2.1.2-py3-none-any.whl"
+          curl.exe --fail --location --retry 3 --retry-delay 2 --output $wheel "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $wheel)) { throw "ConfFlow v2.1.2 release wheel was not downloaded." }
+          if ((Get-FileHash -Algorithm SHA256 $wheel).Hash.ToLower() -ne "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92") { throw "ConfFlow release wheel digest mismatch." }
+          python -m pip install --no-deps $wheel
+          python -c "import confflow; assert confflow.__version__ == '2.1.2'; print(confflow.__version__)"
 
       - name: Verify ConfFlow wheel build provenance
         shell: pwsh

@@ -29,25 +29,22 @@ jobs:
           pip install -e ".[dev]"
           pip install "rdkit>=2023.9"
 
-      - name: Check out ConfFlow v2.0.0
+      - name: Check out ConfFlow v2.1.2
         uses: actions/checkout@v4
         with:
           repository: moxuezhuchen/ConfFlow
-          ref: v2.0.0
+          ref: v2.1.2
           path: .ci/confflow
           fetch-depth: 1
 
-      - name: Install released ConfFlow v2.0.0 wheel
+      - name: Install released ConfFlow v2.1.2 wheel
         run: |
-          gh release download v2.0.0 --repo moxuezhuchen/ConfFlow --pattern "confflow-2.0.0-py3-none-any.whl" --dir .ci/confflow-dist
-          wheel=$(ls .ci/confflow-dist/confflow-2.0.0-*.whl | head -n1)
-          if [ -z "$wheel" ]; then
-            echo "ConfFlow v2.0.0 release wheel was not downloaded."
-            exit 1
-          fi
-          test "$(sha256sum "$wheel" | awk '{print $1}')" = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
+          mkdir -p .ci/confflow-dist
+          wheel=.ci/confflow-dist/confflow-2.1.2-py3-none-any.whl
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92"
           python -m pip install --no-deps "$wheel"
-          python -c "import confflow; assert confflow.__version__ == '2.0.0'; print(confflow.__version__)"
+          python -c "import confflow; assert confflow.__version__ == '2.1.2'; print(confflow.__version__)"
 
       - name: Run optional local tests
         run: python -m pytest tests/test_viewer.py tests/test_remote_status.py -q --basetemp /tmp/jobdesk_pytest_optional

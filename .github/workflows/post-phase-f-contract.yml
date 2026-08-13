@@ -1,0 +1,331 @@
+name: Post-Phase-F Dual Contract Matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      confflow_ref:
+        description: "Exact published ConfFlow producer tag; candidate artifact is the v2.1.2 release and stable rows use v2.0.0"
+        required: true
+        type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  consumer-matrix:
+    name: JobDesk ${{ matrix.install }} x ConfFlow ${{ matrix.producer }}
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    strategy:
+      fail-fast: false
+      matrix:
+        install: [base, chem]
+        producer: [stable, candidate]
+
+    steps:
+      - name: Check out JobDesk candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Check out selected ConfFlow producer
+        if: matrix.producer == 'candidate'
+        uses: actions/checkout@v4
+        with:
+          repository: moxuezhuchen/ConfFlow
+          ref: ${{ inputs.confflow_ref || 'v2.1.2' }}
+          path: .ci/confflow
+          fetch-depth: 0
+
+      - name: Check out released ConfFlow producer metadata
+        if: matrix.producer == 'stable'
+        uses: actions/checkout@v4
+        with:
+          repository: moxuezhuchen/ConfFlow
+          ref: v2.0.0
+          path: .ci/confflow
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Linux Qt runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0
+
+      - name: Build JobDesk candidate wheel
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir "$RUNNER_TEMP/jobdesk-dist"
+          wheel="$(find "$RUNNER_TEMP/jobdesk-dist" -maxdepth 1 -name 'jobdesk-*.whl' -print -quit)"
+          test -n "$wheel"
+          printf '%s\n' "$wheel" > "$RUNNER_TEMP/jobdesk-wheel-path"
+
+      - name: Install JobDesk base wheel
+        if: matrix.install == 'base'
+        run: |
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          python -m pip install "$wheel"
+
+      - name: Install JobDesk base wheel for chemistry row
+        if: matrix.install == 'chem'
+        run: |
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          # Install the base distribution first.  The chemistry extra pins
+          # ConfFlow <3, so its released wheel must be installed below before
+          # pip resolves the optional dependency from the public index.
+          python -m pip install "$wheel"
+
+      - name: Verify selected published candidate tag
+        if: matrix.producer == 'candidate'
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confflow_ref || 'v2.1.2' }}" = "v2.1.2"
+          expected_commit="b13a10f59b5817dbb218f51c7e232f43c9bdc996"
+          tag_commit="$(git -C .ci/confflow rev-parse "${{ inputs.confflow_ref || 'v2.1.2' }}^{commit}")"
+          head_commit="$(git -C .ci/confflow rev-parse HEAD)"
+          test "$tag_commit" = "$expected_commit"
+          test "$tag_commit" = "$head_commit"
+
+      - name: Verify selected stable tag
+        if: matrix.producer == 'stable'
+        run: |
+          set -euo pipefail
+          expected_commit="69819350d340a6aeccf95aa175edfd1c3f63404b"
+          tag_commit="$(git -C .ci/confflow rev-parse 'v2.0.0^{commit}')"
+          head_commit="$(git -C .ci/confflow rev-parse HEAD)"
+          test "$tag_commit" = "$expected_commit"
+          test "$tag_commit" = "$head_commit"
+
+      - name: Download and install the published candidate producer wheel
+        if: matrix.producer == 'candidate'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/confflow-dist"
+          wheel="$RUNNER_TEMP/confflow-dist/confflow-2.1.2-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.1.2/confflow-2.1.2-py3-none-any.whl"
+          test -f "$wheel"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = \
+            "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92"
+          # The base JobDesk install intentionally has no ConfFlow dependency.
+          # Install the published candidate with its declared dependencies so
+          # producer-side worker/schema tests run on a clean Ubuntu runner.
+          python -m pip install "$wheel"
+
+      - name: Download and install the current stable producer wheel
+        if: matrix.producer == 'stable'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/confflow-dist"
+          wheel="$RUNNER_TEMP/confflow-dist/confflow-2.0.0-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v2.0.0/confflow-2.0.0-py3-none-any.whl"
+          test "$(sha256sum "$wheel" | awk '{print $1}')" = \
+            "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
+          python -m pip install "$wheel"
+
+      - name: Install JobDesk contract test dependencies
+        run: |
+          set -euo pipefail
+          wheel="$(cat "$RUNNER_TEMP/jobdesk-wheel-path")"
+          if [ "${{ matrix.install }}" = "chem" ]; then
+            python -m pip install "${wheel}[chem,dev]"
+          else
+            python -m pip install "${wheel}[dev]"
+          fi
+
+      - name: Verify producer identity and configuration contract
+        env:
+          EXPECTED_PRODUCER: ${{ matrix.producer }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          producer = os.environ["EXPECTED_PRODUCER"]
+          raw = subprocess.check_output(["confflow", "--capabilities", "--json"], text=True)
+          payload = json.loads(raw)
+          build = payload.get("build")
+          if not isinstance(build, dict) or build.get("dirty") is not False:
+              raise AssertionError(f"producer build is not clean: {build!r}")
+          if payload.get("capabilities", {}).get("control_worker") is not True:
+              raise AssertionError("selected POSIX producer does not advertise control_worker")
+          expected_commit = (
+              "b13a10f59b5817dbb218f51c7e232f43c9bdc996"
+              if producer == "candidate"
+              else "69819350d340a6aeccf95aa175edfd1c3f63404b"
+          )
+          expected_version = "2.1.2" if producer == "candidate" else "2.0.0"
+          if build.get("commit") != expected_commit:
+              raise AssertionError(f"producer build commit drift: {build!r}")
+          if payload.get("version") != expected_version:
+              raise AssertionError(f"producer version drift: {payload!r}")
+          if producer == "candidate":
+              expected_commit = subprocess.check_output(
+                  ["git", "-C", ".ci/confflow", "rev-parse", "HEAD"], text=True
+              ).strip()
+              if build.get("commit") != expected_commit:
+                  raise AssertionError(f"candidate provenance drift: {build!r} != {expected_commit}")
+              contract = subprocess.check_output(
+                  ["confflow", "config", "contract", "--json"], text=True
+              )
+              contract_payload = json.loads(contract)
+              if contract_payload.get("response_schema") != "confflow.config.contract.v1":
+                  raise AssertionError(f"configuration contract schema drift: {contract_payload!r}")
+              if contract_payload.get("semantic_contract_version") != "1.0":
+                  raise AssertionError(f"configuration contract version drift: {contract_payload!r}")
+              producer_binding = contract_payload.get("producer")
+              if producer_binding != {
+                  "distribution": "confflow",
+                  "version": "2.1.2",
+                  "configuration_contract": "1.0",
+              }:
+                  raise AssertionError(f"configuration contract producer binding drift: {contract_payload!r}")
+              workflow_schema = contract_payload.get("workflow_schema")
+              if not isinstance(workflow_schema, dict) or workflow_schema.get("sha256") != "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427":
+                  raise AssertionError(f"configuration workflow schema binding is malformed: {contract_payload!r}")
+              print(json.dumps({"producer": producer, "build": build, "contract": contract_payload}))
+          else:
+              print(json.dumps({"producer": producer, "build": build}))
+          PY
+
+      - name: Verify installed wheels, package data, and dependency closure
+        env:
+          EXPECTED_PRODUCER: ${{ matrix.producer }}
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import sys
+          from importlib.resources import files
+          from pathlib import Path
+
+          expected_schema_sha256 = "87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427"
+          jobdesk_module = Path(__import__("jobdesk_app").__file__).resolve()
+          prefix = Path(sys.prefix).resolve()
+          if prefix not in jobdesk_module.parents:
+              raise AssertionError(f"JobDesk is not installed under the isolated environment: {jobdesk_module}")
+          jobdesk_schema = files("jobdesk_app").joinpath(
+              "resources/workflow_config/v1/workflow_config_v1.schema.json"
+          )
+          schema_bytes = jobdesk_schema.read_bytes()
+          schema = json.loads(schema_bytes.decode("utf-8"))
+          canonical = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+          if hashlib.sha256(canonical).hexdigest() != expected_schema_sha256:
+              raise AssertionError("installed JobDesk workflow schema digest mismatch")
+
+          producer_module = Path(__import__("confflow").__file__).resolve()
+          if prefix not in producer_module.parents:
+              raise AssertionError(f"ConfFlow is not installed under the isolated environment: {producer_module}")
+          producer = os.environ["EXPECTED_PRODUCER"]
+          if producer == "candidate":
+              producer_schema = prefix / "share" / "confflow" / "workflow_config" / "v1" / "workflow_config_v1.schema.json"
+              if not producer_schema.is_file():
+                  raise AssertionError("installed candidate ConfFlow wheel omitted workflow schema")
+              producer_schema_obj = json.loads(producer_schema.read_text(encoding="utf-8"))
+              producer_canonical = json.dumps(
+                  producer_schema_obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              ).encode("utf-8")
+              if hashlib.sha256(producer_canonical).hexdigest() != expected_schema_sha256:
+                  raise AssertionError("installed candidate workflow schema digest mismatch")
+              if producer_canonical != canonical:
+                  raise AssertionError("installed candidate/consumer workflow schema content drift")
+          control_root = prefix / "share" / "confflow" / "control_protocol" / "v1"
+          required_control = (
+              "common.schema.json",
+              "requests.schema.json",
+              "responses.schema.json",
+              "input-manifest.schema.json",
+              "worker-handoff.schema.json",
+          )
+          missing = [name for name in required_control if not (control_root / name).is_file()]
+          if missing:
+              raise AssertionError(f"installed ConfFlow wheel omitted schema members: {missing}")
+          consumer_control_root = Path("confflow") / "schemas" / "control"
+          for name in required_control:
+              consumer_path = consumer_control_root / name
+              producer_path = control_root / name
+              if not consumer_path.is_file():
+                  raise AssertionError(f"JobDesk candidate omitted pinned control schema: {consumer_path}")
+              consumer_control = json.loads(consumer_path.read_text(encoding="utf-8"))
+              producer_control = json.loads(producer_path.read_text(encoding="utf-8"))
+              consumer_canonical = json.dumps(
+                  consumer_control, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              producer_control_canonical = json.dumps(
+                  producer_control, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+              )
+              if consumer_canonical != producer_control_canonical:
+                  raise AssertionError(f"producer/consumer control schema content drift: {name}")
+          if producer == "candidate":
+              contract = json.loads(
+                  subprocess.check_output(["confflow", "config", "contract", "--json"], text=True)
+              )
+              if contract.get("response_schema") != "confflow.config.contract.v1":
+                  raise AssertionError(f"installed candidate contract schema drift: {contract!r}")
+              workflow_schema = contract.get("workflow_schema")
+              if not isinstance(workflow_schema, dict) or workflow_schema.get("sha256") != expected_schema_sha256:
+                  raise AssertionError("installed candidate contract is not bound to the approved schema digest")
+          print(json.dumps({
+              "producer": producer,
+              "jobdesk_schema_sha256": expected_schema_sha256,
+              "control_schema_members": list(required_control),
+          }))
+          PY
+
+      - name: Run JobDesk contract and saved-workflow corpus
+        run: |
+          python -m pytest -q -p no:cacheprovider \
+            tests/test_post_phase_f_architecture.py \
+            tests/test_confflow_preflight.py \
+            tests/test_confflow_config_contract.py \
+            tests/test_confflow_executable_binding.py \
+            tests/test_confflow_results.py \
+            tests/test_confflow_control_backend.py \
+            tests/test_confflow_control_artifacts_boundary.py \
+            tests/test_confflow_control_state_boundary.py \
+            tests/test_control_protocol_schemas.py \
+            tests/test_method_presets.py \
+            tests/test_packaging_config.py \
+            tests/test_workflow_submit_gui_regression.py \
+            tests/test_workflow_document.py \
+            tests/test_workflow_spec.py
+
+      - name: Run producer resume and worker corpus
+        if: matrix.producer == 'candidate'
+        working-directory: .ci/confflow
+        run: |
+          python -m pytest -q -p no:cacheprovider \
+            tests/test_workflow_resume_boundary.py \
+            tests/test_workflow_resume_after_disconnect.py \
+            tests/test_workflow_state.py \
+            tests/test_workflow_execution_adapter.py \
+            tests/test_control_adapter.py \
+            tests/test_workflow_entry_facade.py \
+            tests/test_workflow_executor_boundary.py \
+            tests/test_workflow_finalizer_boundary.py \
+            tests/test_workflow_planner_boundary.py \
+            tests/test_execution_policy.py \
+            tests/test_control_protocol_schema.py \
+            tests/test_control_worker.py

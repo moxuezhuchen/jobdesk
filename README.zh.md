@@ -4,6 +4,32 @@ JobDesk 是面向 Windows 的桌面与命令行工具，通过 SSH/SFTP 管理�
 
 JobDesk 当前为公开预览项目，适合源代码评审与受控本地使用，但尚未作为稳定的公开发行包。
 
+## 当前架构候选（2026-08-13）
+
+当前 JobDesk 架构候选为 v0.7.1 patch release，包版本元数据为 `0.7.1`。
+下一轮兼容性证据对应已正式发布的 ConfFlow `v2.1.2`，tag peeled commit
+为 `b13a10f59b5817dbb218f51c7e232f43c9bdc996`。发布 wheel
+`confflow-2.1.2-py3-none-any.whl` 的 SHA-256 为
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`，
+workflow schema 的 SHA-256 为
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`。
+已被取代的 ConfFlow `v2.1.1`（peeled commit
+`338b53b3a34593271b926fc9e96010186141a386`，wheel SHA-256
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`）仅保留为历史证据。
+
+| 角色 | 引用 / 身份 | 状态 |
+|---|---|---|
+| JobDesk 稳定基线 | `e4d8f74` / v0.6.0 | 已发布的生产基线 |
+| JobDesk 架构候选 | `v0.7.1` / v0.7.1 | 已发布 patch release；endpoint promotion 仍是独立门禁 |
+| ConfFlow 稳定回滚 | `6981935` / v2.0.0 | 保持不变；wheel digest 为 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` |
+| ConfFlow 当前配对 producer | `v2.1.2` / peeled `b13a10f59b5817dbb218f51c7e232f43c9bdc996` | 已正式发布；候选验收仍待完成 |
+| 已取代的 ConfFlow producer 证据 | `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | 仅历史证据；wheel SHA-256 为 `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3` |
+| 生产 / promotion endpoint | v0.6.0 + v2.0.0 | 未切换 |
+
+ConfFlow v2.1.2 和 JobDesk v0.7.1 已发布，但发布本身不等于 endpoint promotion。side-by-side
+验收、真实 launcher 验收、JobDesk 发布和生产 promotion 仍是独立门禁；旧的
+ConfFlow `1a0d760` / 计划版本 2.1.0 仅保留为历史候选证据，不能当作当前验收证据。
+
 ## 适用范围
 
 - 提交、监控、取消、刷新、下载、重试单任务 Gaussian / ORCA 计算
@@ -112,20 +138,20 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 按已发布的 2.0.0 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载、编辑并无损保存工作流；需要本地 producer 执行路径时才安装 `pip install -e ".[chem]"`，并且远端 Linux 计算节点必须安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`；稳定兼容性行仍按已发布的 2.0.0 wheel 验证，架构候选则以已发布的 v2.1.2 wheel 及其 provenance 进行验收。v2.1.2 的 wheel SHA-256 为 `80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`，workflow schema SHA-256 为 `87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`。已取代的 v2.1.1 wheel 仅保留为历史 release evidence。JobDesk 不导入或镜像 ConfFlow 的 Python 语义模型，结构/迁移提示仅供编辑器使用，远端 canonical dry-run 和配置合约才是语义接受门。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。发布 v2.1.2 本身不构成 endpoint promotion；side-by-side、真实 launcher 与生产 promotion 仍是独立门禁。
 
 ```powershell
 # Windows（JobDesk 端）
-# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.0.0 wheel；
+# 如果包索引没有提供化学版本，请先安装已发布的 ConfFlow 2.1.2 wheel；
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md：
-# python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+# python -m pip install /path/to/confflow-2.1.2-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux 计算节点也安装相同的已批准 ConfFlow 2.0.0 wheel。
+# Linux 计算节点也安装相同的已发布 ConfFlow 2.1.2 wheel。
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md。
-python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+python -m pip install /path/to/confflow-2.1.2-py3-none-any.whl
 ```
 
 ### 提交页（Phase 14）

@@ -1,12 +1,11 @@
-"""Pydantic wrapper around the optional ConfFlow workflow schema.
+"""Producer-neutral authoring facade for the optional ConfFlow workflow.
 
-ConfFlow exposes ``core.models.GlobalConfigModel`` and ``CalcConfigModel`` as
-its top-level YAML schema. We import them lazily so that:
+JobDesk serializes the canonical workflow mapping without importing ConfFlow
+implementation modules.  The producer owns semantic validation.
 
-* ``import jobdesk_app.core.workflow_spec`` always succeeds (even when the
-  ``chem`` extra is not installed — GUI still loads).
-* Only methods that actually validate YAML (``from_yaml``, ``to_yaml``,
-  ``dry_run``) need the package.
+* importing this module and editing a saved workflow never needs the
+  optional ``chem`` extra;
+* the remote producer, not this facade, decides semantic acceptance.
 
 The wizard and ``program_adapters.ConfFlowAdapter`` use this module to convert
 between form input and the on-disk ``workflow.yaml`` that the remote
@@ -18,47 +17,74 @@ from __future__ import annotations
 import functools
 import importlib.util
 import re
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .workflow_codec import WorkflowCodec
+from .workflow_document import WorkflowDocument, normalise_workflow_mapping
+from .workflow_editor import (
+    MigrationPolicy,
+    WorkflowDiagnostic,
+    WorkflowSemanticValidator,
+    lint_workflow,
+    require_migration_policy,
+)
+from .workflow_migration import LegacyWorkflowMigrationAdapter
 
-@functools.lru_cache(maxsize=1)
-def _load_confflow_models() -> tuple[Any, Any] | None:
-    """Return the ConfFlow pydantic models used by the workflow schema.
 
-    Imported lazily and cached so that:
+def _confflow_package_available() -> bool:
+    """Return whether the optional producer package is discoverable."""
+    return importlib.util.find_spec("confflow") is not None
 
-    * ``import jobdesk_app.core.workflow_spec`` always succeeds (even when
-      the ``confflow`` package is not installed — the GUI still loads).
-    * Only the first call pays the import cost; subsequent calls return
-      the same objects without re-importing.
+
+class _AuthoringGlobalConfig(Mapping[str, Any]):
+    """Chem-free compatibility view of the workflow ``global`` mapping.
+
+    The authoring path is owned by :class:`WorkflowDocument`, not by
+    ConfFlow's Pydantic models.  This small mapping-backed view preserves the
+    legacy conveniences used by the GUI and submit bridge without validating
+    or normalising producer-owned fields.
     """
-    try:
-        from confflow.core.models import CalcConfigModel, GlobalConfigModel
-    except ImportError:
-        return None
-    return CalcConfigModel, GlobalConfigModel
+
+    def __init__(self, data: Mapping[str, Any] | None = None) -> None:
+        self._data = deepcopy(dict(data or {}))
+        self.model_fields_set = set(self._data)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self._data[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def model_dump(self, *, mode: str = "python", exclude_none: bool = False, **_: Any) -> dict[str, Any]:
+        """Return a Pydantic-shaped copy for existing GUI callers."""
+        del mode
+        data = deepcopy(self._data)
+        if exclude_none:
+            data = {key: value for key, value in data.items() if value is not None}
+        return data
 
 
-def _confflow_models() -> tuple[Any, Any]:
-    """Return ``(CalcConfigModel, GlobalConfigModel)`` or raise ImportError."""
-    loaded = _load_confflow_models()
-    if loaded is None:
-        raise ImportError("confflow is not installed (chem extra was skipped)")
-    return loaded
+def _authoring_global_view(global_payload: Mapping[str, Any] | None) -> _AuthoringGlobalConfig:
+    """Build the non-authoritative legacy ``global_config`` view."""
+    return _AuthoringGlobalConfig(global_payload)
 
 
-def _confflow_available() -> bool:
-    """True when the ConfFlow pydantic models import successfully."""
-    return _load_confflow_models() is not None
-
-
-# Backwards-compatible module attribute. find_spec only inspects the
-# import path; it does not import confflow.core.models. Actual model
-# loading remains exclusively inside _load_confflow_models.
-# Runtime checks should use _load_confflow_models directly.
+# Backwards-compatible availability flag for callers that need to decide
+# whether the optional local producer executable is installed.  It is never
+# used to parse or semantically accept a workflow.
 _CONFFLOW_AVAILABLE: bool = importlib.util.find_spec("confflow") is not None
 
 
@@ -114,38 +140,12 @@ class ConfFlowUnavailableError(RuntimeError):
 
 
 def require_confflow() -> None:
-    if _load_confflow_models() is None:
+    if not _confflow_package_available():
         raise ConfFlowUnavailableError(
             "confflow package is not installed. "
             "Reinstall with `pip install -e .[chem]` on the same Python that "
             "runs JobDesk, and on the Linux server as well."
         )
-
-
-def _validate_confflow_semantics(payload: dict[str, Any], *, allow_legacy_confgen_placeholder: bool = False) -> None:
-    """Apply ConfFlow's step validation without probing remote executables.
-
-    A workflow can legitimately contain an executable path that only exists
-    on the selected remote server.  The editor must validate task types,
-    programs and conformer settings locally, but must not reject such a
-    remote path merely because it is absent on this Windows machine.
-    """
-    from ..core._confflow_validation import validate_yaml_config
-
-    validation_payload = deepcopy(payload)
-    global_config = validation_payload.get("global")
-    if isinstance(global_config, dict):
-        global_config.pop("gaussian_path", None)
-        global_config.pop("orca_path", None)
-    errors = validate_yaml_config(validation_payload)
-    # A pre-schema token list could contain a bare ``confgen`` planning
-    # placeholder.  Keep only that *source format* readable.  Canonical
-    # ``global``/``steps`` workflow YAML is user-authored and must retain the
-    # ConfFlow requirement for a real torsion chain.
-    if allow_legacy_confgen_placeholder:
-        errors = [error for error in errors if "confgen step requires 'chains'" not in error]
-    if errors:
-        raise ValueError("Invalid workflow YAML: " + "; ".join(errors))
 
 
 @functools.lru_cache(maxsize=1)
@@ -156,7 +156,7 @@ def _kb_to_mb(n: float) -> int:
 def _parse_mem_mb_local(value: Any) -> int:
     """Parse a memory value into MB.
 
-    ``GlobalConfigModel`` accepts ``"4GB"``/``"500MB"`` strings, but our
+    ConfFlow accepts ``"4GB"``/``"500MB"`` strings, but our
     legacy form / YAML editor stored an integer in MB.  This helper
     handles both shapes so the YAML editor can pre-populate the
     ``memory_mb`` field cleanly.
@@ -220,7 +220,7 @@ def _format_mem_mb(memory_mb: int) -> str:
 
     Picks GB when divisible / round, else MB. The wizard supplies MB
     because that's the form-friendly unit; confflow's
-    ``GlobalConfigModel`` insists on a unit-bearing string.
+    the producer expects a unit-bearing string.
     """
     if memory_mb is None:
         return "4GB"
@@ -264,43 +264,9 @@ def _itask_token(value: str) -> str:
     return s
 
 
-_STEP_TOKEN_TO_TYPE: dict[str, tuple[str, dict[str, Any]]] = {
-    "confgen": (
-        "confgen",
-        {"chains": ["1-2-3-4"], "angle_step": 120, "bond_multiplier": 1.15},
-    ),
-    "preopt": ("calc", {"itask": "opt"}),
-    "opt": ("calc", {"itask": "opt"}),
-    "opt_freq": ("calc", {"itask": "opt_freq"}),
-    "sp": ("calc", {"itask": "sp"}),
-    "freq": ("calc", {"itask": "freq"}),
-    "ts": ("calc", {"itask": "ts"}),
-    "refine": ("calc", {"itask": "sp"}),
-}
-
-
 def _token_to_step(token: str, *, idx: int | None = None) -> dict[str, Any]:
-    """Convert a wizard token (``opt_freq``/``sp``/...) into a step dict.
-
-    The output is ``{name, type, params}``. ``iprog``/``keyword`` are
-    injected later by :meth:`WorkflowSpec.from_form` because they are
-    the same across steps.
-    """
-    tok = str(token or "").strip().lower()
-    if not tok:
-        return {
-            "name": f"step_{(idx or 1):02d}",
-            "type": "calc",
-            "params": {"itask": "sp"},
-        }
-    step_type, base_params = _STEP_TOKEN_TO_TYPE.get(tok, ("calc", {"itask": tok}))
-    # Name: prefer the token; fall back to a deterministic step_xx.
-    name = tok if tok in {"confgen", "preopt", "opt_freq", "refine"} else tok
-    return {
-        "name": name,
-        "type": step_type,
-        "params": dict(base_params),
-    }
+    """Compatibility wrapper for the historical wizard token conversion."""
+    return LegacyWorkflowMigrationAdapter.step_from_token(token, index=idx)
 
 
 def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
@@ -391,75 +357,31 @@ def _lift_legacy_resource_keys(global_dict: dict[str, Any]) -> None:
 
 
 def _normalise_steps_list(raw_steps: Any) -> list[dict[str, Any]]:
-    """Coerce whatever ``steps:`` looks like into ``[{name, type, params}]``."""
-    if not raw_steps:
-        return []
-    if not isinstance(raw_steps, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for idx, step in enumerate(raw_steps, start=1):
-        if isinstance(step, str):
-            out.append(_token_to_step(step, idx=idx))
-            continue
-        if not isinstance(step, dict):
-            continue
-        # Already a step dict — pass through, filling in defaults.
-        name = str(step.get("name") or f"step_{idx:02d}")
-        step_type = str(step.get("type") or "calc")
-        params = dict(step.get("params") or {})
-        # If the legacy ``keyword`` / ``iprog`` ended up at the step's
-        # top level instead of inside ``params``, hoist them.
-        for k in (
-            "iprog",
-            "itask",
-            "keyword",
-            "energy_window",
-            "cores_per_task",
-            "total_memory",
-            "max_parallel_jobs",
-            "blocks",
-        ):
-            if k in step and k not in params:
-                params[k] = step[k]
-        if step_type == "calc":
-            params.setdefault("itask", "sp")
-        normalised = {"name": name, "type": step_type, "params": params}
-        # Dependencies are workflow-owned, but they are still part of the
-        # final document.  Preserve them when loading a saved workflow so a
-        # graph projection or submit preview cannot silently flatten a DAG.
-        if "inputs" in step:
-            inputs = step["inputs"]
-            if not isinstance(inputs, list) or not all(isinstance(item, str) for item in inputs):
-                raise ValueError("step inputs must be a list of step names")
-            normalised["inputs"] = list(inputs)
-        out.append(normalised)
-    return out
+    """Compatibility name retained for callers and tests."""
+    return LegacyWorkflowMigrationAdapter.normalise_steps(raw_steps)
 
 
-def _validate_via_global_model(raw: dict[str, Any]) -> None:
-    """Best-effort validation using ``GlobalConfigModel`` for the
-    ``global`` section.  Raises on garbage input.  The typed
-    :class:`GlobalConfigModel` only covers the ``global`` half of the
-    schema — it knows nothing about ``steps``.
-    """
-    _, GlobalConfigModel = _confflow_models()
-    GlobalConfigModel.model_validate(raw.get("global") or {})
+# Compatibility name retained for callers and tests.  The implementation now
+# lives in the Qt-/producer-model-free document module; the facade no longer
+# owns a fixed-field reconstruction that could discard saved extensions.
+_normalise_yaml_to_schema = normalise_workflow_mapping
 
 
 @dataclass(frozen=True)
 class WorkflowSpec:
-    """A validated ConfFlow workflow YAML document.
+    """An authoring workflow document with a legacy global-config view.
 
-    Holds the parsed ``GlobalConfigModel`` instance. ``to_yaml`` serializes it
-    back through Pydantic so round-trip is lossless. The wizard constructs one
-    of these from form input and passes it to the run service.
+    Parsing and serialization are owned by :class:`WorkflowDocument` and
+    preserve the canonical mapping without importing producer models.
+    ``global_config`` is retained as a mapping-compatible legacy view for GUI
+    callers; remote producer validation remains the submission gate.
     """
 
-    global_config: Any  # GlobalConfigModel when confflow is installed
+    global_config: Any  # Mapping-backed legacy view; never the acceptance gate
     # The full canonical schema (``{global, steps}``) ready for the
-    # confflow engine to consume.  Kept alongside the typed model so we
+    # confflow engine to consume.  Kept alongside the legacy view so we
     # can round-trip without losing the steps list or any non-typed
-    # fields the engine understands but ``GlobalConfigModel`` ignores.
+    # fields the engine understands but the editor does not interpret.
     _raw: dict[str, Any] = field(default_factory=dict)
     # Wizard-only metadata that must NOT leak into the engine-facing YAML.
     # Currently holds ``work_dir``: the wizard records the user-picked
@@ -468,6 +390,8 @@ class WorkflowSpec:
     # ownership, R-M4 / P-M4).  ``to_yaml`` strips this; ``to_form``
     # reads ``work_dir`` from here when populating the form.
     _wizard_metadata: dict[str, Any] = field(default_factory=dict)
+    _document: WorkflowDocument | None = field(default=None, repr=False, compare=False)
+    _diagnostics: tuple[WorkflowDiagnostic, ...] = field(default_factory=tuple, repr=False, compare=False)
 
     @classmethod
     def from_form(
@@ -512,7 +436,6 @@ class WorkflowSpec:
         ``max_parallel_jobs`` are also global because they describe the
         whole conformer search.
         """
-        require_confflow()
         keyword = assemble_orca_keyword(method, basis, extra_keyword)
         if program in ("gaussian", "g16") and not keyword.strip():
             keyword = f"{method} {basis}".strip()
@@ -562,26 +485,20 @@ class WorkflowSpec:
             "global": global_payload,
             "steps": step_dicts,
         }
-        # We keep the model_validate step so we get pydantic's nice
-        # error reporting on garbage input, but the canonical
-        # serialization is the ``raw`` dict (which IS the schema
-        # confflow actually consumes).
-        try:
-            _validate_via_global_model(raw)
-        except Exception:
-            # Fall back to a permissive model_validate of just the
-            # global part so users still get typed defaults.
-            _, GlobalConfigModel = _confflow_models()
-            GlobalConfigModel.model_validate(global_payload or {})
-        _, GlobalConfigModel = _confflow_models()
         return cls(
-            global_config=GlobalConfigModel.model_validate(global_payload or {}),
+            global_config=_authoring_global_view(global_payload),
             _raw=raw,
             _wizard_metadata=wizard_metadata,
+            _document=WorkflowDocument.from_mapping(raw),
         )
 
     @classmethod
-    def from_yaml(cls, yaml_text: str) -> "WorkflowSpec":
+    def from_yaml(
+        cls,
+        yaml_text: str,
+        *,
+        validator: WorkflowSemanticValidator | None = None,
+    ) -> "WorkflowSpec":
         """Parse the canonical confflow YAML shape.
 
         Accepts::
@@ -593,34 +510,44 @@ class WorkflowSpec:
         normalise them on the way in so the rest of the pipeline can
         rely on one shape.
         """
-        require_confflow()
-        import yaml
-
-        data = yaml.safe_load(yaml_text)
-        if not isinstance(data, dict):
-            raise ValueError("workflow YAML must be a mapping at the top level")
-        is_legacy_token_layout = not ("global" in data and "steps" in data)
-        normalised = _normalise_yaml_to_schema(data)
-        _validate_confflow_semantics(
-            normalised,
-            allow_legacy_confgen_placeholder=is_legacy_token_layout,
-        )
-        # Populate the typed global model for callers that want it
-        # (engine integration, default-supplementation).
-        global_dict = normalised.get("global", {}) or {}
+        document = WorkflowCodec.loads(yaml_text)
+        structural_diagnostics = lint_workflow(document)
+        structural_errors = [item.message for item in structural_diagnostics if item.severity == "error"]
+        if structural_errors:
+            raise ValueError("Invalid workflow YAML: " + "; ".join(structural_errors))
+        normalised = document.canonical_mapping()
+        diagnostics = list(structural_diagnostics)
+        if validator is not None:
+            try:
+                diagnostics = list(document.lint(validator))
+            except Exception as exc:  # producer diagnostics are never acceptance
+                diagnostics.append(
+                    WorkflowDiagnostic(
+                        "warning",
+                        "producer.validator_error",
+                        f"producer diagnostic unavailable: {type(exc).__name__}: {exc}",
+                    )
+                )
+            diagnostics = [
+                WorkflowDiagnostic("warning", item.code, item.message, item.path)
+                if item.code.startswith("producer.") and item.severity == "error"
+                else item
+                for item in diagnostics
+            ]
+        global_dict = deepcopy(normalised.get("global", {}) or {})
         # P-M4: hoist ``work_dir`` out of ``global`` into wizard
         # metadata.  Older YAML files (pre-R-M4) wrote it there; we
         # preserve the value for the form without leaking it into the
         # next ``to_yaml`` output.
         wizard_metadata: dict[str, Any] = {}
         if "work_dir" in global_dict:
-            wizard_metadata["work_dir"] = global_dict.pop("work_dir")
-        _, GlobalConfigModel = _confflow_models()
-        model = GlobalConfigModel.model_validate(global_dict)
+            wizard_metadata["work_dir"] = global_dict["work_dir"]
         return cls(
-            global_config=model,
+            global_config=_authoring_global_view(global_dict),
             _raw=normalised,
             _wizard_metadata=wizard_metadata,
+            _document=document,
+            _diagnostics=tuple(diagnostics),
         )
 
     def to_yaml(self) -> str:
@@ -649,9 +576,6 @@ class WorkflowSpec:
         they actually picked. The full model state is still kept in
         memory in case the engine ever needs the resolved defaults.
         """
-        require_confflow()
-        import yaml
-
         raw = getattr(self, "_raw", None)
         if not raw:
             # Legacy flat-shape models built before _raw existed —
@@ -668,7 +592,7 @@ class WorkflowSpec:
         global_block = out.get("global") if isinstance(out, dict) else None
         if isinstance(global_block, dict) and "work_dir" in global_block:
             global_block.pop("work_dir", None)
-        return yaml.safe_dump(out, sort_keys=False, allow_unicode=True, default_flow_style=False)
+        return WorkflowCodec.dumps_mapping(out)
 
     def to_user_yaml(self) -> str:
         """Wizard-side YAML rendering — leaner than :meth:`to_yaml`.
@@ -704,9 +628,6 @@ class WorkflowSpec:
         via :meth:`from_yaml` (which can recover the missing ``type``
         and ``global`` from the source ``WorkflowSpec``).
         """
-        require_confflow()
-        import yaml
-
         raw = getattr(self, "_raw", None)
         if not raw:
             raw = self._reconstruct_raw()
@@ -719,12 +640,34 @@ class WorkflowSpec:
             omit_type_calc=True,
         )
         out: dict[str, Any] = {"steps": steps_list} if steps_list else {}
-        return yaml.safe_dump(
-            out,
-            sort_keys=False,
-            allow_unicode=True,
-            default_flow_style=False,
-        )
+        return WorkflowCodec.dumps_mapping(out)
+
+    @property
+    def workflow_document(self) -> WorkflowDocument:
+        """Return the authoring document retained by this compatibility facade."""
+        if self._document is not None:
+            return self._document
+        return WorkflowDocument.from_mapping(self._raw or self._reconstruct_raw())
+
+    @property
+    def migration_decision(self):
+        """Expose the explicit legacy-format migration decision."""
+        return self.workflow_document.migration
+
+    def lint(self):
+        """Return bounded authoring diagnostics without producer semantics."""
+        return lint_workflow(self.workflow_document)
+
+    @property
+    def diagnostics(self) -> tuple[WorkflowDiagnostic, ...]:
+        """Diagnostics captured while parsing; producer entries are warnings."""
+        return self._diagnostics
+
+    def migrate(self, policy: MigrationPolicy) -> "WorkflowSpec":
+        """Return a canonical facade only after an explicit backup decision."""
+        require_migration_policy(self.workflow_document, policy)
+        canonical = self.workflow_document.canonical_mapping()
+        return type(self).from_yaml(WorkflowCodec.dumps_mapping(canonical))
 
     @staticmethod
     def _filter_user_facing_global(global_dict: dict[str, Any]) -> dict[str, Any]:
@@ -735,9 +678,9 @@ class WorkflowSpec:
         defaults and the user didn't pick them. ``freeze`` is shown
         when non-empty (a non-trivial constraint).
         """
-        _, GlobalConfigModel = _confflow_models()
         defaults = {
-            fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None
+            "charge": 0,
+            "multiplicity": 1,
         }
         ordered_keys = [
             "gaussian_path",
@@ -879,10 +822,16 @@ class WorkflowSpec:
 
     def _reconstruct_raw(self) -> dict[str, Any]:
         """Best-effort recovery of the ``{global, steps}`` payload from
-        the typed model.  Used when ``_raw`` wasn't populated (e.g. a
-        legacy ``GlobalConfigModel``-only instance from before v6).
+        the legacy facade.  Used when ``_raw`` wasn't populated (e.g. a
+        legacy authoring-only instance from before v6).
         """
-        data = self.global_config.model_dump(mode="json", exclude_none=True)
+        global_config = self.global_config
+        if hasattr(global_config, "model_dump"):
+            data = global_config.model_dump(mode="json", exclude_none=True)
+        elif isinstance(global_config, Mapping):
+            data = deepcopy(dict(global_config))
+        else:
+            data = {}
         return {
             "global": data,
             "steps": data.pop("steps", []) or [],
@@ -898,7 +847,6 @@ class WorkflowSpec:
         ``multiplicity``, ``freeze``, ``max_parallel_jobs``) come
         from ``global``.
         """
-        require_confflow()
         raw = getattr(self, "_raw", None) or self._reconstruct_raw()
         global_dict = raw.get("global") or {}
         steps_list = raw.get("steps") or []
@@ -974,11 +922,10 @@ class WorkflowSpec:
         """Best-effort local dry-run.
 
         ConfFlow's ``--dry-run`` needs an XYZ file and a work dir; here we
-        just validate the YAML and report whether ``GlobalConfigModel``
-        parsed cleanly. The wizard shows this as a green/red indicator
-        before the user clicks Submit. A full remote dry-run happens on the
-        server when the user clicks Submit (``confflow --dry-run`` is
-        called there).
+        report whether the optional producer package is available for the
+        authoring path.  Authoring and serialization remain usable without
+        it; the remote producer's dry-run is authoritative at submission
+        time.
         """
         try:
             require_confflow()
@@ -994,20 +941,14 @@ class WorkflowSpec:
 
 def write_workflow_yaml(spec: WorkflowSpec, path: str | Path) -> Path:
     """Convenience: serialize ``spec`` and write atomically to ``path``."""
-    require_confflow()
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = spec.to_yaml()
-    # Atomic write so a half-written workflow.yaml never reaches the remote.
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(target)
-    return target
+    return WorkflowCodec.write_atomic(path, spec.to_yaml())
 
 
 __all__ = [
     "ConfFlowUnavailableError",
     "DryRunReport",
+    "MigrationPolicy",
+    "WorkflowDocument",
     "WorkflowSpec",
     "assemble_orca_keyword",
     "require_confflow",

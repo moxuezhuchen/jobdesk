@@ -18,8 +18,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - label: current-v2.1.2
+            version: 2.1.2
+            peeled_commit: b13a10f59b5817dbb218f51c7e232f43c9bdc996
+            wheel_sha256: 80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92
+            control_worker: true
+            expect_compatible: true
+          - label: superseded-v2.1.1
+            version: 2.1.1
+            peeled_commit: 338b53b3a34593271b926fc9e96010186141a386
+            wheel_sha256: 3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3
+            control_worker: true
+            expect_compatible: true
           - label: stable
             version: 2.0.0
+            peeled_commit: 69819350d340a6aeccf95aa175edfd1c3f63404b
             wheel_sha256: 04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f
             control_worker: true
             expect_compatible: true
@@ -57,16 +70,12 @@ jobs:
 
       - name: Download and verify the exact producer wheel
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/confflow-dist"
-          gh release download "v${{ matrix.version }}" \
-            --repo moxuezhuchen/ConfFlow \
-            --pattern "confflow-${{ matrix.version }}-py3-none-any.whl" \
-            --dir "$RUNNER_TEMP/confflow-dist"
           wheel="$RUNNER_TEMP/confflow-dist/confflow-${{ matrix.version }}-py3-none-any.whl"
+          curl --fail --location --retry 3 --retry-delay 2 --output "$wheel" \
+            "https://github.com/moxuezhuchen/ConfFlow/releases/download/v${{ matrix.version }}/confflow-${{ matrix.version }}-py3-none-any.whl"
           test -f "$wheel"
           test "$(sha256sum "$wheel" | awk '{print $1}')" = "${{ matrix.wheel_sha256 }}"
           # Install the producer runtime dependencies as well as the exact
@@ -76,6 +85,7 @@ jobs:
       - name: Verify capability contract
         env:
           EXPECTED_VERSION: ${{ matrix.version }}
+          EXPECTED_COMMIT: ${{ matrix.peeled_commit || '' }}
           EXPECTED_WHEEL_SHA256: ${{ matrix.wheel_sha256 }}
           EXPECTED_CONTROL_WORKER: ${{ matrix.control_worker }}
           EXPECTED_COMPATIBLE: ${{ matrix.expect_compatible }}
@@ -97,6 +107,7 @@ jobs:
           payload = json.loads(raw)
           capabilities = parse_confflow_capabilities(raw)
           expected = os.environ["EXPECTED_VERSION"]
+          expected_commit = os.environ["EXPECTED_COMMIT"]
           expected_wheel_sha = os.environ["EXPECTED_WHEEL_SHA256"]
           expected_compatible = os.environ["EXPECTED_COMPATIBLE"].lower() == "true"
           expected_error = f"incompatible ConfFlow version {expected}: require >=2.0,<3.0"
@@ -121,6 +132,10 @@ jobs:
               or build.get("dirty") is not False
           ):
               raise AssertionError(f"pinned build provenance is not clean: {build!r}")
+          if expected_commit and build["commit"] != expected_commit:
+              raise AssertionError(
+                  f"pinned build commit {build['commit']!r} != peeled release commit {expected_commit!r}"
+              )
           producer = payload.get("producer")
           if not isinstance(producer, dict) or producer.get("package") != "confflow":
               raise AssertionError(f"pinned producer provenance is malformed: {producer!r}")

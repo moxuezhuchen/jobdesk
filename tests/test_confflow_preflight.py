@@ -8,14 +8,22 @@ from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
     MIN_VERSION,
+    REFERENCE_BUILD_COMMIT,
     REFERENCE_VERSION,
+    REFERENCE_WHEEL_FILENAME,
+    REFERENCE_WHEEL_SHA256,
     REQUIRED_COMMANDS,
+    ROLLBACK_REFERENCE_BUILD_COMMIT,
+    ROLLBACK_REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_WHEEL_FILENAME,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
     version_spec,
 )
 from jobdesk_app.core.confflow_preflight import (
     ConfFlowCapabilities,
     parse_confflow_capabilities,
     validate_confflow_capabilities,
+    validate_confflow_production_capability,
 )
 
 
@@ -293,6 +301,52 @@ def test_parser_rejects_invalid_commands_and_build_types():
         parse_confflow_capabilities(_payload(commands={"bash": "yes"}))
     with pytest.raises(ValueError, match="build.dirty"):
         parse_confflow_capabilities(_payload(build={"commit": "abc1234", "dirty": "no"}))
+
+
+@pytest.mark.parametrize(
+    ("version", "commit", "wheel_filename", "wheel_sha256"),
+    [
+        (REFERENCE_VERSION, REFERENCE_BUILD_COMMIT, REFERENCE_WHEEL_FILENAME, REFERENCE_WHEEL_SHA256),
+        (
+            ROLLBACK_REFERENCE_VERSION,
+            ROLLBACK_REFERENCE_BUILD_COMMIT,
+            ROLLBACK_REFERENCE_WHEEL_FILENAME,
+            ROLLBACK_REFERENCE_WHEEL_SHA256,
+        ),
+    ],
+)
+def test_production_admission_accepts_only_published_pairings(
+    version, commit, wheel_filename, wheel_sha256
+):
+    build = {"commit": commit, "dirty": False}
+    capabilities = parse_confflow_capabilities(
+        _payload(
+            version=version,
+            commands={**{name: True for name in REQUIRED_COMMANDS}, "config_contract": True},
+            build=build,
+            producer={
+                "package": "confflow",
+                "version": version,
+                "build": build,
+                "wheel": {"filename": wheel_filename, "sha256": wheel_sha256},
+            },
+            executable={
+                "path": "/opt/confflow/bin/confflow",
+                "sha256": "a" * 64,
+                "python": "/opt/confflow/bin/python3.12",
+            },
+            install_provenance={"status": "verified"},
+        )
+    )
+
+    identity = validate_confflow_production_capability(
+        capabilities,
+        expected_executable="/opt/confflow/bin/confflow",
+    )
+
+    assert identity["path"] == "/opt/confflow/bin/confflow"
+
+
 def test_validator_accepts_legal_v3_payload_with_extra_unknown_keys():
     """Forward compatibility: extra top-level keys are tolerated."""
     payload = _payload(experimental_feature=True)

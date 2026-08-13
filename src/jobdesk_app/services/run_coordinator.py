@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Protocol
 
 from ..config.schema import ServerConfig
 from ..core.confflow_preflight import ConfFlowCapabilities
@@ -25,14 +25,70 @@ from .run_service import RunService
 from .scheduler_helpers import resources_from_server, scheduler_from_server
 
 
+class RunRefreshResult(Protocol):
+    """Common read-only shape returned by legacy and control refresh paths."""
+
+    changed_count: int
+
+
+class RunOperationError(str):
+    """Typed, string-compatible failure returned by a run operation.
+
+    The string value preserves the CLI/GUI rendering contract while callers
+    can branch on stable ``code``/``stage`` fields instead of parsing text.
+    """
+
+    code: str
+    stage: str
+    message: str
+    retryable: bool
+    task_id: str | None
+    detail: str | None
+    _frozen: bool
+
+    def __new__(
+        cls,
+        *,
+        code: str,
+        stage: str,
+        message: str,
+        retryable: bool = False,
+        task_id: str | None = None,
+        detail: str | None = None,
+    ) -> "RunOperationError":
+        instance = super().__new__(cls, message)
+        object.__setattr__(instance, "code", code)
+        object.__setattr__(instance, "stage", stage)
+        object.__setattr__(instance, "message", message)
+        object.__setattr__(instance, "retryable", retryable)
+        object.__setattr__(instance, "task_id", task_id)
+        object.__setattr__(instance, "detail", detail)
+        object.__setattr__(instance, "_frozen", True)
+        return instance
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError(f"{type(self).__name__} is immutable")
+        object.__setattr__(self, name, value)
+
+    @classmethod
+    def from_exception(cls, exc: Exception, *, stage: str, retryable: bool = False) -> "RunOperationError":
+        return cls(
+            code=f"{type(exc).__name__}".lower(),
+            stage=stage,
+            message=_error_text(exc),
+            retryable=retryable,
+        )
+
+
 @dataclass
 class RunOperationOutcome:
     records: list[RunRecord] = field(default_factory=list)
     submit_results: list[SubmitResult] = field(default_factory=list)
     transfer_records: list[TransferRecord] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    refresh_result: Any | None = None
+    errors: list[RunOperationError] = field(default_factory=list)
+    refresh_result: RunRefreshResult | None = None
     changed_count: int = 0
 
 
@@ -76,7 +132,7 @@ class RunCoordinator:
             record = self.service.create_run(spec, run_id=run_id, local_dir=local_dir)
             return RunOperationOutcome(records=[record])
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="create")])
 
     def submit(
         self,
@@ -87,7 +143,7 @@ class RunCoordinator:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="load")])
         return self._submit_record(record, resource_overrides=resource_overrides)
 
     def _submit_record(
@@ -118,21 +174,31 @@ class RunCoordinator:
             return RunOperationOutcome(
                 records=[durable_record],
                 submit_results=[result],
-                errors=list(result.errors),
+                errors=[
+                    RunOperationError(
+                        code="submit_failed",
+                        stage="submit",
+                        message=message,
+                        retryable=True,
+                    )
+                    for message in result.errors
+                ],
             )
         except Exception as exc:
-            errors = [_error_text(exc)]
+            errors = [RunOperationError.from_exception(exc, stage="submit", retryable=True)]
             try:
                 record = self.service.load_run(run_id)
             except Exception as load_exc:
-                errors.append(f"reload after submit failure failed: {_error_text(load_exc)}")
+                errors.append(
+                    RunOperationError.from_exception(load_exc, stage="submit.reload", retryable=False)
+                )
             return RunOperationOutcome(records=[record], errors=errors)
 
     def refresh(self, run_id: str) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="load")])
         try:
             server = self._server_lookup(record.server_id)
             with self._clients(record.server_id, server, need_sftp=False) as (ssh, _sftp):
@@ -143,13 +209,16 @@ class RunCoordinator:
                 changed_count=result.changed_count,
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
+            return RunOperationOutcome(
+                records=[record],
+                errors=[RunOperationError.from_exception(exc, stage="refresh", retryable=True)],
+            )
 
     def download(self, run_id: str, patterns: list[str]) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="load")])
         try:
             server = self._server_lookup(record.server_id)
             with self._clients(record.server_id, server, need_sftp=True) as (_ssh, sftp):
@@ -158,17 +227,29 @@ class RunCoordinator:
                 records=[self.service.load_run(run_id)],
                 transfer_records=list(transfers),
                 failures=list(failures),
-                errors=[f"{task_id}: {message}" for task_id, message in failures],
+                errors=[
+                    RunOperationError(
+                        code="transfer_failed",
+                        stage="download",
+                        message=f"{task_id}: {message}",
+                        retryable=True,
+                        task_id=task_id,
+                    )
+                    for task_id, message in failures
+                ],
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
+            return RunOperationOutcome(
+                records=[record],
+                errors=[RunOperationError.from_exception(exc, stage="download", retryable=True)],
+            )
 
     def sync_progress(self, run_id: str) -> RunOperationOutcome:
         """Synchronize declared live-progress files without changing task state."""
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="load")])
         try:
             server = self._server_lookup(record.server_id)
             with self._clients(record.server_id, server, need_sftp=True) as (_ssh, sftp):
@@ -177,34 +258,57 @@ class RunCoordinator:
                 records=[self.service.load_run(run_id)],
                 transfer_records=list(transfers),
                 failures=list(failures),
-                errors=[f"{task_id}: {message}" for task_id, message in failures],
+                errors=[
+                    RunOperationError(
+                        code="transfer_failed",
+                        stage="progress",
+                        message=f"{task_id}: {message}",
+                        retryable=True,
+                        task_id=task_id,
+                    )
+                    for task_id, message in failures
+                ],
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
+            return RunOperationOutcome(
+                records=[record],
+                errors=[RunOperationError.from_exception(exc, stage="progress", retryable=True)],
+            )
 
     def cancel(self, run_id: str) -> RunOperationOutcome:
         try:
             record = self.service.load_run(run_id)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="load")])
         try:
             server = self._server_lookup(record.server_id)
             with self._clients(record.server_id, server, need_sftp=False) as (ssh, _sftp):
                 changed, errors = self.service.cancel_run(run_id, ssh)
             return RunOperationOutcome(
                 records=[self.service.load_run(run_id)],
-                errors=errors,
+                errors=[
+                    RunOperationError(
+                        code="cancel_failed",
+                        stage="cancel",
+                        message=message,
+                        retryable=True,
+                    )
+                    for message in errors
+                ],
                 changed_count=changed,
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=[_error_text(exc)])
+            return RunOperationOutcome(
+                records=[record],
+                errors=[RunOperationError.from_exception(exc, stage="cancel", retryable=True)],
+            )
 
     def delete(self, run_id: str) -> RunOperationOutcome:
         try:
             self.service.delete_run(run_id)
             return RunOperationOutcome(changed_count=1)
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="delete")])
 
     # ---- recovery -------------------------------------------------------------
 
@@ -216,7 +320,7 @@ class RunCoordinator:
                 changed_count=changed,
             )
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="retry")])
 
     def rerun(self, run_id: str) -> RunOperationOutcome:
         try:
@@ -226,7 +330,7 @@ class RunCoordinator:
                 changed_count=changed,
             )
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="rerun")])
 
     def confirm_submitted(
         self,
@@ -253,29 +357,38 @@ class RunCoordinator:
                 changed_count=len(changed),
             )
         except Exception as exc:
-            return RunOperationOutcome(errors=[_error_text(exc)])
+            return RunOperationOutcome(errors=[RunOperationError.from_exception(exc, stage="resolve")])
 
     def recover_operations(self, *, include_legacy_imports: bool = False) -> RunOperationOutcome:
         changed = 0
-        errors: list[str] = []
+        errors: list[RunOperationError] = []
         if include_legacy_imports:
             try:
                 migration_errors = self.service.retry_legacy_imports()
                 errors.extend(
-                    f"legacy migration failed for {error.legacy_path}: {error.message}" for error in migration_errors
+                    RunOperationError(
+                        code="legacy_migration_failed",
+                        stage="recovery.legacy",
+                        message=f"legacy migration failed for {error.legacy_path}: {error.message}",
+                        retryable=False,
+                    )
+                    for error in migration_errors
                 )
             except Exception as exc:
-                errors.append(_error_text(exc))
+                errors.append(RunOperationError.from_exception(exc, stage="recovery.legacy"))
         try:
             changed += self.service.recover_submit_operations()
         except Exception as exc:
-            errors.append(_error_text(exc))
+            errors.append(RunOperationError.from_exception(exc, stage="recovery.submit", retryable=True))
         try:
             delete_changed, delete_errors = self.service.recover_delete_operations_globally()
             changed += delete_changed
-            errors.extend(delete_errors)
+            errors.extend(
+                RunOperationError(code="delete_recovery_failed", stage="recovery.delete", message=message)
+                for message in delete_errors
+            )
         except Exception as exc:
-            errors.append(_error_text(exc))
+            errors.append(RunOperationError.from_exception(exc, stage="recovery.delete"))
         return RunOperationOutcome(changed_count=changed, errors=errors)
 
     def probe_capabilities(
@@ -330,6 +443,22 @@ class RunCoordinator:
         )
 
     # ---- helpers -------------------------------------------------------------
+
+    def server_config(self, server_id: str) -> ServerConfig:
+        """Resolve one server through the coordinator application boundary."""
+        return self._server_lookup(server_id)
+
+    @contextmanager
+    def clients(
+        self,
+        server_id: str,
+        server: ServerConfig,
+        *,
+        need_sftp: bool,
+    ) -> Iterator[tuple[Any, Any | None]]:
+        """Borrow a scoped SSH/SFTP lease; callers must not retain either client."""
+        with self._clients(server_id, server, need_sftp=need_sftp) as clients:
+            yield clients
 
     def _close(self, sftp: Any | None, ssh: Any | None) -> None:
         if not self._close_clients:

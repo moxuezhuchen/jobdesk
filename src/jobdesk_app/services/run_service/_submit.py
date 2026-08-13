@@ -29,16 +29,18 @@ def submit_run(
     scheduler=None,
     resources=None,
     max_cores: int | None = None,
+    *,
+    submitter_factory=None,
+    heartbeat_interval: float | None = None,
 ) -> SubmitResult:
     """Submit a run's tasks to the remote cluster.
 
     This is a module-level function to enable method extraction from RunService.
     The ``service`` argument must be a RunService instance.
     """
-    # Lazy import so tests can monkeypatch jobdesk_app.services.run_service.JobSubmitter
-    import jobdesk_app.services.run_service as _rs
+    if submitter_factory is None:
+        from jobdesk_app.remote.submitter import JobSubmitter as submitter_factory
 
-    JobSubmitter = _rs.JobSubmitter
     from jobdesk_app.remote.scheduler import ResourceSpec, make_adapter
 
     record = service.load_run(run_id)
@@ -80,6 +82,9 @@ def submit_run(
             [op.operation_id for op in operations],
             owner_id,
             lease_seconds=lease_seconds,
+            heartbeat_interval=heartbeat_interval
+            if heartbeat_interval is not None
+            else SUBMIT_LEASE_SECONDS / 3,
         ) as guard:
             operation_by_task: dict[str, OperationRecord] = {}
             for operation in operations:
@@ -96,8 +101,7 @@ def submit_run(
             )
 
             service.repository.update_run(record)
-            # Lazy import so that tests can monkeypatch JobSubmitter on the module
-            submitter = JobSubmitter(
+            submitter = submitter_factory(
                 tasks=tasks,
                 ssh=ssh,
                 sftp=sftp,
@@ -108,6 +112,7 @@ def submit_run(
                 scheduler=scheduler,
                 resources=resources,
                 max_cores=max_cores,
+                server_id=record.server_id,
                 task_update_callback=sink.update_tasks,
                 remote_started_callback=sink.mark_remote_started,
             )
@@ -118,6 +123,13 @@ def submit_run(
                 executable_data = accepted.executable if isinstance(accepted.executable, dict) else {}
                 accepted_identity = getattr(submitter, "accepted_executable_identity", None)
                 identity_data = accepted_identity.as_dict() if accepted_identity is not None else {}
+                accepted_contract = getattr(submitter, "accepted_config_contract", None)
+                contract_data = accepted_contract.as_dict() if accepted_contract is not None else None
+                remote_identity = (
+                    accepted_contract.remote_identity.as_dict()
+                    if accepted_contract is not None
+                    else None
+                )
                 resolved = executable_data.get("path") or next(
                     (task.confflow_executable for task in tasks if task.confflow_executable),
                     "confflow",
@@ -129,6 +141,8 @@ def submit_run(
                     resolved_executable=str(resolved),
                     resolved_realpath=str(realpath),
                     executable_identity=identity_data,
+                    config_contract=contract_data,
+                    remote_identity=remote_identity,
                 )
     except Exception as exc:
         primary_error = exc

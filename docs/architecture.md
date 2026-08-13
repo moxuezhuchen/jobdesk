@@ -1,15 +1,71 @@
 # JobDesk Architecture
 
-## ConfFlow contract update (2026-07-28)
+## Current candidate boundary (2026-08-13)
+
+The current JobDesk candidate is the published v0.7.1 patch release, with
+package metadata version `0.7.1`. The producer paired for the next acceptance
+cycle is the formally published ConfFlow `v2.1.2`
+tag, peeled at commit `b13a10f59b5817dbb218f51c7e232f43c9bdc996`. Its released
+wheel is `confflow-2.1.2-py3-none-any.whl` with SHA-256
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and its
+workflow-schema SHA-256 is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+The superseded v2.1.1 pairing remains historical evidence only (peeled commit
+`338b53b3a34593271b926fc9e96010186141a386`, wheel SHA-256
+`3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`).
+ConfFlow publication is complete, and the JobDesk patch release is published,
+but no candidate endpoint has been configured. The dirty shared
+checkout at `C:\dft\tool\jobdesk-dev` remains historical/user-owned state at
+`89d232a`.
+
+| State boundary | Identity | Treatment |
+|---|---|---|
+| Dirty historical JobDesk worktree | `C:\dft\tool\jobdesk-dev` @ `89d232a` | preserved; package metadata and user changes remain untouched |
+| Dirty historical ConfFlow worktree | `/opt/ConfFlow` @ `10e457d` | preserved; not used as the candidate source |
+| Released baseline | JobDesk `e4d8f74` / v0.6.0 + ConfFlow `6981935` / v2.0.0 | current configured pairing |
+| Architecture candidate pairing | JobDesk `v0.7.1` / package `0.7.1` + ConfFlow `v2.1.2` / peeled `b13a10f59b5817dbb218f51c7e232f43c9bdc996` | JobDesk patch release published; endpoint promotion remains separately gated |
+| Superseded producer candidate evidence | ConfFlow `v2.1.1` / peeled `338b53b3a34593271b926fc9e96010186141a386` | historical evidence only; not the current pairing |
+| Superseded producer candidate evidence | ConfFlow `1a0d760` / planned `2.1.0` | historical evidence only; superseded before publication |
+| Promotion endpoint | v0.6.0/v2.0.0 configured identity | unchanged until separately authorized |
+
+The current workflow path is:
+
+```text
+GUI -> WorkflowDocument / WorkflowCodec
+    -> explicit migration policy + bounded structural lint
+    -> per-server config-contract resolver
+    -> remote canonical dry-run
+    -> control submission and provenance-bound run projection
+```
+
+`WorkflowDocument`, `WorkflowCodec`, and `WorkflowMigrationPort` preserve
+unknown saved fields and do not import Qt or producer Python models. The
+compatibility facade may expose producer diagnostics when available, but
+it never owns a semantic rule list and remote canonical validation is
+authoritative. A config contract records the producer
+schema/version/hash and binds the result to the server and immutable
+executable identity before upload. Stable v2.0.0 may use only its explicit,
+identity-pinned compatibility fallback because that release predates the
+additive `config contract --json` command.
+
+ConfFlow `v2.1.2` publication does not itself promote an endpoint. JobDesk
+release publication, side-by-side acceptance, real-launcher acceptance, and
+promotion remain independent gates; this candidate has not switched any
+production endpoint.
+
+## ConfFlow contract update (2026-08-12)
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
 Workflow method presets are supplied by `jobdesk_app.services.method_presets`,
 while the editable local `WorkflowSpec` and the remote `confflow` CLI form a
 two-part contract. JobDesk accepts ConfFlow in the compatibility window
-`>=2.0,<3.0`; control submission is pinned to the exact clean `v2.0.0`
-provenance. The Phase F owner exception removed the legacy backend from the
-production path; v1.5.3 and v1.4.6 remain historical release evidence only.
-This is a capability window, not an exact shared model pin.
+`>=2.0,<3.0`; the active control submission is pinned to the exact clean
+published `v2.1.2` provenance shown above, while the explicit v2.0.0 identity
+remains the rollback pairing. The Phase F owner exception removed the legacy
+backend from the production path; v1.5.3 and v1.4.6 remain historical release
+evidence only, and v2.1.1 is superseded historical candidate evidence. The
+compatibility window is not permission to accept an
+arbitrary producer or an unpaired wheel.
 
 An executable DAG must have one semantic terminal step. The OUTPUT node
 visualizes that one result and does not aggregate independent branches; add a

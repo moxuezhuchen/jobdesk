@@ -170,7 +170,7 @@ def test_from_workflow_spec_accepts_raw_dict():
 def test_from_workflow_spec_raw_defaults_do_not_create_advanced_node():
     """Flat engine defaults are not editor ``ADVANCED`` options.
 
-    The DAG submit path writes ``GlobalConfigModel.model_dump()`` as a flat
+    The DAG submit path writes the producer schema mapping as a flat
     YAML mapping.  Reloading that document must not materialise every
     engine-owned default as a visible free-form node.
     """

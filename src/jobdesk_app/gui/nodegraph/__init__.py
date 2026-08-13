@@ -20,7 +20,7 @@ Architecture
        │ PropertiesPanel        │  right side: selected-node params
        └────────────────────────┘
 
-       NodeGraph  ◄── serialization ──►  WorkflowSpec (confflow GlobalConfigModel)
+       NodeGraph  ◄── serialization ──►  WorkflowSpec (producer schema mapping)
 ```
 
 The data model is independent of the visualization so that it can be

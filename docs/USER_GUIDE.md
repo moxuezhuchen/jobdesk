@@ -1,5 +1,25 @@
 # JobDesk User Guide
 
+## Current producer compatibility (2026-08-13)
+
+The released producer is ConfFlow v2.1.2 at peeled commit
+`b13a10f59b5817dbb218f51c7e232f43c9bdc996`, with the published wheel
+SHA-256 `80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`.
+The JobDesk v0.7.1 patch release is published but is not yet the production
+endpoint, and the v2.1.2 release does not switch an endpoint. The superseded v2.1.1
+release remains historical evidence only. The rollback pairing
+remains JobDesk v0.6.0 with ConfFlow v2.0.0.
+
+Before a workflow upload, JobDesk discovers the selected server's ConfFlow
+configuration contract, verifies the workflow-schema hash and executable
+provenance, and runs the producer's canonical dry-run. Local editor lint helps
+with shape and migration diagnostics but does not override remote semantic
+validation. Legacy saved workflows require an explicit migration/backup
+decision, and unknown fields are preserved.
+
+Do not treat a candidate build as released or switch the configured/default
+endpoint until the separate side-by-side and acceptance gates have passed.
+
 JobDesk 是 Windows 本地的科研计算工作台，通过 SSH 管理远程 Linux 服务器上的
 Gaussian/ORCA 等计算任务。
 

@@ -1,5 +1,28 @@
 # Dual-Repository Contract CI Design
 
+## Current candidate pairing (2026-08-13)
+
+The current pairing is the published JobDesk v0.7.1 patch release against the
+formally published ConfFlow `v2.1.2` tag, peeled at
+`b13a10f59b5817dbb218f51c7e232f43c9bdc996`. The published wheel digest is
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
+published workflow-schema digest is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+The released comparison remains JobDesk `e4d8f74` / v0.6.0 against ConfFlow
+`6981935` / v2.0.0. Candidate compatibility is evidence only; it does not
+authorize publication, installation over the stable environment, endpoint
+switching, or production promotion.
+
+The earlier ConfFlow `1a0d760` / planned `2.1.0` candidate is retained as
+historical evidence only and was superseded before publication.
+
+The Phase 4 consumer gate additionally checks the per-server
+`confflow.config.contract.v1` response, the packaged workflow-schema digest
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`, and the
+binding to the selected executable identity. The v2.0.0 stable producer uses
+the explicit approved-identity compatibility path because it has no additive
+config-contract command; unknown identity or hash values fail closed.
+
 ConfFlow is the sole owner of the control-protocol JSON Schema and the
 capability/artifact contract constants exposed by its capability payload.
 JobDesk consumes a release schema bundle and never hand-edits a second
@@ -39,6 +62,21 @@ JobDesk pull requests run `JobDesk candidate × current stable producer × next
 producer candidate`. The stable producer protects released behavior; the next
 candidate catches schema and capability drift before producer release.
 
+The candidate-side two-direction gate is exposed by
+`.github/workflows/post-phase-f-contract.yml`. It is intentionally a manual
+workflow: dispatch it from the exact JobDesk candidate ref and pass the exact
+ConfFlow release ref `v2.1.2` as `confflow_ref`; the stable matrix rows always
+checkout the released `v2.0.0` tag. The current candidate rows checkout the
+supplied producer tag for peeled-commit provenance and install the exact
+published v2.1.2 wheel after digest verification; they do not build a local
+substitute. It runs the
+`base` and `chem` installations against both the released v2.0.0 wheel and the
+selected candidate, checks capability/configuration-contract provenance and
+schema bindings, verifies non-editable installed-wheel package data and
+`pip check`, and runs the saved-workflow/resume/worker fixture corpus.
+It does not run Gaussian, ORCA, SSH, or a production endpoint. A local run or
+an unpushed candidate is not remote CI evidence.
+
 ## Automation
 
 A release or PR automation job opens an update PR when the pinned producer tag,
@@ -63,16 +101,25 @@ commit, wheel digest, or schema digest is inconsistent.
 5. The matrix runs without WSL or Gaussian dependencies; real SSH/WSL
    acceptance remains a separate integration gate.
 
-## Current execution boundary (2026-08-11)
+## Current execution boundary (2026-08-12)
 
-The producer candidate was followed by the formally published v2.0.0 release.
-Main is now at the normal merge commit `69819350`, tag `v2.0.0` is immutable,
-and the formal release wheel digest is
+The producer candidate `1a0d760` / planned `2.1.0` was superseded before
+publication. ConfFlow `v2.1.2` is now formally published at immutable tag
+`v2.1.2`, peeled at commit
+`b13a10f59b5817dbb218f51c7e232f43c9bdc996`; its formal release wheel digest is
+`80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92`, and the
+published workflow-schema digest is
+`87991f09a0edbd56aed354bdd03b012775a2f2b98504297ab459e524f4542427`.
+The stable rollback remains JobDesk `e4d8f74` / v0.6.0 with ConfFlow
+`6981935` / v2.0.0; the stable wheel digest is
 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
 The JobDesk compatibility matrix labels v2.0.0 as `stable` and keeps v1.5.3
 and v1.5.0 only as explicitly historical comparisons; old candidate digests
-are not referenced. The JobDesk consumer pin and the formal five-member
-worker-handoff schema contract are advanced together. Real WSL
+are not acceptance evidence. The JobDesk v0.7.1 patch release is published.
+The JobDesk consumer pin and the formal
+five-member worker-handoff schema contract are advanced together. Real WSL
 launcher/control computation,
 reconnect/cancel/resume/artifact integrity, and the complete compatibility
-cycle remain separate gates; no candidate-only or historical run is counted.
+cycle remain separate gates; publishing ConfFlow v2.1.2 alone does not authorize
+an endpoint switch or production promotion, and no candidate-only or historical
+run is counted.

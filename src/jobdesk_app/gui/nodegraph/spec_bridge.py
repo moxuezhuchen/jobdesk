@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from jobdesk_app.core.workflow_codec import WorkflowCodec
 from jobdesk_app.core.workflow_spec import (
     WorkflowSpec,
     require_confflow,
@@ -114,17 +115,15 @@ class WorkflowGraphPayload:
         stitch in any ``steps`` overrides the editor may have added
         on top of what ``WorkflowSpec.from_form`` produced.
         """
-        import yaml
-
         spec_yaml = self.spec.to_yaml()
-        base = yaml.safe_load(spec_yaml) or {}
+        base = WorkflowCodec.loads(spec_yaml).mapping() or {}
         if not isinstance(base, dict):
             base = {}
         # Honour any editor-supplied steps if they're richer than the
         # wizard's view (e.g. the nodegraph may add confgen params).
         if self.steps:
             base["steps"] = list(self.steps)
-        return yaml.safe_dump(base, sort_keys=False, allow_unicode=True)
+        return WorkflowCodec.dumps_mapping(base)
 
 
 __all__ = [
@@ -634,13 +633,13 @@ def _step_kind(step: dict[str, Any]) -> NodeKind:
 
 
 def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
-    """Pull extra (non-well-known) keys from a dumped ``GlobalConfigModel``.
+    """Pull extra (non-well-known) keys from the producer schema mapping.
 
     Tolerates both the legacy nested shape (``calc: { program, method, … }``)
     and the v5 flat shape (everything at the top level).
 
     We treat fields the user actually wrote as ``extra`` — the
-    ``GlobalConfigModel`` exposes ``model_fields_set()`` for this.  When
+    The authoring mapping exposes ``model_fields_set`` for this.  When
     the caller passes a raw dict (e.g. from a legacy YAML file), we
     accept every well-known key as "known" and pass the rest through.
     """
@@ -665,7 +664,7 @@ def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
         "freeze",
         "gaussian_path",
         "orca_path",
-        # Keep every field declared by ConfFlow's GlobalConfigModel here.
+        # Keep every field declared by the producer schema here.
         # ``from_workflow_spec`` also accepts the flat YAML emitted by the
         # DAG submit path, which contains model defaults (for example
         # ``rmsd_threshold`` and ``resume_from_backups``).  Treating those

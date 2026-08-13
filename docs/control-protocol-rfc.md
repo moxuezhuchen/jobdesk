@@ -1,10 +1,10 @@
 # ConfFlow control protocol v1 consumer record
 
-- **Status:** consumer snapshot of the released producer contract
-- **Producer release:** `v2.0.0`
-- **Producer commit:** `69819350d340a6aeccf95aa175edfd1c3f63404b`
-- **Producer wheel:** `confflow-2.0.0-py3-none-any.whl`
-- **Wheel SHA-256:** `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`
+- **Status:** historical consumer snapshot of the superseded producer contract
+- **Producer release:** `v2.1.1`
+- **Producer commit:** `338b53b3a34593271b926fc9e96010186141a386`
+- **Producer wheel:** `confflow-2.1.1-py3-none-any.whl`
+- **Wheel SHA-256:** `3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3`
 - **Protocol:** `confflow.control.v1`
 - **Schema dialect:** JSON Schema Draft 2020-12
 
@@ -13,8 +13,9 @@ bundle is `docs/control_protocol/v1/` in the pinned ConfFlow release. This
 repository vendors the same four core JSON documents plus the released
 worker-handoff extension under
 `confflow/schemas/control/` so the consumer tests and CI can validate requests
-and responses without a checkout of the producer repository. The v2.0.0
-`control_worker` release contract contains all five documents; historical
+and responses without a checkout of the producer repository. The v2.1.1
+`control_worker` release contract contains all five documents; the v2.0.0
+rollback contract contains the same five-document shape; historical
 producers that do not advertise that capability retain only the four-file
 core. The snapshot is checked by `tests/test_control_protocol_schemas.py`
 using canonical JSON digests; changing a schema requires a new pinned producer

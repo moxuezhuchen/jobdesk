@@ -10,10 +10,10 @@ import pytest
 
 import jobdesk_app.services.run_service as run_service_module
 from jobdesk_app.core.confflow_contract import (
-    REFERENCE_BUILD_COMMIT,
-    REFERENCE_VERSION,
-    REFERENCE_WHEEL_FILENAME,
-    REFERENCE_WHEEL_SHA256,
+    ROLLBACK_REFERENCE_BUILD_COMMIT,
+    ROLLBACK_REFERENCE_VERSION,
+    ROLLBACK_REFERENCE_WHEEL_FILENAME,
+    ROLLBACK_REFERENCE_WHEEL_SHA256,
 )
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.models import FailureRecord
@@ -963,7 +963,7 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     capability_json = json.dumps(
         {
             "schema_version": 4,
-            "version": REFERENCE_VERSION,
+            "version": ROLLBACK_REFERENCE_VERSION,
             "capabilities": {"workflow_state": True, "resume": True, "dag": True},
             "artifacts": {
                 "run_summary": "run_summary.json",
@@ -974,12 +974,15 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
                 "min_xyz": "{basename}min.xyz",
             },
             "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
-            "build": {"commit": REFERENCE_BUILD_COMMIT, "dirty": False},
+            "build": {"commit": ROLLBACK_REFERENCE_BUILD_COMMIT, "dirty": False},
             "producer": {
                 "package": "confflow",
-                "version": REFERENCE_VERSION,
-                "build": {"commit": REFERENCE_BUILD_COMMIT, "dirty": False},
-                "wheel": {"filename": REFERENCE_WHEEL_FILENAME, "sha256": REFERENCE_WHEEL_SHA256},
+                "version": ROLLBACK_REFERENCE_VERSION,
+                "build": {"commit": ROLLBACK_REFERENCE_BUILD_COMMIT, "dirty": False},
+                "wheel": {
+                    "filename": ROLLBACK_REFERENCE_WHEEL_FILENAME,
+                    "sha256": ROLLBACK_REFERENCE_WHEEL_SHA256,
+                },
                 "install_provenance": {"status": "verified"},
             },
             "executable": {
@@ -1027,8 +1030,8 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
     )
     capability = {
         "schema_version": 4,
-        "version": REFERENCE_VERSION,
-        "producer": {"package": "confflow", "version": REFERENCE_VERSION},
+        "version": ROLLBACK_REFERENCE_VERSION,
+        "producer": {"package": "confflow", "version": ROLLBACK_REFERENCE_VERSION},
         "executable": {"path": "/opt/confflow/bin/confflow"},
     }
 
@@ -2526,12 +2529,17 @@ def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(tmp_path, runs_dir, 
             assert entered.wait(10)
             return SubmitResult("blocked_heartbeat", 0, "/remote/jobs")
 
-    monkeypatch.setattr(run_service_module, "SUBMIT_HEARTBEAT_INTERVAL", 0.01)
     monkeypatch.setattr(service.repository, "renew_submit_lease", blocking_renew)
     monkeypatch.setattr(run_service_module, "JobSubmitter", WaitingSubmitter)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
-        submitting = pool.submit(service.submit_run, "blocked_heartbeat", object(), object())
+        submitting = pool.submit(
+            service.submit_run,
+            "blocked_heartbeat",
+            object(),
+            object(),
+            heartbeat_interval=0.01,
+        )
         assert entered.wait(10)
         assert not submitting.done()
         threading.Event().wait(2.2)

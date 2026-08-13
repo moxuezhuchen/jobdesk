@@ -20,12 +20,27 @@ surface (pyproject pin, CI wheel pin, README, validator error messages)
 must be a *mirror* of these tuples; never a free-floating literal.
 The historical v1.5.3 and v1.4.6 release records remain archived separately;
 the Phase F owner exception removed the legacy backend from the production
-path. Current control submission requires the exact v2.0.0 reference below.
+path. Current control submission requires an exact approved release identity;
+the current producer is v2.1.2 and the v2.0.0 identity remains available only
+as the explicit rollback pairing. The superseded v2.1.1 pairing is retained
+as historical evidence below and is not a current production identity.
 
 Reference build artefact
 ------------------------
-The ConfFlow v2.0.0 wheel released from the clean tagged producer commit
-has the following SHA-256::
+The current ConfFlow v2.1.2 wheel released from the clean tagged producer
+commit has the following SHA-256::
+
+    confflow-2.1.2-py3-none-any.whl
+    sha256: 80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92
+    commit: b13a10f59b5817dbb218f51c7e232f43c9bdc996
+
+The superseded ConfFlow v2.1.1 candidate remains historical evidence::
+
+    confflow-2.1.1-py3-none-any.whl
+    sha256: 3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3
+    commit: 338b53b3a34593271b926fc9e96010186141a386
+
+The v2.0.0 release remains an explicit rollback identity::
 
     confflow-2.0.0-py3-none-any.whl
     sha256: 04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f
@@ -61,6 +76,14 @@ __all__ = [
     "REFERENCE_BUILD_COMMIT",
     "REFERENCE_WHEEL_FILENAME",
     "REFERENCE_WHEEL_SHA256",
+    "SUPERSEDED_REFERENCE_VERSION",
+    "SUPERSEDED_REFERENCE_BUILD_COMMIT",
+    "SUPERSEDED_REFERENCE_WHEEL_FILENAME",
+    "SUPERSEDED_REFERENCE_WHEEL_SHA256",
+    "ROLLBACK_REFERENCE_VERSION",
+    "ROLLBACK_REFERENCE_BUILD_COMMIT",
+    "ROLLBACK_REFERENCE_WHEEL_FILENAME",
+    "ROLLBACK_REFERENCE_WHEEL_SHA256",
     "LEGACY_REFERENCE_VERSION",
     "LEGACY_REFERENCE_BUILD_COMMIT",
     "LEGACY_REFERENCE_WHEEL_FILENAME",
@@ -136,10 +159,25 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # docs, and the package's expected reference build.
 MIN_VERSION: tuple[int, int, int] = (2, 0, 0)
 MAX_EXCLUSIVE: tuple[int, int, int] = (3, 0, 0)
-REFERENCE_VERSION: str = "2.0.0"
-REFERENCE_BUILD_COMMIT: str = "69819350d340a6aeccf95aa175edfd1c3f63404b"
-REFERENCE_WHEEL_FILENAME: str = "confflow-2.0.0-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
+REFERENCE_VERSION: str = "2.1.2"
+REFERENCE_BUILD_COMMIT: str = "b13a10f59b5817dbb218f51c7e232f43c9bdc996"
+REFERENCE_WHEEL_FILENAME: str = "confflow-2.1.2-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "80abfa69a7f865539eadfba5c628eeb95953164098f0fd462e0a00c7904e4f92"
+
+# Preserve the previous candidate release as superseded historical evidence;
+# it is not a current reference and is not the stable rollback pairing.
+SUPERSEDED_REFERENCE_VERSION: str = "2.1.1"
+SUPERSEDED_REFERENCE_BUILD_COMMIT: str = "338b53b3a34593271b926fc9e96010186141a386"
+SUPERSEDED_REFERENCE_WHEEL_FILENAME: str = "confflow-2.1.1-py3-none-any.whl"
+SUPERSEDED_REFERENCE_WHEEL_SHA256: str = "3425d97246ee6d37369ecce672dfa154643179cc3ee744eb332aee4b94dbc5f3"
+
+# Keep the previously accepted producer pairing available for explicit
+# rollback and stable-side compatibility checks. It is not the current
+# reference used by release provenance tests.
+ROLLBACK_REFERENCE_VERSION: str = "2.0.0"
+ROLLBACK_REFERENCE_BUILD_COMMIT: str = "69819350d340a6aeccf95aa175edfd1c3f63404b"
+ROLLBACK_REFERENCE_WHEEL_FILENAME: str = "confflow-2.0.0-py3-none-any.whl"
+ROLLBACK_REFERENCE_WHEEL_SHA256: str = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
 
 # Preserve the last legacy release metadata for historical/rollback evidence;
 # it is not a current production compatibility path after Phase F.

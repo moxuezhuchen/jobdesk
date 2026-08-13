@@ -538,7 +538,7 @@ class RunsResultsPage(QWidget):
                     srv = cfg.servers.get(record.server_id)
                     if srv:
                         batch_dir = remote_run_dir(record.remote_dir, record.run_id)
-                        tasks = service.repository.load_tasks(record.run_id)
+                        tasks = service.load_tasks(record.run_id)
                         progress_paths = [
                             path for task in tasks for path in (task.remote_state_path, task.remote_stats_path) if path
                         ]
@@ -1273,7 +1273,7 @@ class RunsResultsPage(QWidget):
 
     def _load_tasks(self, record: RunRecord):
         try:
-            tasks = RunService(self._result_workspace(record)).repository.load_tasks(record.run_id)
+            tasks = RunService(self._result_workspace(record)).load_tasks(record.run_id)
         except KeyError:
             tasks = []
         if tasks:
@@ -2484,7 +2484,7 @@ class RunsResultsPage(QWidget):
         def _run():
             from ...core.lifecycle import TaskStatus
 
-            current = RunService(workspace).repository.load_tasks(record.run_id)
+            current = RunService(workspace).load_tasks(record.run_id)
             current_by_id = {task.task_id: task for task in current}
             if any(
                 task_id not in current_by_id or current_by_id[task_id].status != TaskStatus.uncertain

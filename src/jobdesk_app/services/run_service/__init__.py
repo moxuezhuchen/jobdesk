@@ -119,6 +119,26 @@ class RunService:
         self._run_dir(run_id)
         return self.repository.load_run(run_id)
 
+    def load_tasks(self, run_id: str):
+        """Read task records through the application service boundary."""
+        self._run_dir(run_id)
+        return self.repository.load_tasks(run_id)
+
+    def load_run_provenance(self, run_id: str):
+        """Read persisted producer provenance for one run."""
+        self._run_dir(run_id)
+        return self.repository.load_run_provenance(run_id)
+
+    def mutate_tasks(self, run_id: str, mutation):
+        """Apply one journalled task projection mutation."""
+        self._run_dir(run_id)
+        return self.repository.mutate_tasks(run_id, mutation)
+
+    def update_run(self, record: RunRecord) -> None:
+        """Persist one complete run-record update through the service port."""
+        self._run_dir(record.run_id)
+        self.repository.update_run(record)
+
     def migration_errors(self) -> list[MigrationError]:
         return self.repository.list_migration_errors()
 
@@ -126,9 +146,29 @@ class RunService:
         return self.repository.retry_legacy_imports()
 
     def submit_run(
-        self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None, max_cores: int | None = None
+        self,
+        run_id: str,
+        ssh,
+        sftp,
+        env_init_scripts: list[str] | None = None,
+        scheduler=None,
+        resources=None,
+        max_cores: int | None = None,
+        *,
+        heartbeat_interval: float | None = None,
     ):
-        return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources, max_cores)
+        return _submit.submit_run(
+            self,
+            run_id,
+            ssh,
+            sftp,
+            env_init_scripts,
+            scheduler,
+            resources,
+            max_cores,
+            submitter_factory=JobSubmitter,
+            heartbeat_interval=heartbeat_interval,
+        )
 
     def persist_confflow_provenance(
         self,
@@ -138,6 +178,8 @@ class RunService:
         resolved_executable: str,
         resolved_realpath: str = "",
         executable_identity: dict[str, object] | None = None,
+        config_contract: dict[str, object] | None = None,
+        remote_identity: dict[str, object] | None = None,
     ) -> None:
         """Persist accepted producer identity in SQLite and the run directory."""
         record = self.load_run(run_id)
@@ -146,6 +188,8 @@ class RunService:
             capability,
             resolved_executable=resolved_executable,
             resolved_realpath=resolved_realpath,
+            config_contract=config_contract,
+            remote_identity=remote_identity,
         )
         manifest = {
             "content_schema": "confflow.provenance.v1",
@@ -153,6 +197,8 @@ class RunService:
             "resolved_executable": resolved_executable,
             "resolved_realpath": resolved_realpath,
             "executable_identity": executable_identity or {},
+            "config_contract": config_contract,
+            "remote_identity": remote_identity,
             "capability": capability,
         }
         atomic_write_text(
