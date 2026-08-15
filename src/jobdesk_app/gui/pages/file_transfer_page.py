@@ -49,6 +49,7 @@ from .file_transfer_config import _load_existing_servers_data as _load_existing_
 from .file_transfer_connections import ConnectionsCoordinator
 from .file_transfer_helpers import (
     _remote_list_error_allows_fallback,
+    _remote_list_error_is_connection_failure,
     build_input_sources,
     collect_remote_delete_roots,
     connection_status_text,
@@ -123,6 +124,7 @@ class FileTransferPage(QWidget):
         self._session_pool = session_pool
         self._servers = {}
         self._service: FileTransferService | None = None
+        self._connection_ready = False
         self._connected_server_id: str | None = None
         self._connected_server = None
         self._connections = ConnectionsCoordinator(
@@ -499,7 +501,10 @@ class FileTransferPage(QWidget):
         return FileTransferConnectionSnapshot(
             server_id=self._connected_server_id,
             server=self._connected_server,
-            service=self._service,
+            # The Files page creates a lazy service before the first remote
+            # operation.  Do not expose that pending service as usable to
+            # Submit/Workflow until a remote listing succeeds.
+            service=self._service if self._connection_ready else None,
             remote_dir=self.remote_path.text().strip() or "/",
         )
 
@@ -584,11 +589,11 @@ class FileTransferPage(QWidget):
         self.connection_label.setText(
             connection_status_text(
                 self._connected_server_id,
-                self._service is not None,
+                self._connection_ready,
                 language=language,
             )
         )
-        self.connection_label.set_state("success" if self._service is not None else "neutral")
+        self.connection_label.set_state("success" if self._connection_ready else "neutral")
         # -- Phase 2.1: retranslate empty-state hints --
         self._no_server_hint.apply_language(language)
         self._empty_dir_hint.apply_language(language)
@@ -681,12 +686,13 @@ class FileTransferPage(QWidget):
             persistent_session=not pooled,
         )
         self._service = service
+        self._connection_ready = False
         self._connections.set_server(server_id, server, service)
         self._connected_server_id = server_id
         self._connected_server = server
         self._set_connection_status(
-            connection_status_text(server_id, True, language=self._language),
-            state="success",
+            connection_status_text(server_id, False, language=self._language),
+            state="warning",
         )
         self._refresh_remote()
         # Phase 2.1: refresh empty-state hints now that the connection
@@ -893,9 +899,22 @@ class FileTransferPage(QWidget):
         self._refresh_remote_path(self.remote_path.text().strip() or "/")
 
     def _refresh_remote_path(self, remote_path: str):
-        remote_dir = normalize_remote_path(self.remote_path.text().strip() or "/")
-        if remote_path:
-            remote_dir = normalize_remote_path(remote_path)
+        current_remote_dir = normalize_remote_path(self.remote_path.text().strip() or "/")
+        requested_remote_dir = normalize_remote_path(remote_path) if remote_path else current_remote_dir
+        current_worker = getattr(self, "remote_worker", None)
+        if current_worker is not None:
+            try:
+                if current_worker.isRunning() and requested_remote_dir == current_remote_dir:
+                    # The initial page activation can request a refresh from
+                    # both on_activated() and the shell navigation callback.
+                    # Do not queue a second SSH bootstrap while the first one
+                    # is still negotiating the WSL endpoint.
+                    return
+            except RuntimeError:
+                # The native QThread wrapper may already be gone during Qt
+                # teardown; treat it as no longer running.
+                pass
+        remote_dir = requested_remote_dir
         self.remote_path.setText(remote_dir)
         self._remote_list_request_id += 1
         request_id = self._remote_list_request_id
@@ -957,6 +976,7 @@ class FileTransferPage(QWidget):
         )
         _load_rows(self.remote_table, rows)
         self._update_selection_summary()
+        self._connection_ready = True
         self._set_connection_status(
             connection_status_text(self._connected_server_id, True, language=self._language),
             state="success",
@@ -972,18 +992,28 @@ class FileTransferPage(QWidget):
     def _on_remote_list_error(self, request_id: int, error: str):
         if not self._remote_list_callback_is_current(request_id):
             return
+        first_line = (error.splitlines()[0] if error else "") or tr("Unknown remote error", self._language)
         if self._remote_list_fallbacks and _remote_list_error_allows_fallback(error):
+            self._connection_ready = True
             fallback = self._remote_list_fallbacks.pop(0)
             self._status_cb(f"Remote path missing, trying: {fallback}")
             self._refresh_remote_path(fallback)
             return
+        if _remote_list_error_is_connection_failure(error):
+            failed_service = self._service
+            self._service = None
+            self._connection_ready = False
+            self._connections.set_server(self._connected_server_id, self._connected_server, None)
+            if failed_service is not None:
+                self._close_service_async(failed_service)
         self._set_connection_status(
-            connection_status_text(self._connected_server_id, False, error.splitlines()[0], self._language),
+            connection_status_text(self._connected_server_id, False, first_line, self._language),
             state="error",
         )
         if self.refresh_btn.property("feedbackState") == "pending":
             self._refresh_feedback.error(tr("Refresh failed", self._language))
-        self._error_cb("Remote List Error", error.splitlines()[0])
+        self._update_empty_state_visibility()
+        self._error_cb(tr("Remote List Error", self._language), first_line)
 
     def _remote_list_callback_is_current(self, request_id: int) -> bool:
         """Reject late worker callbacks once the page or its status chip is gone."""
@@ -1561,6 +1591,7 @@ class FileTransferPage(QWidget):
                 self._connections.set_server(None, None, self._service)
                 self._connections.teardown()
                 self._service = None
+                self._connection_ready = False
                 self._connected_server_id = None
                 self._connected_server = None
 

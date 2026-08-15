@@ -27,6 +27,12 @@ _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _wsl_boot_lock = threading.Lock()
 _wsl_boot_last_attempt: float | None = None
 _WSL_BOOT_COOLDOWN = 10.0  # seconds
+# WSL can report that the distribution has started before sshd has finished
+# loading its host keys and accepting unauthenticated connections.  The normal
+# SSH timeout is intentionally kept short for remote operations, but it is too
+# short for a cold local WSL boot.  An explicit constructor value still wins so
+# tests and callers with a stricter service-level bound can opt in.
+DEFAULT_WSL_READY_TIMEOUT = 45.0
 
 
 def _split_proxy_command(command_line: str) -> list[str]:
@@ -193,6 +199,20 @@ def _is_ssh_identification(line: bytes) -> bool:
     return False
 
 
+def _is_local_tcp_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
+    """Return whether a local TCP endpoint accepts a connection.
+
+    This deliberately does not inspect the payload.  WSL uses the distinction
+    between a refused localhost forward and an open-but-invalid endpoint to
+    decide whether it is safe to use the distro-internal proxy fallback.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, TimeoutError):
+        return False
+
+
 def _is_local_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
     """Check if a local SSH endpoint accepts an identification banner.
 
@@ -301,12 +321,16 @@ class SSHClientWrapper:
     ):
         self._server = server
         self._timeout = timeout
-        self._wsl_ready_timeout = max(
-            0.0,
-            float(timeout if wsl_ready_timeout is None else wsl_ready_timeout),
+        ready_timeout = (
+            max(float(timeout), DEFAULT_WSL_READY_TIMEOUT)
+            if wsl_ready_timeout is None
+            else float(wsl_ready_timeout)
         )
+        self._wsl_ready_timeout = max(0.0, ready_timeout)
         self._wsl_ready_poll_interval = max(0.0, float(wsl_ready_poll_interval))
         self._wsl_probe_timeout = max(0.01, float(wsl_probe_timeout))
+        self._wsl_proxy_command: str | None = None
+        self._proxy_socket: Any | None = None
         self._client: paramiko.SSHClient | None = None
         self._jump_clients: list[paramiko.SSHClient] = []
 
@@ -352,7 +376,8 @@ class SSHClientWrapper:
         if proxy_command:
             proxy_text = _proxy_command_text(proxy_command, hostname, port)
             if sys.platform == "win32":
-                connect_kwargs["sock"] = _PipeProxyCommand(proxy_text)
+                self._proxy_socket = _PipeProxyCommand(proxy_text)
+                connect_kwargs["sock"] = self._proxy_socket
             else:
                 connect_kwargs["sock"] = paramiko.ProxyCommand(proxy_text)
         elif proxy_jump:
@@ -364,6 +389,9 @@ class SSHClientWrapper:
                 key_path,
                 app_known_hosts,
             )
+        elif self._wsl_proxy_command:
+            self._proxy_socket = _PipeProxyCommand(self._wsl_proxy_command)
+            connect_kwargs["sock"] = self._proxy_socket
 
         if self._server.auth_method == "key":
             if key_path:
@@ -376,7 +404,36 @@ class SSHClientWrapper:
 
         try:
             self._client.connect(**connect_kwargs)
+        except EOFError as e:
+            if self._retry_wsl_proxy_after_transport_failure(
+                e,
+                connect_kwargs=connect_kwargs,
+                hostname=hostname,
+                port=port,
+                app_known_hosts=app_known_hosts,
+            ):
+                transport = self._client.get_transport()
+                if transport is not None:
+                    transport.set_keepalive(15)
+                return
+            self.close()
+            raise SSHConnectionError(
+                f"SSH connection failed: {e}",
+                host=hostname,
+                port=port,
+            ) from e
         except paramiko.SSHException as e:
+            if self._retry_wsl_proxy_after_transport_failure(
+                e,
+                connect_kwargs=connect_kwargs,
+                hostname=hostname,
+                port=port,
+                app_known_hosts=app_known_hosts,
+            ):
+                transport = self._client.get_transport()
+                if transport is not None:
+                    transport.set_keepalive(15)
+                return
             self.close()
             raise SSHConnectionError(
                 f"SSH 连接失败: {e}",
@@ -384,6 +441,17 @@ class SSHClientWrapper:
                 port=port,
             ) from e
         except OSError as e:
+            if self._retry_wsl_proxy_after_transport_failure(
+                e,
+                connect_kwargs=connect_kwargs,
+                hostname=hostname,
+                port=port,
+                app_known_hosts=app_known_hosts,
+            ):
+                transport = self._client.get_transport()
+                if transport is not None:
+                    transport.set_keepalive(15)
+                return
             self.close()
             raise SSHConnectionError(
                 f"网络错误: {e}",
@@ -422,6 +490,49 @@ class SSHClientWrapper:
             client.set_missing_host_key_policy(_AutoAddAndSavePolicy(app_known_hosts))
         else:
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+    def _retry_wsl_proxy_after_transport_failure(
+        self,
+        first_error: Exception,
+        *,
+        connect_kwargs: dict[str, Any],
+        hostname: str,
+        port: int,
+        app_known_hosts: Path,
+    ) -> bool:
+        """Retry a flaky Windows localhost WSL endpoint through distro TCP."""
+        if (
+            not self._server.wsl_distro
+            or self._server.host not in _LOCAL_HOSTS
+            or self._wsl_proxy_command
+            or connect_kwargs.get("sock") is not None
+            or isinstance(first_error, (paramiko.AuthenticationException, paramiko.BadHostKeyException))
+        ):
+            return False
+
+        self.close()
+        self._wsl_proxy_command = self._build_wsl_proxy_command(self._server.wsl_distro)
+        self._client = paramiko.SSHClient()
+        self._configure_host_keys(self._client, app_known_hosts)
+        self._proxy_socket = _PipeProxyCommand(self._wsl_proxy_command)
+        connect_kwargs["sock"] = self._proxy_socket
+        try:
+            self._client.connect(**connect_kwargs)
+        except (paramiko.SSHException, OSError, EOFError, TimeoutError) as retry_error:
+            self.close()
+            raise SSHConnectionError(
+                f"SSH connection failed: {retry_error}",
+                host=hostname,
+                port=port,
+            ) from retry_error
+        except Exception as retry_error:
+            self.close()
+            raise SSHConnectionError(
+                f"Connection failed: {type(retry_error).__name__}: {retry_error}",
+                host=hostname,
+                port=port,
+            ) from retry_error
+        return True
 
     def _open_proxy_jump_channel(
         self,
@@ -510,6 +621,7 @@ class SSHClientWrapper:
 
     def _start_wsl_if_configured(self) -> None:
         global _wsl_boot_last_attempt
+        self._wsl_proxy_command = None
         distro = self._server.wsl_distro
         if not distro or sys.platform != "win32":
             return
@@ -546,7 +658,7 @@ class SSHClientWrapper:
                         ["wsl.exe", "-d", distro, "--", "true"],
                         check=True,
                         capture_output=True,
-                        timeout=self._timeout,
+                        timeout=max(float(self._timeout), self._wsl_ready_timeout),
                         creationflags=creationflags,
                     )
                 except (OSError, subprocess.SubprocessError) as exc:
@@ -555,7 +667,46 @@ class SSHClientWrapper:
                         host=self._server.host,
                         port=self._server.port,
                     ) from exc
+            if _is_local_port_open(
+                self._server.host,
+                self._server.port,
+                timeout=self._wsl_probe_timeout,
+            ):
+                return
+            if self._wsl_ready_timeout > 0:
+                # WSL2 may have sshd listening inside the distro while the
+                # Windows localhost forward is refused or accepts a stale,
+                # non-SSH socket.  The distro itself can still reach sshd
+                # through localhost, so route the Paramiko byte stream through
+                # a short-lived WSL nc process instead of waiting on the stale
+                # endpoint for the whole readiness timeout.
+                self._wsl_proxy_command = self._build_wsl_proxy_command(distro)
+                return
+            if not _is_local_tcp_port_open(
+                self._server.host,
+                self._server.port,
+                timeout=self._wsl_probe_timeout,
+            ):
+                self._wsl_proxy_command = self._build_wsl_proxy_command(distro)
+                return
             self._wait_for_wsl_ssh_ready(distro)
+
+    def _build_wsl_proxy_command(self, distro: str) -> str:
+        """Build a Windows-safe proxy command for sshd inside the distro."""
+        proxy_timeout = max(30, int(self._wsl_ready_timeout))
+        return subprocess.list2cmdline(
+            [
+                "wsl.exe",
+                "-d",
+                distro,
+                "--",
+                "nc",
+                "-w",
+                str(proxy_timeout),
+                "127.0.0.1",
+                str(self._server.port),
+            ]
+        )
 
     def _wait_for_wsl_ssh_ready(self, distro: str) -> None:
         """Wait until the configured local endpoint presents an SSH banner."""
@@ -585,6 +736,12 @@ class SSHClientWrapper:
         if self._client:
             self._client.close()
             self._client = None
+        if self._proxy_socket is not None:
+            try:
+                self._proxy_socket.close()
+            except Exception:
+                pass
+            self._proxy_socket = None
         while self._jump_clients:
             jump_client = self._jump_clients.pop()
             jump_client.close()

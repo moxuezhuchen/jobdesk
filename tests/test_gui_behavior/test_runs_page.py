@@ -658,6 +658,18 @@ class TestRunsPage:
             mock_svc.return_value.list_runs.assert_called_once_with()
         assert runs_page.table.rowCount() == 0
 
+    def test_refresh_run_list_handles_unavailable_database(self, runs_page):
+        messages = []
+        runs_page._status_cb = messages.append
+        with patch(
+            "jobdesk_app.gui.pages.runs_results_page.RunService",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            runs_page.refresh_run_list()
+
+        assert runs_page.table.rowCount() == 0
+        assert any("Could not load run records" in message for message in messages)
+
     def test_status_overview_retranslates_without_reloading_runs(self, runs_page):
         runs_page.apply_language("zh", refresh=False)
 

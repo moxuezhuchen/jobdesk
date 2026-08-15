@@ -23,6 +23,36 @@ def qapp():
     return app
 
 
+def test_show_error_reuses_owned_nonblocking_message_box(qapp):
+    """Closing an error must not leave a temporary native dialog wrapper."""
+    window = MainWindow()
+    try:
+        window.show_error("First error", "first message")
+        box = window._error_message_box
+        assert box is not None
+        assert box.windowTitle() == "First error"
+        assert box.text() == "first message"
+        assert box.isVisible()
+
+        box.close()
+        qapp.processEvents()
+
+        window.show_error("Second error", "second message")
+        assert window._error_message_box is box
+        assert box.windowTitle() == "Second error"
+        assert box.text() == "second message"
+    finally:
+        box = getattr(window, "_error_message_box", None)
+        if box is not None:
+            box.close()
+        try:
+            window.shutdown()
+        except Exception:
+            pass
+        window.close()
+        window.deleteLater()
+
+
 @pytest.fixture(autouse=True)
 def _isolated_gui_appdata(monkeypatch, tmp_path):
     """Keep MainWindow smoke tests away from the developer's real profile."""

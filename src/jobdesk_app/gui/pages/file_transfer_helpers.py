@@ -238,7 +238,7 @@ def breadcrumb_parts(remote_dir: str) -> list[tuple[str, str]]:
 
 def connection_status_text(server_id: str | None, connected: bool, error: str = "", language: str = "en") -> str:
     if error:
-        return f"Connection failed: {error}"
+        return tr("Connection failed: {error}", language, error=error)
     if not server_id:
         return tr("No server selected", language)
     key = "Connected: {server_id}" if connected else "Connecting: {server_id}"
@@ -358,6 +358,37 @@ def _remote_list_error_allows_fallback(error: str) -> bool:
         or "no such file" in first_line
         or "no such directory" in first_line
         or "not a directory" in first_line
+    )
+
+
+def _remote_list_error_is_connection_failure(error: str) -> bool:
+    """Return whether a remote-list failure invalidates the SSH/SFTP session.
+
+    Remote path errors are recoverable by trying the configured fallback
+    directories.  Transport failures are different: keeping the lazy service
+    marked as connected makes Submit and the next Refresh reuse a session that
+    never became usable.  The worker boundary currently transports exception
+    text, so classify the stable transport markers here.
+    """
+    first_line = (error.splitlines()[0] if error else "").lower()
+    return any(
+        marker in first_line
+        for marker in (
+            "sshconnectionerror",
+            "sshexception",
+            "connection refused",
+            "connection reset",
+            "connection aborted",
+            "connection closed",
+            "socket is closed",
+            "network error",
+            "timed out",
+            "timeout",
+            "valid ssh banner",
+            "winerror 10053",
+            "winerror 10054",
+            "transport is not active",
+        )
     )
 
 

@@ -1181,7 +1181,29 @@ class RunsResultsPage(QWidget):
 
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
-        runs = RunService(workspace).list_runs()
+        try:
+            runs = RunService(workspace).list_runs()
+        except Exception as exc:
+            # Page activation is a user-facing navigation action.  A locked,
+            # unavailable, or future-version local run database must not
+            # terminate the Qt process from the deferred activation timer.
+            _logger.exception("Failed to load run records")
+            self._run_records = []
+            self._set_headers()
+            self.table.blockSignals(True)
+            self.table.setRowCount(0)
+            self.table.blockSignals(False)
+            self._refresh_status_overview([])
+            self._update_uncertain_actions()
+            self._empty_hint.setVisible(True)
+            self._status_cb(
+                tr(
+                    "Could not load run records: {error}",
+                    self._language,
+                    error=str(exc),
+                )
+            )
+            return
         self._run_records = runs
         prev_selected = self._current_run_id()
         self._set_headers()

@@ -78,6 +78,7 @@ assert os.environ.get("QT_QPA_PLATFORM") == "offscreen", (
 
 # -- Step tracker --
 _STEPS: list[tuple[str, str, str | None]] = []  # (name, status, error)
+_UNCAUGHT_CALLBACK_EXCEPTIONS: list[str] = []
 
 
 def _record(name: str, ok: bool, err: str | None = None) -> None:
@@ -105,6 +106,25 @@ def _step(name: str) -> Iterator[list[list[traceback.FrameSummary]]]:
         print(f"        full traceback:\n{tb}")
     else:
         _record(name, True)
+
+
+def _capture_uncaught_callback_exceptions(previous_hook):
+    """Record Python exceptions raised by Qt callbacks.
+
+    PySide6 dispatches exceptions raised from signal handlers through
+    ``sys.excepthook`` and then continues processing events.  Without a
+    capture hook, a smoke run can print ``RESULT: PASS`` and still leave an
+    asynchronous callback traceback on stderr.  Keep the normal hook's
+    reporting behaviour while retaining evidence for the final gate below.
+    """
+
+    def _hook(exc_type, exc_value, exc_tb):
+        _UNCAUGHT_CALLBACK_EXCEPTIONS.append(
+            "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        )
+        previous_hook(exc_type, exc_value, exc_tb)
+
+    return _hook
 
 
 # -- 2. QApplication --
@@ -137,6 +157,28 @@ class _FilesStub(QWidget):
         self.max_parallel_spin = type(
             "_Spin", (), {"value": staticmethod(lambda: 1)}
         )()
+
+    def connection_snapshot(self):
+        """Mirror the public Files-page connection view used by MainWindow."""
+        return _FilesConnectionSnapshot(
+            server_id=self._connected_server_id or None,
+            service=self._service,
+            remote_dir="/",
+        )
+
+
+class _FilesConnectionSnapshot:
+    """Small smoke-only equivalent of FileTransferConnectionSnapshot."""
+
+    def __init__(self, *, server_id, service, remote_dir):
+        self.server_id = server_id
+        self.server = None
+        self.service = service
+        self.remote_dir = remote_dir
+
+    @property
+    def connected(self):
+        return self.service is not None
 
 
 class _RunsStub(QWidget):
@@ -518,7 +560,7 @@ def step_runs_page(window) -> int:
 
 # -- main --
 
-def main() -> int:
+def _run_smoke() -> int:
     print("=" * 70)
     print("JobDesk GUI smoke (offscreen)")
     print("=" * 70)
@@ -618,6 +660,12 @@ def main() -> int:
         pass
     QApplication.processEvents()
 
+    if _UNCAUGHT_CALLBACK_EXCEPTIONS:
+        details = "\n".join(_UNCAUGHT_CALLBACK_EXCEPTIONS)
+        _record("uncaught_qt_callback_exceptions", False, details)
+    else:
+        _record("uncaught_qt_callback_exceptions", True)
+
     # -- 7. summary --
     print()
     print("=" * 70)
@@ -639,6 +687,18 @@ def main() -> int:
         return 2
     print(f"RESULT: PASS ({len(_STEPS)} steps)")
     return 0
+
+
+def main() -> int:
+    """Run the smoke with a gate for exceptions swallowed by Qt dispatch."""
+    _STEPS.clear()
+    _UNCAUGHT_CALLBACK_EXCEPTIONS.clear()
+    previous_hook = sys.excepthook
+    sys.excepthook = _capture_uncaught_callback_exceptions(previous_hook)
+    try:
+        return _run_smoke()
+    finally:
+        sys.excepthook = previous_hook
 
 
 if __name__ == "__main__":

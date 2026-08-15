@@ -67,8 +67,16 @@ class MainWindow(QMainWindow):
         self.resize(size[0], size[1])
         self.state = AppState()
         self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
+        self._initial_nav_completed = False
         self.language = settings.language
         self._file_logger = configure_file_logging("jobdesk_app")
+        # Keep one error dialog owned by the main window.  The static
+        # QMessageBox.critical() helper creates a temporary Python wrapper
+        # around a native modal dialog; on Windows/Python 3.13 that wrapper
+        # could be collected after the dialog closed and crash shiboken on
+        # the next Qt input event.  A persistent child avoids that lifetime
+        # gap and also keeps repeated errors from creating overlapping boxes.
+        self._error_message_box: QMessageBox | None = None
         self.setStyleSheet(build_app_stylesheet())
 
         nav_items = [(icon, tr(label, self.language)) for icon, label in _NAV_ITEMS]
@@ -193,12 +201,17 @@ class MainWindow(QMainWindow):
                 page.set_remote_dir(self.files_page.remote_path.text().strip() or "/")
         if index == 0:
             # Refresh the Files page so a returning user sees fresh state.
-            refresh = getattr(self.files_page, "refresh", None) or getattr(self.files_page, "_refresh_all", None)
-            if refresh is not None:
-                try:
-                    refresh()
-                except Exception:
-                    pass
+            # The first activation already performs its initial connection and
+            # local refresh.  Skipping this duplicate call prevents two
+            # concurrent WSL bootstrap/list workers on application startup.
+            if self._initial_nav_completed:
+                refresh = getattr(self.files_page, "refresh", None) or getattr(self.files_page, "_refresh_all", None)
+                if refresh is not None:
+                    try:
+                        refresh()
+                    except Exception:
+                        pass
+            self._initial_nav_completed = True
         # Apply language whenever the user changes pages (cheap; cached).
         # Keep the Runs page in label-only mode here as well; its activation
         # callback owns the deferred run-list refresh.
@@ -309,7 +322,19 @@ class MainWindow(QMainWindow):
 
     def show_error(self, title: str, message: str):
         self._file_logger.error("%s: %s", title, message)
-        QMessageBox.critical(self, title, message)
+        box = self._error_message_box
+        if box is None:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setModal(True)
+            self._error_message_box = box
+        box.setWindowTitle(title)
+        box.setText(message)
+        # ``open`` keeps the dialog application-modal without entering a
+        # nested event loop.  The main window owns ``box`` for its lifetime,
+        # so closing it cannot leave a stale Shiboken wrapper behind.
+        box.open()
 
     # ── Submit-page wiring ────────────────────────────────────────────────
 

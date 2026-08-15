@@ -80,6 +80,13 @@ def test_page_has_two_authoring_panes_and_generated_preview(page):
     assert page.btn_dispatch.objectName() == "WorkflowDispatchBtn"
 
 
+def test_empty_workflow_error_uses_active_language(page):
+    page._language = "zh"
+
+    with pytest.raises(ValueError, match="请至少添加一个工作流步骤"):
+        page._build_workflow_yaml()
+
+
 def test_add_step_appends_to_simple_flow_and_updates_yaml(page):
     before = len(
         [

@@ -735,7 +735,7 @@ class WorkflowPage(QWidget):
             raise ValueError("; ".join(errors))
         step_nodes = [node for node in graph.topological_order() if node.kind in _STEP_KINDS]
         if not step_nodes:
-            raise ValueError("Add at least one workflow step.")
+            raise ValueError(tr("Add at least one workflow step.", self._language))
         by_id = {node.id: node.title for node in step_nodes}
         steps: list[dict[str, Any]] = []
         for node in step_nodes:

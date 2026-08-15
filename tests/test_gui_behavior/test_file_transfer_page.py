@@ -1447,6 +1447,45 @@ class TestFileTransferPage:
         assert errors == [("Remote List Error", "OSError: Socket is closed")]
         assert statuses == []
 
+    def test_remote_list_connection_error_clears_pending_service(self, file_page):
+        errors = []
+        service = MagicMock()
+        file_page._service = service
+        file_page._connected_server_id = "wsl"
+        file_page._connected_server = MagicMock()
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+        file_page._remote_list_fallbacks = []
+
+        with patch.object(file_page, "_close_service_async") as close_service:
+            file_page._on_remote_list_error(file_page._remote_list_request_id, "OSError: Socket is closed")
+
+        assert file_page._service is None
+        assert file_page._connection_ready is False
+        assert file_page.connection_snapshot().connected is False
+        close_service.assert_called_once_with(service)
+        assert errors == [("Remote List Error", "OSError: Socket is closed")]
+
+    def test_remote_list_empty_error_uses_safe_summary(self, file_page):
+        errors = []
+        file_page._error_cb = lambda title, message: errors.append((title, message))
+
+        file_page._on_remote_list_error(file_page._remote_list_request_id, "")
+
+        assert errors == [("Remote List Error", "Unknown remote error")]
+
+    def test_remote_refresh_does_not_duplicate_same_running_worker(self, file_page):
+        file_page._service = MagicMock()
+        file_page.remote_path.setText("/root")
+        current_worker = MagicMock()
+        current_worker.isRunning.return_value = True
+        file_page.remote_worker = current_worker
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.BackgroundWorker") as worker_class:
+            file_page._refresh_remote_path("/root")
+
+        worker_class.assert_not_called()
+        assert file_page._remote_list_request_id == 0
+
     def test_remote_list_missing_path_uses_path_fallback(self, file_page):
         file_page._remote_list_fallbacks = ["/tmp"]
         request_id = file_page._remote_list_request_id

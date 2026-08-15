@@ -6,6 +6,7 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from jobdesk_app.core.transfer import TransferStatus
 from jobdesk_app.gui.pages.file_transfer_helpers import (
+    _remote_list_error_is_connection_failure,
     breadcrumb_parts,
     build_file_button_reasons,
     choose_chunks_to_submit,
@@ -232,6 +233,12 @@ def test_connection_status_text():
     assert connection_status_text("s1", False, "") == "Connecting: s1"
     assert connection_status_text("s1", False, "boom") == "Connection failed: boom"
     assert connection_status_text("", False, "") == "No server selected"
+
+
+def test_remote_list_error_classifies_transport_failures_separately_from_paths():
+    assert _remote_list_error_is_connection_failure("SSHConnectionError: banner timeout") is True
+    assert _remote_list_error_is_connection_failure("OSError: Socket is closed") is True
+    assert _remote_list_error_is_connection_failure("FileNotFoundError: /missing") is False
 
 
 def test_file_action_labels_are_winscp_like():

@@ -14,6 +14,7 @@ import jobdesk_app.remote.ssh as ssh_mod
 from jobdesk_app.config.schema import AuthMethod, ServerConfig
 from jobdesk_app.remote.errors import SSHCommandError, SSHConnectionError
 from jobdesk_app.remote.ssh import (
+    DEFAULT_WSL_READY_TIMEOUT,
     SSHClientWrapper,
     SSHResult,
     _AutoAddAndSavePolicy,
@@ -697,13 +698,18 @@ class TestSSHClientWrapper:
             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
             patch(
                 "jobdesk_app.remote.ssh._is_local_port_open",
-                side_effect=[False, False, False, True],
+                side_effect=[False, False, True],
             ),
             patch("paramiko.SSHClient") as mock_client_class,
         ):
             mock_client_class.return_value = MagicMock()
 
-            ssh = MockSSHWrapper(server, timeout=7, wsl_ready_poll_interval=0)
+            ssh = MockSSHWrapper(
+                server,
+                timeout=7,
+                wsl_ready_timeout=7,
+                wsl_ready_poll_interval=0,
+            )
             ssh.connect()
 
         import subprocess as _sp
@@ -716,6 +722,69 @@ class TestSSHClientWrapper:
             creationflags=_sp.CREATE_NO_WINDOW,
         )
         mock_client_class.return_value.connect.assert_called_once()
+
+    def test_wsl_bootstrap_default_ready_timeout_exceeds_ssh_operation_timeout(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu-24.04",
+        )
+        ssh = MockSSHWrapper(server, timeout=7)
+
+        assert ssh._wsl_ready_timeout == DEFAULT_WSL_READY_TIMEOUT
+
+    def test_wsl_bootstrap_uses_distro_proxy_when_localhost_forward_is_refused(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path="/fake/key",
+            wsl_distro="Ubuntu-24.04",
+        )
+        with (
+            patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
+            patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
+            patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch("jobdesk_app.remote.ssh._is_local_tcp_port_open", return_value=False),
+        ):
+            ssh = MockSSHWrapper(server, timeout=7)
+            ssh._start_wsl_if_configured()
+
+        run_wsl.assert_called_once()
+        assert ssh._wsl_proxy_command == (
+            "wsl.exe -d Ubuntu-24.04 -- nc -w 45 127.0.0.1 22"
+        )
+
+    def test_wsl_localhost_transport_failure_retries_through_distro_proxy(self):
+        server = ServerConfig(
+            server_id="wsl",
+            host="127.0.0.1",
+            port=22,
+            username="root",
+            auth_method=AuthMethod.key,
+            key_path=None,
+            wsl_distro="Ubuntu-24.04",
+        )
+        first_client = MagicMock()
+        first_client.connect.side_effect = EOFError()
+        second_client = MagicMock()
+        proxy_socket = MagicMock()
+        with (
+            patch.object(SSHClientWrapper, "_start_wsl_if_configured"),
+            patch("paramiko.SSHClient", side_effect=[first_client, second_client]) as client_factory,
+            patch("jobdesk_app.remote.ssh._PipeProxyCommand", return_value=proxy_socket),
+        ):
+            MockSSHWrapper(server).connect()
+
+        assert client_factory.call_count == 2
+        first_client.close.assert_called_once()
+        second_client.connect.assert_called_once()
+        assert second_client.connect.call_args.kwargs["sock"] is proxy_socket
 
     def test_wsl_bootstrap_skipped_when_local_port_already_open(self):
         """If local SSH port is already listening, skip WSL wakeup."""
@@ -759,10 +828,11 @@ class TestSSHClientWrapper:
                 "jobdesk_app.remote.ssh._is_local_port_open",
                 side_effect=[False, False, False, True],
             ) as ready,
+            patch("jobdesk_app.remote.ssh._is_local_tcp_port_open", return_value=True),
         ):
             MockSSHWrapper(
                 server,
-                wsl_ready_timeout=1,
+                wsl_ready_timeout=0,
                 wsl_ready_poll_interval=0,
             )._start_wsl_if_configured()
 
@@ -783,6 +853,7 @@ class TestSSHClientWrapper:
             patch("jobdesk_app.remote.ssh.sys.platform", "win32"),
             patch("jobdesk_app.remote.ssh.subprocess.run") as run_wsl,
             patch("jobdesk_app.remote.ssh._is_local_port_open", return_value=False),
+            patch("jobdesk_app.remote.ssh._is_local_tcp_port_open", return_value=True),
         ):
             with pytest.raises(SSHConnectionError) as raised:
                 MockSSHWrapper(
