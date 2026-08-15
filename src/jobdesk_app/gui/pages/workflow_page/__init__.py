@@ -73,10 +73,9 @@ class WorkflowPage(QWidget):
         self._step_text_dirty = False
         self._loaded_step_preset: tuple[str, str] | None = None
         self._global_text_dirty = False
+        self._server_connected = False
         self._current_server_label = ""
         self._remote_dir = "/"
-        self.setMinimumWidth(1040)
-
         self.setStyleSheet(
             f"QFrame#WorkflowHeader {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
@@ -149,6 +148,7 @@ class WorkflowPage(QWidget):
         (
             self._preview_box,
             self.full_yaml_preview,
+            self.validation_label,
             self._set_preview_expanded,
             self._apply_preview_language,
         ) = _form_builder.build_preview_box(self, self._language)
@@ -158,6 +158,7 @@ class WorkflowPage(QWidget):
         (
             self._footer,
             self.server_pill,
+            self.action_reason_label,
             self.btn_dispatch,
         ) = _form_builder.build_footer(
             self,
@@ -169,6 +170,9 @@ class WorkflowPage(QWidget):
         self._refresh_workflow_presets()
         self._refresh_step_presets()
         self._load_initial_preset()
+        self._restore_authoring_splitter()
+        self._workspace.splitterMoved.connect(self._persist_authoring_splitter)
+        self._update_action_state()
 
     # ---- step tab widget setup -----------------------------------------
 
@@ -187,14 +191,16 @@ class WorkflowPage(QWidget):
 
         # Setup new step menu
         self._new_step_menu = QMenu(self.new_step_button)
-        self._new_step_menu.addAction(
+        calc_action = self._new_step_menu.addAction(
             tr("Calculation step (calc)", self._language),
             lambda: self._new_step("calc"),
         )
-        self._new_step_menu.addAction(
+        calc_action.setProperty("workflowI18nText", "Calculation step (calc)")
+        confgen_action = self._new_step_menu.addAction(
             tr("Conformer generation step (confgen)", self._language),
             lambda: self._new_step("confgen"),
         )
+        confgen_action.setProperty("workflowI18nText", "Conformer generation step (confgen)")
         self.new_step_button.setMenu(self._new_step_menu)
 
         # Connect signals
@@ -264,12 +270,7 @@ class WorkflowPage(QWidget):
 
     @staticmethod
     def _empty_graph() -> NodeGraph:
-        graph = NodeGraph()
-        xyz = default_node(NodeKind.XYZ_FILE, position=(30.0, 120.0))
-        output = default_node(NodeKind.OUTPUT, position=(540.0, 120.0))
-        graph.add_node(xyz)
-        graph.add_node(output)
-        return graph
+        return NodeGraph()
 
     def _refresh_workflow_presets(self) -> None:
         self.preset_combo.blockSignals(True)
@@ -364,6 +365,7 @@ class WorkflowPage(QWidget):
         self._sync_step_editor()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     # ---- selected step YAML ------------------------------------------
 
@@ -387,6 +389,8 @@ class WorkflowPage(QWidget):
             self.apply_step_preset_btn.setEnabled(False)
             self.save_step_preset_btn.setEnabled(True)
             self._load_selected_step_into_editor()
+            if self.step_yaml_editor.toPlainText().strip():
+                self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
         else:
             self.step_yaml_editor.setReadOnly(False)
             self.step_yaml_editor.setPlainText(_dump_yaml(_node_fragment(node)))
@@ -397,13 +401,20 @@ class WorkflowPage(QWidget):
                 if edge.src_node in self._draft.graph.nodes
                 and self._draft.graph.nodes[edge.src_node].kind in _STEP_KINDS
             ]
-            self.inputs_label.setText("Inputs: " + (", ".join(incoming) if incoming else "workflow input"))
+            self.inputs_label.setText(
+                tr(
+                    "Inputs: {names}",
+                    self._language,
+                    names=", ".join(incoming) if incoming else tr("workflow input", self._language),
+                )
+            )
             self.step_preset_combo.setEnabled(True)
             self.apply_step_preset_btn.setEnabled(True)
             self.save_step_preset_btn.setEnabled(True)
         self.step_yaml_editor.blockSignals(False)
         self.step_error_label.setText("")
         self._step_text_dirty = False
+        self._update_action_state()
 
     def _on_step_preset_selected(self, _index: int) -> None:
         if not self._confirm_discard_step_text():
@@ -450,6 +461,8 @@ class WorkflowPage(QWidget):
         self.save_step_preset_btn.setEnabled(True)
         self.step_error_label.setText("")
         self._step_text_dirty = True
+        self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
+        self._update_action_state()
 
     def _load_selected_step_into_editor(self) -> None:
         data = self.step_preset_combo.currentData()
@@ -470,6 +483,9 @@ class WorkflowPage(QWidget):
         self.step_error_label.setText("")
         self._step_text_dirty = False
         self._loaded_step_preset = data
+        if self._selected_node_id is None:
+            self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
+        self._update_action_state()
 
     def _on_step_text_changed(self) -> None:
         self._step_text_dirty = True
@@ -478,6 +494,7 @@ class WorkflowPage(QWidget):
             self.step_error_label.setText("")
         except Exception as exc:
             self.step_error_label.setText(str(exc))
+        self._update_action_state()
 
     def _parse_step_text(self, *, require_unique: bool = True) -> dict[str, Any]:
         value = yaml.safe_load(self.step_yaml_editor.toPlainText()) or {}
@@ -534,12 +551,23 @@ class WorkflowPage(QWidget):
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
         self._on_status(tr("Step YAML applied.", self._language))
+        self._update_action_state()
 
     def _commit_pending_step_yaml(self) -> bool:
         if not self._step_text_dirty:
             return True
         self._apply_step_yaml()
         return not self._step_text_dirty
+
+    def _commit_pending_edits(self) -> bool:
+        if self._step_text_dirty and self._selected_node_id is None:
+            self._update_action_state()
+            return False
+        if not self._commit_pending_step_yaml():
+            return False
+        if self._global_text_dirty:
+            self._apply_global_yaml()
+        return not self._global_text_dirty
 
     def _apply_step_preset(self) -> None:
         if self._selected_node_id is None:
@@ -594,6 +622,7 @@ class WorkflowPage(QWidget):
         self.global_yaml_editor.blockSignals(False)
         self.global_error_label.setText("")
         self._global_text_dirty = False
+        self._update_action_state()
 
     def _on_global_text_changed(self) -> None:
         self._global_text_dirty = True
@@ -604,6 +633,7 @@ class WorkflowPage(QWidget):
             self.global_error_label.setText("")
         except Exception as exc:
             self.global_error_label.setText(str(exc))
+        self._update_action_state()
 
     def _apply_global_yaml(self) -> None:
         try:
@@ -621,6 +651,7 @@ class WorkflowPage(QWidget):
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
         self._on_status(tr("Global YAML applied.", self._language))
+        self._update_action_state()
 
     def _add_step(self) -> None:
         try:
@@ -645,6 +676,7 @@ class WorkflowPage(QWidget):
         self._sync_step_editor()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     def _delete_step(self, node_id: str) -> None:
         node = self._draft.graph.nodes.get(node_id)
@@ -659,6 +691,7 @@ class WorkflowPage(QWidget):
         self._refresh_flow_diagram()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     def _ordered_step_nodes(self) -> list[Any]:
         return [node for node in self._draft.graph.topological_order() if node.kind in _STEP_KINDS]
@@ -681,6 +714,11 @@ class WorkflowPage(QWidget):
         previous_edges = list(graph.edges.values())
         for edge in previous_edges:
             graph.remove_edge(edge.id)
+        if not ordered:
+            for node in list(graph.nodes.values()):
+                if node.kind in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}:
+                    graph.remove_node(node.id)
+            return
         xyz = next((node for node in graph.nodes.values() if node.kind is NodeKind.XYZ_FILE), None)
         output = next((node for node in graph.nodes.values() if node.kind is NodeKind.OUTPUT), None)
         if xyz is None:
@@ -690,8 +728,6 @@ class WorkflowPage(QWidget):
             output = default_node(NodeKind.OUTPUT)
             graph.add_node(output)
         try:
-            if not ordered:
-                return
             previous = xyz
             for index, node in enumerate(ordered):
                 node.position = (260.0, 80.0 + index * 116.0)
@@ -724,6 +760,7 @@ class WorkflowPage(QWidget):
         self._refresh_flow_diagram()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     # ---- serialisation / actions -------------------------------------
 
@@ -767,14 +804,14 @@ class WorkflowPage(QWidget):
     def _refresh_generated_yaml(self) -> None:
         _preview.refresh_generated_yaml(
             self.full_yaml_preview,
+            self.validation_label,
             self._build_workflow_yaml,
+            self._language,
         )
 
     def _validate_workflow(self) -> None:
-        if not self._commit_pending_step_yaml():
+        if not self._commit_pending_edits():
             return
-        # Phase 19: show preview when validating so user can see generated YAML
-        self._set_preview_expanded(True)
         _preview.validate_workflow(
             self._build_workflow_yaml,
             lambda exc: self._on_error(tr("Workflow validation", self._language), exc),
@@ -790,7 +827,7 @@ class WorkflowPage(QWidget):
         self._replace_draft(WorkflowDraft(self._empty_graph(), self._default_global(), None, True))
 
     def _save_workflow(self) -> None:
-        if not self._commit_pending_step_yaml():
+        if not self._commit_pending_edits():
             return
         try:
             yaml_text = self._build_workflow_yaml()
@@ -830,17 +867,128 @@ class WorkflowPage(QWidget):
         self.preset_saved.emit(name, "user")
         self.workflow_authored.emit(spec, name)
         self._on_status(tr("Workflow saved.", self._language))
+        self._update_action_state()
+
+    def save_current(self) -> bool:
+        """Save the current workflow through the same guarded UI path."""
+        self._save_workflow()
+        return self._draft.preset is not None and not self._draft.dirty
 
     def _on_use_for_submit(self) -> None:
-        if not self._commit_pending_step_yaml():
-            return
-        if self._draft.dirty or self._draft.preset is None:
+        self._update_action_state()
+        if not self.btn_dispatch.isEnabled():
             self._on_error(
                 tr("Use this workflow for submit", self._language),
-                tr("Save the workflow before submitting.", self._language),
+                self.btn_dispatch.toolTip(),
             )
             return
         self.preset_chosen_for_submit.emit(self._draft.preset.name, self._draft.preset.source)
+
+    def _update_action_state(self) -> None:
+        """Centralize workflow action eligibility and user-facing blockers."""
+        if not hasattr(self, "btn_dispatch"):
+            return
+
+        step_error = ""
+        try:
+            self._parse_step_text(require_unique=self._selected_node_id is not None)
+        except Exception as exc:
+            step_error = str(exc)
+
+        global_error = ""
+        global_config: dict[str, Any] | None = None
+        try:
+            value = yaml.safe_load(self.global_yaml_editor.toPlainText()) or {}
+            if not isinstance(value, dict):
+                raise ValueError("Global YAML must be a mapping.")
+            global_config = dict(value)
+        except Exception as exc:
+            global_error = str(exc)
+
+        has_steps = bool(self._ordered_step_nodes())
+        pending_draft = self._step_text_dirty and self._selected_node_id is None
+        yaml_valid = False
+        workflow_error = ""
+        if has_steps and not step_error and not global_error:
+            try:
+                text = self._build_workflow_yaml(global_config=global_config)
+                WorkflowSpec.from_yaml(text)
+                yaml_valid = True
+            except Exception as exc:
+                workflow_error = str(exc)
+
+        pending_edits = self._step_text_dirty or self._global_text_dirty
+        saved_valid = (
+            yaml_valid
+            and self._draft.preset is not None
+            and not self._draft.dirty
+            and not pending_edits
+        )
+
+        if step_error:
+            reason = tr("Fix the step YAML before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = step_error
+        elif global_error:
+            reason = tr("Fix the global YAML before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = global_error
+        elif not has_steps:
+            reason = tr("Add at least one workflow step.", self._language)
+            validation_state = "incomplete"
+            validation_detail = reason
+        elif pending_draft:
+            reason = tr("Add the current draft step to the workflow.", self._language)
+            validation_state = "incomplete"
+            validation_detail = reason
+        elif not yaml_valid:
+            reason = tr("Fix workflow validation errors before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = workflow_error
+        elif not saved_valid:
+            reason = tr("Save the workflow before submitting.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+        elif not self._server_connected:
+            reason = tr("Connect to a server before submitting.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+        else:
+            reason = tr("Ready to submit.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+
+        can_add = not step_error
+        can_validate_or_save = yaml_valid and not pending_draft
+        can_submit = saved_valid and self._server_connected
+
+        self.add_step_button.setEnabled(can_add)
+        self.add_step_button.setToolTip(
+            tr("Add the step currently shown on the left.", self._language) if can_add else reason
+        )
+        self.btn_validate.setEnabled(can_validate_or_save)
+        self.btn_validate.setToolTip(
+            tr("Validate the workflow YAML.", self._language) if can_validate_or_save else reason
+        )
+        self.save_workflow_button.setEnabled(can_validate_or_save)
+        self.save_workflow_button.setToolTip(
+            tr("Save the workflow.", self._language) if can_validate_or_save else reason
+        )
+        self.btn_dispatch.setEnabled(can_submit)
+        self.btn_dispatch.setToolTip(
+            tr("Use this workflow for submit", self._language) if can_submit else reason
+        )
+        self.action_reason_label.setText(reason)
+        _preview.set_validation_feedback(
+            self.validation_label,
+            validation_state,
+            {
+                "valid": tr("Workflow YAML is valid.", self._language),
+                "invalid": tr("Workflow YAML has errors.", self._language),
+                "incomplete": tr("Workflow YAML is not ready.", self._language),
+            }[validation_state],
+            detail=validation_detail,
+        )
 
     def _refresh_dirty_label(self) -> None:
         self.dirty_label.setText(
@@ -867,7 +1015,45 @@ class WorkflowPage(QWidget):
 
     # ---- MainWindow contract -----------------------------------------
 
+    def focus_authoring(self) -> None:
+        """Focus the primary workflow authoring control."""
+        self.settings_tabs.setCurrentIndex(0)
+        self.step_yaml_editor.setFocus()
+
+    def focus_search(self) -> None:
+        """Honor the MainWindow focus shortcut with the authoring editor."""
+        self.focus_authoring()
+
+    def _restore_authoring_splitter(self) -> None:
+        if self._settings_store is None:
+            return
+        try:
+            sizes = self._settings_store.load().splitter_sizes.get("workflow.authoring")
+            if (
+                isinstance(sizes, list)
+                and len(sizes) == 2
+                and all(isinstance(size, int) and size > 0 for size in sizes)
+            ):
+                self._workspace.setSizes(sizes)
+        except Exception:
+            return
+
+    def _persist_authoring_splitter(self, _position: int = 0, _index: int = 0) -> None:
+        if self._settings_store is None:
+            return
+        sizes = self._workspace.sizes()
+        if len(sizes) != 2 or any(size <= 0 for size in sizes):
+            return
+        try:
+            current = self._settings_store.load()
+            splitter_sizes = dict(current.splitter_sizes)
+            splitter_sizes["workflow.authoring"] = list(sizes)
+            self._settings_store.update(splitter_sizes=splitter_sizes)
+        except Exception:
+            return
+
     def set_server_status(self, connected: bool, server_label: str) -> None:
+        self._server_connected = bool(connected and server_label)
         self._current_server_label = server_label
         if connected and server_label:
             self.server_pill.set_state("success")
@@ -875,14 +1061,42 @@ class WorkflowPage(QWidget):
         else:
             self.server_pill.set_state("neutral")
             self.server_pill.setText(tr("No server", self._language))
+        self._update_action_state()
 
     def set_remote_dir(self, remote_dir: str) -> None:
         self._remote_dir = remote_dir
 
     def apply_language(self, language: str) -> None:
         self._language = language
+        _form_builder.apply_static_language(self, language)
+        self.settings_tabs.setTabText(0, tr("Step YAML", language))
+        self.settings_tabs.setTabText(1, tr("Global YAML", language))
         self._apply_preview_language(language)
         self._refresh_flow_diagram()
+        self._retranslate_step_context()
+        self._refresh_dirty_label()
+        self.set_server_status(self._server_connected, self._current_server_label)
+        self._update_action_state()
+
+    def _retranslate_step_context(self) -> None:
+        """Refresh state-derived authoring copy without discarding editor text."""
+        node = self._draft.graph.nodes.get(self._selected_node_id or "")
+        if node is None:
+            if not self.step_yaml_editor.toPlainText().strip():
+                self.selected_step_label.setText(tr("Choose a step to edit.", self._language))
+            return
+        incoming = [
+            self._draft.graph.nodes[edge.src_node].title
+            for edge in self._draft.graph.incoming_edges(node.id)
+            if edge.src_node in self._draft.graph.nodes and self._draft.graph.nodes[edge.src_node].kind in _STEP_KINDS
+        ]
+        self.inputs_label.setText(
+            tr(
+                "Inputs: {names}",
+                self._language,
+                names=", ".join(incoming) if incoming else tr("workflow input", self._language),
+            )
+        )
 
 
 __all__ = ["WorkflowDraft", "WorkflowPage"]
