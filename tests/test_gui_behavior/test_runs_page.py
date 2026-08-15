@@ -530,7 +530,8 @@ class TestRunsPage:
         runs_page._delete_feedback.restore()
 
         assert runs_page.delete_btn.text() == idle_text
-        assert runs_page.delete_btn.isEnabled()
+        assert not runs_page.delete_btn.isEnabled()
+        assert runs_page.delete_btn.toolTip()
 
     def test_retry_failed_sync_submit_error_sets_feedback_error(self, runs_page):
         from jobdesk_app.gui.i18n import tr
@@ -657,6 +658,227 @@ class TestRunsPage:
             runs_page.refresh_run_list()
             mock_svc.return_value.list_runs.assert_called_once_with()
         assert runs_page.table.rowCount() == 0
+
+    def test_activity_log_starts_collapsed_is_bounded_and_deduplicated(self, runs_page):
+        assert not runs_page._log_view.isVisible()
+        assert runs_page._log_view.document().maximumBlockCount() == 500
+
+        runs_page._append_activity_log("Run records: 3")
+        runs_page._append_activity_log("Run records: 3")
+
+        assert runs_page._log_view.document().blockCount() == 1
+        assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
+
+    def test_results_stay_hidden_until_a_valid_run_is_selected(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="run-1",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 water.gjf",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
+        )
+        assert not runs_page._results_card.isVisible()
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = [record]
+            runs_page.refresh_run_list()
+        assert not runs_page._results_card.isVisible()
+
+        runs_page.table.setCurrentCell(0, 0)
+        assert runs_page._results_card.isVisibleTo(runs_page)
+
+        runs_page.table.setCurrentCell(-1, -1)
+        runs_page._on_run_selected(-1, -1, 0, 0)
+        assert not runs_page._results_card.isVisible()
+
+    def test_filters_use_and_semantics_and_survive_refresh(self, runs_page):
+        from jobdesk_app.core.run import WorkflowKind
+        from jobdesk_app.services.run_service import RunRecord
+
+        def record(run_id, server, status, workflow, command, created_at):
+            return RunRecord(
+                run_id=run_id,
+                server_id=server,
+                remote_dir=f"/remote/{run_id}",
+                command_template=command,
+                max_parallel=1,
+                mode="selected_files",
+                created_at=created_at,
+                run_dir=Path("rd") / run_id,
+                manifest_path=Path("m") / run_id,
+                batch_path=Path("b") / run_id,
+                status_summary=status,
+                workflow_kind=workflow,
+            )
+
+        records = [
+            record("RUN-ALPHA", "Luna", {"running": 2}, WorkflowKind.dag, "Confflow WATER", "2026-08-15T08:00:00"),
+            record("run-beta", "Luna", {"downloaded": 1}, WorkflowKind.dag, "confflow water", "2026-08-15T08:00:00"),
+            record("run-gamma", "Other", {"running": 1}, None, "g16 water", "2026-08-15T08:00:00"),
+        ]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = records
+            runs_page.refresh_run_list()
+            runs_page.table.setCurrentCell(0, 0)
+            runs_page.search_edit.setText("alpha")
+            runs_page.status_filter.setCurrentIndex(runs_page.status_filter.findData("active"))
+            runs_page.server_filter.setCurrentIndex(runs_page.server_filter.findData("Luna"))
+            runs_page.workflow_filter.setCurrentIndex(runs_page.workflow_filter.findData("dag"))
+            assert runs_page.table.rowCount() == 1
+            assert runs_page.table.item(0, 0).text() == "RUN-ALPHA"
+
+            runs_page.refresh_run_list()
+
+        assert runs_page.search_edit.text() == "alpha"
+        assert runs_page.status_filter.currentData() == "active"
+        assert runs_page.server_filter.currentData() == "Luna"
+        assert runs_page.workflow_filter.currentData() == "dag"
+        assert runs_page.table.item(runs_page.table.currentRow(), 0).text() == "RUN-ALPHA"
+        assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
+
+    def test_filter_with_no_matches_shows_results_empty_state(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="run-1", server_id="wsl", remote_dir="/r", command_template="g16 water",
+            max_parallel=1, mode="selected_files", created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"), manifest_path=Path("m"), batch_path=Path("b"),
+        )
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service:
+            service.return_value.list_runs.return_value = [record]
+            runs_page.refresh_run_list()
+            runs_page.search_edit.setText("does-not-match")
+
+        assert runs_page.table.rowCount() == 0
+        assert not runs_page._empty_hint.isHidden()
+        assert runs_page._empty_hint._title_label.text() == "No results found"
+        assert not runs_page._empty_hint._action_buttons["go_to_submit"].isVisible()
+
+    def test_multiple_selected_runs_survive_filter_and_refresh(self, runs_page):
+        from PySide6.QtCore import QItemSelectionModel
+
+        from jobdesk_app.services.run_service import RunRecord
+
+        def record(run_id):
+            return RunRecord(
+                run_id=run_id, server_id="wsl", remote_dir=f"/r/{run_id}", command_template="g16 water",
+                max_parallel=1, mode="selected_files", created_at="2026-08-15T09:00:00",
+                run_dir=Path("rd") / run_id, manifest_path=Path("m") / run_id, batch_path=Path("b") / run_id,
+            )
+
+        records = [record("alpha"), record("beta"), record("gamma")]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service:
+            service.return_value.list_runs.return_value = records
+            runs_page.refresh_run_list()
+            selection = runs_page.table.selectionModel()
+            for row in (0, 1):
+                selection.select(
+                    runs_page.table.model().index(row, 0),
+                    QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                )
+            runs_page.search_edit.setText("a")
+            runs_page.refresh_run_list()
+
+        assert runs_page._selected_run_ids() == ["alpha", "beta"]
+
+    def test_overview_separates_run_count_and_task_totals_including_other(self, runs_page):
+        records = [
+            SimpleNamespace(status_summary={"running": 2, "cancelled": 1}),
+            SimpleNamespace(status_summary={"downloaded": 3, "mystery": 4}),
+        ]
+        runs_page._run_records = records
+        runs_page._filtered_records = records[:1]
+
+        runs_page._refresh_status_overview()
+
+        text = runs_page._overview_label.text()
+        assert "Runs: 1 of 2" in text
+        assert "Tasks:" in text
+        assert "Other 5" in text
+
+    def test_explicit_refresh_updates_timestamp_and_status_has_accessible_cue(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="failed-run",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 x",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
+            status_summary={"failed": 1},
+        )
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = [record]
+            runs_page.refresh_btn.click()
+
+        assert runs_page.last_updated_label.text().startswith("Last updated:")
+        status_item = runs_page.table.item(0, 3)
+        assert "Failed" in status_item.toolTip()
+        assert status_item.foreground().color().isValid()
+
+    def test_actions_explain_why_they_are_disabled(self, runs_page):
+        runs_page._update_action_buttons()
+
+        assert not runs_page.retry_btn.isEnabled()
+        assert "Select" in runs_page.retry_btn.toolTip()
+        assert not runs_page.stop_btn.isEnabled()
+        assert "Select" in runs_page.stop_btn.toolTip()
+        assert not runs_page.delete_btn.isEnabled()
+        assert "Select" in runs_page.delete_btn.toolTip()
+
+    def test_main_splitter_restores_defensively_and_persists_user_move(self, qtbot, app_state, tmp_path):
+        from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
+        from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+
+        store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
+        store.save(GuiSettings(splitter_sizes={"runs.main": [720, 280]}))
+        original_update = store.update
+        store.update = MagicMock(side_effect=original_update)
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore", return_value=store),
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc,
+        ):
+            mock_svc.return_value.list_runs.return_value = []
+            page = RunsResultsPage(app_state, log_cb=None, status_cb=None)
+        qtbot.addWidget(page)
+
+        assert page._main_splitter.sizes()[0] > page._main_splitter.sizes()[1]
+        assert page._restored_main_splitter_sizes == [720, 280]
+        store.update.assert_not_called()
+        page._restore_main_splitter(SimpleNamespace(splitter_sizes={"runs.main": [720, -1]}))
+        assert page._restored_main_splitter_sizes == [700, 300]
+        store.update.assert_not_called()
+        page._restore_main_splitter(SimpleNamespace(splitter_sizes={"runs.main": [720, 280]}))
+
+        page.resize(1000, 800)
+        page.show()
+        qtbot.wait(0)
+        page._set_results_visible(True)
+        qtbot.wait(0)
+        restored = page._main_splitter.sizes()
+        assert restored[0] > restored[1]
+        page._main_splitter.setSizes([400, 600])
+        page._main_splitter.splitterMoved.emit(400, 1)
+
+        assert store.update.call_count == 1
+        persisted = store.load().splitter_sizes["runs.main"]
+        assert len(persisted) == 2
+        assert all(isinstance(value, int) and value > 0 for value in persisted)
+        page.shutdown()
+        page.close()
 
     def test_refresh_run_list_handles_unavailable_database(self, runs_page):
         messages = []
@@ -2539,6 +2761,42 @@ class TestRunsPage:
 
         assert runs_page._selected_uncertain_task_ids() == ["b"]
 
+    def test_uncertain_actions_accept_rendered_user_role_dictionary(self, runs_page):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        runs_page.result_table.setColumnCount(1)
+        runs_page.result_table.setRowCount(1)
+        item = QTableWidgetItem("uncertain-task")
+        item.setData(
+            Qt.UserRole,
+            {"kind": "uncertain", "task_id": "uncertain-task", "status": "uncertain", "error": "timeout"},
+        )
+        runs_page.result_table.setItem(0, 0, item)
+        runs_page.result_table.selectRow(0)
+
+        assert runs_page._selected_uncertain_task_ids() == ["uncertain-task"]
+
+    def test_uncertain_resolution_has_single_remote_mutation_gate(self, runs_page):
+        from PySide6.QtWidgets import QMessageBox
+
+        record = MagicMock(status_summary={"uncertain": 1})
+        statuses = []
+        runs_page._status_cb = statuses.append
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_selected_uncertain_task_ids", return_value=["task-1"]),
+            patch.object(runs_page, "_result_workspace", return_value=Path("workspace")),
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
+        ):
+            runs_page._resolve_uncertain_selection(confirm=True)
+            runs_page._resolve_uncertain_selection(confirm=True)
+
+        assert start_worker.call_count == 1
+        assert runs_page._remote_mutation_running is True
+        assert any("already in progress" in status for status in statuses)
+
     def test_mixed_task_selection_disables_uncertain_actions(self, runs_page):
         from PySide6.QtCore import QItemSelectionModel, Qt
         from PySide6.QtWidgets import QTableWidgetItem
@@ -2700,6 +2958,29 @@ class TestRunsPage:
         assert runs_page._worker is existing_worker
         assert worker in runs_page._bg_workers
         worker.start.assert_called_once_with()
+
+    @pytest.mark.parametrize("failure_point", ["construct", "start"])
+    def test_manual_refresh_gate_blocks_duplicates_and_recovers_after_start_failure(self, runs_page, failure_point):
+        record = MagicMock(run_id="run_refresh", local_dir="")
+        worker = _FakeWorker()
+        if failure_point == "start":
+            worker.start.side_effect = RuntimeError("start")
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker)
+        else:
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=RuntimeError("construct"))
+
+        with patch.object(runs_page, "_selected_record", return_value=record), factory:
+            runs_page._refresh_status()
+            if failure_point == "start":
+                assert not runs_page._manual_refresh_running
+                worker.start.side_effect = None
+                runs_page._refresh_status()
+                runs_page._refresh_status()
+                assert worker.start.call_count == 2
+                assert runs_page._manual_refresh_running
+                worker.finished.emit()
+
+        assert not runs_page._manual_refresh_running
 
     def test_manual_refresh_without_download_reports_refreshed(self, runs_page):
         from jobdesk_app.gui.i18n import tr

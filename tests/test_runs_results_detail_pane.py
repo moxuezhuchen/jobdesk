@@ -164,6 +164,36 @@ def test_result_detail_pane_shows_error_status(detail_pane):
     assert "Convergence failure" in detail_pane.error_value.text()
 
 
+def test_result_detail_pane_retranslates_all_dynamic_content(detail_pane):
+    result = SimpleNamespace(
+        method=None,
+        basis=None,
+        final_energy_au=-1.0,
+        zpe_au=None,
+        gibbs_au=None,
+        imaginary_freq_count=0,
+        walltime_seconds=None,
+        cpu_time_seconds=None,
+        normal_termination=True,
+        error_termination=False,
+        error_message=None,
+        diagnosis=None,
+        final_xyz=None,
+        atom_symbols=[],
+    )
+    detail_pane.render_gaussian(result)
+
+    with patch("jobdesk_app.gui.pages.runs_detail_pane.tr", side_effect=lambda key, language, **kwargs: f"zh:{key}".format(**kwargs)):
+        detail_pane.apply_language("zh")
+
+    assert detail_pane.energy_label.text() == "zh:Final SCF energy:"
+    assert detail_pane.geometry_label.text() == "zh:Final geometry (XYZ, first 100 lines)"
+    assert detail_pane.status_label.text() == "✓ zh:Normal termination"
+    assert detail_pane.imag_value.text() == "zh:0 (minimum)"
+    assert detail_pane.termination_value.text() == "zh:Normal termination of Gaussian"
+    assert detail_pane.geometry_view.toPlainText() == "zh:(no geometry parsed)"
+
+
 def test_result_detail_pane_shows_abnormal_status(detail_pane):
     """SCF energies present but no termination flags → 'Abnormal termination'."""
     result = _make_gaussian_result(normal_termination=False, error_termination=False)
@@ -389,7 +419,9 @@ def test_double_click_on_uncertain_row_shows_error(runs_page):
 
     assert runs_page.detail_pane.error_value.isVisibleTo(runs_page.detail_pane) is True
     assert "download failed" in runs_page.detail_pane.error_value.text()
-    assert runs_page.detail_pane.geometry_view.toPlainText() == "(uncertain task — no parsed output)"
+    assert runs_page.detail_pane.geometry_view.toPlainText() == tr(
+        "(uncertain task — no parsed output)", runs_page._language
+    )
 
 
 def test_double_click_on_empty_row_clears_pane(runs_page):
@@ -403,4 +435,6 @@ def test_double_click_on_empty_row_clears_pane(runs_page):
     runs_page.result_table.setItem(0, 0, item)
 
     runs_page._on_result_row_double_clicked(item)
-    assert "Select" in runs_page.detail_pane.title_label.text()
+    assert runs_page.detail_pane.title_label.text() == tr(
+        "Select a task to see details", runs_page._language
+    )

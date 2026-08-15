@@ -5,16 +5,18 @@ from __future__ import annotations
 import csv
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QFont, QTextCursor
+from PySide6.QtCore import QItemSelectionModel, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -58,6 +61,8 @@ from .runs_detail_pane import ResultDetailPane, _resolve_output_path
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
 CHECKPOINT_RETRY_BASE_MS = 1000
 CHECKPOINT_RETRY_MAX_MS = 30000
+ACTIVITY_LOG_MAX_BLOCKS = 500
+RUNS_SPLITTER_SETTINGS_KEY = "runs.main"
 
 _logger = logging.getLogger(__name__)
 
@@ -143,6 +148,47 @@ def _format_status_overview(summaries: list[dict[str, int]], language: str = "en
     return " · ".join(parts)
 
 
+_ACTIVE_STATUSES = {"local_ready", "uploaded", "submitting", "submitted", "running"}
+_COMPLETED_STATUSES = {"remote_completed", "downloaded", "analyzed"}
+
+
+def _status_filter_matches(summary: dict[str, int], value: str) -> bool:
+    positive = {key for key, count in summary.items() if count > 0}
+    groups = {
+        "all": positive,
+        "active": _ACTIVE_STATUSES,
+        "completed": _COMPLETED_STATUSES,
+        "failed": {"failed"},
+        "uncertain": {"uncertain"},
+        "cancelled": {"cancelled"},
+    }
+    return value == "all" or bool(positive & groups.get(value, set()))
+
+
+def _record_created_at(record: RunRecord) -> datetime | None:
+    value = str(getattr(record, "created_at", "") or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _status_visual(summary: dict[str, int]) -> tuple[str, str]:
+    if summary.get("failed", 0):
+        return "#b91c1c", "Failed"
+    if summary.get("uncertain", 0):
+        return "#b45309", "Uncertain"
+    if any(summary.get(key, 0) for key in _ACTIVE_STATUSES):
+        return "#1d4ed8", "Active"
+    if any(summary.get(key, 0) for key in _COMPLETED_STATUSES):
+        return "#15803d", "Completed"
+    if summary.get("cancelled", 0):
+        return "#475569", "Cancelled"
+    return "#475569", "Other"
+
+
 def _format_workflow_kind(record: RunRecord, language: str = "en") -> str:
     """Render the persisted workflow kind without inferring it from commands."""
     value = getattr(record, "workflow_kind", None)
@@ -202,7 +248,9 @@ class RunsResultsPage(QWidget):
         self._client_factory = client_factory
         self._owns_session_pool = session_pool is None
         self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
-        self._language = GuiSettingsStore().load().language
+        self._settings_store = GuiSettingsStore()
+        initial_settings = self._settings_store.load()
+        self._language = initial_settings.language
         self._shutting_down = False
         self._recovery_running = False
         self._recovery_complete = False
@@ -230,6 +278,10 @@ class RunsResultsPage(QWidget):
         self._log_view.setReadOnly(True)
         self._log_view.setMaximumHeight(160)
         self._log_view.setObjectName("RunsActivityLog")
+        self._log_view.document().setMaximumBlockCount(ACTIVITY_LOG_MAX_BLOCKS)
+        self._log_view.setVisible(False)
+        self._last_activity_message: str | None = None
+        self._last_reported_run_count: int | None = None
         log_font = QFont("Consolas")
         log_font.setStyleHint(QFont.Monospace)
         log_font.setPixelSize(Metrics.CARD_BODY_FONT_PX)
@@ -254,8 +306,15 @@ class RunsResultsPage(QWidget):
         )
         log_header_row.addWidget(self.activity_log_label)
         log_header_row.addStretch()
+        self.activity_log_toggle = QToolButton()
+        self.activity_log_toggle.setObjectName("RunsActivityLogToggle")
+        self.activity_log_toggle.setCheckable(True)
+        self.activity_log_toggle.setChecked(False)
+        self.activity_log_toggle.clicked.connect(self._set_activity_log_expanded)
+        log_header_row.addWidget(self.activity_log_toggle)
         self.clear_log_btn = QPushButton(tr("Clear Log", self._language))
         self.clear_log_btn.clicked.connect(self._clear_activity_log)
+        self.clear_log_btn.setVisible(False)
         log_header_row.addWidget(self.clear_log_btn)
         log_card_layout.addLayout(log_header_row)
         log_card_layout.addWidget(self._log_view)
@@ -315,12 +374,43 @@ class RunsResultsPage(QWidget):
         layout.addWidget(self._status_overview)
 
         self._run_records: list[RunRecord] = []
+        self._filtered_records: list[RunRecord] = []
+        self._filters_ready = False
 
         # ─── Top: Run list ───
         top = QWidget()
         top_layout = QVBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(6)
+
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
+        self.search_edit = QLineEdit()
+        self.search_edit.setObjectName("RunsSearch")
+        self.search_edit.setClearButtonEnabled(True)
+        filter_row.addWidget(self.search_edit, 2)
+        self.status_filter = QComboBox()
+        self.status_filter.setObjectName("RunsStatusFilter")
+        filter_row.addWidget(self.status_filter)
+        self.server_filter = QComboBox()
+        self.server_filter.setObjectName("RunsServerFilter")
+        filter_row.addWidget(self.server_filter)
+        self.workflow_filter = QComboBox()
+        self.workflow_filter.setObjectName("RunsWorkflowFilter")
+        filter_row.addWidget(self.workflow_filter)
+        self.date_filter = QComboBox()
+        self.date_filter.setObjectName("RunsDateFilter")
+        filter_row.addWidget(self.date_filter)
+        self.refresh_btn = QPushButton()
+        self.refresh_btn.setObjectName("RunsRefreshButton")
+        self.refresh_btn.setProperty("buttonRole", ButtonRole.REFRESH_ACTION.value)
+        self.refresh_btn.clicked.connect(self._refresh_all)
+        filter_row.addWidget(self.refresh_btn)
+        self.last_updated_label = QLabel()
+        self.last_updated_label.setObjectName("RunsLastUpdated")
+        self.last_updated_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
+        filter_row.addWidget(self.last_updated_label)
+        top_layout.addLayout(filter_row)
 
         self.table = StyledTableWidget()
         self.table.setColumnCount(7)
@@ -425,8 +515,11 @@ class RunsResultsPage(QWidget):
 
         # Detail pane: shows full parsed Gaussian/ORCA result on double-click
         self.detail_pane = ResultDetailPane()
+        self.detail_pane.setVisible(False)
         bottom_layout.addWidget(self.detail_pane)
 
+        self._results_card = bottom
+        self._results_card.setVisible(False)
         splitter.addWidget(bottom)
         # Phase 18 visual cleanup: stretched the run-list vs. result
         # preview 5:2 ratio — the previous 5:1.5 was visually
@@ -436,6 +529,9 @@ class RunsResultsPage(QWidget):
         # removes the dead vertical space below the preview buttons.
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
+        self._main_splitter = splitter
+        self._restore_main_splitter(initial_settings)
+        self._main_splitter.splitterMoved.connect(self._persist_main_splitter)
         layout.addWidget(splitter)
 
         # Real-time task completion monitor
@@ -445,6 +541,7 @@ class RunsResultsPage(QWidget):
         self._monitor.task_done.connect(self._on_task_done)
         self._bg_workers: list = []
         self._remote_mutation_running = False
+        self._manual_refresh_running = False
 
         # Debounce state for _on_task_done events
         # Key monitor work by its workspace-bound watcher id, not a bare
@@ -483,6 +580,213 @@ class RunsResultsPage(QWidget):
         # Tracks the last current_batch_id we auto-selected, so a freshly-set one
         # (a new submission) still jumps while later refreshes keep manual selection.
         self._applied_batch_id: str | None = None
+        self._selected_run_ids_cache: set[str] = set()
+
+        self.search_edit.textChanged.connect(self._apply_filters)
+        self.status_filter.currentIndexChanged.connect(self._apply_filters)
+        self.server_filter.currentIndexChanged.connect(self._apply_filters)
+        self.workflow_filter.currentIndexChanged.connect(self._apply_filters)
+        self.date_filter.currentIndexChanged.connect(self._apply_filters)
+        self._populate_static_filters()
+        self._filters_ready = True
+        self._set_activity_log_expanded(False)
+        self._update_action_buttons()
+        self.apply_language(self._language, refresh=False)
+
+    def _restore_main_splitter(self, settings) -> None:
+        raw = (getattr(settings, "splitter_sizes", None) or {}).get(RUNS_SPLITTER_SETTINGS_KEY)
+        if (
+            isinstance(raw, list)
+            and len(raw) == 2
+            and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in raw)
+        ):
+            sizes = list(raw)
+        else:
+            sizes = [700, 300]
+        self._restored_main_splitter_sizes = sizes
+        self._main_splitter.setSizes(sizes)
+
+    def _persist_main_splitter(self, _position: int, _index: int) -> None:
+        sizes = self._main_splitter.sizes()
+        if len(sizes) != 2 or any(not isinstance(value, int) or value <= 0 for value in sizes):
+            return
+        settings = self._settings_store.load()
+        persisted = dict(getattr(settings, "splitter_sizes", None) or {})
+        persisted[RUNS_SPLITTER_SETTINGS_KEY] = list(sizes)
+        self._restored_main_splitter_sizes = list(sizes)
+        self._settings_store.update(splitter_sizes=persisted)
+
+    def _populate_static_filters(self) -> None:
+        values = {
+            self.status_filter: [
+                ("All statuses", "all"),
+                ("Active", "active"),
+                ("Completed", "completed"),
+                ("Failed", "failed"),
+                ("Uncertain", "uncertain"),
+                ("Cancelled", "cancelled"),
+            ],
+            self.date_filter: [
+                ("Any date", "all"),
+                ("Today", "today"),
+                ("Past 7 days", "7d"),
+                ("Past 30 days", "30d"),
+            ],
+        }
+        for combo, options in values.items():
+            selected = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for label, value in options:
+                combo.addItem(tr(label, self._language), value)
+            index = combo.findData(selected)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+            combo.blockSignals(False)
+
+    def _populate_record_filters(self) -> None:
+        for combo, all_label, values in (
+            (self.server_filter, "All servers", sorted({record.server_id for record in self._run_records})),
+            (
+                self.workflow_filter,
+                "All workflows",
+                sorted({_format_workflow_kind(record, "en") for record in self._run_records}),
+            ),
+        ):
+            selected = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(tr(all_label, self._language), "all")
+            for value in values:
+                combo.addItem(str(value), str(value))
+            index = combo.findData(selected)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+            combo.blockSignals(False)
+
+    def _record_matches_filters(self, record: RunRecord) -> bool:
+        query = self.search_edit.text().strip().casefold()
+        searchable = "\n".join(
+            (
+                str(record.run_id),
+                str(record.server_id),
+                str(record.remote_dir),
+                _format_workflow_kind(record, "en"),
+                str(record.command_template),
+            )
+        ).casefold()
+        if query and query not in searchable:
+            return False
+        if not _status_filter_matches(record.status_summary, str(self.status_filter.currentData() or "all")):
+            return False
+        server = str(self.server_filter.currentData() or "all")
+        if server != "all" and record.server_id != server:
+            return False
+        workflow = str(self.workflow_filter.currentData() or "all")
+        if workflow != "all" and _format_workflow_kind(record, "en") != workflow:
+            return False
+        date_value = str(self.date_filter.currentData() or "all")
+        if date_value == "all":
+            return True
+        created = _record_created_at(record)
+        if created is None:
+            return False
+        today = datetime.now().date()
+        if date_value == "today":
+            return created.date() == today
+        days = 7 if date_value == "7d" else 30
+        return today - timedelta(days=days - 1) <= created.date() <= today
+
+    def _apply_filters(self, *_args) -> None:
+        if not self._filters_ready:
+            return
+        self._remember_run_selection()
+        selected_run_id = self._current_run_id()
+        self._filtered_records = [record for record in self._run_records if self._record_matches_filters(record)]
+        self._render_run_rows(self._filtered_records, selected_run_id, self._selected_run_ids_cache)
+        self._refresh_status_overview()
+        self._update_empty_state()
+
+    def _render_run_rows(
+        self,
+        records: list[RunRecord],
+        selected_run_id: str | None,
+        selected_run_ids: set[str] | None = None,
+    ) -> None:
+        selected_run_ids = set(selected_run_ids or ())
+        if selected_run_id is not None:
+            selected_run_ids.add(selected_run_id)
+        self._set_headers()
+        self.table.blockSignals(True)
+        self.table.setRowCount(len(records))
+        selected_row = None
+        for row, record in enumerate(records):
+            for col, value in enumerate(_format_row(record, self._language)):
+                item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setData(Qt.UserRole, record)
+                elif col == 3:
+                    color, cue = _status_visual(record.status_summary)
+                    item.setForeground(QColor(color))
+                    item.setToolTip(f"{tr(cue, self._language)}: {value or tr('No status', self._language)}")
+                    item.setData(Qt.AccessibleDescriptionRole, tr(cue, self._language))
+                self.table.setItem(row, col, item)
+            if record.run_id == selected_run_id:
+                selected_row = row
+        self.table.blockSignals(False)
+        selected_rows = [row for row, record in enumerate(records) if record.run_id in selected_run_ids]
+        if selected_rows:
+            selection = self.table.selectionModel()
+            selection.clearSelection()
+            for row in selected_rows:
+                selection.select(
+                    self.table.model().index(row, 0),
+                    QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                )
+            current_row = selected_row if selected_row is not None else selected_rows[0]
+            selection.setCurrentIndex(self.table.model().index(current_row, 0), QItemSelectionModel.NoUpdate)
+        else:
+            self.table.clearSelection()
+            self.table.setCurrentCell(-1, -1)
+            self._set_results_visible(False)
+        self._update_action_buttons()
+
+    def _remember_run_selection(self) -> None:
+        self._selected_run_ids_cache.update(self._selected_run_ids())
+
+    def _update_empty_state(self) -> None:
+        no_runs = not self._run_records
+        no_matches = bool(self._run_records) and not self._filtered_records
+        self._empty_hint._title_key = "No runs yet" if no_runs else "No results found"
+        self._empty_hint._body_key = (
+            "Build a workflow on the Submit tab and click Submit to Remote. Your runs will appear here."
+            if no_runs
+            else ""
+        )
+        self._empty_hint.apply_language(self._language)
+        for button in self._empty_hint._action_buttons.values():
+            button.setVisible(no_runs)
+        self._empty_hint.setVisible(no_runs or no_matches)
+
+    def _set_results_visible(self, visible: bool) -> None:
+        was_visible = self._results_card.isVisible()
+        self._results_card.setVisible(visible)
+        if visible and not was_visible:
+            self._main_splitter.setSizes(self._restored_main_splitter_sizes)
+        if not visible:
+            self._preview_timer.stop()
+            self._preview_request_id += 1
+            self.result_table.setRowCount(0)
+            self.result_text.clear()
+            self.result_text.setVisible(False)
+            self.detail_pane.clear()
+
+    def _set_activity_log_expanded(self, expanded: bool) -> None:
+        self.activity_log_toggle.setChecked(expanded)
+        self.activity_log_toggle.setText("▾" if expanded else "▸")
+        self.activity_log_toggle.setToolTip(
+            tr("Collapse activity log" if expanded else "Expand activity log", self._language)
+        )
+        self._log_view.setVisible(expanded)
+        self.clear_log_btn.setVisible(expanded)
 
 
     @staticmethod
@@ -1000,6 +1304,11 @@ class RunsResultsPage(QWidget):
         self._overview_title.setText(tr("Runs overview:", language))
         self.activity_log_label.setText(tr("Activity log", language))
         self.clear_log_btn.setText(tr("Clear Log", language))
+        self.search_edit.setPlaceholderText(tr("Search runs", language))
+        self.refresh_btn.setText(tr("Refresh", language))
+        self._populate_static_filters()
+        self._populate_record_filters()
+        self._set_activity_log_expanded(self.activity_log_toggle.isChecked())
         self._set_headers()
         if refresh:
             self.refresh_run_list()
@@ -1007,8 +1316,7 @@ class RunsResultsPage(QWidget):
         # pane so its placeholder text re-translates on the fly.
         if hasattr(self, "detail_pane") and self.detail_pane is not None:
             self.detail_pane.apply_language(language)
-        # Phase 2.1: retranslate the empty-state hint copy.
-        self._empty_hint.apply_language(language)
+        self._update_empty_state()
         self._refresh_status_overview()
 
     # ─── Phase 16: persistent scrolling activity log ────────────────────
@@ -1046,6 +1354,9 @@ class RunsResultsPage(QWidget):
         text = str(message)
         if not hasattr(self, "_log_view") or self._log_view is None:
             return
+        if text == self._last_activity_message:
+            return
+        self._last_activity_message = text
         timestamp = datetime.now().strftime("%H:%M:%S")
         line = f"[{timestamp}] {text}"
         # Append directly — QTextEdit is single-threaded GUI only, and
@@ -1071,6 +1382,7 @@ class RunsResultsPage(QWidget):
         """Clear the visible log lines. Sink log and status bar are untouched."""
         if hasattr(self, "_log_view") and self._log_view is not None:
             self._log_view.clear()
+            self._last_activity_message = None
 
     def set_submit_warnings(self, warnings: list[str]) -> None:
         """Show non-fatal submission advisories without persisting them."""
@@ -1181,6 +1493,8 @@ class RunsResultsPage(QWidget):
 
     def refresh_run_list(self):
         workspace = self.state.current_project_root or Path.cwd()
+        self._remember_run_selection()
+        previous_selection = self._current_run_id()
         try:
             runs = RunService(workspace).list_runs()
         except Exception as exc:
@@ -1189,13 +1503,12 @@ class RunsResultsPage(QWidget):
             # terminate the Qt process from the deferred activation timer.
             _logger.exception("Failed to load run records")
             self._run_records = []
-            self._set_headers()
-            self.table.blockSignals(True)
-            self.table.setRowCount(0)
-            self.table.blockSignals(False)
-            self._refresh_status_overview([])
+            self._filtered_records = []
+            self._populate_record_filters()
+            self._render_run_rows([], None, set())
+            self._refresh_status_overview()
             self._update_uncertain_actions()
-            self._empty_hint.setVisible(True)
+            self._update_empty_state()
             self._status_cb(
                 tr(
                     "Could not load run records: {error}",
@@ -1205,41 +1518,34 @@ class RunsResultsPage(QWidget):
             )
             return
         self._run_records = runs
-        prev_selected = self._current_run_id()
-        self._set_headers()
-        self.table.blockSignals(True)
-        self.table.setRowCount(len(runs))
-        manual_row = None
-        batch_row = None
-        for row, record in enumerate(runs):
-            for col, value in enumerate(_format_row(record, self._language)):
-                item = QTableWidgetItem(value)
-                if col == 0:
-                    item.setData(Qt.UserRole, record)  # cache to avoid another database lookup on selection
-                self.table.setItem(row, col, item)
-            if record.run_id == prev_selected:
-                manual_row = row
-            if record.run_id == getattr(self.state, "current_batch_id", None):
-                batch_row = row
-        self.table.blockSignals(False)
-        # Phase 19: update status overview after loading runs
-        self._refresh_status_overview(runs)
+        self._populate_record_filters()
         # A freshly-set current_batch_id (new submission) jumps to that run;
         # otherwise keep the user's manual selection across refreshes.
         batch_id = getattr(self.state, "current_batch_id", None)
-        if batch_id is not None and batch_id != self._applied_batch_id and batch_row is not None:
-            target_row = batch_row
+        available_ids = {record.run_id for record in runs}
+        self._selected_run_ids_cache.intersection_update(available_ids)
+        if batch_id is not None and batch_id != self._applied_batch_id and batch_id in available_ids:
+            selected_run_id = batch_id
             self._applied_batch_id = batch_id
         else:
-            target_row = manual_row if manual_row is not None else batch_row
-        if target_row is not None:
-            self.table.setCurrentCell(target_row, 0)
+            selected_run_id = previous_selection if previous_selection in available_ids else None
+            if selected_run_id is None and batch_id in available_ids:
+                selected_run_id = batch_id
+        self._filtered_records = [record for record in runs if self._record_matches_filters(record)]
+        self._render_run_rows(self._filtered_records, selected_run_id, self._selected_run_ids_cache)
+        self._refresh_status_overview()
         self._update_uncertain_actions()
-        self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
+        if len(runs) != self._last_reported_run_count:
+            self._status_cb(tr("Run records: {n}", self._language, n=len(runs)))
+            self._last_reported_run_count = len(runs)
+        self.last_updated_label.setText(
+            tr("Last updated: {time}", self._language, time=datetime.now().strftime("%H:%M:%S"))
+        )
+        self.last_updated_label.setToolTip(datetime.now().isoformat(timespec="seconds"))
         # Phase 2.1: toggle the empty-state hint whenever the run list
         # is refreshed. The hint lives outside the splitter so this only
         # affects the layout above the run table.
-        self._empty_hint.setVisible(not runs)
+        self._update_empty_state()
 
     def _current_run_id(self) -> str | None:
         row = self.table.currentRow()
@@ -1357,23 +1663,91 @@ class RunsResultsPage(QWidget):
     def _on_run_selected(self, row, col, prev_row, prev_col):
         """Debounce selection so rapid scrolling doesn't parse files per row."""
         self._update_uncertain_actions()
-        self._preview_timer.start()
+        self._update_action_buttons()
+        valid = row >= 0 and self._selected_record() is not None
+        self._set_results_visible(valid)
+        if valid:
+            self._preview_timer.start()
+
+    def _update_action_buttons(self) -> None:
+        record = self._selected_record()
+        no_selection = tr("Select a run to enable this action", self._language)
+
+        def configure(button: QPushButton, enabled: bool, disabled_reason: str) -> None:
+            button.setEnabled(enabled)
+            tooltip = "" if enabled else disabled_reason
+            button.setToolTip(tooltip)
+            feedback = {
+                self.retry_btn: self._retry_feedback,
+                self.stop_btn: self._stop_feedback,
+                self.retry_dl_btn: self._retry_download_feedback,
+                self.delete_btn: self._delete_feedback,
+            }.get(button)
+            if feedback is not None:
+                feedback._idle_tooltip = tooltip
+
+        if record is None:
+            for button in (self.retry_btn, self.stop_btn, self.retry_dl_btn, self.delete_btn):
+                configure(button, False, no_selection)
+            return
+        summary = record.status_summary
+        configure(
+            self.retry_btn,
+            bool(summary.get("failed", 0)),
+            tr("This run has no failed tasks", self._language),
+        )
+        configure(
+            self.stop_btn,
+            any(summary.get(key, 0) for key in _ACTIVE_STATUSES),
+            tr("This run has no active tasks", self._language),
+        )
+        configure(
+            self.retry_dl_btn,
+            bool(summary.get("remote_completed", 0)),
+            tr("This run has no tasks awaiting download", self._language),
+        )
+        configure(self.delete_btn, True, "")
 
     def _update_uncertain_actions(self) -> None:
         record = self._selected_record()
-        enabled = bool(record and record.status_summary.get("uncertain", 0) and self._selected_uncertain_task_ids())
+        enabled = bool(
+            not self._remote_mutation_running
+            and record
+            and record.status_summary.get("uncertain", 0)
+            and self._selected_uncertain_task_ids()
+        )
         self.confirm_submitted_btn.setVisible(enabled)
         self.abandon_submit_btn.setVisible(enabled)
         self.confirm_submitted_btn.setEnabled(enabled)
         self.abandon_submit_btn.setEnabled(enabled)
 
     def _refresh_status_overview(self, runs: list[RunRecord] | None = None) -> None:
-        """Update the runs status overview bar with aggregate task counts."""
+        """Show run count separately from exhaustive aggregate task totals."""
         if not hasattr(self, "_overview_label"):
             return
         records = self._run_records if runs is None else runs
-        summaries = [record.status_summary for record in records]
-        self._overview_label.setText(_format_status_overview(summaries, self._language))
+        visible_count = len(self._filtered_records) if runs is None else len(records)
+        totals = {"active": 0, "completed": 0, "failed": 0, "other": 0}
+        for record in records:
+            for status, count in record.status_summary.items():
+                if status in _ACTIVE_STATUSES:
+                    totals["active"] += count
+                elif status in _COMPLETED_STATUSES:
+                    totals["completed"] += count
+                elif status == "failed":
+                    totals["failed"] += count
+                else:
+                    totals["other"] += count
+        run_text = tr("Runs: {visible} of {total}", self._language, visible=visible_count, total=len(records))
+        task_parts = [
+            f"{tr('Active', self._language)} {totals['active']}",
+            f"{tr('Completed', self._language)} {totals['completed']}",
+            f"{tr('Failed', self._language)} {totals['failed']}",
+            f"{tr('Other', self._language)} {totals['other']}",
+        ]
+        text = f"{run_text} · {tr('Tasks:', self._language)} " + " · ".join(task_parts)
+        self._overview_label.setText(text)
+        self._overview_label.setAccessibleName(text)
 
     def _selected_uncertain_task_ids(self) -> list[str]:
         selected_rows = sorted({index.row() for index in self.result_table.selectedIndexes()})
@@ -1383,6 +1757,14 @@ class RunsResultsPage(QWidget):
         for row in selected_rows:
             item = self.result_table.item(row, 0)
             data = item.data(Qt.UserRole) if item is not None else None
+            if isinstance(data, dict):
+                if data.get("kind") != "uncertain" or data.get("status") != "uncertain":
+                    return []
+                task_id = data.get("task_id")
+                if not task_id:
+                    return []
+                task_ids.append(str(task_id))
+                continue
             if not isinstance(data, tuple) or len(data) != 2 or data[1] != "uncertain":
                 return []
             task_ids.append(str(data[0]))
@@ -1868,6 +2250,7 @@ class RunsResultsPage(QWidget):
         first_col = self.result_table.item(row, 0)
         if first_col is None:
             self.detail_pane.clear()
+            self.detail_pane.setVisible(False)
             return
         cached = first_col.data(Qt.UserRole)
         task_id = str(first_col.text())
@@ -1883,16 +2266,19 @@ class RunsResultsPage(QWidget):
             return
         # Default — fall back to clearing the pane.
         self.detail_pane.clear()
+        self.detail_pane.setVisible(False)
 
     def _show_uncertain_row_detail(self, task_id: str, status: str | None, error: str | None) -> None:
+        self.detail_pane.setVisible(True)
         self.detail_pane.title_label.setText(task_id)
+        status_text = tr("Uncertain", self._language) if (not status or status.lower() == "uncertain") else status
         if error:
-            self.detail_pane.status_label.setText(f"⚠ {status or 'Uncertain'}: {error}")
+            self.detail_pane.status_label.setText(f"⚠ {status_text}: {error}")
             self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.WARNING};")
             self.detail_pane.error_value.setText(error)
             self.detail_pane.error_value.setVisible(True)
         else:
-            self.detail_pane.status_label.setText(str(status or "Uncertain"))
+            self.detail_pane.status_label.setText(str(status_text))
             self.detail_pane.status_label.setStyleSheet(f"font-weight: 600; color: {Colors.TEXT_SECONDARY};")
             self.detail_pane.error_value.setText("")
             self.detail_pane.error_value.setVisible(False)
@@ -1906,7 +2292,9 @@ class RunsResultsPage(QWidget):
         ):
             lbl.setText("—")
         self.detail_pane.termination_value.setText("—")
-        self.detail_pane.geometry_view.setPlainText("(uncertain task — no parsed output)")
+        self.detail_pane.geometry_view.setPlainText(
+            tr("(uncertain task — no parsed output)", self._language)
+        )
 
     def _render_detail_for_task(self, task_id: str, task, workspace: Path | None) -> None:
         """Resolve a parser output file and render the parsed result to the pane.
@@ -1918,6 +2306,7 @@ class RunsResultsPage(QWidget):
         from ...core.parsers.gaussian import parse_gaussian_log
         from ...core.parsers.orca import parse_orca_out
 
+        self.detail_pane.setVisible(True)
         output_path = _resolve_output_path(task, workspace)
         if output_path is None:
             self.detail_pane.title_label.setText(task_id)
@@ -1944,6 +2333,7 @@ class RunsResultsPage(QWidget):
                 result = parse_orca_out(output_path)
             else:
                 self.detail_pane.clear()
+                self.detail_pane.setVisible(False)
                 return
         except Exception as exc:
             self.detail_pane.title_label.setText(task_id)
@@ -2176,9 +2566,12 @@ class RunsResultsPage(QWidget):
             _rollback_start(error, worker)
 
     def _refresh_status(self):
+        if self._manual_refresh_running:
+            return
         record = self._selected_record()
         if record is None:
             return
+        self._manual_refresh_running = True
 
         def _run():
             outcome = self._execute_refresh_use_case(
@@ -2199,14 +2592,36 @@ class RunsResultsPage(QWidget):
 
         from ..workers import BackgroundWorker
 
-        worker = BackgroundWorker(_run)
+        try:
+            worker = BackgroundWorker(_run)
+        except Exception as error:
+            self._manual_refresh_running = False
+            self._status_cb(tr("Refresh failed: {e}", self._language, e=error))
+            return
+
         worker.result.connect(lambda msg: self._status_cb(msg) if msg else None)
         worker.error.connect(lambda e: self._status_cb(tr("Refresh failed: {e}", self._language, e=e)))
-        worker.finished.connect(lambda: self._on_refresh_done())
+
+        def _finished() -> None:
+            self._manual_refresh_running = False
+            self._on_refresh_done()
+
+        worker.finished.connect(_finished)
         worker.finished.connect(lambda: self._bg_workers.remove(worker) if worker in self._bg_workers else None)
         worker.finished.connect(worker.deleteLater)
         self._bg_workers.append(worker)
-        worker.start()
+        try:
+            worker.start()
+        except Exception as error:
+            self._manual_refresh_running = False
+            if worker in self._bg_workers:
+                self._bg_workers.remove(worker)
+            try:
+                worker.stop_safely(3000)
+            except Exception:
+                _logger.debug("Failed to stop manual refresh worker after start failure", exc_info=True)
+            worker.deleteLater()
+            self._status_cb(tr("Refresh failed: {e}", self._language, e=error))
 
     def _on_refresh_done(self):
         self.refresh_run_list()
@@ -2501,6 +2916,8 @@ class RunsResultsPage(QWidget):
             != QMessageBox.Yes
         ):
             return
+        if not self._begin_remote_mutation():
+            return
         workspace = self._result_workspace(record)
 
         def _run():
@@ -2532,6 +2949,7 @@ class RunsResultsPage(QWidget):
             registry_attr="_bg_workers",
             on_result=_done,
             on_error=lambda error: self._status_cb(f"{action.title()} uncertain tasks failed: {error}"),
+            on_finished=self._finish_remote_mutation,
         )
 
     def _abandon_confirmation_text(self, count: int) -> str:
@@ -2652,6 +3070,8 @@ class RunsResultsPage(QWidget):
 
     def _finish_remote_mutation(self) -> None:
         self._remote_mutation_running = False
+        if hasattr(self, "confirm_submitted_btn") and not self._shutting_down:
+            self._update_uncertain_actions()
 
     def _on_submit_error(self, exc: Exception | str, *, feedback: ButtonFeedback | None = None):
         if feedback is not None:
