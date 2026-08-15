@@ -90,6 +90,155 @@ class TestFileTransferPage:
         assert file_page.local_table is not None
         assert file_page.local_table.columnCount() >= 4
 
+    def test_searches_are_independent_and_counts_show_selected_visible_total(self, file_page, qtbot):
+        from jobdesk_app.gui.pages.file_transfer_widgets import _load_rows
+
+        _load_rows(
+            file_page.local_table,
+            [
+                ["..", "", "", "dir", "C:/"],
+                ["Alpha.XYZ", "1 KB", "2026-01-01", "file", "C:/work/Alpha.XYZ"],
+                ["beta.inp", "2 KB", "2026-01-02", "file", "C:/work/beta.inp"],
+            ],
+        )
+        _load_rows(
+            file_page.remote_table,
+            [
+                ["..", "", "", "", "dir", "/"],
+                ["ALPHA.log", "3 KB", "2026-01-03", "0644", "file", "/tmp/ALPHA.log"],
+                ["gamma.xyz", "4 KB", "2026-01-04", "0644", "file", "/tmp/gamma.xyz"],
+            ],
+        )
+
+        file_page.local_search.setText("alpha")
+        file_page.remote_search.setText("GAMMA")
+        alpha_row = next(row for row in range(3) if file_page.local_table.item(row, 0).text() == "Alpha.XYZ")
+        file_page.local_table.selectRow(alpha_row)
+        qtbot.wait(1)
+
+        assert [
+            file_page.local_table.item(row, 0).text()
+            for row in range(3)
+            if not file_page.local_table.isRowHidden(row)
+        ] == ["..", "Alpha.XYZ"]
+        assert [
+            file_page.remote_table.item(row, 0).text()
+            for row in range(3)
+            if not file_page.remote_table.isRowHidden(row)
+        ] == ["..", "gamma.xyz"]
+        assert file_page.selection_label.text() == "Local 1 selected, 1/2 visible | Remote 0 selected, 1/2 visible"
+
+    def test_submit_uses_most_recently_selected_side_and_count(self, file_page, qtbot):
+        from jobdesk_app.gui.pages.file_transfer_widgets import _load_rows
+
+        _load_rows(file_page.local_table, [["a.xyz", "1 KB", "", "file", "C:/work/a.xyz"]])
+        _load_rows(file_page.remote_table, [["b.xyz", "1 KB", "", "0644", "file", "/tmp/b.xyz"]])
+        emitted = []
+        file_page.submit_requested_with_files.connect(emitted.append)
+
+        file_page.local_table.selectRow(0)
+        file_page.remote_table.selectRow(0)
+        qtbot.wait(1)
+        assert file_page.submit_btn.text() == "Submit 1 remote"
+        file_page.submit_btn.click()
+        assert [str(source.path).replace("\\", "/") for source in emitted[-1]] == ["/tmp/b.xyz"]
+
+        file_page.local_table.clearSelection()
+        file_page.local_table.selectRow(0)
+        qtbot.wait(1)
+        assert file_page.submit_btn.text() == "Submit 1 local"
+        file_page.submit_btn.click()
+        assert [str(source.path).replace("\\", "/") for source in emitted[-1]] == ["C:/work/a.xyz"]
+
+    def test_submit_does_not_advertise_or_emit_directory_only_selection(self, file_page, qtbot):
+        from jobdesk_app.gui.pages.file_transfer_widgets import _load_rows
+
+        _load_rows(file_page.local_table, [["inputs", "", "", "dir", "C:/work/inputs"]])
+        emitted = []
+        file_page.submit_requested_with_files.connect(emitted.append)
+
+        file_page.local_table.selectRow(0)
+        qtbot.wait(1)
+
+        assert not file_page.submit_btn.isEnabled()
+        assert file_page.submit_btn.text() == "Submit (selected files)"
+        file_page.submit_btn.click()
+        assert emitted == []
+
+    def test_public_search_focus_and_refresh_block_duplicate_remote_work(self, file_page, qtbot):
+        statuses = []
+        file_page._status_cb = statuses.append
+        file_page.remote_worker = MagicMock()
+        file_page.remote_worker.isRunning.return_value = True
+
+        file_page.show()
+        qtbot.waitExposed(file_page)
+        file_page.remote_search.setText("needle")
+        file_page.focus_search("remote")
+        assert file_page.remote_search.selectedText() == "needle"
+        with (
+            patch.object(file_page, "_refresh_local") as refresh_local,
+            patch.object(file_page, "_refresh_remote") as refresh_remote,
+        ):
+            file_page.refresh()
+
+        refresh_local.assert_not_called()
+        refresh_remote.assert_not_called()
+        assert statuses[-1] == "Refresh already in progress"
+
+    def test_connection_chip_and_last_refresh_are_truthful(self, file_page):
+        from dataclasses import replace
+
+        service = MagicMock()
+        file_page.server_combo.addItem("hpc", "hpc")
+        file_page.server_combo.setCurrentIndex(file_page.server_combo.findData("hpc"))
+        file_page._gui_settings = replace(file_page._gui_settings, auto_connect=True)
+        file_page._service = service
+        file_page._connected_server_id = "hpc"
+        file_page._connection_ready = False
+
+        file_page._auto_connect_selected_server()
+        assert file_page.connection_label.text() == "Connecting: hpc"
+        assert file_page.last_refresh_label.text() == "Last refresh: Never"
+
+        with patch("jobdesk_app.gui.pages.file_transfer_page.time.strftime", return_value="12:34:56"):
+            file_page._on_remote_entries_loaded(file_page._remote_list_request_id, "/tmp", [])
+
+        assert file_page.connection_label.text() == "Connected: hpc"
+        assert file_page.last_refresh_label.text() == "Last refresh: 12:34:56"
+
+        file_page._remote_list_fallbacks = []
+        file_page._on_remote_list_error(file_page._remote_list_request_id, "FileNotFoundError: /missing")
+        assert file_page.connection_label.text() == "Connected: hpc"
+        assert file_page.connection_snapshot().connected is True
+
+    def test_file_splitters_restore_and_persist_defensively(self, file_page):
+        from dataclasses import replace
+
+        file_page._gui_settings = replace(
+            file_page._gui_settings,
+            splitter_sizes={"files.panes": [410, 690], "files.main": [720, 0, 52]},
+        )
+        file_page._restore_splitter_sizes()
+        pane_sizes = file_page.file_splitter.sizes()
+        main_sizes = file_page.main_splitter.sizes()
+        assert pane_sizes[0] / pane_sizes[1] == pytest.approx(410 / 690, rel=0.02)
+        assert main_sizes[0] > main_sizes[2] > 0
+        assert main_sizes[1] < main_sizes[2]
+
+        store = MagicMock()
+        store.load.return_value = replace(
+            file_page._gui_settings,
+            splitter_sizes={"other.page": [1, 2]},
+        )
+        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore", return_value=store):
+            file_page._persist_splitter_sizes()
+
+        saved = store.update.call_args.kwargs["splitter_sizes"]
+        assert saved["other.page"] == [1, 2]
+        assert saved["files.panes"] == file_page.file_splitter.sizes()
+        assert saved["files.main"] == file_page.main_splitter.sizes()
+
     def test_open_terminal_button_exists_on_remote_header(self, file_page):
         from jobdesk_app.gui.i18n import tr
 
