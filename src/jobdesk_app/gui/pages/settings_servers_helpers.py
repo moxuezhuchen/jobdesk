@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
 
 def validate_server_id_change(existing_ids: Iterable[str], old_id: str | None, new_id: str) -> str | None:
@@ -15,11 +16,23 @@ def validate_server_id_change(existing_ids: Iterable[str], old_id: str | None, n
     return None
 
 
+def validate_executable_reference(value: str) -> str | None:
+    """Allow PATH-resolved commands; validate only values that explicitly name a path."""
+    candidate = value.strip()
+    if not candidate:
+        return None
+    looks_like_path = any(separator in candidate for separator in ("/", "\\")) or candidate.startswith((".", "~"))
+    if not looks_like_path:
+        return None
+    path = Path(candidate).expanduser()
+    if path.is_file():
+        return None
+    return "Executable path does not exist; use an existing file or a command available on PATH"
+
+
 def build_scheduler_fields(form, dlg, sched: dict, language: str) -> dict:
     """Add scheduler resource widgets to a server dialog form; return widget dict."""
     from PySide6.QtWidgets import QComboBox, QLineEdit, QSpinBox
-
-    from ..i18n import tr
 
     type_combo = QComboBox()
     type_combo.addItems(["nohup", "slurm", "pbs"])
@@ -54,12 +67,12 @@ def build_scheduler_fields(form, dlg, sched: dict, language: str) -> dict:
     type_combo.currentTextChanged.connect(_toggle)
     _toggle()
 
-    form.addRow(tr("Scheduler:", language), type_combo)
+    form.addRow("Scheduler:", type_combo)
     form.addRow("CPUs:", cpus)
-    form.addRow(tr("Memory(MB):", language), mem)
-    form.addRow(tr("Walltime:", language), wall)
-    form.addRow(tr("Partition/Queue:", language), partition)
-    form.addRow(tr("Account:", language), account)
+    form.addRow("Memory(MB):", mem)
+    form.addRow("Walltime:", wall)
+    form.addRow("Partition/Queue:", partition)
+    form.addRow("Account:", account)
     return widgets
 
 
@@ -82,8 +95,6 @@ def scheduler_dict(widgets: dict, existing: dict | None = None) -> dict:
 def build_external_tools_fields(form, tools: dict, language: str) -> dict:
     from PySide6.QtWidgets import QComboBox, QLineEdit
 
-    from ..i18n import tr
-
     provider = QComboBox()
     provider.addItems(["windows_terminal", "putty"])
     current = str(tools.get("terminal_provider", "windows_terminal"))
@@ -96,10 +107,10 @@ def build_external_tools_fields(form, tools: dict, language: str) -> dict:
     putty_session.setPlaceholderText("PuTTY saved session")
     terminal_path = QLineEdit(str(tools.get("terminal_path", "")))
     terminal_path.setPlaceholderText("Path to terminal executable")
-    form.addRow(tr("Terminal:", language), provider)
-    form.addRow(tr("Terminal Path:", language), terminal_path)
-    form.addRow(tr("SSH Alias:", language), ssh_alias)
-    form.addRow(tr("PuTTY Session:", language), putty_session)
+    form.addRow("Terminal:", provider)
+    form.addRow("Terminal Path:", terminal_path)
+    form.addRow("SSH Alias:", ssh_alias)
+    form.addRow("PuTTY Session:", putty_session)
     return {
         "terminal_provider": provider,
         "ssh_alias": ssh_alias,
@@ -124,17 +135,15 @@ def external_tools_dict(widgets: dict, existing: dict | None = None) -> dict:
 def build_ssh_access_fields(form, access: dict, language: str) -> dict:
     from PySide6.QtWidgets import QLineEdit
 
-    from ..i18n import tr
-
     config_alias = QLineEdit(str(access.get("config_alias", "")))
     config_alias.setPlaceholderText("OpenSSH config alias")
     proxy_command = QLineEdit(str(access.get("proxy_command", "")))
     proxy_command.setPlaceholderText("ssh -W %h:%p gateway")
     proxy_jump = QLineEdit(str(access.get("proxy_jump", "")))
     proxy_jump.setPlaceholderText("gateway")
-    form.addRow(tr("SSH Config Alias:", language), config_alias)
-    form.addRow(tr("ProxyCommand:", language), proxy_command)
-    form.addRow(tr("ProxyJump:", language), proxy_jump)
+    form.addRow("SSH Config Alias:", config_alias)
+    form.addRow("ProxyCommand:", proxy_command)
+    form.addRow("ProxyJump:", proxy_jump)
     return {
         "config_alias": config_alias,
         "proxy_command": proxy_command,

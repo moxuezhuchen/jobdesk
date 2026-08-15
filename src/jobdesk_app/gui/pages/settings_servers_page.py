@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...config.schema import ServerConfig
 from ...config.servers import get_default_servers_path, load_servers
 from ...core.atomic_write import atomic_write_text
 from ...services.gui_settings import GuiSettingsStore
@@ -33,15 +34,8 @@ from ..session import ssh_session
 from ..theme import help_text, section_title_label
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker
-from .settings_servers_helpers import (
-    build_external_tools_fields,
-    build_scheduler_fields,
-    build_ssh_access_fields,
-    external_tools_dict,
-    scheduler_dict,
-    ssh_access_dict,
-    validate_server_id_change,
-)
+from .server_editor_dialog import ServerEditorDialog
+from .settings_servers_helpers import validate_executable_reference
 
 SERVER_TEST_TIMEOUT_SECONDS = 20.0
 
@@ -104,9 +98,13 @@ class SettingsServersPage(QWidget):
         self._status_cb = status_cb
         self._shutting_down = False
         self._connection_test_running = False
+        self._server_test_status: dict[str, str] = {}
+        self._loading_settings = False
+        self._settings_snapshot = None
         self._store = GuiSettingsStore()
         self._language = self._store.load().language
         self._background_workers = []
+        self._server_dialogs: set[ServerEditorDialog] = set()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -169,6 +167,9 @@ class SettingsServersPage(QWidget):
         fc_layout = QHBoxLayout(folder_ctrl)
         fc_layout.setContentsMargins(0, 0, 0, 0)
         self.local_folder_edit = QLineEdit()
+        self.local_folder_edit.setToolTip(
+            tr("Choose an existing local directory, or leave blank to use the current location.", self._language)
+        )
         self.browse_btn = QPushButton(tr("Browse", self._language))
         self.browse_btn.clicked.connect(self._browse)
         fc_layout.addWidget(self.local_folder_edit, 1)
@@ -184,6 +185,12 @@ class SettingsServersPage(QWidget):
         editor_layout = QHBoxLayout(editor_ctrl)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         self.text_editor_edit = QLineEdit()
+        self.text_editor_edit.setToolTip(
+            tr(
+                "Enter an executable path or a command available on PATH, such as notepad.exe or code.",
+                self._language,
+            )
+        )
         self.text_editor_browse_btn = QPushButton(tr("Browse", self._language))
         self.text_editor_browse_btn.clicked.connect(self._browse_text_editor)
         editor_layout.addWidget(self.text_editor_edit, 1)
@@ -397,6 +404,11 @@ class SettingsServersPage(QWidget):
         bar_layout = QHBoxLayout(bottom_bar)
         bar_layout.setContentsMargins(24, 10, 24, 10)
         bar_layout.setSpacing(8)
+        self.unsaved_label = QLabel(tr("Unsaved changes", self._language))
+        self.unsaved_label.setObjectName("SettingsUnsavedLabel")
+        self.unsaved_label.setStyleSheet(f"color: {Colors.WARNING}; font-weight: 600;")
+        self.unsaved_label.setVisible(False)
+        bar_layout.addWidget(self.unsaved_label)
         bar_layout.addStretch()
         self.save_btn = QPushButton(tr("Save Settings", self._language))
         self.save_btn.clicked.connect(self._save_settings)
@@ -419,6 +431,13 @@ class SettingsServersPage(QWidget):
         self._delete_profile_feedback = ButtonFeedback(self._del_profile_btn, ButtonRole.DANGER_ACTION)
         self._save_feedback = ButtonFeedback(self.save_btn, ButtonRole.SETTINGS_ACTION)
         self._discard_feedback = ButtonFeedback(self.discard_btn, ButtonRole.SETTINGS_ACTION)
+
+        self.local_folder_edit.textChanged.connect(self._on_settings_changed)
+        self.text_editor_edit.textChanged.connect(self._on_settings_changed)
+        self.max_parallel_spin.valueChanged.connect(self._on_settings_changed)
+        self.language_combo.currentIndexChanged.connect(self._on_settings_changed)
+        self.hide_dotfiles_cb.toggled.connect(self._on_settings_changed)
+        self.profile_table.itemChanged.connect(self._on_settings_changed)
 
         self._load_servers()
         self._load_settings()
@@ -466,6 +485,7 @@ class SettingsServersPage(QWidget):
         self.delete_srv_btn.setText(tr("Delete", language))
         self.save_btn.setText(tr("Save Settings", language))
         self.discard_btn.setText(tr("Discard", language))
+        self.unsaved_label.setText(tr("Unsaved changes", language))
         self._browse_feedback.set_idle_text(tr("Browse", language))
         self._text_editor_browse_feedback.set_idle_text(tr("Browse", language))
         self._add_profile_feedback.set_idle_text(tr("Add", language))
@@ -486,6 +506,13 @@ class SettingsServersPage(QWidget):
         )
         # Phase 2.1: retranslate the empty-state hint alongside the rest.
         self._empty_hint.apply_language(language)
+        for dialog in tuple(self._server_dialogs):
+            dialog.apply_language(language)
+
+    def _register_server_dialog(self, dialog: ServerEditorDialog) -> None:
+        """Keep an active modal editor synchronized with live language changes."""
+        self._server_dialogs.add(dialog)
+        dialog.destroyed.connect(lambda *_: self._server_dialogs.discard(dialog))
 
     def _load_servers(self):
         try:
@@ -507,7 +534,11 @@ class SettingsServersPage(QWidget):
             self.server_table.setItem(r, 1, QTableWidgetItem(srv.host))
             self.server_table.setItem(r, 2, QTableWidgetItem(str(srv.port)))
             self.server_table.setItem(r, 3, QTableWidgetItem(srv.username))
-            self.server_table.setItem(r, 4, QTableWidgetItem(""))
+            self.server_table.setItem(
+                r,
+                4,
+                QTableWidgetItem(self._server_test_status.get(sid, tr("Not tested", self._language))),
+            )
         self._fit_table_height(self.server_table)
         # Phase 2.1: toggle the empty-state hint based on the freshly
         # loaded server count. The hint lives in the layout above the
@@ -571,9 +602,12 @@ class SettingsServersPage(QWidget):
 
         def _on_log(msg):
             sid, status = msg.split("\t", 1)
+            tested_at = time.strftime("%Y-%m-%d %H:%M:%S")
+            session_status = f"{status} · {tested_at}"
+            self._server_test_status[sid] = session_status
             for row in range(self.server_table.rowCount()):
                 if self.server_table.item(row, 0).text() == sid:
-                    self.server_table.setItem(row, 4, QTableWidgetItem(status))
+                    self.server_table.setItem(row, 4, QTableWidgetItem(session_status))
                     break
 
         def _on_error(e):
@@ -607,30 +641,94 @@ class SettingsServersPage(QWidget):
         table.setFixedHeight(h)
 
     def _load_settings(self, *, show_discard_feedback: bool = False):
-        s = self._store.load()
-        self.local_folder_edit.setText(s.default_local_folder)
-        self.text_editor_edit.setText(s.text_editor_path)
-        self.max_parallel_spin.setValue(s.max_parallel)
-        idx = self.language_combo.findData(s.language)
-        if idx >= 0:
-            self.language_combo.setCurrentIndex(idx)
-        self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
-        self._toggle_label.setText(tr("On", self._language) if s.hide_dotfiles else tr("Off", self._language))
-        # Load software profiles into table
-        profiles = s.software_profiles or {}
-        self.profile_table.setRowCount(len(profiles))
-        for row, (name, p) in enumerate(profiles.items()):
-            self.profile_table.setItem(row, 0, QTableWidgetItem(name))
-            self.profile_table.setItem(row, 1, QTableWidgetItem(p.get("input_extensions", "")))
-            self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
-            self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
-        self._fit_table_height(self.profile_table)
+        self._loading_settings = True
+        try:
+            s = self._store.load()
+            self.local_folder_edit.setText(s.default_local_folder)
+            self.text_editor_edit.setText(s.text_editor_path)
+            self.max_parallel_spin.setValue(s.max_parallel)
+            idx = self.language_combo.findData(s.language)
+            if idx >= 0:
+                self.language_combo.setCurrentIndex(idx)
+            self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
+            self._toggle_label.setText(tr("On", self._language) if s.hide_dotfiles else tr("Off", self._language))
+            profiles = s.software_profiles or {}
+            self.profile_table.setRowCount(len(profiles))
+            for row, (name, p) in enumerate(profiles.items()):
+                self.profile_table.setItem(row, 0, QTableWidgetItem(name))
+                self.profile_table.setItem(row, 1, QTableWidgetItem(p.get("input_extensions", "")))
+                self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
+                self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
+            self._fit_table_height(self.profile_table)
+            self._settings_snapshot = self._current_settings_values()
+        finally:
+            self._loading_settings = False
+        self._update_path_validation()
+        self._set_settings_dirty(False)
         if show_discard_feedback and hasattr(self, "_discard_feedback"):
             self._discard_feedback.success(tr("Discarded", self._language))
+
+    def _current_settings_values(self):
+        profiles = []
+        for row in range(self.profile_table.rowCount()):
+            profiles.append(
+                tuple(
+                    (self.profile_table.item(row, column) or QTableWidgetItem("")).text()
+                    for column in range(self.profile_table.columnCount())
+                )
+            )
+        return (
+            self.local_folder_edit.text(),
+            self.text_editor_edit.text(),
+            self.max_parallel_spin.value(),
+            self.language_combo.currentData(),
+            self.hide_dotfiles_cb.isChecked(),
+            tuple(profiles),
+        )
+
+    def _set_settings_dirty(self, dirty: bool) -> None:
+        paths_valid = self._update_path_validation()
+        self.unsaved_label.setVisible(dirty)
+        self.save_btn.setEnabled(dirty and paths_valid)
+        self.discard_btn.setEnabled(dirty)
+
+    def _on_settings_changed(self, *_args) -> None:
+        if self._loading_settings:
+            return
+        self._set_settings_dirty(self._current_settings_values() != self._settings_snapshot)
+
+    def _update_path_validation(self) -> bool:
+        local_value = self.local_folder_edit.text().strip()
+        local_error = None
+        if local_value and not __import__("pathlib").Path(local_value).expanduser().is_dir():
+            local_error = tr("Local directory does not exist", self._language)
+        editor_error = validate_executable_reference(self.text_editor_edit.text())
+        if editor_error:
+            editor_error = tr(editor_error, self._language)
+        for widget, error in ((self.local_folder_edit, local_error), (self.text_editor_edit, editor_error)):
+            widget.setProperty("validationState", "error" if error else "valid")
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        base_editor_tooltip = tr(
+            "Enter an executable path or a command available on PATH, such as notepad.exe or code.",
+            self._language,
+        )
+        base_local_tooltip = tr(
+            "Choose an existing local directory, or leave blank to use the current location.",
+            self._language,
+        )
+        self.local_folder_edit.setToolTip(
+            f"{base_local_tooltip}\n{local_error}" if local_error else base_local_tooltip
+        )
+        self.text_editor_edit.setToolTip(f"{base_editor_tooltip}\n{editor_error}" if editor_error else base_editor_tooltip)
+        return not local_error and not editor_error
 
     def _save_settings(self):
         from dataclasses import replace
 
+        if not self._update_path_validation():
+            self._status_cb(tr("Fix invalid paths before saving", self._language))
+            return False
         self._save_feedback.pending(tr("Saving...", self._language))
         try:
             existing = self._store.load()
@@ -660,19 +758,31 @@ class SettingsServersPage(QWidget):
             raise
         self._save_feedback.success(tr("Saved", self._language))
         self._status_cb(tr("Settings saved", self._language))
+        self._settings_snapshot = self._current_settings_values()
+        self._set_settings_dirty(False)
+        # ``ButtonFeedback`` restores the enabled state captured before the
+        # save. Once the save succeeds the clean-state contract wins.
+        self._save_feedback._saved_enabled[self.save_btn] = False
         if new_settings.language != existing.language:
             self.language_changed.emit(new_settings.language)
+        return True
+
+    def save_current(self):
+        """Save the currently displayed local settings (public MainWindow hook)."""
+        return self._save_settings()
 
     def _add_profile_row(self):
         row = self.profile_table.rowCount()
         self.profile_table.insertRow(row)
         self._fit_table_height(self.profile_table)
+        self._on_settings_changed()
 
     def _del_profile_row(self):
         row = self.profile_table.currentRow()
         if row >= 0:
             self.profile_table.removeRow(row)
             self._fit_table_height(self.profile_table)
+            self._on_settings_changed()
 
     def _browse(self):
         path = QFileDialog.getExistingDirectory(
@@ -719,13 +829,14 @@ class SettingsServersPage(QWidget):
             data = {}
         servers = data.get("servers", {})
         servers.pop(sid, None)
+        self._server_test_status.pop(sid, None)
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _edit_server(self):
         import yaml
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+        from PySide6.QtWidgets import QDialog
 
         row = self.server_table.currentRow()
         if row < 0:
@@ -739,252 +850,70 @@ class SettingsServersPage(QWidget):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {} if path.exists() else {}
         srv = data.get("servers", {}).get(sid, {})
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"{tr('Edit Server:', self._language)} {sid}")
-        dlg.setMinimumWidth(400)
-        form = QFormLayout(dlg)
-
-        id_edit = QLineEdit(sid)
-        host_edit = QLineEdit(srv.get("host", ""))
-        port_edit = QSpinBox()
-        port_edit.setRange(1, 65535)
-        port_edit.setValue(srv.get("port", 22))
-        user_edit = QLineEdit(srv.get("username", ""))
-        auth_combo = QComboBox()
-        auth_combo.addItems(["key"])
-        idx = auth_combo.findText(srv.get("auth_method", "key"))
-        if idx >= 0:
-            auth_combo.setCurrentIndex(idx)
-        else:
-            auth_combo.setCurrentText("key")
-        auth_combo.setToolTip(
-            tr(
-                "Key-based SSH authentication. Password auth is not supported.",
-                self._language,
-            )
+        dlg = ServerEditorDialog(
+            language=self._language,
+            existing_ids=set(data.get("servers", {})),
+            old_id=sid,
+            server_id=sid,
+            server=srv,
+            connection_tester=self._test_dialog_connection,
+            parent=self,
         )
-        key_edit = QLineEdit(srv.get("key_path", ""))
-        # Phase 3.2: tooltips for the most-confusing fields. The dialog
-        # labels themselves stay short; the hover-time tooltip explains
-        # what to type and falls back to placeholder text first.
-        host_edit.setToolTip(
-            tr(
-                "The hostname or IP address of the remote server. Examples: login.cluster.example.org or 10.0.0.42.",
-                self._language,
-            )
-        )
-        user_edit.setToolTip(
-            tr(
-                "Your SSH username on the remote server (the one you would type at the Password: prompt).",
-                self._language,
-            )
-        )
-        key_edit.setToolTip(
-            tr(
-                "Absolute path to your SSH private key. Use ~ for your home "
-                "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
-                "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
-                self._language,
-            )
-        )
-        key_row = QWidget()
-        key_layout = QHBoxLayout(key_row)
-        key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.addWidget(key_edit, 1)
-        key_browse = QPushButton(" ... ")
-        key_browse.clicked.connect(
-            lambda: key_edit.setText(
-                QFileDialog.getOpenFileName(
-                    dlg,
-                    tr("Select SSH Key", self._language),
-                    key_edit.text() or str(__import__("pathlib").Path.home() / ".ssh"),
-                )[0]
-                or key_edit.text()
-            )
-        )
-        key_layout.addWidget(key_browse)
-        tofu_toggle = ToggleSwitch(bool(srv.get("trust_on_first_use", False)))
-
-        form.addRow("ID:", id_edit)
-        form.addRow(tr("Host:", self._language), host_edit)
-        form.addRow(tr("Port:", self._language), port_edit)
-        form.addRow(tr("Username:", self._language), user_edit)
-        form.addRow(tr("Auth:", self._language), auth_combo)
-        form.addRow(tr("Key Path:", self._language), key_row)
-        form.addRow("Trust unknown host key on first connection:", tofu_toggle)
-        sched_widgets = build_scheduler_fields(form, dlg, srv.get("scheduler", {}) or {}, self._language)
-        max_cores_edit = QSpinBox()
-        max_cores_edit.setRange(0, 1000000)
-        max_cores_edit.setSpecialValueText(tr("Unlimited", self._language))
-        max_cores_edit.setValue(int(srv.get("max_cores") or 0))
-        form.addRow(tr("Max cores:", self._language), max_cores_edit)
-        external_widgets = build_external_tools_fields(form, srv.get("external_tools", {}) or {}, self._language)
-        ssh_access_widgets = build_ssh_access_fields(form, srv.get("ssh_access", {}) or {}, self._language)
-
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
-        form.addRow(btns)
-
+        self._register_server_dialog(dlg)
         if dlg.exec() != QDialog.Accepted:
+            self._server_dialogs.discard(dlg)
             return
-        new_sid = id_edit.text().strip()
-        server_id_error = validate_server_id_change(set(data.get("servers", {})), old_id=sid, new_id=new_sid)
-        if server_id_error:
-            self._status_cb(server_id_error)
-            QMessageBox.warning(self, tr("Edit Server:", self._language), server_id_error)
+        self._server_dialogs.discard(dlg)
+        if not dlg.validate_inline():
+            error = dlg.validation_label.text()
+            self._status_cb(error)
+            QMessageBox.warning(self, tr("Edit Server:", self._language), error)
             return
+        new_sid, existing = dlg.result_config()
         if new_sid != sid:
             data["servers"].pop(sid, None)
-        # Preserve existing keys not shown in dialog (e.g. env_init_scripts)
-        existing = srv.copy()
-        existing.update(
-            {
-                "host": host_edit.text().strip(),
-                "port": port_edit.value(),
-                "username": user_edit.text().strip(),
-                "auth_method": auth_combo.currentText(),
-                "trust_on_first_use": tofu_toggle.isChecked(),
-            }
-        )
-        if max_cores_edit.value() > 0:
-            existing["max_cores"] = max_cores_edit.value()
-        else:
-            existing.pop("max_cores", None)
-        existing["scheduler"] = scheduler_dict(sched_widgets, srv.get("scheduler", {}) or {})
-        existing["external_tools"] = external_tools_dict(
-            external_widgets,
-            srv.get("external_tools", {}) or {},
-        )
-        existing["ssh_access"] = ssh_access_dict(
-            ssh_access_widgets,
-            srv.get("ssh_access", {}) or {},
-        )
-        if key_edit.text().strip():
-            existing["key_path"] = key_edit.text().strip()
-        elif "key_path" in existing and not key_edit.text().strip():
-            existing.pop("key_path", None)
         data["servers"][new_sid] = existing
+        self._server_test_status.pop(sid, None)
+        self._server_test_status.pop(new_sid, None)
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _add_server(self):
         import yaml
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(tr("Add", self._language))
-        dlg.setMinimumWidth(400)
-        form = QFormLayout(dlg)
-
-        id_edit = QLineEdit()
-        id_edit.setPlaceholderText(tr("e.g. myserver", self._language))
-        host_edit = QLineEdit()
-        host_edit.setPlaceholderText(tr("e.g. 192.168.1.100", self._language))
-        port_edit = QSpinBox()
-        port_edit.setRange(1, 65535)
-        port_edit.setValue(22)
-        user_edit = QLineEdit()
-        user_edit.setPlaceholderText(tr("e.g. root", self._language))
-        # Phase 3.2: tooltips parallel to the edit dialog
-        host_edit.setToolTip(host_edit.placeholderText())
-        user_edit.setToolTip(user_edit.placeholderText())
-        key_edit = QLineEdit()
-        key_edit.setPlaceholderText("~/.ssh/id_ed25519")
-        key_edit.setToolTip(
-            tr(
-                "Absolute path to your SSH private key. Use ~ for your home "
-                "folder — e.g. ~/.ssh/id_ed25519. On Windows, the dialog "
-                "viewer shows known keys under %USERPROFILE%\\.ssh\\.",
-                self._language,
-            )
-        )
-        # -- Auth method combo --
-        # JobDesk only supports key-based SSH auth today (ServerConfig
-        # rejects password auth); the combo is built explicitly so the
-        # default selection on a fresh dialog is "key" rather than blank.
-        auth_combo = QComboBox()
-        auth_combo.addItems(["key"])
-        auth_combo.setCurrentText("key")
-        auth_combo.setToolTip(
-            tr(
-                "Key-based SSH authentication. Password auth is not supported.",
-                self._language,
-            )
-        )
-        key_row = QWidget()
-        key_layout = QHBoxLayout(key_row)
-        key_layout.setContentsMargins(0, 0, 0, 0)
-        key_layout.addWidget(key_edit, 1)
-        key_browse = QPushButton(" ... ")
-        key_browse.clicked.connect(
-            lambda: key_edit.setText(
-                QFileDialog.getOpenFileName(
-                    dlg,
-                    tr("Select SSH Key", self._language),
-                    key_edit.text() or str(__import__("pathlib").Path.home() / ".ssh"),
-                )[0]
-                or key_edit.text()
-            )
-        )
-        key_layout.addWidget(key_browse)
-        tofu_toggle = ToggleSwitch(False)
-
-        form.addRow("ID:", id_edit)
-        form.addRow(tr("Host:", self._language), host_edit)
-        form.addRow(tr("Port:", self._language), port_edit)
-        form.addRow(tr("Username:", self._language), user_edit)
-        form.addRow(tr("Auth:", self._language), auth_combo)
-        form.addRow(tr("Key Path:", self._language), key_row)
-        form.addRow("Trust unknown host key on first connection:", tofu_toggle)
-        sched_widgets = build_scheduler_fields(form, dlg, {}, self._language)
-        max_cores_edit = QSpinBox()
-        max_cores_edit.setRange(0, 1000000)
-        max_cores_edit.setSpecialValueText(tr("Unlimited", self._language))
-        form.addRow(tr("Max cores:", self._language), max_cores_edit)
-        external_widgets = build_external_tools_fields(form, {}, self._language)
-        ssh_access_widgets = build_ssh_access_fields(form, {}, self._language)
-
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
-        form.addRow(btns)
-
-        if dlg.exec() != QDialog.Accepted:
-            return
-        sid = id_edit.text().strip()
-        host = host_edit.text().strip()
-        user = user_edit.text().strip()
-        if not sid or not host or not user:
-            return
-
         path = get_default_servers_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = {}
         if path.exists():
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         servers = data.setdefault("servers", {})
-        server_id_error = validate_server_id_change(set(servers), old_id=None, new_id=sid)
-        if server_id_error:
-            self._status_cb(server_id_error)
-            QMessageBox.warning(self, tr("Add", self._language), server_id_error)
+        from PySide6.QtWidgets import QDialog
+
+        dlg = ServerEditorDialog(
+            language=self._language,
+            existing_ids=set(servers),
+            connection_tester=self._test_dialog_connection,
+            parent=self,
+        )
+        self._register_server_dialog(dlg)
+        if dlg.exec() != QDialog.Accepted:
+            self._server_dialogs.discard(dlg)
             return
-        servers[sid] = {
-            "host": host,
-            "port": port_edit.value(),
-            "username": user,
-            "auth_method": auth_combo.currentText(),
-            "trust_on_first_use": tofu_toggle.isChecked(),
-            "scheduler": scheduler_dict(sched_widgets),
-            "external_tools": external_tools_dict(external_widgets),
-            "ssh_access": ssh_access_dict(ssh_access_widgets),
-        }
-        if max_cores_edit.value() > 0:
-            servers[sid]["max_cores"] = max_cores_edit.value()
-        if key_edit.text().strip():
-            servers[sid]["key_path"] = key_edit.text().strip()
+        self._server_dialogs.discard(dlg)
+        if not dlg.validate_inline():
+            error = dlg.validation_label.text()
+            self._status_cb(error)
+            QMessageBox.warning(self, tr("Add", self._language), error)
+            return
+        sid, server = dlg.result_config()
+        servers[sid] = server
+        self._server_test_status.pop(sid, None)
+        path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
+
+    def _test_dialog_connection(self, config: dict) -> str:
+        server = ServerConfig(**config)
+        with ssh_session(server) as ssh:
+            return tr("Connected", self._language) if ssh.test_connection() else tr("No response", self._language)
 
     def shutdown(self):
         self._shutting_down = True
