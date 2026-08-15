@@ -1,20 +1,60 @@
 # Post-Phase F JobDesk / ConfFlow architecture remediation plan
 
 Date: 2026-08-11
+Last state refresh: 2026-08-14
 
-Status: revised after independent review; implementation has not started
+Status: forward plan; partially superseded by landed JobDesk boundary fixes;
+remaining implementation and acceptance work has not started
+
+## State refresh (2026-08-14)
+
+This document remains a remediation plan, not an acceptance or release record.
+The review that produced it is a historical snapshot.  The current planning
+checkout is JobDesk local `main` at `6d0010e`; its parent/origin source
+baseline is `1937829`, and `6d0010e` adds this plan only.  Neither ref is a
+production promotion or endpoint-switch authorization.
+
+The current known ConfFlow source checkout is
+`Ubuntu-24.04:/opt/ConfFlow` `main` at `c6a4263`.  That source ref is not the
+installed production identity; its worktree, package, executable, and
+configuration-contract state must be revalidated in an authorized environment
+before implementation or acceptance.  The authoritative production boundary
+remains the separately released JobDesk `v0.6.0` / `e4d8f74` and ConfFlow
+`v2.0.0` / `6981935` pair.  Nothing in this refresh changes a configured
+endpoint, installed environment, tag, or compatibility-period decision.
+
+The following JobDesk fixes are present in the current source baseline (the
+boundary work landed in `3903eb5`, an ancestor of `1937829`):
+
+- GUI source no longer accesses `RunService.repository`; `MainWindow` consumes
+  the immutable `FileTransferConnectionSnapshot`, and architecture tests cover
+  both repository and cross-widget private-state boundaries.
+- `RunOperationOutcome.errors` stores structured `OperationFailure` values and
+  `refresh_result` uses a typed protocol instead of `Any`.
+- `_SubmitOwnershipGuard` accepts its heartbeat interval explicitly and
+  `submit_ownership` no longer imports `run_service` at import time.  The
+  `_submit.py` lazy self-facade import remains a compatibility/test seam, so
+  the full follow-up cleanup in Phase 2 is still open.
+
+The remaining work is therefore a plan for the oversized control/page
+decompositions, the residual dependency seam above, ConfFlow configuration and
+workflow boundaries, compatibility corpus, and release/promotion gates.  No
+green test result or historical release evidence below should be read as proof
+that those phases are complete.
 
 ## Goal
 
-Remove every architecture debt confirmed by the 2026-08-11 post-Phase F
-review while preserving the now-working control-only production boundary.
+Address the remaining architecture debt confirmed by the 2026-08-11
+post-Phase F review while preserving the now-working control-only production
+boundary.
 
 This plan covers:
 
 1. decomposition of JobDesk's oversized control adapter;
-2. removal of GUI-to-repository and cross-widget private-state access;
-3. typed JobDesk operation failures and removal of the submit ownership import
-   cycle;
+2. completion and independent re-review of the JobDesk application/GUI
+   boundaries (the initial repository/private-state fixes are already landed);
+3. verification of the landed typed JobDesk operation failures and removal of
+   the remaining submit ownership import seam;
 4. one canonical ConfFlow workflow-configuration model and validation path;
 5. decomposition of the ConfFlow workflow engine and correction of layer
    inversions;
@@ -35,44 +75,46 @@ worktree because they may drift after this plan is written.
 
 ### JobDesk producer-consumer application
 
-- Remote `main`: `e4d8f74af0dff80b233f7bd9cb360b43d040069f`.
-- Release: `v0.6.0` / package version `0.6.0`.
-- Installed package: non-editable Python 3.13 installation; the installed
-  `services/ssh_confflow_client.py` is byte-identical to remote `main`.
-- Current shared worktree is intentionally not the release checkout. It is the
-  dirty `docs/control-protocol-rfc-phase-b` worktree at `89d232a` and must not
-  be reset, cleaned, stashed, switched, or used as the implementation base.
+- Current planning source: local `main` `6d0010e` (docs-only child of
+  `origin/main` `1937829`).
+- Production release reference (historical, unchanged): `v0.6.0` / package
+  version `0.6.0` at `e4d8f74af0dff80b233f7bd9cb360b43d040069f`.
+- Any installed package, endpoint, or source-worktree identity must be
+  revalidated before implementation; the current planning checkout is not
+  evidence that production has moved beyond `v0.6.0`.
 - ConfFlow dependency window: `confflow>=2.0,<3.0`.
 - Production submission is control-only; `auto` and `legacy` backend modes and
   historical legacy handles fail closed.
 
 ### ConfFlow producer
 
-- Remote `main`: `69819350d340a6aeccf95aa175edfd1c3f63404b`.
-- Release: `v2.0.0` / package version `2.0.0`.
-- Production wheel: `confflow-2.0.0-py3-none-any.whl`.
+- Current known source checkout: `/opt/ConfFlow` `main` `c6a4263` (source
+  baseline only; revalidate worktree and runtime identity before use).
+- Production release reference (historical, unchanged): `v2.0.0` / package
+  version `2.0.0` at `69819350d340a6aeccf95aa175edfd1c3f63404b`.
+- Production wheel (historical release evidence):
+  `confflow-2.0.0-py3-none-any.whl`.
 - Wheel SHA-256:
   `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
-- Production venv: `/opt/confflow-2.0.0-prod-venv` with verified provenance
-  and a clean `pip check`.
-- `/usr/local/bin/confflow` and the JobDesk `wsl` server entry resolve the
-  production venv.
-- `/opt/ConfFlow` is a stale source/development checkout at `10e457d`; its old
-  editable `.venv` is not the production runtime and must not be modified or
-  deleted as an incidental part of code remediation.
+- Recorded production venv evidence: `/opt/confflow-2.0.0-prod-venv` with
+  verified provenance and a clean `pip check` (revalidate before acceptance).
+- Recorded endpoint evidence: `/usr/local/bin/confflow` and the JobDesk `wsl`
+  server entry resolved the production venv (revalidate before acceptance).
+- The `/opt/ConfFlow` source checkout is not the production runtime; do not
+  modify, reset, clean, or delete it as an incidental part of code remediation.
 - `confflow-agent` has been retired. The supported lifecycle boundary is
   `control` plus `confflow-control-worker` over one `ExecutionService` state
   store.
 
 ### Current validation evidence
 
-- The live v2.0.0 `control capabilities --json` response validates against the
-  JobDesk response schema.
+- Historical release evidence: the live v2.0.0 `control capabilities --json`
+  response validated against the JobDesk response schema.
 - JobDesk's five vendored control documents have the same canonical JSON hash
   as the ConfFlow v2.0.0 producer bundle.
-- JobDesk targeted architecture/control/launcher suite: `58 passed, 1 skipped`.
-- ConfFlow execution-service/SQLite/schema/control-worker/engine suite on WSL
-  ext4: `131 passed`.
+- Historical targeted suites: JobDesk architecture/control/launcher `58
+  passed, 1 skipped`; ConfFlow execution-service/SQLite/schema/control-worker/
+  engine on WSL ext4 `131 passed`.
 
 These are characterization baselines, not permission to skip each phase's
 full validation.
@@ -81,33 +123,32 @@ full validation.
 
 ### A. JobDesk control adapter concentration
 
-`src/jobdesk_app/services/ssh_confflow_client.py` is 1,587 lines.
-`SSHConfFlowClient` spans roughly 715 lines and currently owns backend probing,
+`src/jobdesk_app/services/ssh_confflow_client.py` is currently 1,918 lines.
+`SSHConfFlowClient` spans roughly 1,016 class lines and currently owns backend probing,
 durable state, provenance, worker-handoff construction and staging, launcher
 dispatch and reconciliation, local projection, handle operations, and artifact
 download.
 
 ### B. JobDesk application and GUI boundary leaks
 
-- `RunsResultsPage` is roughly 2,532 class lines.
-- `FileTransferPage` is roughly 1,461 class lines.
-- GUI code calls `RunService(...).repository.load_tasks(...)` directly.
-- `MainWindow` reads `files_page._service` and
-  `files_page._connected_server_id`.
-- `SSHConfFlowClient` reaches
-  `RunCoordinator.service.repository` instead of using an application port.
-- Existing architecture tests prevent GUI imports of `remote`, but do not
-  reject repository access or cross-widget private-state access.
+`RunsResultsPage` remains roughly 2,532 class lines and `FileTransferPage`
+roughly 1,470 class lines, so their decomposition remains open.  The specific
+repository/private-state leaks from the original review are already fixed in
+the current JobDesk source baseline: GUI code uses public `RunService` queries,
+`MainWindow` consumes `FileTransferConnectionSnapshot`, and
+`SSHConfFlowClient` no longer reaches `RunCoordinator.service.repository`.
+Current architecture tests cover those boundaries; their continued green
+result is a prerequisite, not proof that the oversized pages are decomposed.
 
 ### C. Weak JobDesk outcome typing and import cycle
 
-- `RunOperationOutcome.errors` is `list[str]`.
-- `RunOperationOutcome.refresh_result` is `Any | None`.
-- Exception handling collapses stage, code, retryability, and task identity
-  into strings.
-- `submit_ownership.py` lazily imports `jobdesk_app.services.run_service` to
-  read a monkeypatchable heartbeat interval; `run_service` imports and
-  re-exports the ownership constant.
+The typed outcome and import-time dependency fixes are already present in the
+current JobDesk source baseline: `RunOperationOutcome.errors` stores
+`OperationFailure`, `refresh_result` uses `RefreshResultProtocol`, and
+`submit_ownership.py` receives the heartbeat interval without importing
+`run_service`.  A lazy self-facade import remains in `_submit.py` for the
+historical monkeypatch seam; removing that seam and independently re-reviewing
+the typed decision/rendering paths remains part of Phase 2.
 
 ### D. Duplicate workflow-configuration semantics
 
@@ -139,9 +180,12 @@ download.
 
 ### F. Documentation and development-environment ambiguity
 
-- The shared JobDesk worktree is not the released `main` tree.
-- `/opt/ConfFlow` and its editable venv are stale while production correctly
-  uses a versioned venv.
+- The current JobDesk planning checkout (`main` `6d0010e`) is a docs-only child
+  of source baseline `1937829`; it is not the released `v0.6.0` tree or a
+  promotion candidate.
+- `/opt/ConfFlow` is a source checkout at the known `c6a4263` ref, while the
+  production runtime remains a separately verified versioned environment.  Do
+  not infer installed or endpoint identity from the source checkout.
 - Historical compatibility records intentionally retain
   `COMPATIBILITY PERIOD CONTINUES`, while current release documents describe a
   Phase F owner exception. They need unmistakable historical/superseded
@@ -513,9 +557,11 @@ regression, or artifact-path relaxation is accepted.
 
 Repository: JobDesk. Depends on Phase 1.
 
-### Task 2.1 - provide public run query APIs
+### Task 2.1 - verify public run query APIs
 
-Add application/service queries for:
+The basic public queries are already present in the current JobDesk baseline.
+Keep them as the only GUI-facing query surface and verify any remaining
+application-port gaps before extracting more code.  The required surface is:
 
 - `load_run(run_id)`;
 - `load_tasks(run_id)`;
@@ -525,11 +571,15 @@ Add application/service queries for:
 
 GUI code and control adapters consume these APIs; they do not access
 `RunService.repository` directly. Keep repository mutation behind existing
-journalled `RunService`/`RunCoordinator` operations.
+journalled `RunService`/`RunCoordinator` operations.  This task is a
+characterization/review checkpoint for the landed boundary, not permission to
+reintroduce direct repository access during extraction.
 
-### Task 2.2 - remove cross-widget private-state access
+### Task 2.2 - complete cross-widget private-state access review
 
-Define an immutable `FileConnectionSnapshot` with at least:
+The immutable `FileTransferConnectionSnapshot` and `MainWindow` call sites are
+already present.  Re-review the public snapshot contract and add only the
+remaining stale-callback/generation evidence if required:
 
 - connected flag;
 - server ID/label;
@@ -538,7 +588,8 @@ Define an immutable `FileConnectionSnapshot` with at least:
 
 `FileTransferPage` exposes a public snapshot/signal API. `MainWindow` must no
 longer read or assign `_service`, `_connected_server_id`, or nested connection
-controller fields.
+controller fields.  The current architecture test already enforces this
+negative rule.
 
 ### Task 2.3 - split Runs & Results responsibilities
 
@@ -563,9 +614,10 @@ Complete the existing `file_transfer_connections.py` extraction:
 - one transfer-command component owns upload/download/delete requests;
 - the page owns widget composition and signal wiring.
 
-### Task 2.5 - type operation failures
+### Task 2.5 - verify typed operation failures
 
-Introduce a frozen `RunOperationError` with fields such as:
+The current baseline already uses the string-compatible structured
+`OperationFailure` type with fields such as:
 
 - stable code;
 - stage/operation;
@@ -574,25 +626,25 @@ Introduce a frozen `RunOperationError` with fields such as:
 - optional task ID;
 - optional sanitized diagnostic detail.
 
-Replace `RunOperationOutcome.errors: list[str]` with a tuple/list of the typed
-error. Replace `refresh_result: Any | None` with the actual refresh result
-type or a generic/specific outcome type.
+Keep `RunOperationOutcome.errors` typed and `refresh_result` protocol-typed;
+do not replace the landed compatibility shape without a separately reviewed
+API decision.  Add/retain tests that branch on code/stage rather than parse
+message text, and that render legacy text separately.
 
 Compatibility helpers may expose rendered messages during one JobDesk release,
 but new code must branch on code/stage, not parse message text.
 
 ### Task 2.6 - remove the submit ownership cycle
 
-Change `_SubmitOwnershipGuard` to receive its heartbeat interval (and clock if
-needed) through its constructor. Pass a `submitter_factory` or other test seam
-explicitly into the submit use case instead of importing and monkeypatching the
-`run_service` package.
+The guard now receives its heartbeat interval through its constructor.  Finish
+the remaining explicit test seam so submit code does not need to import its
+own `run_service` facade merely to preserve monkeypatch behavior.
 
-Remove:
+Keep the already-removed lazy `run_service` import from
+`submit_ownership.py` absent as a regression assertion.  Remove the remaining:
 
-- the lazy `import jobdesk_app.services.run_service as _rs` from
-  `submit_ownership.py`;
-- the self-reexported heartbeat constant used only for monkeypatching;
+- the self-reexported heartbeat constant once its compatibility seam has an
+  explicit replacement;
 - equivalent lazy package imports in `_submit.py` where explicit dependency
   injection can replace them.
 
