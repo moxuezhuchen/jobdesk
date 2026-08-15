@@ -70,7 +70,7 @@ def test_fixed_icon_buttons_keep_their_geometry_under_app_stylesheet(qt_app):
         ]
 
         parent = QWidget()
-        preview_box, _preview, _set_expanded, _apply_language = build_preview_box(parent, "en")
+        preview_box, _preview, _validation, _set_expanded, _apply_language = build_preview_box(parent, "en")
         parent.show()
         qt_app.processEvents()
         preview_toggle = preview_box.findChild(QPushButton, "PreviewToggleBtn")
@@ -183,32 +183,15 @@ def test_sidebar_accessibility_selection_interface_is_single_select(qt_app):
     assert not selection.selectAll()
 
 
-def test_sidebar_starts_icon_only_and_can_expand_programmatically(qt_app):
-    from PySide6.QtTest import QTest
-
+def test_sidebar_starts_icon_only_and_keeps_toggle_hidden(qt_app):
     from jobdesk_app.gui.design.components import Sidebar
     from jobdesk_app.gui.design.tokens import Metrics
 
     sidebar = Sidebar([("settings", "Settings"), ("files", "Files")])
     item = sidebar._items[0]
     assert sidebar.width() == Metrics.SIDEBAR_COLLAPSED_WIDTH
-    assert sidebar.width() == Metrics.SIDEBAR_WIDTH
     assert item._compact
-    assert not sidebar._collapse_btn.isVisible()
-    assert sidebar._collapse_btn.toolTip() == "Expand sidebar"
-
-    sidebar.toggle_collapse()
-    QTest.qWait(Sidebar.ANIM_DURATION_MS + 50)
-
-    assert sidebar.width() == Metrics.SIDEBAR_EXPANDED_WIDTH
-    assert not item._compact
-    assert sidebar._collapse_btn.toolTip() == "Collapse sidebar"
-
-    sidebar.toggle_collapse()
-    QTest.qWait(Sidebar.ANIM_DURATION_MS + 50)
-
-    assert sidebar.width() == Metrics.SIDEBAR_COLLAPSED_WIDTH
-    assert item._compact
+    assert sidebar._collapse_btn.isHidden()
     assert sidebar._collapse_btn.toolTip() == "Expand sidebar"
 
 

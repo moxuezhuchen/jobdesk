@@ -404,6 +404,7 @@ class Sidebar(QWidget):
     """
 
     current_changed = Signal(int)
+    expanded_changed = Signal(bool)
 
     # Compact mode constants
     ANIM_DURATION_MS = 250
@@ -484,8 +485,8 @@ class Sidebar(QWidget):
             f"#SidebarCollapseBtn:hover {{ background-color: rgba(255, 255, 255, 0.1); color: {Colors.SIDEBAR_TEXT_ACTIVE}; }}"
         )
         self._update_collapse_btn_icon()
-        # Keep the legacy toggle object for programmatic callers and tests,
-        # but hide it from the compact production shell.
+        # The compact production shell deliberately has no persistent
+        # disclosure control: it keeps page space for the actual work.
         self._collapse_btn.setVisible(False)
 
     def toggle_collapse(self) -> None:

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
         self.shell.add_page(self.settings_page)  # 3
 
         self.shell.page_changed.connect(self._on_nav)
+        self._install_shortcuts()
         # Applying translations must not synchronously open the runs
         # database while the window is still being constructed.  The Runs
         # page is disabled until startup recovery completes and refreshes
@@ -249,6 +251,46 @@ class MainWindow(QMainWindow):
         self.shell.sidebar.blockSignals(False)
         self.shell.pages.setCurrentIndex(index)
         self.shell.page_changed.emit(index)
+
+    def _install_shortcuts(self) -> None:
+        """Install discoverable window-level navigation and page actions."""
+        self._shortcuts: list[QShortcut] = []
+
+        def bind(sequence: str, callback) -> None:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.activated.connect(callback)
+            self._shortcuts.append(shortcut)
+
+        for index in range(4):
+            bind(f"Alt+{index + 1}", lambda target=index: self._switch_page(target))
+        bind("F5", self._refresh_current_page)
+        bind("Ctrl+F", self._focus_current_search)
+        bind("Ctrl+S", self._save_current_page)
+
+    def _current_page(self):
+        return self.shell.pages.currentWidget()
+
+    def _refresh_current_page(self) -> None:
+        page = self._current_page()
+        # Prefer a page's full refresh action so F5 is equivalent to the
+        # visible Refresh button (the Runs page also refreshes remote status).
+        refresh = (
+            getattr(page, "refresh", None)
+            or getattr(page, "_refresh_all", None)
+            or getattr(page, "refresh_run_list", None)
+        )
+        if callable(refresh):
+            refresh()
+
+    def _focus_current_search(self) -> None:
+        focus_search = getattr(self._current_page(), "focus_search", None)
+        if callable(focus_search):
+            focus_search()
+
+    def _save_current_page(self) -> None:
+        save_current = getattr(self._current_page(), "save_current", None)
+        if callable(save_current):
+            save_current()
 
     def _on_go_to_submit_with_examples(self) -> None:
         """Land on Submit and pop the editor's Examples drawer.

@@ -143,7 +143,7 @@ QPushButton:disabled {{
     border-color: {c.BORDER};
 }}
 QPushButton:focus {{
-    border-color: {c.PRIMARY};
+    border: 2px solid {c.PRIMARY};
 }}
 
 /* Compact icon buttons opt out of the shared action-control height.  Their
@@ -277,7 +277,7 @@ QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{
     border-color: {c.PRIMARY};
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
-    border-color: {c.PRIMARY};
+    border: 2px solid {c.PRIMARY};
 }}
 QComboBox::drop-down {{
     subcontrol-origin: padding;
@@ -296,6 +296,9 @@ QTextEdit {{
     border: 1px solid {c.BORDER};
     border-radius: {Radius.MD}px;
     font-size: {Metrics.CARD_BODY_FONT_PX}px;
+}}
+QTextEdit:focus, QPlainTextEdit:focus, QTableWidget:focus, QTreeView:focus {{
+    border: 2px solid {c.PRIMARY};
 }}
 
 /* ─── GroupBox ─── */

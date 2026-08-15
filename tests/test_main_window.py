@@ -374,6 +374,17 @@ def test_main_window_does_not_query_runs_db_during_construction(qapp, monkeypatc
             window.deleteLater()
 
 
+def test_main_window_installs_navigation_and_page_shortcuts(qapp):
+    window = MainWindow()
+    try:
+        sequences = {shortcut.key().toString() for shortcut in window._shortcuts}
+        assert {"Alt+1", "Alt+2", "Alt+3", "Alt+4", "F5", "Ctrl+F", "Ctrl+S"} <= sequences
+    finally:
+        window.shutdown()
+        window.close()
+        window.deleteLater()
+
+
 def test_runs_page_language_refresh_remains_explicit(qapp, monkeypatch):
     """Language updates still refresh the list when explicitly requested."""
     from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage

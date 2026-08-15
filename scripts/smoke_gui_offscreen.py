@@ -24,8 +24,8 @@ another):
         the page is visible.
     4b. ``workflow_page_structure`` -- verify :class:`WorkflowPage` has the
         expected sub-widgets (settings tabs, flow scroll, preview box).
-    4c. ``workflow_page_yaml_generation`` -- verify the YAML preview
-        shows the "Add at least one workflow step" placeholder.
+    4c. ``workflow_page_empty_state`` -- verify an empty workflow keeps the
+        YAML preview empty and reports a structured incomplete state.
     4d. ``workflow_page_add_step`` -- add a step via the YAML editor
         and verify the flow diagram updates.
     5.  ``open_builder_dialog`` -- open the :class:`WorkflowBuilderDialog`
@@ -317,13 +317,15 @@ def step_workflow_page_structure(window) -> dict:
 # -- 4c. workflow page YAML generation --
 
 def step_workflow_page_yaml_generation(window) -> bool:
-    """Verify the YAML preview shows the placeholder message."""
+    """Verify the empty workflow uses structured feedback, not YAML comments."""
     page = window.workflow_page
     preview_text = page.full_yaml_preview.toPlainText()
-    if "Add at least one workflow step" not in preview_text:
-        raise RuntimeError(
-            f"Expected placeholder text in YAML preview, got: {preview_text[:100]}"
-        )
+    if preview_text:
+        raise RuntimeError(f"Expected an empty YAML preview, got: {preview_text[:100]}")
+    if page.validation_label.property("validationState") != "incomplete":
+        raise RuntimeError("Expected structured incomplete validation feedback")
+    if not page.full_yaml_preview.isHidden():
+        raise RuntimeError("Expected the YAML preview to be collapsed by default")
     return True
 
 

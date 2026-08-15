@@ -30,6 +30,22 @@ _BUILTIN_PROFILES: dict[str, dict[str, str]] = {
 }
 
 
+def _load_splitter_sizes(raw: object) -> dict[str, list[int]]:
+    if not isinstance(raw, dict):
+        return {}
+    loaded: dict[str, list[int]] = {}
+    for key, values in raw.items():
+        if not isinstance(values, list):
+            continue
+        try:
+            sizes = [int(value) for value in values]
+        except (TypeError, ValueError):
+            continue
+        if sizes and all(value >= 0 for value in sizes):
+            loaded[str(key)] = sizes
+    return loaded
+
+
 @dataclass(frozen=True)
 class GuiSettings:
     default_local_folder: str = ""
@@ -47,6 +63,10 @@ class GuiSettings:
     language: str = "en"
     column_widths: dict[str, list[int]] | None = None
     window_size: list[int] | None = None
+    # Retained only so existing GUI settings files remain readable.  The
+    # production navigation is intentionally compact regardless of this key.
+    sidebar_expanded: bool = False
+    splitter_sizes: dict[str, list[int]] | None = None
     # Runs page state
     auto_refresh_interval: int = 30
     notify_enabled: bool = False
@@ -66,6 +86,8 @@ class GuiSettings:
             object.__setattr__(self, "column_widths", {})
         if self.last_remote_dirs is None:
             object.__setattr__(self, "last_remote_dirs", {})
+        if self.splitter_sizes is None:
+            object.__setattr__(self, "splitter_sizes", {})
         if self.software_profiles is None:
             object.__setattr__(self, "software_profiles", {k: dict(v) for k, v in _BUILTIN_PROFILES.items()})
 
@@ -98,6 +120,8 @@ class GuiSettingsStore:
             language=str(raw.get("language", "en") or "en"),
             column_widths=dict(raw.get("column_widths", {}) or {}),
             window_size=raw.get("window_size"),
+            sidebar_expanded=bool(raw.get("sidebar_expanded", False)),
+            splitter_sizes=_load_splitter_sizes(raw.get("splitter_sizes", {})),
             auto_refresh_interval=max(10, int(raw.get("auto_refresh_interval", 30) or 30)),
             notify_enabled=bool(raw.get("notify_enabled", False)),
             download_patterns=str(raw.get("download_patterns", "*.log, *.out, .jobdesk_submit.log")),
@@ -128,7 +152,19 @@ class GuiSettingsStore:
     def save(self, settings: GuiSettings) -> Path:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            data = {
+            # Preserve unknown top-level keys written by a newer release or
+            # an integration.  ``update()`` is used for small GUI state
+            # changes, so rewriting only known dataclass fields would make
+            # those changes destructive.
+            existing: dict = {}
+            if self.path.exists():
+                try:
+                    loaded = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
+                    if isinstance(loaded, dict):
+                        existing = dict(loaded)
+                except (OSError, yaml.YAMLError):
+                    pass
+            data = existing | {
                 "default_local_folder": settings.default_local_folder,
                 "last_local_folder": settings.last_local_folder,
                 "default_remote_dir": settings.default_remote_dir,
@@ -144,6 +180,8 @@ class GuiSettingsStore:
                 "language": settings.language,
                 "column_widths": settings.column_widths or {},
                 "window_size": settings.window_size,
+                "sidebar_expanded": settings.sidebar_expanded,
+                "splitter_sizes": settings.splitter_sizes or {},
                 "auto_refresh_interval": settings.auto_refresh_interval,
                 "notify_enabled": settings.notify_enabled,
                 "download_patterns": settings.download_patterns,
