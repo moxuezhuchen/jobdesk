@@ -207,9 +207,16 @@ def test_settings_connection_result_is_timestamped_for_session(qtbot, tmp_path):
     page, _, _ = _make_settings_page(qtbot, tmp_path)
     started: list[dict] = []
 
-    with patch(
-        "jobdesk_app.gui.pages.settings_servers_page.start_context_worker",
-        side_effect=lambda _owner, **kwargs: started.append(kwargs) or MagicMock(),
+    servers_path = tmp_path / "servers.yaml"
+    with (
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.start_context_worker",
+            side_effect=lambda _owner, **kwargs: started.append(kwargs) or MagicMock(),
+        ),
+        patch(
+            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
+            side_effect=lambda: load_servers_from_path(servers_path),
+        ),
     ):
         page._test_connection()
 
