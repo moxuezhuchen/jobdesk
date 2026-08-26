@@ -39,6 +39,7 @@ NodeKind          -> YAML step ``type`` (``itask`` if calc)
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -248,6 +249,7 @@ def from_workflow_spec(
 
     if isinstance(payload, WorkflowGraphPayload):
         steps = list(payload.steps)
+        raw_document = deepcopy(getattr(payload.spec, "_raw", {}) or {})
         dump = payload.spec.global_config.model_dump(mode="json", exclude_none=True)
         # Tag the dump with which model fields the user actually wrote,
         # so ``_extract_extra`` can ignore the dozens of confflow
@@ -255,19 +257,32 @@ def from_workflow_spec(
         dump["_user_set_keys"] = set(payload.spec.global_config.model_fields_set)
         extra = _extract_extra(dump)
     else:
+        raw_document = deepcopy(payload)
         steps = list(payload.get("steps", []))
-        extra = _extract_extra(payload)
+        # Canonical documents have a real ``global`` section.  Only that
+        # section is eligible for an editable ADVANCED node; top-level
+        # producer extensions (and the version marker) belong to the
+        # lossless document sidecar instead of being mistaken for global
+        # options.  Legacy flat documents retain the historical behaviour.
+        global_block = payload.get("global")
+        extra = _extract_extra(global_block if isinstance(global_block, dict) else payload)
 
     graph = NodeGraph()
+    # ``NodeGraph`` intentionally remains a small Qt-free dataclass.  Keep
+    # document-only state as private bridge attributes so existing graph JSON
+    # templates and public model fields stay unchanged.  WorkflowPage uses
+    # these attributes to save a loaded document even when its visual graph
+    # cannot represent a producer topology exactly.
+    graph._workflow_raw_document = raw_document
 
     # First pass: emit one node per step in declaration order. We do
     # *not* rely on the YAML order to wire edges later: the bridge
     # reads ``step.get("inputs", [])`` and reverses the names back to
     # node ids.
     step_node_by_name: dict[str, str] = {}
-    for step in steps:
+    for index, step in enumerate(steps):
         kind = _step_kind(step)
-        node = default_node_for_step(kind, step)
+        node = default_node_for_step(kind, step, raw_index=index)
         graph.add_node(node)
         step_node_by_name[node.title] = node.id
 
@@ -325,6 +340,31 @@ def from_workflow_spec(
         adv = default_node(NodeKind.ADVANCED, position=(40.0, 320.0))
         adv.params = dict(extra)
         graph.add_node(adv)
+
+    # A producer DAG may be valid to persist but not editable through the
+    # current node port model.  Record the strict validation findings for the
+    # GUI; do not widen ports or throw away the graph/document.  Serialising a
+    # user-authored graph still goes through ``to_workflow_spec`` and keeps
+    # the existing strict rejection rules.
+    projection_errors = [issue.message for issue in graph.validate() if issue.severity == "error"]
+    from jobdesk_app.gui.nodegraph.model import PortType
+
+    # ``NodeGraph.validate`` checks port compatibility but intentionally does
+    # not impose the bridge's stricter cardinality policy.  Imported
+    # producer DAGs are allowed to display such a topology, but the page must
+    # not claim that it can edit/serialise a fan-in to a single STRUCTURE
+    # socket.  STRUCTURES remains the only legal many-to-one port.
+    for node in graph.nodes.values():
+        if node.kind not in _STEP_EMITTING_KINDS:
+            continue
+        for port in node.inputs:
+            incoming = graph.incoming_edges(node.id, port.name)
+            if len(incoming) > 1 and port.type is not PortType.STRUCTURES:
+                projection_errors.append(
+                    f"{node.title} port '{port.label or port.name}' ({port.type.value}) "
+                    f"has {len(incoming)} predecessors; only STRUCTURES permits fan-in"
+                )
+    graph._workflow_projection_errors = tuple(dict.fromkeys(projection_errors))
 
     return graph
 
@@ -414,10 +454,7 @@ def _assert_well_formed(graph: NodeGraph, ordered: list[Node]) -> None:
         node
         for node in ordered
         if node.kind in _STEP_EMITTING_KINDS
-        and not any(
-            graph.nodes[edge.dst_node].kind in _STEP_EMITTING_KINDS
-            for edge in graph.outgoing_edges(node.id)
-        )
+        and not any(graph.nodes[edge.dst_node].kind in _STEP_EMITTING_KINDS for edge in graph.outgoing_edges(node.id))
     ]
     if len(terminal_steps) > 1:
         terminals = ", ".join(sorted(label(node) for node in terminal_steps))
@@ -549,10 +586,27 @@ def _build_step_dict(
     """
     input_names = _upstream_step_names(graph, node, step_name_by_node_id)
     params = dict(node.params)
+    original = getattr(node, "_workflow_raw_step", None)
+    original_params = original.get("params") if isinstance(original, dict) else None
+    if isinstance(original_params, dict):
+        # Node.params is the editable view.  Unknown producer parameters are
+        # document data, however, and must survive a known-field edit even if
+        # an older property editor did not display them.
+        for key, value in original_params.items():
+            params.setdefault(key, deepcopy(value))
+    params.setdefault("itask", _CALC_ITASK_BY_KIND.get(node.kind, "opt"))
+    overrides = getattr(node, "_workflow_step_overrides", None)
+    base: dict[str, Any] = deepcopy(original) if isinstance(original, dict) else {}
+    if isinstance(overrides, dict):
+        for key, value in overrides.items():
+            if key not in {"name", "type", "params", "inputs"}:
+                base[key] = deepcopy(value)
     if node.kind is NodeKind.CONF_GEN:
-        return {"name": step_name, "type": "confgen", "params": params, "inputs": list(input_names)}
+        base.update({"name": step_name, "type": "confgen", "params": params, "inputs": list(input_names)})
+        return base
     itask = _CALC_ITASK_BY_KIND[node.kind]
-    step: dict[str, Any] = {"name": step_name, "type": "calc", "params": params, "inputs": list(input_names)}
+    step: dict[str, Any] = base
+    step.update({"name": step_name, "type": "calc", "params": params, "inputs": list(input_names)})
     # ``itask`` is a top-level param key in confflow's calc config. Keep
     # a more specific task recovered from YAML (notably ``opt_freq``),
     # because ``NodeKind.OPT`` is only its closest visual representation.
@@ -712,7 +766,7 @@ def _extract_extra(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def default_node_for_step(kind: NodeKind, step: dict[str, Any]) -> Node:
+def default_node_for_step(kind: NodeKind, step: dict[str, Any], *, raw_index: int | None = None) -> Node:
     """Construct a :class:`Node` for ``kind`` and seed it from ``step``."""
     from jobdesk_app.gui.nodegraph.model import default_node as _mk
 
@@ -726,6 +780,13 @@ def default_node_for_step(kind: NodeKind, step: dict[str, Any]) -> Node:
     if itask == _CALC_ITASK_BY_KIND.get(kind):
         params.pop("itask", None)
     node.params = params
+    # These private attributes intentionally sit outside the public Node
+    # schema.  They let the page merge a visual edit back into the original
+    # step dict without dropping ``disabled`` or unknown producer fields.
+    node._workflow_raw_step = deepcopy(step)
+    node._workflow_original_name = str(step.get("name", node.title))
+    if raw_index is not None:
+        node._workflow_raw_index = raw_index
     return node
 
 

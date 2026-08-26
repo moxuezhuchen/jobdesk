@@ -179,7 +179,16 @@ class MkdirErrorClient:
 
 @pytest.fixture
 def fake_sftp():
-    return SFTPClientWrapper(FakeSFTPClient())
+    client = FakeSFTPClient()
+    wrapper = SFTPClientWrapper(client)
+    try:
+        yield wrapper
+    finally:
+        # Keep the fake lifecycle identical to the real SFTP session.  The
+        # wrapper owns the client and must close it even when an assertion or
+        # transfer raises before the test reaches its normal assertions.
+        wrapper.close()
+        assert client._closed is True
 
 
 # ---- remote path validation --------------------------------------------

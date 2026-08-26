@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from jobdesk_app.application.confflow_client import SubmitRequest
+from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
@@ -53,9 +54,7 @@ def _response(operation: str, **fields: object) -> str:
 def test_state_worker_executable_accepts_missing_durable_state() -> None:
     assert _state_worker_executable(None) is None
     assert _state_worker_executable({}) is None
-    assert _state_worker_executable({"worker_executable": "/opt/confflow/bin/worker"}) == (
-        "/opt/confflow/bin/worker"
-    )
+    assert _state_worker_executable({"worker_executable": "/opt/confflow/bin/worker"}) == ("/opt/confflow/bin/worker")
     assert _state_worker_executable({"worker_executable": 1}) is None
 
 
@@ -76,9 +75,7 @@ def test_prepare_digest_matches_phase_d_golden_frame() -> None:
 
 
 def test_control_parsers_fail_closed_on_unsupported_or_malformed_wire_data() -> None:
-    assert parse_capabilities(
-        _response("capabilities", supported_protocols=["confflow.control.v1"])
-    ) is True
+    assert parse_capabilities(_response("capabilities", supported_protocols=["confflow.control.v1"])) is True
     with pytest.raises(ControlUnsupported):
         parse_capabilities(_response("capabilities", supported_protocols=["confflow.control.v2"]))
     with pytest.raises(ControlProtocolError, match="exactly one JSON response"):
@@ -154,9 +151,7 @@ def test_stable_cli_without_control_protocol_selects_legacy_fallback() -> None:
         ("run-1", ".."),
     ],
 )
-def test_control_prepare_rejects_request_path_components_before_sftp(
-    run_id: str, idempotency_key: str
-) -> None:
+def test_control_prepare_rejects_request_path_components_before_sftp(run_id: str, idempotency_key: str) -> None:
     class NoWriteSFTP:
         def mkdir_p(self, remote_dir: str) -> None:  # pragma: no cover - defensive
             raise AssertionError(f"unexpected remote mkdir: {remote_dir}")
@@ -172,9 +167,7 @@ def test_control_prepare_rejects_request_path_components_before_sftp(
 
 
 def test_control_launcher_accepts_producer_safe_dotted_run_id() -> None:
-    command = build_control_execute_command(
-        "confflow", "/tmp/jobdesk-control", "run.2026-08"
-    )
+    command = build_control_execute_command("confflow", "/tmp/jobdesk-control", "run.2026-08")
     assert "--run-id run.2026-08" in command
 
 
@@ -249,9 +242,7 @@ def test_worker_handoff_stages_only_regular_digest_matched_sources(tmp_path) -> 
         task_id="methane",
     )
     sftp = _WorkerSourceSFTP({"/source/workflow.yaml": workflow, "/source/methane.xyz": input_xyz})
-    ssh = SimpleNamespace(
-        run=lambda command, timeout: SimpleNamespace(exit_code=0, stdout="", stderr="")
-    )
+    ssh = SimpleNamespace(run=lambda command, timeout: SimpleNamespace(exit_code=0, stdout="", stderr=""))
 
     _upload_control_worker_handoff(
         sftp,
@@ -469,6 +460,27 @@ def _control_spec() -> RunSpec:
     )
 
 
+def _control_binding() -> ConfigurationBinding:
+    """Accepted workflow identity used by control-backend submission tests."""
+    return ConfigurationBinding(
+        server_id="server",
+        content_sha256="a" * 64,
+        content_schema="confflow.config.validate-response.v1",
+        contract_id="confflow.workflow-config",
+        contract_version="2",
+        schema_id="https://schemas.confflow.dev/config/v2/workflow.schema.json",
+        schema_sha256="b" * 64,
+        fixture_set="confflow.config_contract.v2",
+        fixture_sha256="c" * 64,
+        source="remote-cli",
+        configured_executable="confflow",
+        resolved_executable="/opt/confflow/bin/confflow",
+        canonical_executable_identity_json='{"path":"/opt/confflow/bin/confflow"}',
+        canonical_producer_provenance_json='{"version":"2.0.0"}',
+        validated_at="2026-08-20T00:00:00+00:00",
+    )
+
+
 def _seed_control_state(service: RunService, run_id: str, *, revision: int = 0, state: str = "prepared") -> None:
     attempt_root = "/home/test/.local/state/confflow/jobdesk-run-1"
     handoff = {
@@ -571,12 +583,14 @@ def test_control_status_does_not_change_state_at_the_same_revision(tmp_path) -> 
 
 def test_control_submit_uses_stable_idempotency_and_persists_backend(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
-    service.create_run(_control_spec(), run_id="run-1")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
     _seed_control_state(service, "run-1")
     sftp = FakeLauncherSFTP()
     transport = FakeControlTransport(sftp=sftp)
     scheduler = FakeLauncherScheduler(service, sftp)
-    coordinator = type("Coordinator", (), {"service": service})()
+    coordinator = type(
+        "Coordinator", (), {"service": service, "verify_configuration_binding": lambda *args, **kwargs: None}
+    )()
     client = SSHConfFlowClient(
         coordinator,
         "server",
@@ -600,12 +614,14 @@ def test_control_submit_uses_stable_idempotency_and_persists_backend(tmp_path, m
 
 def test_control_submit_leaves_producer_lifecycle_to_launcher(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
-    service.create_run(_control_spec(), run_id="run-1")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
     _seed_control_state(service, "run-1")
     sftp = FakeLauncherSFTP()
     transport = FakeControlTransport(sftp=sftp)
     scheduler = FakeLauncherScheduler(service, sftp)
-    coordinator = type("Coordinator", (), {"service": service})()
+    coordinator = type(
+        "Coordinator", (), {"service": service, "verify_configuration_binding": lambda *args, **kwargs: None}
+    )()
     client = SSHConfFlowClient(
         coordinator,
         "server",
@@ -664,4 +680,6 @@ def test_control_download_uses_manifest_paths_and_matching_task_directory(tmp_pa
 
     assert len(transfers) == 1
     assert failures == []
-    assert (tmp_path / "results" / "run-1" / Path(task.remote_workflow_dir).name / "result.json").read_bytes() == content
+    assert (
+        tmp_path / "results" / "run-1" / Path(task.remote_workflow_dir).name / "result.json"
+    ).read_bytes() == content

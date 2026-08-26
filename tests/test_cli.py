@@ -84,6 +84,34 @@ def test_cli_run_list_empty(capsys):
         assert "No runs" in out
 
 
+def test_cli_verify_rollback_is_a_fail_closed_gate(capsys, tmp_path):
+    import jobdesk_app.cli as cli
+
+    with patch.object(cli, "RunService", return_value=MagicMock()):
+        with patch.object(
+            cli,
+            "require_all_projections_match_authority",
+            side_effect=ValueError("control JSON projection is stale for run-1; regenerate it before rollback"),
+        ) as gate:
+            rc = main(["run", "verify-rollback", str(tmp_path)])
+
+    assert rc == 2
+    assert "stale" in capsys.readouterr().err
+    gate.assert_called_once()
+
+
+def test_cli_verify_rollback_reports_ready_after_gate_passes(capsys, tmp_path):
+    import jobdesk_app.cli as cli
+
+    with patch.object(cli, "RunService", return_value=MagicMock()):
+        with patch.object(cli, "require_all_projections_match_authority") as gate:
+            rc = main(["run", "verify-rollback", str(tmp_path)])
+
+    assert rc == 0
+    assert "rollback ready" in capsys.readouterr().out
+    gate.assert_called_once()
+
+
 def test_cli_run_list_reports_legacy_migration_errors(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
         broken = Path(workspace) / "JobDesk" / "runs" / "broken"
@@ -213,9 +241,7 @@ def test_cli_run_cancel_invokes_remote_cancellation(capsys):
         coordinator = MagicMock()
         coordinator.service = RunService(workspace)
         coordinator.cancel.return_value = SimpleNamespace(changed_count=1, errors=[])
-        with (
-            patch("jobdesk_app.cli._run_coordinator", return_value=coordinator),
-        ):
+        with (patch("jobdesk_app.cli._run_coordinator", return_value=coordinator),):
             rc = main(["run", "cancel", workspace, run_id])
 
         assert rc == 0

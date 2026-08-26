@@ -1,0 +1,7 @@
+schema_version: "0.5"
+work_dir: old-flat
+program: g16
+nproc: 4
+memory_mb: 2048
+steps: [confgen, opt_freq, sp]
+x-legacy: keep

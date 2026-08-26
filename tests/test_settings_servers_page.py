@@ -19,7 +19,29 @@ from jobdesk_app.gui.pages.settings_servers_page import (
     ToggleSwitch,
     _test_server_connections,
 )
+from jobdesk_app.gui.workers import BackgroundWorker
 from jobdesk_app.services.gui_settings import GuiSettings
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_settings_page_workers(qtbot):
+    """Close page-owned workers before pytest-qt disposes the widgets.
+
+    The page's ``shutdown`` contract requests interruption and waits for its
+    workers, but merely adding a widget to ``qtbot`` does not invoke that
+    contract.  Run this fixture after ``qtbot`` setup (via the dependency) so
+    its teardown runs first, while the widgets and worker references still
+    exist.  The final registry wait covers dialogs/workers created directly by
+    tests in this module as well.
+    """
+    yield
+
+    app = QApplication.instance()
+    if app is not None:
+        for widget in app.allWidgets():
+            if isinstance(widget, SettingsServersPage):
+                widget.shutdown()
+    BackgroundWorker.wait_all(timeout_ms=3000)
 
 
 def _make_settings_page(qtbot, tmp_path):

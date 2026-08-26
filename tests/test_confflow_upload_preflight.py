@@ -41,3 +41,41 @@ def test_capability_failure_before_upload_does_not_upload_or_create_run(monkeypa
 
     service.upload_path.assert_not_called()
     client.probe.assert_called_once_with(require_dag=False)
+
+
+def test_validated_yaml_upload_uses_exact_snapshot_and_cleans_it(tmp_path: Path):
+    yaml_path = tmp_path / "workflow.yaml"
+    yaml_path.write_bytes(b"mutated-after-admission")
+    batch = PreparedBatch(
+        specs=[
+            RunSpec(
+                server_id="srv",
+                remote_dir="/remote",
+                command_template="confflow workflow.yaml",
+                max_parallel=1,
+                mode=RunMode.selected_files,
+                sources=[RunSource(path="/remote/a.xyz")],
+                workflow_kind=WorkflowKind.confflow,
+            )
+        ],
+        yaml_local_path=yaml_path,
+        yaml_remote_path="/remote/workflow.yaml",
+    )
+    uploaded: list[tuple[Path, bytes]] = []
+    service = Mock()
+    service.upload_path.side_effect = (
+        lambda local, target: uploaded.append((Path(local), Path(local).read_bytes())) or []
+    )
+    client = Mock()
+
+    main_window._upload_prepared_batch(
+        batch,
+        SimpleNamespace(server_id="srv"),
+        service,
+        client,
+        validated_yaml_bytes=b"validated-bytes",
+    )
+
+    assert len(uploaded) == 1
+    assert uploaded[0][1] == b"validated-bytes"
+    assert uploaded[0][0] != yaml_path and not uploaded[0][0].exists()

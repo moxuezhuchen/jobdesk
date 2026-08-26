@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 # Ensure an offscreen Qt platform before any Qt import (Windows CI friendly).
@@ -14,6 +15,13 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from jobdesk_app.application.gui_ports import (  # noqa: E402
+    ConnectionSnapshot,
+    FilesPagePort,
+    FileTargetSnapshot,
+    PageRefreshPort,
+)
+from jobdesk_app.core.run import WorkflowKind  # noqa: E402
 from jobdesk_app.gui.main_window import MainWindow, _create_and_maybe_submit_specs  # noqa: E402
 
 
@@ -51,6 +59,111 @@ def test_show_error_reuses_owned_nonblocking_message_box(qapp):
             pass
         window.close()
         window.deleteLater()
+
+
+def test_files_page_port_copies_an_immutable_connection_and_target_snapshot():
+    class RawSnapshot:
+        server_id = "wsl"
+        server = object()
+        remote_dir = "/opt/confflow"
+        connected = True
+        ready = True
+
+    class Page:
+        def __init__(self):
+            self.raw = RawSnapshot()
+            self.refresh_calls = 0
+
+        def connection_snapshot(self):
+            return self.raw
+
+        def refresh(self):
+            self.refresh_calls += 1
+
+    page = Page()
+    snapshot = FilesPagePort(page).snapshot()
+
+    assert isinstance(snapshot, ConnectionSnapshot)
+    assert snapshot.target == FileTargetSnapshot("wsl", "/opt/confflow")
+    assert snapshot.connected is True
+    assert snapshot.ready is True
+    assert not hasattr(snapshot, "service")
+    page.raw.remote_dir = "/tmp/changed"
+    assert snapshot.remote_dir == "/opt/confflow"
+    try:
+        snapshot.target.remote_dir = "/tmp/mutated"  # type: ignore[misc]
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("FileTargetSnapshot must be immutable")
+
+
+def test_files_page_port_derives_legacy_status_without_retaining_service():
+    service = object()
+
+    class LegacySnapshot:
+        server_id = "wsl"
+        server = None
+        remote_dir = "/"
+
+    LegacySnapshot.service = service
+
+    class LegacyPage:
+        def connection_snapshot(self):
+            return LegacySnapshot()
+
+        def refresh(self):
+            pass
+
+        def upload_path(self, local_path, remote_path, *args, **kwargs):
+            return (local_path, remote_path, args, kwargs)
+
+    snapshot = FilesPagePort(LegacyPage()).snapshot()
+    assert snapshot.connected is True
+    assert snapshot.ready is True
+    assert not hasattr(snapshot, "service")
+
+
+def test_files_page_port_uploads_through_public_page_action():
+    expected = object()
+
+    class Page:
+        def connection_snapshot(self):
+            raise AssertionError("snapshot is not part of this action test")
+
+        def refresh(self):
+            pass
+
+        def upload_path(self, local_path, remote_path, *args, **kwargs):
+            assert local_path == "input.xyz"
+            assert remote_path == "/remote/input.xyz"
+            assert args == ("policy",)
+            assert kwargs == {"dry_run": True}
+            return expected
+
+    assert FilesPagePort(Page()).upload_path("input.xyz", "/remote/input.xyz", "policy", dry_run=True) is expected
+
+
+def test_page_refresh_port_never_falls_back_to_private_widget_actions():
+    class PublicPage:
+        def __init__(self):
+            self.calls = 0
+
+        def refresh_run_list(self):
+            self.calls += 1
+
+        def _refresh_all(self):
+            raise AssertionError("private fallback must not be called")
+
+    public_page = PublicPage()
+    assert PageRefreshPort.for_page(public_page).refresh() is True
+    assert public_page.calls == 1
+
+    class PrivateOnlyPage:
+        def _refresh_all(self):
+            raise AssertionError("private fallback must not be called")
+
+    assert PageRefreshPort.for_page(PrivateOnlyPage()).refresh() is False
 
 
 @pytest.fixture(autouse=True)
@@ -455,4 +568,21 @@ def test_create_failure_or_submit_false_never_calls_client_submit(tmp_path):
             raise AssertionError(f"unexpected submit for {request.run_id}")
 
     assert _create_and_maybe_submit_specs(Coordinator(failed), Client(), [object()], tmp_path, submit=True) == [failed]
-    assert _create_and_maybe_submit_specs(Coordinator(created), Client(), [object()], tmp_path, submit=False) == [created]
+    assert _create_and_maybe_submit_specs(Coordinator(created), Client(), [object()], tmp_path, submit=False) == [
+        created
+    ]
+
+
+def test_workflow_creation_requires_admission_before_any_create(tmp_path):
+    class Coordinator:
+        def create_run(self, spec, *, local_dir):
+            raise AssertionError(f"unexpected legacy create for {spec!r} in {local_dir}")
+
+    class Client:
+        def submit_with_outcome(self, request):
+            raise AssertionError(f"unexpected submit for {request.run_id}")
+
+    workflow = type("Workflow", (), {"workflow_kind": WorkflowKind.confflow})()
+    outcomes = _create_and_maybe_submit_specs(Coordinator(), Client(), [workflow], tmp_path, submit=False)
+
+    assert outcomes[0].errors == ["configuration admission is required before creating workflow run"]

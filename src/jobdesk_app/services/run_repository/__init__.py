@@ -13,10 +13,19 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from jobdesk_app.core.configuration_binding import ConfigurationBinding, is_canonical_json_object
 from jobdesk_app.core.manifest import TaskRecord
 
 from ._activity import append_activity as _append_activity
 from ._activity import list_recent_activity as _list_recent_activity
+from ._configuration_bindings import insert_configuration_binding, load_configuration_binding
+from ._control_decisions import (
+    ControlDecision,
+    commit_control_decision,
+    commit_control_decision_and_replace_tasks,
+    import_legacy_control_decision,
+    load_control_decision,
+)
 from ._delete import (
     _record_delete_error,
     complete_delete_isolated,
@@ -77,11 +86,15 @@ from ._schema import (
 )
 from ._schema import (
     _create_tables,
+    _ensure_v7_binding_guards,
     _migrate_v1_to_v2,
     _migrate_v2_to_v3,
     _migrate_v3_to_v4,
     _migrate_v4_to_v5,
     _migrate_v5_to_v6,
+    _migrate_v6_to_v7,
+    _migrate_v7_to_v8,
+    _v7_binding_trigger_definitions,
 )
 from ._submit import (
     acquire_submit_recovery,
@@ -129,6 +142,7 @@ class RunRepository:
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=5.0)
+        connection.create_function("jobdesk_is_canonical_json_object", 1, is_canonical_json_object, deterministic=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
@@ -150,8 +164,24 @@ class RunRepository:
                 "delete_operation_workspaces",
                 "submit_activity_log",
                 "run_provenance",
+                "run_configuration_bindings",
+                "run_configuration_binding_delete_context",
             }
             if not required.issubset(tables):
+                return False
+            binding_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(run_configuration_bindings)")
+            }
+            if "server_id" not in binding_columns:
+                return False
+            trigger_sql = {
+                str(row[0]): str(row[1] or "")
+                for row in connection.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
+            }
+            if any(
+                " ".join(trigger_sql.get(name, "").split()).casefold() != " ".join(expected_sql.split()).casefold()
+                for name, expected_sql in _v7_binding_trigger_definitions().items()
+            ):
                 return False
             metadata = dict(connection.execute("SELECT key, value FROM schema_metadata"))
             if metadata.get("schema_version") != str(_SCHEMA_VERSION) or metadata.get("legacy_import_complete") != "1":
@@ -165,6 +195,7 @@ class RunRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Yield a transactional SQLite connection with repository safeguards."""
         connection = self._connect()
         try:
             with connection:
@@ -210,6 +241,20 @@ class RunRepository:
                 current_version = 5
             if current_version == 5:
                 _migrate_v5_to_v6(connection)
+                current_version = 6
+            if current_version == 6:
+                _migrate_v6_to_v7(connection)
+                current_version = 7
+            if current_version == 7:
+                _migrate_v7_to_v8(connection)
+                current_version = 8
+            if current_version == 8:
+                binding_columns = {
+                    str(row[1]) for row in connection.execute("PRAGMA table_info(run_configuration_bindings)")
+                }
+                if "server_id" not in binding_columns:
+                    raise RuntimeError("schema v8 configuration bindings lack server identity")
+                _ensure_v7_binding_guards(connection)
             _import_legacy_runs(connection, self.runs_dir)
 
     def schema_version(self) -> int:
@@ -283,6 +328,64 @@ class RunRepository:
         with self._connection() as connection:
             _create_run(connection, record, tasks)
         return self.load_run(record.run_id)
+
+    def create_run_with_configuration_binding(
+        self, record: RunRecord, tasks: list[TaskRecord], binding: ConfigurationBinding
+    ) -> RunRecord:
+        """Atomically create a run and its immutable accepted configuration binding."""
+        with self._connection() as connection:
+            _create_run(connection, record, tasks)
+            insert_configuration_binding(connection, record.run_id, binding)
+        return self.load_run(record.run_id)
+
+    def load_configuration_binding(self, run_id: str) -> ConfigurationBinding | None:
+        """Return the immutable configuration binding for ``run_id``, if present."""
+        with self._connection() as connection:
+            return load_configuration_binding(connection, run_id)
+
+    def load_confflow_control_decision(self, run_id: str) -> ControlDecision | None:
+        """Return the SQLite-authoritative control decision for one run."""
+        with self._connection() as connection:
+            return load_control_decision(connection, run_id)
+
+    def commit_confflow_control_decision(
+        self,
+        run_id: str,
+        control_state: dict[str, object],
+        *,
+        expected_previous_revision: int,
+    ) -> ControlDecision:
+        """CAS-commit the next control decision before projecting compatibility JSON."""
+        with self._connection() as connection:
+            return commit_control_decision(
+                connection,
+                run_id,
+                control_state,
+                expected_previous_revision=expected_previous_revision,
+            )
+
+    def commit_confflow_control_decision_and_replace_tasks(
+        self,
+        run_id: str,
+        control_state: dict[str, object],
+        tasks: list[TaskRecord],
+        *,
+        expected_previous_revision: int,
+    ) -> ControlDecision:
+        """CAS-commit a decision and its complete task projection together."""
+        with self._connection() as connection:
+            return commit_control_decision_and_replace_tasks(
+                connection,
+                run_id,
+                control_state,
+                tasks,
+                expected_previous_revision=expected_previous_revision,
+            )
+
+    def import_legacy_confflow_control_decision(self, run_id: str, control_state: dict[str, object]) -> ControlDecision:
+        """Bind an existing compatible control JSON document exactly once."""
+        with self._connection() as connection:
+            return import_legacy_control_decision(connection, run_id, control_state)
 
     def incomplete_delete_run_ids(self) -> set[str]:
         with self._connection() as connection:

@@ -8,12 +8,22 @@ and forwards the rows back through :attr:`on_rows_loaded`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from types import MappingProxyType
+from typing import Callable, Mapping
 
-from ...services.gui_settings import GuiSettingsStore
+from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ..worker_utils import WorkerContext, start_context_worker
 from .file_transfer_helpers import build_local_rows
+
+
+@dataclass(frozen=True, slots=True)
+class LocalNavigationSnapshot:
+    """Immutable local-directory observation exposed to the page shell."""
+
+    root: Path
+    signatures: tuple[tuple[str, float], ...]
 
 
 class LocalNavigator:
@@ -39,8 +49,19 @@ class LocalNavigator:
         self._on_root_changed = lambda path: None
 
     @property
-    def last_poll_snapshot(self) -> dict:
-        return self._snapshot
+    def last_poll_snapshot(self) -> Mapping[str, float]:
+        """Return a read-only copy of the latest directory fingerprint."""
+        return MappingProxyType(dict(self._snapshot))
+
+    @property
+    def snapshot(self) -> LocalNavigationSnapshot:
+        """Return the current local navigation state as an immutable value."""
+        root = Path(self._root_provider() or Path.cwd())
+        return LocalNavigationSnapshot(root, tuple(sorted(self._snapshot.items())))
+
+    def set_poll_snapshot(self, snapshot: Mapping[str, float]) -> None:
+        """Replace the poll fingerprint through the public state API."""
+        self._snapshot = {str(path): float(mtime) for path, mtime in snapshot.items()}
 
     @property
     def poll_running(self) -> bool:
@@ -51,7 +72,7 @@ class LocalNavigator:
         self._on_root_changed(path)
         self.save_last_local_folder(path)
 
-    def apply_default_local_folder(self, settings: GuiSettingsStore) -> Path | None:
+    def apply_default_local_folder(self, settings: GuiSettings) -> Path | None:
         """Set ``state.current_project_root`` to the user's saved folder.
 
         Returns the chosen path (or ``None`` if no usable folder is set).
@@ -97,7 +118,7 @@ class LocalNavigator:
             if error:
                 self._log_provider()(error)
             if snapshot != self._snapshot:
-                self._snapshot = snapshot
+                self.set_poll_snapshot(snapshot)
                 self._on_rows_loaded(rows)
 
         def _error(_message: str):
@@ -116,7 +137,7 @@ class LocalNavigator:
         snapshot, rows, error = self.scan()
         if error:
             self._log_provider()(error)
-        self._snapshot = snapshot
+        self.set_poll_snapshot(snapshot)
         self._on_rows_loaded(rows)
 
     def refresh_async(self, owner) -> None:
@@ -135,7 +156,7 @@ class LocalNavigator:
             snapshot, rows, error = result
             if error:
                 self._log_provider()(error)
-            self._snapshot = snapshot
+            self.set_poll_snapshot(snapshot)
             self._on_rows_loaded(rows)
 
         start_context_worker(

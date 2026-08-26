@@ -35,6 +35,52 @@ class TestFileTransferPage:
     def test_page_creates_without_crash(self, file_page):
         assert file_page is not None
 
+    def test_remote_viewer_download_uses_transfer_port(self, file_page):
+        """Viewer downloads keep the page facade but call the narrow port."""
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        class _FakeViewerPort:
+            def __init__(self):
+                self.calls = []
+
+            def download_path(self, remote_path, local_path):
+                self.calls.append((remote_path, Path(local_path)))
+
+        file_page.remote_table.setRowCount(1)
+        file_page.remote_table.setItem(0, 5, QTableWidgetItem("/remote/result.log"))
+        file_page.remote_table.setCurrentCell(0, 0)
+        port = _FakeViewerPort()
+        file_page._service = port
+
+        with (
+            patch("jobdesk_app.gui.pages.file_transfer_page.start_context_worker") as start_worker,
+            patch("jobdesk_app.core.viewer.open_in_viewer") as open_in_viewer,
+        ):
+            file_page._open_remote_in_viewer("viewer.exe")
+            target = start_worker.call_args.kwargs["target"]
+            on_result = start_worker.call_args.kwargs["on_result"]
+            downloaded = target(MagicMock())
+            on_result(downloaded)
+
+        assert len(port.calls) == 1
+        remote_path, local_path = port.calls[0]
+        assert remote_path == "/remote/result.log"
+        assert local_path.suffix == ".log"
+        assert downloaded == local_path
+        open_in_viewer.assert_called_once_with(local_path, custom_path="viewer.exe")
+        local_path.unlink(missing_ok=True)
+
+    def test_current_run_tasks_uses_injected_lookup_port(self, file_page, tmp_path):
+        lookup = MagicMock()
+        tasks = [MagicMock()]
+        lookup.load_tasks.return_value = tasks
+        file_page._run_task_lookup = lookup
+        file_page.state.current_batch_id = "batch-1"
+        file_page.state.current_project_root = tmp_path
+
+        assert file_page._current_run_tasks() == tasks
+        lookup.load_tasks.assert_called_once_with(tmp_path, "batch-1")
+
     def test_file_transfer_buttons_have_feedback_roles(self, file_page):
         from jobdesk_app.gui.button_feedback import ButtonRole
 
@@ -117,9 +163,7 @@ class TestFileTransferPage:
         qtbot.wait(1)
 
         assert [
-            file_page.local_table.item(row, 0).text()
-            for row in range(3)
-            if not file_page.local_table.isRowHidden(row)
+            file_page.local_table.item(row, 0).text() for row in range(3) if not file_page.local_table.isRowHidden(row)
         ] == ["..", "Alpha.XYZ"]
         assert [
             file_page.remote_table.item(row, 0).text()

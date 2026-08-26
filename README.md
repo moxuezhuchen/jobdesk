@@ -4,6 +4,30 @@ JobDesk is a Windows-first desktop and CLI tool for managing single scientific-c
 
 JobDesk is currently a preview project. It is suitable for source review and controlled local use, but not yet a stable public package release.
 
+## Documentation and identity status
+
+The phase notes, compatibility records, and remediation evidence under `docs/`
+are historical records. In particular, `docs/PHASE*.md`, the compatibility
+records, and the older `docs/superpowers/{plans,evidence}/` files may describe
+superseded backends or compatibility periods. Keep their counters, hashes,
+commands, and acceptance facts unchanged; they are not current release,
+endpoint, or promotion status. Current product boundaries are maintained in
+this file and [docs/architecture.md](docs/architecture.md).
+
+The four identities below are deliberately separate (recorded during the
+2026-08-19 baseline and updated for the paired candidate; revalidate them
+before any acceptance or release action):
+
+| Identity | Recorded value | Meaning |
+|---|---|---|
+| Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Shared/dirty development sources, not runtime identity |
+| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, base `154ee77b065cd71787418be312700c996bf01c57`); paired ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Candidate code under review; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.6.0` at `e4d8f74af0dff80b233f7bd9cb360b43d040069f`; ConfFlow `v2.0.0` at `69819350d340a6aeccf95aa175edfd1c3f63404b` (wheel SHA-256 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`) | Historical released artifacts, not the implementation candidate |
+| Configured production executable | Recorded `wsl` endpoint `/usr/local/bin/confflow` → `/opt/confflow-2.0.0-prod-venv/bin/confflow` | Protected runtime identity; revalidate live before acceptance |
+
+This documentation-only slice does not claim a new release, endpoint switch,
+or production promotion.
+
 ## Scope
 
 - Submit, monitor, cancel, refresh, download, and retry single-task Gaussian/ORCA runs.
@@ -84,15 +108,17 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 ## Run Database
 
-JobDesk stores run and task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share state without rewriting manifest files.
+JobDesk stores its local run/task state in `%APPDATA%/JobDesk/runs/jobdesk.db` by default using SQLite. WAL mode and transactional updates allow the GUI and CLI to share local state without rewriting manifest files. This database is not ConfFlow's remote state store.
 
-Schema v6 is current. Schema v2 introduced the durable submit/delete operation
+Schema v8 is current. Schema v2 introduced the durable submit/delete operation
 journal; schema v3 added an independent trusted-workspace registry and
 delete-operation-to-workspace bindings; schema v4 added renewable submit
 ownership leases (lease timestamps stored and compared in UTC); schema v5
 adds a `submit_activity_log` table that persists SubmitPage activity, and
-schema v6 adds the `run_provenance` table for ConfFlow producer identity
-across restarts. Recovery takes over only ownerless legacy submissions or
+    schema v6 adds the `run_provenance` table for ConfFlow producer identity
+    across restarts, schema v7 adds immutable accepted-configuration bindings
+    for workflow runs, and schema v8 adds the explicit selected server identity.
+    Recovery takes over only ownerless legacy submissions or
 submissions whose lease has expired. The v2-to-v3 migration seeds
 workspace trust only from live run rows and leaves old delete operations
 unbound; journal payloads are never treated as trust anchors. Back up the
@@ -109,7 +135,7 @@ For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wa
 
 An `uncertain` task means a remote submit command may have started but JobDesk cannot prove whether it was accepted. Inspect the scheduler or remote process before resolving it. Use `confirm-submitted` (and `--job-id <task_id>=<job_id>` when known) only after confirming the remote job exists. `abandon-submit` makes the task eligible for submission again and can create a duplicate remote job if the original actually started.
 
-SSH/SFTP connections are owned by `SessionPool`. A lease is exclusive per server, callers must release it promptly, and application shutdown closes the pool after active leases return. GUI objects do not own or share raw sessions directly.
+For ordinary SSH/SFTP work, `SessionPool` owns one reusable session per server. Each short-lived lease is exclusive, may request SSH-only or SSH+SFTP (`need_sftp=False/True`), and must be released promptly; application shutdown closes the pool after active leases return. The long-lived `RunMonitor` watcher is a separate transport owner and must not borrow a `SessionPool` lease. GUI objects receive application snapshots/events rather than owning pooled sessions.
 
 ## Development
 
@@ -126,23 +152,48 @@ Real SSH/SFTP and ConfFlow integration tests are skipped unless the documented e
 ## ConfFlow integration
 
 The ConfFlow workflow engine is an **optional** dependency. JobDesk's GUI
-loads and runs without it; the wizard, `WorkflowSpec`, and `--resume`
-submitter branches become available only after `pip install -e ".[chem]"`
-on the same Python that runs JobDesk, and after the matching ConfFlow
-wheel is installed on the remote Linux compute node. The current JobDesk
-contract is `confflow>=2.0,<3.0`; CI validates against the released 2.0.0 wheel. Versions must
-match between Windows and Linux because the GUI imports the same Pydantic models
-(`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`) that the
-remote `confflow` binary consumes.
-The Phase F owner exception removed the legacy backend from the production path.
-The provenance-verified v1.4.6 rollback remains historical evidence only and
-never authorizes a current control run.
+loads and runs without it. A base install can open and preserve workflow
+documents and perform advisory structural lint; the optional `chem` extra
+enables producer-model authoring conveniences and the local dry-run path. The
+remote compute node still needs the configured producer executable. The current
+JobDesk
+contract is `confflow>=2.0,<3.0`; CI validates against the recorded stable
+producer baseline. Versions do not need to match between Windows and Linux
+through shared Pydantic imports: JobDesk resolves the configured executable's
+producer-owned workflow configuration contract and sends the exact YAML bytes
+to its canonical validator.
+The Phase F owner exception removed the legacy backend from the production
+path. The provenance-verified v1.4.6 rollback remains historical evidence only
+and never authorizes a current control run.
 
-The cross-repository contract is the **CLI capability JSON** only:
-JobDesk never imports ConfFlow's contract module. ConfFlow 2.0.0 emits
-schema_version=4 and producer/executable provenance blocks plus an artifacts block that names all six on-disk files JobDesk is allowed to discover: run_summary.json, workflow_stats.json, .workflow_state.json, output_manifest.json, {basename}.txt, and {basename}min.xyz. ConfFlow workflow result download is fail-closed: JobDesk first validates output_manifest.json and then accepts only the relative paths it declares.
-The required remote commands are bash, nohup, setsid, xargs, sha256sum, mktemp, and base64; the build, producer, and executable blocks report commit, wheel, interpreter, and executable provenance.
-JobDesk's MIN_VERSION / MAX_EXCLUSIVE in jobdesk_app.core.confflow_contract is the structured source of truth for the producer window; pyproject, CI, and this README are mirrors.
+The cross-repository runtime contracts are the **CLI capability JSON**, the
+producer-owned configuration-contract/validation JSON, and the declared
+control/artifact schemas. JobDesk never imports ConfFlow's contract module.
+The current capability payload uses `schema_version=4` and carries
+producer/executable provenance plus an artifacts block naming the six on-disk
+files JobDesk may discover: `run_summary.json`, `workflow_stats.json`,
+`.workflow_state.json`, `output_manifest.json`, `{basename}.txt`, and
+`{basename}min.xyz`. JobDesk first validates `output_manifest.json` and then
+accepts only the relative paths it declares.
+
+For workflow configuration, `application/configuration_contract.py` holds the
+typed admission value objects; `remote/confflow_config_contract.py` parses the
+frozen producer response ABI; and
+`services/ssh_configuration_contract_client.py` runs `config contract --json`
+and `config validate --json --stdin` on the configured executable. The
+checked-in `resources/config_contracts/stable_2_0_0.py` is an exact fallback
+only for the approved stable producer when the remote contract command is
+unavailable. Local `core/workflow_document.py`, `workflow_codec.py`,
+`workflow_mapping.py`, and `workflow_schema_lint.py` preserve/edit documents
+and provide advisory structural checks; they do not replace remote semantic
+validation.
+
+The required remote commands are `bash`, `nohup`, `setsid`, `xargs`,
+`sha256sum`, `mktemp`, and `base64`; the build, producer, and executable blocks
+report commit, wheel, interpreter, and executable provenance.
+JobDesk's `MIN_VERSION` / `MAX_EXCLUSIVE` in
+`jobdesk_app.core.confflow_contract` is the structured source of truth for the
+producer window; pyproject, CI, and this README are mirrors.
 
 ```powershell
 # Windows (JobDesk side)
@@ -181,7 +232,7 @@ Layout (top to bottom):
    **Create tasks only** / **Refresh preview**.
 4. **Live preview** — `.gjf` / `.inp` body or `workflow.yaml`.
 5. **Activity log** — last 50 status messages, persisted to SQLite so
-   they survive application restarts (schema v6).
+   they survive application restarts (schema v8).
 
 Right-click on any row in the Files page's Local or Remote table
 to push it to the Submit page as an input. The page is the single
@@ -191,10 +242,14 @@ worker callback (in `MainWindow`) handles uploads + the
 
 On accept the Submit page stages `workflow.yaml` and each input in a unique
 remote submission namespace. Before launch, JobDesk requires the remote
-ConfFlow capability schema 4 with a compatible `>=2.0,<3.0` version, the
-declared `artifacts` block matching the consumer contract field-by-field, and
-runs the exact per-task command with `--dry-run`. Only a successful preflight
-may start the batch through the existing `nohup setsid` scheduler.
+ConfFlow capability schema 4 with a compatible `>=2.0,<3.0` version, resolves
+and rechecks the producer-owned configuration contract, validates the exact
+configuration bytes remotely, requires the declared `artifacts` block to
+match field-by-field, and runs the exact per-task command with `--dry-run`.
+The accepted contract, configuration digest, producer provenance, and
+   server/executable identities are bound immutably to the workflow run in schema v8.
+Only a successful admission and preflight may start the batch through the
+existing `nohup setsid` scheduler.
 
 ### SSH-disconnect resilience
 
@@ -209,12 +264,13 @@ workflow state and workflow stats paths (sourced from
 
 ### Auto-sync progress
 
-`services/run_monitor.py` polls the remote `events.log` for `DONE` /
-`RUNNING` lines, and additionally probes `workflow_stats.json` mtime once
-per loop iteration. A change there fires a synthetic DoneEvent that
-triggers an immediate refresh of the Runs page **Progress** column so step
-progress (`done: confgen, preopt; current: opt`) updates between DONE
-lines.
+`services/run_monitor.py` owns a bounded, long-lived watcher transport and
+polls the remote `events.log` for `DONE` / `RUNNING` lines. It also probes the
+declared workflow state/statistics paths by SHA-256 content digest (mtime-only
+changes are ignored). A content or presence change fires a synthetic
+`DoneEvent` that triggers an immediate refresh of the Runs page **Progress**
+column so step progress (`done: confgen, preopt; current: opt`) updates
+between DONE lines.
 
 ## Safety Notes
 

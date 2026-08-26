@@ -1,0 +1,65 @@
+{
+    "schema":  "jobdesk.chem-lock.v1",
+    "artifact":  {
+                     "filename":  "confflow-2.0.0-py3-none-any.whl",
+                     "relative_path":  ".matrix-artifacts/confflow-2.0.0-py3-none-any.whl",
+                     "sha256":  "9b273b95018542536fa179e9cd0de09afeccb0fd38ff66d571b4aad98343ac65",
+                     "metadata_sha256":  "e4095cf4ad0de0c12927dfe9c271c97a770996424b24416069732fd8970045eb",
+                     "name":  "confflow",
+                     "version":  "2.0.0",
+                     "requires_python":  "\u003e=3.10",
+                     "requires_dist":  [
+                                           "numpy\u003e=2.2.6",
+                                           "scipy\u003e=1.15.3",
+                                           "pyyaml\u003e=6.0.3",
+                                           "psutil\u003e=7.2.2",
+                                           "rich\u003e=15.0.0",
+                                           "pydantic\u003e=2.13.3",
+                                           "rdkit\u003e=2026.3.2",
+                                           "jsonschema\u003e=4.23.0",
+                                           "referencing\u003e=0.30.0",
+                                           "rfc8785\u003e=0.1.4",
+                                           "build\u003e=1.0.0; extra == \"dev\"",
+                                           "setuptools\u003e=82.0.1; extra == \"dev\"",
+                                           "wheel; extra == \"dev\"",
+                                           "pytest\u003e=6.0.0; extra == \"dev\"",
+                                           "pytest-cov\u003e=2.12.0; extra == \"dev\"",
+                                           "black\u003e=26.5.1; extra == \"dev\"",
+                                           "ruff\u003e=0.15.17; extra == \"dev\"",
+                                           "mypy\u003c2.2,\u003e=2.1.0; extra == \"dev\"",
+                                           "jsonschema\u003e=4.23.0; extra == \"dev\"",
+                                           "referencing\u003e=0.30.0; extra == \"dev\"",
+                                           "rfc8785\u003e=0.1.4; extra == \"dev\"",
+                                           "tomli\u003e=2.0.1; python_version \u003c \"3.11\" and extra == \"dev\"",
+                                           "types-PyYAML\u003e=6.0.0; extra == \"dev\"",
+                                           "numba\u003e=0.55.0; extra == \"speed\"",
+                                           "numba\u003e=0.55.0; extra == \"all\""
+                                       ],
+                     "source":  "local candidate wheel; not a published artifact"
+                 },
+    "resolver":  {
+                     "uv_version":  "0.11.5",
+                     "exclude_newer":  "2026-08-19T00:00:00Z",
+                     "platform":  "windows",
+                     "architecture":  "x86_64",
+                     "inputs":  [
+                                    "pyproject.toml [base,dev,chem]",
+                                    "local wheel METADATA"
+                                ],
+                     "numpy_override":  "numpy\u003e=2.2.6"
+                 },
+    "locks":  [
+                  {
+                      "python":  "3.11",
+                      "path":  "requirements/locks/jobdesk-chem-py311-win_amd64.txt"
+                  },
+                  {
+                      "python":  "3.12",
+                      "path":  "requirements/locks/jobdesk-chem-py312-win_amd64.txt"
+                  },
+                  {
+                      "python":  "3.13",
+                      "path":  "requirements/locks/jobdesk-chem-py313-win_amd64.txt"
+                  }
+              ]
+}

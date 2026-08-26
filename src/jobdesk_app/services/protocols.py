@@ -60,6 +60,7 @@ class SSHClient(Protocol):
         command: str,
         timeout: int | None = None,
         check: bool = False,
+        stdin_data: bytes | None = None,
     ) -> SSHResult:
         """Execute a remote shell command.
 
@@ -67,6 +68,7 @@ class SSHClient(Protocol):
             command: Shell command to execute.
             timeout: Timeout in seconds (None = connection default).
             check: Raise SSHCommandError if exit_code != 0.
+            stdin_data: Optional bytes written to the remote process stdin.
 
         Returns:
             SSHResult with exit_code, stdout, stderr.

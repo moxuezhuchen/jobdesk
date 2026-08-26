@@ -12,8 +12,16 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from typing import Any, Protocol
 
+from ..application.configuration_contract import (
+    ConfigurationAdmission,
+    ConfigurationAdmissionError,
+    ConfigurationContractClient,
+    ConfigurationValidationResult,
+    VerifiedConfigurationContract,
+)
 from ..config.schema import ServerConfig
 from ..core.confflow_preflight import ConfFlowCapabilities
 from ..core.run import RunSpec
@@ -23,6 +31,7 @@ from ..remote.confflow_probe import probe_confflow_capabilities
 from .run_repository import RunRecord
 from .run_service import RunService
 from .scheduler_helpers import resources_from_server, scheduler_from_server
+from .ssh_configuration_contract_client import SSHConfigurationContractClient
 
 
 class RefreshResultProtocol(Protocol):
@@ -160,6 +169,7 @@ class RunCoordinator:
         close_clients: bool = True,
         connect_clients: bool = True,
         session_pool: Any | None = None,
+        configuration_contract_client: ConfigurationContractClient | None = None,
     ) -> None:
         self.service = service
         self._server_lookup = server_lookup
@@ -168,6 +178,7 @@ class RunCoordinator:
         self._close_clients = close_clients
         self._connect_clients = connect_clients
         self._session_pool = session_pool
+        self._configuration_contract_client = configuration_contract_client or SSHConfigurationContractClient()
 
     def server_config(self, server_id: str) -> ServerConfig:
         """Resolve a server through the coordinator's configured lookup port."""
@@ -196,6 +207,18 @@ class RunCoordinator:
         run_id: str | None = None,
         local_dir: str = "",
     ) -> RunOperationOutcome:
+        if spec.workflow_kind.value in {"confflow", "dag"}:
+            error = ConfigurationAdmissionError("configuration_admission_required")
+            return RunOperationOutcome(
+                errors=[
+                    OperationFailure.from_text(
+                        str(error),
+                        stage="create",
+                        code=error.code,
+                        retryable=False,
+                    )
+                ]
+            )
         try:
             if spec.workflow_kind.value in {"confflow", "dag"} and not spec.confflow_executable:
                 server = self._server_lookup(spec.server_id)
@@ -206,6 +229,50 @@ class RunCoordinator:
             return RunOperationOutcome(records=[record])
         except Exception as exc:
             return _error_outcome("create", exc)
+
+    def create_admitted_run(
+        self,
+        spec: RunSpec,
+        admission: ConfigurationAdmission,
+        *,
+        run_id: str | None = None,
+        local_dir: str = "",
+    ) -> RunOperationOutcome:
+        """Atomically create a workflow run with its accepted remote binding."""
+
+        try:
+            if spec.workflow_kind.value not in {"confflow", "dag"}:
+                raise ValueError("configuration admission is only valid for ConfFlow workflows")
+            if admission.contract.server_id != spec.server_id:
+                raise ConfigurationAdmissionError("configuration_identity_mismatch")
+            server = self._server_lookup(spec.server_id)
+            configured = str(getattr(server, "confflow_executable", "") or "")
+            if configured != admission.contract.configured_executable:
+                raise ConfigurationAdmissionError("configuration_identity_mismatch")
+            if spec.confflow_executable and spec.confflow_executable != configured:
+                raise ConfigurationAdmissionError("configuration_identity_mismatch")
+            if configured:
+                spec = replace(spec, confflow_executable=configured)
+            record = self.service.create_run_with_configuration_binding(
+                spec,
+                admission.to_configuration_binding(),
+                run_id=run_id,
+                local_dir=local_dir,
+            )
+            return RunOperationOutcome(records=[record])
+        except ConfigurationAdmissionError as exc:
+            return RunOperationOutcome(
+                errors=[
+                    OperationFailure.from_text(
+                        str(exc),
+                        stage="create",
+                        code=exc.code,
+                        retryable=exc.code == "configuration_admission_unavailable",
+                    )
+                ]
+            )
+        except Exception as exc:
+            return _error_outcome("create", exc, code="configuration_admission_required")
 
     def submit(
         self,
@@ -226,6 +293,30 @@ class RunCoordinator:
         resource_overrides: dict[str, object] | None = None,
     ) -> RunOperationOutcome:
         run_id = record.run_id
+        if record.workflow_kind is not None and record.workflow_kind.value in {"confflow", "dag"}:
+            try:
+                binding = self.service.load_configuration_binding(run_id)
+                if binding is None:
+                    raise ConfigurationAdmissionError("configuration_admission_required")
+                self.verify_configuration_binding(
+                    record.server_id,
+                    binding,
+                    require_dag=record.workflow_kind.value == "dag",
+                )
+            except ConfigurationAdmissionError as exc:
+                return RunOperationOutcome(
+                    records=[record],
+                    errors=[
+                        OperationFailure.from_text(
+                            str(exc),
+                            stage="submit",
+                            code=exc.code,
+                            retryable=exc.code == "configuration_admission_unavailable",
+                        )
+                    ],
+                )
+            except Exception as exc:
+                return _error_outcome("submit", exc, code="configuration_admission_unavailable")
         try:
             server = self._server_lookup(record.server_id)
             scheduler = scheduler_from_server(server)
@@ -287,7 +378,9 @@ class RunCoordinator:
                 changed_count=result.changed_count,
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=_structured_errors(_failure_from_exception("refresh", exc)))
+            return RunOperationOutcome(
+                records=[record], errors=_structured_errors(_failure_from_exception("refresh", exc))
+            )
 
     def download(self, run_id: str, patterns: list[str]) -> RunOperationOutcome:
         try:
@@ -314,7 +407,9 @@ class RunCoordinator:
                 ],
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=_structured_errors(_failure_from_exception("download", exc)))
+            return RunOperationOutcome(
+                records=[record], errors=_structured_errors(_failure_from_exception("download", exc))
+            )
 
     def sync_progress(self, run_id: str) -> RunOperationOutcome:
         """Synchronize declared live-progress files without changing task state."""
@@ -362,7 +457,9 @@ class RunCoordinator:
                 changed_count=changed,
             )
         except Exception as exc:
-            return RunOperationOutcome(records=[record], errors=_structured_errors(_failure_from_exception("cancel", exc)))
+            return RunOperationOutcome(
+                records=[record], errors=_structured_errors(_failure_from_exception("cancel", exc))
+            )
 
     def delete(self, run_id: str) -> RunOperationOutcome:
         try:
@@ -480,6 +577,163 @@ class RunCoordinator:
                 confflow_executable=str(getattr(server, "confflow_executable", "") or ""),
             )
 
+    def resolve_configuration_contract(self, server_id: str) -> VerifiedConfigurationContract:
+        """Resolve a producer contract through this coordinator's selected server session."""
+
+        server = self._server_lookup(server_id)
+        scripts = tuple(getattr(server, "env_init_scripts", []) or [])
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
+            capabilities = probe_confflow_capabilities(
+                ssh,
+                env_init_scripts=scripts,
+                require_dag=False,
+                confflow_executable=executable,
+            )
+            return self._configuration_contract_client.resolve(
+                server_id=server_id,
+                configured_executable=executable,
+                env_init_scripts=scripts,
+                ssh=ssh,
+                capabilities=capabilities,
+            )
+
+    def validate_configuration(
+        self,
+        contract: VerifiedConfigurationContract,
+        configuration: bytes,
+    ) -> ConfigurationValidationResult:
+        """Validate bytes remotely without adding the contract to upload/submit paths."""
+
+        server = self._server_lookup(contract.server_id)
+        scripts = tuple(getattr(server, "env_init_scripts", []) or [])
+        configured = str(getattr(server, "confflow_executable", "") or "")
+        if configured != contract.configured_executable:
+            raise ValueError("configured ConfFlow executable changed after contract resolution")
+        with self._clients(contract.server_id, server, need_sftp=False) as (ssh, _sftp):
+            capabilities = probe_confflow_capabilities(
+                ssh,
+                env_init_scripts=scripts,
+                require_dag=False,
+                confflow_executable=configured,
+            )
+            current = self._configuration_contract_client.resolve(
+                server_id=contract.server_id,
+                configured_executable=configured,
+                env_init_scripts=scripts,
+                ssh=ssh,
+                capabilities=capabilities,
+            )
+            if current.cache_key != contract.cache_key:
+                raise ValueError("verified ConfFlow configuration contract changed before validation")
+            return self._configuration_contract_client.validate(
+                current,
+                configuration,
+                env_init_scripts=scripts,
+                ssh=ssh,
+            )
+
+    def verify_configuration_binding(
+        self,
+        server_id: str,
+        binding: Any,
+        *,
+        require_dag: bool = False,
+    ) -> VerifiedConfigurationContract:
+        """Fail closed if a persisted workflow binding no longer matches its producer."""
+
+        server = self._server_lookup(server_id)
+        scripts = tuple(getattr(server, "env_init_scripts", []) or [])
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        try:
+            with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
+                capabilities = probe_confflow_capabilities(
+                    ssh,
+                    env_init_scripts=scripts,
+                    require_dag=require_dag,
+                    confflow_executable=executable,
+                )
+                contract = self._configuration_contract_client.resolve(
+                    server_id=server_id,
+                    configured_executable=executable,
+                    env_init_scripts=scripts,
+                    ssh=ssh,
+                    capabilities=capabilities,
+                )
+            current = ConfigurationAdmission(
+                contract=contract,
+                content_sha256=binding.content_sha256,
+                validated_at=binding.validated_at,
+            ).to_configuration_binding()
+            if current != binding:
+                raise ConfigurationAdmissionError("configuration_identity_mismatch")
+            return contract
+        except ConfigurationAdmissionError:
+            raise
+        except Exception as exc:
+            raise ConfigurationAdmissionError("configuration_admission_unavailable") from exc
+
+    def admit_configuration(
+        self,
+        server_id: str,
+        configuration: bytes,
+        *,
+        require_dag: bool = False,
+    ) -> ConfigurationAdmission:
+        """Admit exact YAML bytes on one SSH session, without side effects."""
+
+        if not isinstance(configuration, bytes):
+            raise TypeError("configuration must be bytes")
+        server = self._server_lookup(server_id)
+        scripts = tuple(getattr(server, "env_init_scripts", []) or [])
+        executable = str(getattr(server, "confflow_executable", "") or "")
+        try:
+            with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
+                capabilities = probe_confflow_capabilities(
+                    ssh,
+                    env_init_scripts=scripts,
+                    require_dag=require_dag,
+                    confflow_executable=executable,
+                )
+                contract = self._configuration_contract_client.resolve(
+                    server_id=server_id,
+                    configured_executable=executable,
+                    env_init_scripts=scripts,
+                    ssh=ssh,
+                    capabilities=capabilities,
+                )
+                rechecked_capabilities = probe_confflow_capabilities(
+                    ssh,
+                    env_init_scripts=scripts,
+                    require_dag=require_dag,
+                    confflow_executable=executable,
+                )
+                current = self._configuration_contract_client.resolve(
+                    server_id=server_id,
+                    configured_executable=executable,
+                    env_init_scripts=scripts,
+                    ssh=ssh,
+                    capabilities=rechecked_capabilities,
+                )
+                if current.cache_key != contract.cache_key:
+                    raise ConfigurationAdmissionError("configuration_admission_unavailable")
+                result = self._configuration_contract_client.validate(
+                    current, configuration, env_init_scripts=scripts, ssh=ssh
+                )
+        except ConfigurationAdmissionError:
+            raise
+        except Exception as exc:
+            raise ConfigurationAdmissionError("configuration_admission_unavailable") from exc
+        if not result.valid:
+            path = result.diagnostics[0].path if result.diagnostics else None
+            raise ConfigurationAdmissionError("configuration_invalid", path)
+        return ConfigurationAdmission(
+            contract=current,
+            content_sha256=sha256(configuration).hexdigest(),
+            validated_at=ConfigurationAdmission.utc_now(),
+            validation_result=result,
+        )
+
     # ---- composed -------------------------------------------------------------
 
     def create_and_submit(self, spec: RunSpec, *, local_dir: str = "") -> RunOperationOutcome:
@@ -581,7 +835,9 @@ def _error_outcome(
     code: str | None = None,
     retryable: bool | None = None,
 ) -> RunOperationOutcome:
-    return RunOperationOutcome(errors=_structured_errors(_failure_from_exception(stage, exc, code=code, retryable=retryable)))
+    return RunOperationOutcome(
+        errors=_structured_errors(_failure_from_exception(stage, exc, code=code, retryable=retryable))
+    )
 
 
 def _structured_errors(*failures: OperationFailure) -> list[OperationFailure]:

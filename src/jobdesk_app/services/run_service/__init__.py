@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from jobdesk_app.core.atomic_write import atomic_write_text
+from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.run import RunPlan, RunSpec, build_run_plan
 
@@ -68,6 +69,31 @@ class RunService:
         return f"{prefix}-{candidate:03d}"
 
     def create_run(self, spec: RunSpec, run_id: str | None = None, local_dir: str = "") -> RunRecord:
+        """Create a legacy run without a configuration-contract binding."""
+        return self._create_run(spec, run_id=run_id, local_dir=local_dir, binding=None)
+
+    def create_run_with_configuration_binding(
+        self,
+        spec: RunSpec,
+        binding: ConfigurationBinding,
+        run_id: str | None = None,
+        local_dir: str = "",
+    ) -> RunRecord:
+        """Atomically create a run and persist its accepted configuration binding.
+
+        If database persistence fails, the just-created empty run directory is
+        removed so callers never observe a filesystem-only run.
+        """
+        return self._create_run(spec, run_id=run_id, local_dir=local_dir, binding=binding)
+
+    def _create_run(
+        self,
+        spec: RunSpec,
+        *,
+        run_id: str | None,
+        local_dir: str,
+        binding: ConfigurationBinding | None,
+    ) -> RunRecord:
         workspace_anchor = _lexical_absolute(self.workspace_dir)
         if local_dir:
             requested_anchor = _lexical_absolute(Path(local_dir))
@@ -103,7 +129,10 @@ class RunService:
             local_dir=str(workspace_anchor),
         )
         try:
-            self.repository.create_run(record, tasks)
+            if binding is None:
+                self.repository.create_run(record, tasks)
+            else:
+                self.repository.create_run_with_configuration_binding(record, tasks, binding)
         except Exception:
             try:
                 run_dir.rmdir()
@@ -119,6 +148,12 @@ class RunService:
     def load_run(self, run_id: str) -> RunRecord:
         self._run_dir(run_id)
         return self.repository.load_run(run_id)
+
+    def load_configuration_binding(self, run_id: str) -> ConfigurationBinding | None:
+        """Return the immutable configuration admission bound to ``run_id``."""
+
+        self._run_dir(run_id)
+        return self.repository.load_configuration_binding(run_id)
 
     def load_tasks(self, run_id: str) -> list[TaskRecord]:
         """Return the persisted task snapshot through the service boundary."""
@@ -151,7 +186,14 @@ class RunService:
         return self.repository.retry_legacy_imports()
 
     def submit_run(
-        self, run_id: str, ssh, sftp, env_init_scripts: list[str] | None = None, scheduler=None, resources=None, max_cores: int | None = None
+        self,
+        run_id: str,
+        ssh,
+        sftp,
+        env_init_scripts: list[str] | None = None,
+        scheduler=None,
+        resources=None,
+        max_cores: int | None = None,
     ):
         return _submit.submit_run(self, run_id, ssh, sftp, env_init_scripts, scheduler, resources, max_cores)
 

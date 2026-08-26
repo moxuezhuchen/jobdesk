@@ -38,6 +38,8 @@ jobs:
           fetch-depth: 1
 
       - name: Install released ConfFlow v2.0.0 wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release download v2.0.0 --repo moxuezhuchen/ConfFlow --pattern "confflow-2.0.0-py3-none-any.whl" --dir .ci/confflow-dist
           wheel=$(ls .ci/confflow-dist/confflow-2.0.0-*.whl | head -n1)

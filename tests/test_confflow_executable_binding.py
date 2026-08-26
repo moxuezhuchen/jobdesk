@@ -47,7 +47,7 @@ def test_run_plan_binds_configured_executable_to_every_workflow_task() -> None:
     assert "confflow water.xyz" not in plan.tasks[0].command
 
 
-def test_coordinator_persists_server_configured_executable_on_task(tmp_path) -> None:
+def test_coordinator_rejects_unadmitted_workflow_creation(tmp_path) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     server = ServerConfig(
         server_id="wsl",
@@ -64,10 +64,9 @@ def test_coordinator_persists_server_configured_executable_on_task(tmp_path) -> 
 
     outcome = coordinator.create_run(_workflow_spec(), run_id="run-1", local_dir=str(tmp_path))
 
-    assert outcome.errors == []
-    task = service.repository.load_tasks("run-1")[0]
-    assert task.confflow_executable == "/opt/confflow/bin/confflow"
-    assert "/opt/confflow/bin/confflow water.xyz" in task.rendered_command
+    assert outcome.errors[0].code == "configuration_admission_required"
+    with pytest.raises(KeyError):
+        service.load_run("run-1")
 
 
 def test_identity_probe_and_runner_guard_bind_path_digest_and_stat_snapshot() -> None:

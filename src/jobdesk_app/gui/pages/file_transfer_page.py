@@ -3,8 +3,8 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping, cast
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -28,25 +28,28 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid as is_qobject_valid
 
+from ...application.file_transfer_ports import FileTransferPort
+from ...application.files_browser import FileBrowserSnapshot, FilesBrowserController
+from ...application.files_connections import (
+    FilesConnectionController,
+    FileTransferConnectionSnapshot,
+)
+from ...application.run_tasks import RunServiceTaskLookup, RunTaskLookup
 from ...config.servers import (
     load_servers,  # noqa: F401  re-exported for tests that monkeypatch the symbol on this module
 )
 from ...services.external_terminal import build_terminal_launch, launch_terminal
-from ...services.file_transfer_service import FileTransferService
 from ...services.gui_settings import GuiSettingsStore
-from ...services.run_service import RunService
-from ...services.session_pool import pooled_sftp_factory
 from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
 from ..design.components import StatusChip
 from ..design.tokens import Colors, Metrics, Radius
 from ..i18n import tr
-from ..session import create_sftp_client, create_ssh_client
 from ..widgets import EmptyStateHint
 from ..worker_utils import WorkerContext, start_context_worker, start_tracked_worker
 from ..workers import BackgroundWorker
 from .file_transfer_config import ConfigUnreadable, load_existing_servers_data
 from .file_transfer_config import _load_existing_servers_data as _load_existing_servers_data
-from .file_transfer_connections import ConnectionsCoordinator
+from .file_transfer_dispatch import GuiThreadDispatcher
 from .file_transfer_helpers import (
     _remote_list_error_allows_fallback,
     _remote_list_error_is_connection_failure,
@@ -66,12 +69,10 @@ from .file_transfer_helpers import (
 )
 from .file_transfer_local_navigator import LocalNavigator
 from .file_transfer_operations import FileOperations
-from .file_transfer_remote_edit import RemoteEditSessionManager
+from .file_transfer_remote_edit import RemoteEditSessionManager, RemoteEditSessionSnapshot
 from .file_transfer_runner import TransferRunner
-from .file_transfer_tables import _RemoteEditSession
 from .file_transfer_widgets import (
     _clamp_column_widths,
-    _ConnectedSFTP,
     _default_column_widths,
     _FileTable,
     _filter_rows,
@@ -89,20 +90,6 @@ RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
 
 
-@dataclass(frozen=True, slots=True)
-class FileTransferConnectionSnapshot:
-    """Read-only view of the Files page connection for shell coordination."""
-
-    server_id: str | None
-    server: object | None
-    service: FileTransferService | None
-    remote_dir: str
-
-    @property
-    def connected(self) -> bool:
-        return self.service is not None
-
-
 class FileTransferPage(QWidget):
     runs_submitted = Signal(list)
     use_as_input_received = Signal(list)  # list[InputSource]
@@ -116,7 +103,55 @@ class FileTransferPage(QWidget):
     # raising the signal — never for calling a navigator directly.
     open_settings_requested = Signal()
 
-    def __init__(self, state, log_cb, status_cb, error_cb, coordinator_factory=None, session_pool=None):
+    # Compatibility facades for older GUI fixtures.  The application
+    # controller remains the owner of all connection state and service
+    # lifecycle; these names do not create or close transports themselves.
+    @property
+    def _servers(self):
+        return self._connections.servers
+
+    @_servers.setter
+    def _servers(self, value):
+        if hasattr(self, "_connections"):
+            self._connections.set_servers(value)
+
+    @property
+    def _service(self):
+        return self._connections.service
+
+    @_service.setter
+    def _service(self, value):
+        if hasattr(self, "_connections"):
+            self._connections.set_service(value)
+
+    @property
+    def _connected_server_id(self):
+        return self._connections.connected_server_id
+
+    @_connected_server_id.setter
+    def _connected_server_id(self, value):
+        if hasattr(self, "_connections"):
+            self._connections.set_server_id(value)
+
+    @property
+    def _connected_server(self):
+        return self._connections.connected_server
+
+    @_connected_server.setter
+    def _connected_server(self, value):
+        if hasattr(self, "_connections"):
+            self._connections.set_server_config(value)
+
+    def __init__(
+        self,
+        state,
+        log_cb,
+        status_cb,
+        error_cb,
+        coordinator_factory=None,
+        session_pool=None,
+        run_task_lookup: RunTaskLookup | None = None,
+    ):
         super().__init__()
         self.state = state
         self._log = log_cb
@@ -124,27 +159,29 @@ class FileTransferPage(QWidget):
         self._error_cb = error_cb
         self._coordinator_factory = coordinator_factory
         self._session_pool = session_pool
-        self._servers = {}
-        self._service: FileTransferService | None = None
+        # Keep the page dependent on a narrow application port.  The adapter
+        # default preserves the historical no-extra-arguments constructor;
+        # MainWindow may inject a shared lookup explicitly.
+        self._run_task_lookup = run_task_lookup or RunServiceTaskLookup()
         self._connection_ready = False
-        self._connected_server_id: str | None = None
-        self._connected_server = None
-        self._connections = ConnectionsCoordinator(
+        self._connections = FilesConnectionController(
             status_cb=status_cb,
             log_cb=log_cb,
-            create_ssh=create_ssh_client,
-            create_sftp=create_sftp_client,
-            run_tasks_provider=self._current_run_tasks,
+            session_pool=session_pool,
+            allowed_delete_roots_provider=lambda: collect_remote_delete_roots(self._current_run_tasks()),
         )
+        self._browser = FilesBrowserController(service_provider=lambda: self._service)
+        self._gui_dispatcher = GuiThreadDispatcher(self)
         self._gui_settings = GuiSettingsStore().load()
         self._language = self._gui_settings.language
         self._remote_list_request_id = 0
         self._remote_list_fallbacks: list[str] = []
         self._server_remote_dirs: dict[str, str] = {}
-        self._background_workers = []
+        self._background_workers: list[BackgroundWorker] = []
         self._shutting_down = False
         self._local_refresh_request_id = 0
-        self._local_poll_snapshot: dict[str, float] = {}
+        self._local_poll_snapshot: Mapping[str, float] = {}
+        self._file_operations: FileOperations
         self._local_navigator = LocalNavigator(
             root_provider=lambda: self.state.current_project_root,
             hide_dot_provider=lambda: self._gui_settings.hide_dotfiles,
@@ -164,7 +201,7 @@ class FileTransferPage(QWidget):
             process_launcher=lambda args: subprocess.Popen(args),
         )
         self._initialized = False
-        self._remote_edit_sessions: dict[str, _RemoteEditSession] = {}
+        self._remote_edit_sessions: dict[str, RemoteEditSessionSnapshot] = {}
         self._pending_click_rename: tuple[str, int] | None = None
         self._last_file_selection_side: str | None = None
         self._refresh_in_progress = False
@@ -440,8 +477,7 @@ class FileTransferPage(QWidget):
         action_wrap = QWidget()
         action_wrap.setObjectName("FilesActionBar")
         action_wrap.setStyleSheet(
-            f"#FilesActionBar {{ background: {Colors.CARD_BG}; "
-            f"border-top: 1px solid {Colors.BORDER}; }}"
+            f"#FilesActionBar {{ background: {Colors.CARD_BG}; " f"border-top: 1px solid {Colors.BORDER}; }}"
         )
         action_wrap.setLayout(action_row)
 
@@ -474,6 +510,10 @@ class FileTransferPage(QWidget):
             clock=lambda: time.monotonic(),
             show_preview=lambda parent, title, text: QMessageBox.information(parent, title, text),
         )
+
+        def _open_editor(path: Path) -> None:
+            self._remote_edit_manager.open_in_text_editor(path)
+
         self._file_operations = FileOperations(
             service_provider=lambda: self._service,
             local_root_provider=lambda: self.state.current_project_root,
@@ -488,7 +528,7 @@ class FileTransferPage(QWidget):
             ask_confirm=lambda title, body: (
                 QMessageBox.question(self, title, body, QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes
             ),
-            open_editor=lambda path: self._remote_edit_manager.open_in_text_editor(Path(path)),
+            open_editor=_open_editor,
             start_worker=lambda target, on_result, on_error: start_context_worker(
                 self,
                 target=target,
@@ -512,7 +552,6 @@ class FileTransferPage(QWidget):
         self._local_poll_timer = QTimer(self)
         self._local_poll_timer.setInterval(2000)
         self._local_poll_timer.timeout.connect(lambda: self._local_navigator.check_local_changes(self))
-        self._local_poll_snapshot: dict[str, float] = {}
         self._local_poll_timer.start()
 
         self._refresh_local()
@@ -525,15 +564,20 @@ class FileTransferPage(QWidget):
 
     def connection_snapshot(self) -> FileTransferConnectionSnapshot:
         """Return an immutable connection view for the application shell."""
-        return FileTransferConnectionSnapshot(
-            server_id=self._connected_server_id,
-            server=self._connected_server,
-            # The Files page creates a lazy service before the first remote
-            # operation.  Do not expose that pending service as usable to
-            # Submit/Workflow until a remote listing succeeds.
-            service=self._service if self._connection_ready else None,
-            remote_dir=self.remote_path.text().strip() or "/",
+        # The controller hides a pending/lazy service until the first remote
+        # listing succeeds, so shell consumers cannot submit against a
+        # transport that has not been proven usable.
+        return self._connections.snapshot(
+            self.remote_path.text().strip() or "/",
+            ready=self._connection_ready,
         )
+
+    def upload_path(self, local_path: str | Path, remote_path: str, *args: Any, **kwargs: Any) -> Any:
+        """Upload through the page-owned service as a public action port."""
+        service = self._service
+        if service is None:
+            raise ConnectionError("Connect to a server first")
+        return service.upload_path(local_path, remote_path, *args, **kwargs)
 
     def _choose_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, tr("Select local directory", self._language))
@@ -714,19 +758,13 @@ class FileTransferPage(QWidget):
         if self._connected_server_id != server_id:
             self.remote_path.setText(self._server_remote_dirs.get(server_id) or default_remote_dir_for_server(server))
 
-        if self._service is not None:
-            self._close_service_async(self._service)
-        pooled = self._session_pool is not None
-        service = FileTransferService(
-            self._build_service_factory(server, server_id if pooled else None),
+        old_service, service = self._connections.connect(
+            server_id,
             allowed_delete_roots=collect_remote_delete_roots(self._current_run_tasks()),
-            persistent_session=not pooled,
         )
-        self._service = service
+        if old_service is not None:
+            self._close_service_async(old_service)
         self._connection_ready = False
-        self._connections.set_server(server_id, server, service)
-        self._connected_server_id = server_id
-        self._connected_server = server
         self._set_connection_status(
             connection_status_text(server_id, False, language=self._language),
             state="warning",
@@ -736,36 +774,18 @@ class FileTransferPage(QWidget):
         # state flipped from "none" to "connected".
         self._update_empty_state_visibility()
 
-    def _build_service_factory(self, server, server_id=None):
-        """Build a FileTransferService factory that opens (ssh, sftp) for ``server``.
-
-        Factored out so ``_connect`` can pass it through the coordinator's
-        runner path without leaking the page's create_* helpers.
-        """
-
-        if self._session_pool is not None and server_id:
-            return pooled_sftp_factory(self._session_pool, server_id, server)
-
-        def factory():
-            ssh = create_ssh_client(server)
-            ssh.connect()
-            sftp = create_sftp_client(ssh)
-            return _ConnectedSFTP(ssh, sftp)
-
-        return factory
-
     def _current_run_tasks(self):
         run_id = getattr(self.state, "current_batch_id", None)
         if not isinstance(run_id, str) or not run_id:
             return []
         workspace = Path(getattr(self.state, "current_project_root", None) or Path.cwd())
         try:
-            return RunService(workspace).load_tasks(run_id)
+            return self._run_task_lookup.load_tasks(workspace, run_id)
         except (KeyError, OSError):
             return []
 
-    def _close_service_async(self, service: FileTransferService) -> None:
-        worker = BackgroundWorker(service.close)
+    def _close_service_async(self, service) -> None:
+        worker = BackgroundWorker(lambda: self._connections.close_service(service))
         self._transfer_runner.keep_worker(worker)
         worker.start()
 
@@ -776,7 +796,7 @@ class FileTransferPage(QWidget):
         if error:
             self._status_cb(error)
         self._local_poll_snapshot = snapshot
-        self._local_navigator._snapshot = snapshot
+        self._local_navigator.set_poll_snapshot(snapshot)
         self._load_local_rows(rows)
 
     def _load_local_rows(self, rows: list[list[str]]) -> None:
@@ -981,17 +1001,20 @@ class FileTransferPage(QWidget):
         self.remote_path.setText(remote_dir)
         self._remote_list_request_id += 1
         request_id = self._remote_list_request_id
-        service = self._service
 
         def _run():
-            return service.list_remote(remote_dir)
+            return self._browser.list_remote(remote_dir)
 
         self._status_cb(f"Listing remote: {remote_dir}")
         self.remote_worker = BackgroundWorker(_run)
         self.remote_worker.result.connect(
-            lambda entries: self._on_remote_entries_loaded(request_id, remote_dir, entries)
+            lambda result: self._gui_dispatcher.post(
+                lambda: self._on_remote_entries_loaded(request_id, remote_dir, result)
+            )
         )
-        self.remote_worker.error.connect(lambda error: self._on_remote_list_error(request_id, error))
+        self.remote_worker.error.connect(
+            lambda error: self._gui_dispatcher.post(lambda: self._on_remote_list_error(request_id, error))
+        )
         self._transfer_runner.keep_worker(self.remote_worker)
         self.remote_worker.start()
 
@@ -1016,6 +1039,9 @@ class FileTransferPage(QWidget):
     def _on_remote_entries_loaded(self, request_id: int, remote_dir: str, entries):
         if not self._remote_list_callback_is_current(request_id):
             return
+        if isinstance(entries, FileBrowserSnapshot):
+            remote_dir = entries.remote_dir
+            entries = entries.entries
         if self._connected_server_id:
             self._server_remote_dirs[self._connected_server_id] = remote_dir
         rows = []
@@ -1050,9 +1076,7 @@ class FileTransferPage(QWidget):
         self._refresh_in_progress = False
         self._last_refresh_time = time.strftime("%H:%M:%S")
         self._update_last_refresh_label()
-        self._status_cb(
-            tr("Remote listed: {path} ({count} entries)", self._language, path=remote_dir, count=len(rows))
-        )
+        self._status_cb(tr("Remote listed: {path} ({count} entries)", self._language, path=remote_dir, count=len(rows)))
         # Phase 2.1: re-evaluate empty-state hints now that the remote
         # table has just been (re)populated. Without this call, the
         # "connected but empty dir" hint never reappears once hidden.
@@ -1373,6 +1397,26 @@ class FileTransferPage(QWidget):
 
     # Open in Viewer
 
+    def _viewer_transfer_port(self) -> FileTransferPort | None:
+        """Return the current transfer port for viewer downloads.
+
+        ``_service`` remains a compatibility facade for existing page
+        fixtures and shell integrations.  Viewer actions consume its narrow
+        application-facing port instead of reaching into the facade from the
+        action method itself.
+        """
+        return cast(FileTransferPort | None, self._service)
+
+    @staticmethod
+    def _download_remote_for_viewer(
+        port: FileTransferPort,
+        remote_path: str,
+        local_path: Path,
+    ) -> Path:
+        """Download one remote file through the application transfer port."""
+        port.download_path(remote_path, str(local_path))
+        return local_path
+
     def _open_local_in_viewer(self, exe: str):
         row = self.local_table.currentRow()
         path_item = self.local_table.item(row, 4) if row >= 0 else None
@@ -1386,7 +1430,8 @@ class FileTransferPage(QWidget):
         """Download remote file to temp, open in viewer."""
         row = self.remote_table.currentRow()
         path_item = self.remote_table.item(row, 5) if row >= 0 else None
-        if path_item is None or self._service is None:
+        port = self._viewer_transfer_port()
+        if path_item is None or port is None:
             return
         remote_path = path_item.text()
         import tempfile
@@ -1395,11 +1440,9 @@ class FileTransferPage(QWidget):
         f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         f.close()
         tmp = Path(f.name)
-        service = self._service
 
         def _download(_ctx: WorkerContext):
-            service.download_path(remote_path, str(tmp))
-            return tmp
+            return self._download_remote_for_viewer(port, remote_path, tmp)
 
         def _open(path: Path):
             from ...core.viewer import open_in_viewer
@@ -1519,13 +1562,13 @@ class FileTransferPage(QWidget):
         # Mirror the manager's session dict into the page attribute so
         # test fixtures that read ``file_page._remote_edit_sessions`` keep
         # working.
-        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        self._remote_edit_sessions = dict(self._remote_edit_manager.sessions)
         if hasattr(self, "_remote_edit_timer") and not self._remote_edit_timer.isActive():
             self._remote_edit_timer.start()
 
     def _check_remote_edit_sessions(self) -> None:
         self._remote_edit_manager.tick(self)
-        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        self._remote_edit_sessions = dict(self._remote_edit_manager.sessions)
         if not self._remote_edit_sessions and hasattr(self, "_remote_edit_timer"):
             self._remote_edit_timer.stop()
 
@@ -1762,9 +1805,9 @@ class FileTransferPage(QWidget):
                 self._connected_server_id = None
                 self._connected_server = None
 
-    def _dirty_remote_edit_sessions(self) -> list[_RemoteEditSession]:
+    def _dirty_remote_edit_sessions(self) -> tuple[RemoteEditSessionSnapshot, ...]:
         # Delegate to RemoteEditSessionManager so the dirty-tracking logic
         # stays in one place. The page still owns the ``_remote_edit_timer``
         # ``QTimer`` that drives this check.
-        self._remote_edit_sessions = self._remote_edit_manager._sessions
+        self._remote_edit_sessions = dict(self._remote_edit_manager.sessions)
         return self._remote_edit_manager.dirty_sessions

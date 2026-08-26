@@ -11,6 +11,7 @@ from .config.servers import load_servers
 from .core.file_transfer import OverwritePolicy
 from .core.run import RunMode, RunSource, RunSpec
 from .core.transfer import TransferStatus
+from .services.confflow_control_state import require_all_projections_match_authority
 from .services.file_transfer_service import FileTransferService
 from .services.job_id_overrides import JobIdOverridesError, parse_job_id_overrides
 from .services.run_coordinator import RunCoordinator
@@ -97,6 +98,13 @@ def _build_parser() -> argparse.ArgumentParser:
     recover = run_sub.add_parser("recover")
     recover.add_argument("workspace", type=Path)
     recover.set_defaults(func=_cmd_run_recover_operations)
+
+    verify_rollback = run_sub.add_parser(
+        "verify-rollback",
+        help="Fail closed unless every ConfFlow JSON projection matches SQLite authority",
+    )
+    verify_rollback.add_argument("workspace", type=Path)
+    verify_rollback.set_defaults(func=_cmd_run_verify_rollback)
 
     # -- compare subcommand --
     cmp = sub.add_parser("compare", help="Compare results across runs")
@@ -203,9 +211,7 @@ def _cmd_run_submit(args) -> int:
             )
             return 2
     client, _record, _coordinator = _run_client(args, args.workspace)
-    _handle, outcome = client.submit_with_outcome(
-        SubmitRequest(args.run_id, resource_overrides=overrides or None)
-    )
+    _handle, outcome = client.submit_with_outcome(SubmitRequest(args.run_id, resource_overrides=overrides or None))
     if not outcome.submit_results:
         for error in outcome.errors:
             print(f"  ERROR: {error}")
@@ -319,6 +325,18 @@ def _cmd_run_abandon_submit(args) -> int:
 def _cmd_run_recover_operations(args) -> int:
     outcome = _run_coordinator(args, args.workspace).recover_operations(include_legacy_imports=True)
     return _print_recovery_outcome("recovered", "operation(s)", outcome)
+
+
+def _cmd_run_verify_rollback(args) -> int:
+    """Check the pre-JD2b JSON compatibility boundary before a rollback."""
+    try:
+        require_all_projections_match_authority(RunService(args.workspace))
+    except ValueError as exc:
+        for line in str(exc).splitlines():
+            print(f"ERROR: {line}", file=sys.stderr)
+        return 2
+    print("rollback ready: all ConfFlow JSON projections match SQLite authority")
+    return 0
 
 
 def _print_recovery_outcome(action: str, noun: str, outcome) -> int:

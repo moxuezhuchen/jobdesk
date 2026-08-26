@@ -130,11 +130,12 @@ ZH: dict[str, str] = {
     "Default server:": "\u9ed8\u8ba4\u670d\u52a1\u5668:",
     "Defaults": "\u9ed8\u8ba4\u8bbe\u7f6e",
     "Delete": "\u5220\u9664",
+    "Delete step": "\u5220\u9664\u6b65\u9aa4",
     "Download": "\u4e0b\u8f7d",
     "Download files:": "\u4e0b\u8f7d\u6587\u4ef6:",
     "Edit": "\u7f16\u8f91",
     "English": "English",
-"Work dir:": "\u5de5\u4f5c\u76ee\u5f55:",
+    "Work dir:": "\u5de5\u4f5c\u76ee\u5f55:",
     "Work dir (locked by CLI: <basename>_confflow_work)": (
         "\u5de5\u4f5c\u76ee\u5f55\uff08\u7531 CLI \u9501\u5b9a\uff1a<basename>_confflow_work\uff09"
     ),
@@ -163,6 +164,7 @@ ZH: dict[str, str] = {
     "Home": "\u4e3b\u9875",
     "Language:": "\u8bed\u8a00:",
     "Local Folder": "\u672c\u5730\u76ee\u5f55",
+    "Load workflow": "\u52a0\u8f7d\u5de5\u4f5c\u6d41",
     "Local {local_count} | Remote {remote_count}": "\u672c\u5730 {local_count} | \u8fdc\u7a0b {remote_count}",
     "Max parallel": "\u6700\u5927\u5e76\u53d1",
     "Max parallel:": "\u6700\u5927\u5e76\u53d1:",

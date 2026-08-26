@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
-from ...services.file_transfer_service import FileTransferService
+from ...application.file_transfer_ports import FileTransferPort
 from ..i18n import tr
 from ..worker_utils import WorkerContext
 from .file_transfer_helpers import normalize_remote_path, remote_child_path
@@ -20,7 +20,7 @@ class FileOperations:
     def __init__(
         self,
         *,
-        service_provider: Callable[[], FileTransferService | None],
+        service_provider: Callable[[], FileTransferPort | None],
         local_root_provider: Callable[[], Path | None],
         language_provider: Callable[[], str],
         on_status: Callable[[str], None],

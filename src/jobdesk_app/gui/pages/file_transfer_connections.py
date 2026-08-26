@@ -1,103 +1,49 @@
-"""Connection coordinator for the Files page.
+"""Compatibility import for the Files-page connection controller.
 
-Owns server list, active SSH/SFTP connection state, and FileTransferService
-lifecycle. Independent of Qt widgets except via callback hooks. The page
-creates this object in ``__init__`` and forwards every user action to it.
+Connection construction and lifecycle now live in the Qt-free application
+layer.  Keep this module as a stable import for downstream GUI fixtures while
+preventing concrete SSH/SFTP wiring from returning to the page package.
 """
 
-from __future__ import annotations
+from typing import Any, Callable
 
-from typing import TYPE_CHECKING, Any, Callable, Protocol
-
-from ...config.schema import ServerConfig
-from ...config.servers import load_servers
-from ...services.file_transfer_service import FileTransferService
-
-if TYPE_CHECKING:
-    from ..session import SFTPClientWrapper, SSHClientWrapper
+from ...application.files_connections import (
+    FilesConnectionController,
+    FileTransferConnectionSnapshot,
+)
 
 
-class _ConnectionFactory(Protocol):
-    """Callable that produces a connected (ssh, sftp) pair."""
+class ConnectionsCoordinator(FilesConnectionController):
+    """Backward-compatible constructor facade for older GUI callers.
 
-    def __call__(self) -> object: ...
-
-
-class ConnectionsCoordinator:
-    """Server list + active SSH/SFTP connection state, Qt-free."""
+    The former page-local coordinator accepted ``run_tasks_provider``.  Keep
+    that contract here and turn it into the same delete-root provider used by
+    the application controller; this prevents old injected coordinators from
+    silently losing their safety policy while the implementation stays
+    Qt-free in :mod:`jobdesk_app.application.files_connections`.
+    """
 
     def __init__(
         self,
         *,
         status_cb: Callable[[str], None],
         log_cb: Callable[[str], None],
-        create_ssh: Callable[..., SSHClientWrapper],
-        create_sftp: Callable[..., SFTPClientWrapper],
-        run_tasks_provider: Callable[[], list[Any]],
+        create_ssh: Callable[..., Any],
+        create_sftp: Callable[..., Any],
+        run_tasks_provider: Callable[[], list[Any]] | None = None,
+        **kwargs: Any,
     ) -> None:
-        self._status_cb = status_cb
-        self._log_cb = log_cb
-        self._create_ssh = create_ssh
-        self._create_sftp = create_sftp
-        self._run_tasks_provider = run_tasks_provider
-        self._servers: dict[str, ServerConfig] = {}
-        self._service: FileTransferService | None = None
-        self._connected_server_id: str | None = None
-        self._connected_server: ServerConfig | None = None
+        if "allowed_delete_roots_provider" not in kwargs and run_tasks_provider is not None:
+            from .file_transfer_helpers import collect_remote_delete_roots
 
-    # -- Properties mirroring the page's old attributes ----------------------
+            kwargs["allowed_delete_roots_provider"] = lambda: collect_remote_delete_roots(run_tasks_provider())
+        super().__init__(
+            status_cb=status_cb,
+            log_cb=log_cb,
+            create_ssh=create_ssh,
+            create_sftp=create_sftp,
+            **kwargs,
+        )
 
-    @property
-    def servers(self) -> dict[str, ServerConfig]:
-        return self._servers
 
-    @property
-    def service(self) -> FileTransferService | None:
-        return self._service
-
-    @property
-    def connected_server_id(self) -> str | None:
-        return self._connected_server_id
-
-    @property
-    def connected_server(self) -> ServerConfig | None:
-        return self._connected_server
-
-    # -- Server list ----------------------------------------------------------
-
-    def load_servers(self) -> dict[str, ServerConfig]:
-        """Re-read ``servers.yaml`` and return the parsed dict.
-
-        On failure the internal server list is cleared and the page should
-        surface a status message via :attr:`status_cb`.
-        """
-        try:
-            cfg = load_servers()
-        except Exception as exc:
-            self._servers = {}
-            self._status_cb(f"No servers configured: {exc}")
-            return self._servers
-        self._servers = cfg.servers
-        return self._servers
-
-    # -- Lifecycle ------------------------------------------------------------
-
-    def teardown(self) -> None:
-        """Close any active service. Idempotent."""
-        if self._service is not None:
-            try:
-                self._service.close()
-            except Exception as exc:  # noqa: BLE001 -- teardown best-effort
-                self._log_cb(f"Error closing service: {exc}")
-            self._service = None
-
-    def set_server(
-        self,
-        server_id: str | None,
-        server: ServerConfig | None,
-        service: FileTransferService | None,
-    ) -> None:
-        """Set connection state without triggering connect/teardown."""
-        self._connected_server_id = server_id
-        self._connected_server = server
-        self._service = service
+__all__ = ["ConnectionsCoordinator", "FileTransferConnectionSnapshot", "FilesConnectionController"]
