@@ -717,10 +717,10 @@ class SettingsServersPage(QWidget):
             "Choose an existing local directory, or leave blank to use the current location.",
             self._language,
         )
-        self.local_folder_edit.setToolTip(
-            f"{base_local_tooltip}\n{local_error}" if local_error else base_local_tooltip
+        self.local_folder_edit.setToolTip(f"{base_local_tooltip}\n{local_error}" if local_error else base_local_tooltip)
+        self.text_editor_edit.setToolTip(
+            f"{base_editor_tooltip}\n{editor_error}" if editor_error else base_editor_tooltip
         )
-        self.text_editor_edit.setToolTip(f"{base_editor_tooltip}\n{editor_error}" if editor_error else base_editor_tooltip)
         return not local_error and not editor_error
 
     def _save_settings(self):
@@ -880,6 +880,7 @@ class SettingsServersPage(QWidget):
 
     def _add_server(self):
         import yaml
+
         path = get_default_servers_path()
         data = {}
         if path.exists():

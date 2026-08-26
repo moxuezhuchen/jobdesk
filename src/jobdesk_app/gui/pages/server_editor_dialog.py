@@ -130,9 +130,7 @@ class ServerEditorDialog(QDialog):
         self._original_trust = bool(self._server.get("trust_on_first_use", False))
         self._sections: dict[str, _Section] = {}
         self.setObjectName("ServerEditorDialog")
-        self.setWindowTitle(
-            f"{tr('Edit Server:', language)} {server_id}" if old_id else tr("Add", language)
-        )
+        self.setWindowTitle(f"{tr('Edit Server:', language)} {server_id}" if old_id else tr("Add", language))
         self.setMinimumSize(560, 560)
 
         root = QVBoxLayout(self)
@@ -168,9 +166,7 @@ class ServerEditorDialog(QDialog):
         self.auth_combo = QComboBox()
         self.auth_combo.setObjectName("ServerEditorAuth")
         self.auth_combo.addItems(["key"])
-        self.auth_combo.setToolTip(
-            tr("Key-based SSH authentication. Password auth is not supported.", language)
-        )
+        self.auth_combo.setToolTip(tr("Key-based SSH authentication. Password auth is not supported.", language))
         self.key_edit = QLineEdit(str(self._server.get("key_path", "") or ""))
         self.key_edit.setObjectName("ServerEditorKeyPath")
         self.key_edit.setPlaceholderText("~/.ssh/id_ed25519")

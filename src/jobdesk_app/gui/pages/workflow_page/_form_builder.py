@@ -498,9 +498,7 @@ def build_footer(
     action_reason_label = QLabel("", panel)
     action_reason_label.setObjectName("WorkflowActionReasonLabel")
     action_reason_label.setWordWrap(True)
-    action_reason_label.setStyleSheet(
-        f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;"
-    )
+    action_reason_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(action_reason_label, 1)
 
     btn_dispatch = apply_button_role(

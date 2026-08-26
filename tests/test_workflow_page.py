@@ -346,9 +346,7 @@ def test_page_retranslates_static_controls_immediately(page):
     page._new_step()
     page._add_step()
     page.apply_language("zh")
-    assert page.inputs_label.text() == tr(
-        "Inputs: {names}", "zh", names=tr("workflow input", "zh")
-    )
+    assert page.inputs_label.text() == tr("Inputs: {names}", "zh", names=tr("workflow input", "zh"))
 
 
 def test_flow_icon_buttons_name_their_target_for_tooltips_and_accessibility(page):

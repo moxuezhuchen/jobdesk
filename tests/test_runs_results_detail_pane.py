@@ -183,7 +183,10 @@ def test_result_detail_pane_retranslates_all_dynamic_content(detail_pane):
     )
     detail_pane.render_gaussian(result)
 
-    with patch("jobdesk_app.gui.pages.runs_detail_pane.tr", side_effect=lambda key, language, **kwargs: f"zh:{key}".format(**kwargs)):
+    with patch(
+        "jobdesk_app.gui.pages.runs_detail_pane.tr",
+        side_effect=lambda key, language, **kwargs: f"zh:{key}".format(**kwargs),
+    ):
         detail_pane.apply_language("zh")
 
     assert detail_pane.energy_label.text() == "zh:Final SCF energy:"
@@ -435,6 +438,4 @@ def test_double_click_on_empty_row_clears_pane(runs_page):
     runs_page.result_table.setItem(0, 0, item)
 
     runs_page._on_result_row_double_clicked(item)
-    assert runs_page.detail_pane.title_label.text() == tr(
-        "Select a task to see details", runs_page._language
-    )
+    assert runs_page.detail_pane.title_label.text() == tr("Select a task to see details", runs_page._language)

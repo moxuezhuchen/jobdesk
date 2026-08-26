@@ -115,7 +115,7 @@ jobs:
           .ci\base-install\Scripts\python -m pip install --no-build-isolation --no-deps .
           Push-Location $env:RUNNER_TEMP
           try {
-            & "${{ github.workspace }}\.ci\base-install\Scripts\python" -c "import importlib.util; assert importlib.util.find_spec('confflow.shared') is None; from jobdesk_app.core.workflow_document import WorkflowDocument; assert WorkflowDocument.from_mapping({'global': {}, 'steps': []}).to_mapping() == {'global': {}, 'steps': []}"
+            & "${{ github.workspace }}\.ci\base-install\Scripts\python" -c "import importlib.util; assert importlib.util.find_spec('confflow') is None; from jobdesk_app.core.workflow_document import WorkflowDocument; assert WorkflowDocument.from_mapping({'global': {}, 'steps': []}).to_mapping() == {'global': {}, 'steps': []}"
           } finally {
             Pop-Location
           }

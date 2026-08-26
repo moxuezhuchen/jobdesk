@@ -209,7 +209,9 @@ def validate_capabilities(text: str, wheel: WheelIdentity) -> dict[str, object]:
         raise CandidateCompatibilityError("capability build provenance does not match local wheel")
     if capabilities.artifacts != EXPECTED_ARTIFACTS:
         raise CandidateCompatibilityError("capability artifact contract does not match JobDesk")
-    if capabilities.commands is None or any(type(capabilities.commands.get(name)) is not bool for name in REQUIRED_COMMANDS):
+    if capabilities.commands is None or any(
+        type(capabilities.commands.get(name)) is not bool for name in REQUIRED_COMMANDS
+    ):
         raise CandidateCompatibilityError("capability command contract is malformed")
     return payload
 
@@ -253,7 +255,9 @@ def _probe(kind: str) -> str:
     try:
         cli = importlib.import_module("confflow.cli")
     except ImportError as exc:
-        raise CandidateCompatibilityError("the local environment does not have the candidate ConfFlow installed") from exc
+        raise CandidateCompatibilityError(
+            "the local environment does not have the candidate ConfFlow installed"
+        ) from exc
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         if kind == "capabilities":

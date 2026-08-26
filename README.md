@@ -8,7 +8,7 @@ JobDesk is currently a preview project. It is suitable for source review and con
 
 The phase notes, compatibility records, and remediation evidence under `docs/`
 are historical records. In particular, `docs/PHASE*.md`, the compatibility
-records, and the older `docs/superpowers/{plans,evidence}/` files may describe
+records, and older planning/evidence files may describe
 superseded backends or compatibility periods. Keep their counters, hashes,
 commands, and acceptance facts unchanged; they are not current release,
 endpoint, or promotion status. Current product boundaries are maintained in

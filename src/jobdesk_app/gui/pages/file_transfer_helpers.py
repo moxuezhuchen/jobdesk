@@ -67,12 +67,16 @@ def format_queue_summary(statuses: list[TransferStatus], language: str = "en") -
 def build_file_button_reasons(local_selected: bool, remote_selected: bool, connected: bool) -> dict[str, str]:
     return {
         "upload": "" if local_selected else "Select a local file or folder",
-        "download": ""
-        if connected and remote_selected
-        else ("Connect to a server first" if not connected else "Select a remote file or folder"),
-        "preview": ""
-        if connected and remote_selected
-        else ("Connect to a server first" if not connected else "Select a remote file"),
+        "download": (
+            ""
+            if connected and remote_selected
+            else ("Connect to a server first" if not connected else "Select a remote file or folder")
+        ),
+        "preview": (
+            ""
+            if connected and remote_selected
+            else ("Connect to a server first" if not connected else "Select a remote file")
+        ),
     }
 
 
