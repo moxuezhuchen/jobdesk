@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.7.2] - 2026-08-27
+
+This release carries the full remediation candidate through the paired
+ConfFlow 2.1.3 producer contract gate. Historical release evidence and the
+production endpoint remain separate from this candidate until publication.
+
+### Compatibility
+- The current producer window remains `confflow>=2.0,<3.0`.
+- The release gate validates the exact ConfFlow 2.1.3 candidate build,
+  provenance, schema bundle, and consumer contract before publication.
+- ConfFlow v2.0.0 and older producer records remain preserved as historical
+  compatibility evidence.
+
 ## [0.6.0] - 2026-08-11
 
 This breaking owner-exception release follows the formally published
