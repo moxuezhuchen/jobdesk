@@ -3,16 +3,18 @@
 ## Current status and identity boundaries
 
 This document describes the current source-level boundaries. It is not a
-release, merge, endpoint-switch, workload, or promotion record. The four
-identities below must not be conflated (values recorded during the 2026-08-19
-baseline; revalidate before acceptance):
+release, merge, endpoint-switch, workload, or promotion record. The isolated
+source candidate is JobDesk `0.7.3`; the historical released pair is JobDesk
+`v0.7.2` and ConfFlow `v2.1.3`, while the current published producer is ConfFlow
+`v2.1.6`. The four identities below must not be conflated (revalidate
+the live endpoint before acceptance or promotion):
 
 | Identity | Recorded value | Boundary |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Dirty/shared development sources; not installed runtime |
-| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, base `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Review candidates; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.6.0` at `e4d8f74af0dff80b233f7bd9cb360b43d040069f`; ConfFlow `v2.0.0` at `69819350d340a6aeccf95aa175edfd1c3f63404b`, wheel SHA-256 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` | Historical artifacts; not a claim about this candidate |
-| Configured production executable | Recorded `wsl` endpoint `/usr/local/bin/confflow` → `/opt/confflow-2.0.0-prod-venv/bin/confflow` | Protected runtime identity; revalidate live before acceptance |
+| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, candidate `0.7.3`, base `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Review candidates; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8`, wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`, historically paired with ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5`, wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`; current producer ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published artifacts; the isolated `0.7.3` candidate is not published and not a production switch |
+| Configured production executable | `wsl` endpoint `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
 The phase notes, compatibility records, and remediation evidence under
 `docs/` are historical evidence. Their counters, hashes, commands, and
@@ -21,6 +23,12 @@ product behavior or as release/promotion authorization. This includes the
 older Phase 8/9 wizard and g16 notes, the Phase F owner-exception record, and
 the compatibility-period records.
 
+The published package and the isolated source candidate are separate from the
+configured production executable. Historical release `v0.7.2` / `v2.1.3` and
+current producer `v2.1.6` are not a production endpoint switch; production
+remains on ConfFlow `2.0.0` until the separately authorized promotion gate
+passes.
+
 ## ConfFlow contract boundaries
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
@@ -28,8 +36,11 @@ Workflow method presets are supplied by `jobdesk_app.services.method_presets`.
 The portable `WorkflowDocument`/codec/mapping path is dependency-free; the
 optional `WorkflowSpec` facade may use producer Pydantic models for local
 authoring compatibility, but those models are not a shared runtime contract.
-JobDesk accepts the capability window `>=2.0,<3.0`; production admission is
-separately fail-closed to the recorded exact clean `v2.0.0` producer identity.
+JobDesk accepts the capability window `>=2.0,<3.0`; CI and the released pair
+validate against ConfFlow `2.1.6` (the unchanged wire schemas reuse the
+`v2.1.3` snapshot), while production admission remains
+separately fail-closed to the configured exact clean `v2.0.0` producer identity
+until promotion is authorized.
 The Phase F owner exception removed the legacy backend from the production
 path; v1.5.3 and v1.4.6 remain historical release evidence only. This is a
 capability window plus a producer-owned configuration contract, not an exact
@@ -158,12 +169,15 @@ control client and monitor and never writes the producer's SQLite/state store.
 JobDesk owns the local SQLite journal and projection: run/task records,
 submit/delete and control-decision journal entries, accepted producer and
 configuration provenance, handoff evidence, launcher reconciliation, and the
-monotonic local task projection. In schema v8, the immutable
-`run_configuration_bindings` row binds the exact configuration digest,
+monotonic local task projection. Schema v7 adds the immutable
+`run_configuration_bindings` row that binds the exact configuration digest,
 producer-owned contract/schema identity, configured/resolved executable, and
-canonical producer/executable provenance to one workflow run.
-`control_backend.json` is a rollback-compatible projection regenerated from
-the SQLite control decision; it is not an independent authority.
+canonical producer/executable provenance to one workflow run; schema v8 adds
+the selected server identity to that binding. The ConfFlow control decision is
+authoritative in the SQLite `operations` journal (`kind=confflow_control`),
+where it is committed before task projection. `control_backend.json` is only
+a rollback-compatible projection regenerated from that decision, never an
+independent authority.
 
 A failed submit, dropped SSH session, or external scheduler failure
 ends up as one of `uncertain` / `failed` / `cancelled` in the task

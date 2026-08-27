@@ -18,7 +18,11 @@ slipped through CI), and must fail this test module.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -47,6 +51,40 @@ def test_structured_source_of_truth():
     assert version_spec() == ">=2.0,<3.0"
 
 
+def test_formal_confflow_216_artifact_identity_is_pinned():
+    """The chemistry manifest must identify the independently published wheel."""
+    assert confflow_contract.REFERENCE_VERSION == "2.1.6"
+    assert confflow_contract.REFERENCE_BUILD_COMMIT == "45bfac11f721b2152eeff5ee26e50463fcc6f657"
+    assert confflow_contract.REFERENCE_WHEEL_FILENAME == "confflow-2.1.6-py3-none-any.whl"
+    assert (
+        confflow_contract.REFERENCE_WHEEL_SHA256 == "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548"
+    )
+
+    manifest = json.loads(_read("requirements/locks/jobdesk-chem-wheel-manifest.json"))
+    artifact = manifest["artifact"]
+    assert artifact["filename"] == confflow_contract.REFERENCE_WHEEL_FILENAME
+    assert artifact["sha256"] == confflow_contract.REFERENCE_WHEEL_SHA256
+    assert artifact["metadata_sha256"] == "ccbdcf2dd308451f3532f21b35ff703aef8ca453edfd40f721550a00eb689afb"
+    assert artifact["version"] == confflow_contract.REFERENCE_VERSION
+    assert artifact["requires_python"] == ">=3.10"
+    assert artifact["requires_dist"][:10] == [
+        "numpy>=2.2.6",
+        "scipy>=1.15.3",
+        "pyyaml>=6.0.3",
+        "psutil>=7.2.2",
+        "rich>=15.0.0",
+        "pydantic>=2.13.3",
+        "rdkit>=2026.3.2",
+        "jsonschema>=4.23.0",
+        "referencing>=0.30.0",
+        "rfc8785>=0.1.4",
+    ]
+    for lock in manifest["locks"]:
+        content = _read(lock["path"])
+        assert "confflow==2.1.6" in content
+        assert confflow_contract.REFERENCE_WHEEL_SHA256 in content
+
+
 def test_pyproject_pin_matches_spec():
     """``pyproject.toml`` ``confflow`` pin must be the version spec."""
     content = _read("pyproject.toml")
@@ -55,36 +93,162 @@ def test_pyproject_pin_matches_spec():
 
 
 def test_ci_yaml_uses_version_in_all_four_slots():
-    """CI must reference the v2.1.3 tag and released wheel in all four slots."""
+    """CI must reference the v2.1.6 tag and released wheel in all four slots."""
     content = _read(".github/workflows/ci.yml")
     assert "1.4.1" not in content, "ci.yml must not contain any 1.4.1 reference"
-    assert content.count("ref: v2.1.3") == 2
-    assert content.count("confflow-2.1.3-*.whl") == 2
-    assert content.count("confflow.__version__ == '2.1.3'") == 2
-    assert content.count("10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe") == 2
+    assert content.count("ref: v2.1.6") == 2
+    assert content.count("confflow-2.1.6-*.whl") == 2
+    assert content.count("confflow.__version__ == '2.1.6'") == 2
+    assert content.count("d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548") == 2
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
     """PowerShell wheel glob must match the version literal in the assert."""
     content = _read(".github/workflows/ci.yml")
-    assert content.count("confflow-2.1.3-*.whl") == 2
-    assert content.count("confflow.__version__ == '2.1.3'") == 2
+    assert content.count("confflow-2.1.6-*.whl") == 2
+    assert content.count("confflow.__version__ == '2.1.6'") == 2
+
+
+def test_windows_matrix_rechecks_chemistry_locks_against_released_wheel():
+    """CI must mechanically reject a stale lock or substituted producer wheel."""
+    content = _read(".github/workflows/ci.yml")
+    assert "Set up uv for chemistry lock verification" in content
+    assert (
+        "Copy-Item -LiteralPath $wheel.FullName -Destination .matrix-artifacts\\confflow-2.1.6-py3-none-any.whl"
+        in content
+    )
+    assert "scripts\\compile_chem_locks.ps1 -Check" in content
+    assert "Get-FileHash -Algorithm SHA256 $wheel.FullName" in content
+    assert REFERENCE_WHEEL_SHA256 in content
+    compile_script = _read("scripts/compile_chem_locks.ps1")
+    assert "$normalisedExpectedManifest = $expectedManifest -replace" in compile_script
+    assert "$normalisedManifestText = $manifestText -replace" in compile_script
+
+
+def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
+    """The CI digest gate must reject a byte-level substitution of the wheel."""
+    if os.name != "nt":
+        pytest.skip("the CI gate runs in PowerShell on Windows")
+    wheel = REPO_ROOT / ".matrix-artifacts" / "confflow-2.1.6-py3-none-any.whl"
+    if not wheel.is_file():
+        pytest.skip("the independently downloaded ConfFlow wheel is not present")
+    tampered = tmp_path / wheel.name
+    tampered.write_bytes(wheel.read_bytes() + b"tampered")
+    command = (
+        "Import-Module Microsoft.PowerShell.Utility; "
+        "$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:TEST_WHEEL).Hash.ToLower(); "
+        "if ($actual -ne $env:EXPECTED_WHEEL_SHA256) { exit 1 }"
+    )
+    environment = os.environ | {
+        "TEST_WHEEL": str(wheel),
+        "EXPECTED_WHEEL_SHA256": REFERENCE_WHEEL_SHA256,
+    }
+    accepted = subprocess.run(
+        ["pwsh", "-NoProfile", "-Command", command],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    environment["TEST_WHEEL"] = str(tampered)
+    rejected = subprocess.run(
+        ["pwsh", "-NoProfile", "-Command", command],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+
+
+def _copy_chemistry_check_sandbox(destination: Path, wheel: Path) -> None:
+    """Copy the real chemistry-check inputs into an isolated test repository."""
+    (destination / "scripts").mkdir(parents=True)
+    shutil.copy2(REPO_ROOT / "pyproject.toml", destination / "pyproject.toml")
+    shutil.copy2(
+        REPO_ROOT / "scripts" / "compile_chem_locks.ps1",
+        destination / "scripts" / "compile_chem_locks.ps1",
+    )
+    shutil.copytree(REPO_ROOT / "requirements", destination / "requirements")
+    artifact = destination / ".matrix-artifacts" / wheel.name
+    artifact.parent.mkdir()
+    shutil.copy2(wheel, artifact)
+
+
+def _run_chemistry_script(sandbox: Path, *, check: bool) -> subprocess.CompletedProcess[str]:
+    pwsh = shutil.which("pwsh")
+    assert pwsh is not None, "PowerShell Core (pwsh) is required for this CI-matching gate test"
+    return subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(sandbox / "scripts" / "compile_chem_locks.ps1"),
+            *(["-Check"] if check else []),
+        ],
+        cwd=sandbox,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+    )
+
+
+def _run_chemistry_check(sandbox: Path) -> subprocess.CompletedProcess[str]:
+    return _run_chemistry_script(sandbox, check=True)
+
+
+@pytest.mark.parametrize("tampered_input", ("lock", "manifest"))
+def test_windows_chemistry_check_rejects_tampered_checked_in_inputs(tmp_path: Path, tampered_input: str):
+    """The real lock/manifest gate must reject each checked-in input mutation."""
+    if os.name != "nt":
+        pytest.skip("the chemistry lock gate runs in PowerShell on Windows")
+
+    wheel = REPO_ROOT / ".matrix-artifacts" / "confflow-2.1.6-py3-none-any.whl"
+    assert wheel.is_file(), "the formal ConfFlow v2.1.6 wheel must be present for this gate"
+    assert shutil.which("uv") is not None, "uv 0.11.5 must be available for this gate"
+
+    sandbox = tmp_path / "chemistry-check"
+    _copy_chemistry_check_sandbox(sandbox, wheel)
+    # PowerShell 5.1 and Core serialize ConvertTo-Json with different spacing
+    # and escaping.  Establish the clean checked-in state with the same Core
+    # interpreter that runs this behavior test before exercising -Check.
+    generated = _run_chemistry_script(sandbox, check=False)
+    assert generated.returncode == 0, f"clean chemistry generation failed:\n{generated.stdout}\n{generated.stderr}"
+    clean = _run_chemistry_check(sandbox)
+    assert clean.returncode == 0, f"clean chemistry check failed:\n{clean.stdout}\n{clean.stderr}"
+
+    if tampered_input == "lock":
+        path = sandbox / "requirements" / "locks" / "jobdesk-chem-py311-win_amd64.txt"
+        path.write_bytes(path.read_bytes() + b"\n# tampered by regression test\n")
+    else:
+        path = sandbox / "requirements" / "locks" / "jobdesk-chem-wheel-manifest.json"
+        original = path.read_bytes()
+        needle = REFERENCE_WHEEL_SHA256.encode("ascii")
+        assert original.count(needle) == 1
+        path.write_bytes(original.replace(needle, b"0" * 64, 1))
+
+    rejected = _run_chemistry_check(sandbox)
+    assert (
+        rejected.returncode != 0
+    ), f"chemistry check accepted tampered {tampered_input}:\n{rejected.stdout}\n{rejected.stderr}"
 
 
 def test_optional_coverage_uses_the_same_released_wheel():
     """The optional Linux job must not silently exercise an older producer."""
     content = _read(".github/workflows/optional-coverage.yml")
-    assert content.count("ref: v2.1.3") == 1
-    assert content.count("gh release download v2.1.3") == 1
-    assert content.count("confflow-2.1.3-*.whl") == 1
-    assert "10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe" in content
-    assert "confflow.__version__ == '2.1.3'" in content
+    assert content.count("ref: v2.1.6") == 1
+    assert content.count("gh release download v2.1.6") == 1
+    assert content.count("confflow-2.1.6-*.whl") == 1
+    assert "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548" in content
+    assert "confflow.__version__ == '2.1.6'" in content
 
 
 def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     """The candidate matrix must not silently drift from its wheel digests."""
     content = _read(".github/workflows/confflow-compatibility-matrix.yml")
-    assert "version: 2.1.3" in content
+    assert "version: 2.1.6" in content
     assert "schema_snapshot: v2.1.3" in content
     assert "label: historical-v1.5.3" in content
     assert "version: 1.5.0" in content
@@ -122,13 +286,13 @@ def test_chinese_readme_states_version_spec():
     """The Chinese README must mirror the current producer contract."""
     content = _read("README.zh.md")
     assert "confflow>=2.0,<3.0" in content
-    assert "confflow-2.1.3-py3-none-any.whl" in content
+    assert "confflow-2.1.6-py3-none-any.whl" in content
 
 
 def test_deployment_doc_mirrors_version_and_capability_contract():
     """The deployment guide must mirror the structured version contract."""
     content = _read("docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md")
-    assert "confflow-2.1.3-py3-none-any.whl" in content
+    assert "confflow-2.1.6-py3-none-any.whl" in content
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content

@@ -19,9 +19,9 @@ jobs:
       matrix:
         include:
           - label: stable
-            version: 2.1.3
+            version: 2.1.6
             schema_snapshot: v2.1.3
-            wheel_sha256: 10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe
+            wheel_sha256: d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548
             control_worker: true
             expect_compatible: true
           - label: historical-v1.5.3
@@ -173,7 +173,8 @@ jobs:
               "input-manifest.schema.json",
           )
           if expected_control_worker:
-              # v2.1.3 and historical v1.5.3 carry the producer-owned
+              # v2.1.6 (reusing the unchanged v2.1.3 schema snapshot) and
+              # historical v1.5.3 carry the producer-owned
               # worker handoff as a fifth release member; v1.5.0 has only
               # the four-file core.
               required += ("worker-handoff.schema.json",)

@@ -1,0 +1,878 @@
+name: Release Artifacts
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    env:
+      # The repository owner records the exact merge commit after independently
+      # verifying the immutable-release setting.  The release job only binds
+      # that attestation to the tag event and never calls the admin-only API.
+      RELEASE_IMMUTABLE_PREFLIGHT_SHA: ${{ vars.RELEASE_IMMUTABLE_PREFLIGHT_SHA }}
+
+    steps:
+      - name: Initialize release failure evidence
+        if: always()
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          RELEASE_POST_EVIDENCE="${RUNNER_TEMP}/jobdesk-release-post-verification.json"
+          python3 - "$RELEASE_POST_EVIDENCE" <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import sys
+
+          path = sys.argv[1]
+          payload = {
+              "schema": "jobdesk.release-post-verification.v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "tag": os.environ["EXPECTED_TAG"],
+              "event_ref": os.environ["GITHUB_REF"],
+              "event_sha": os.environ["GITHUB_SHA"],
+              "status": "workflow_started",
+              "stage": "before_checkout",
+              "exit_code": 0,
+              "release_created": False,
+              "asset_verification": {"status": "not_started", "hash_result": "not_run"},
+          }
+          temporary = f"{path}.tmp"
+          with open(temporary, "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          os.replace(temporary, path)
+          PY
+          echo "RELEASE_POST_EVIDENCE=$RELEASE_POST_EVIDENCE" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build and SBOM tools
+        run: |
+          set -euo pipefail
+          POST_STAGE="tool_install"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          python -m pip install "build==1.5.0" "cyclonedx-bom==7.3.1"
+
+      - name: Verify tagged clean checkout
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="tag_preflight"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py \
+              --path "$RELEASE_POST_EVIDENCE" \
+              --stage "$POST_STAGE" \
+              --status "$status" \
+              --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          test -z "$(git status --porcelain)"
+          test "$(git cat-file -t "$EXPECTED_TAG")" = "tag"
+          LOCAL_PEELED_SHA="$(git rev-parse "$EXPECTED_TAG^{commit}")"
+          test "$(git rev-parse HEAD)" = "$LOCAL_PEELED_SHA"
+          if ! [[ "$LOCAL_PEELED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "local peeled tag SHA is malformed" >&2
+            exit 1
+          fi
+          REMOTE_REF_JSON="${RUNNER_TEMP}/jobdesk-remote-tag-ref.json"
+          if ! gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" >"$REMOTE_REF_JSON"; then
+            echo "remote tag ref query failed closed" >&2
+            exit 1
+          fi
+          REMOTE_REF_NAME="$(python - "$REMOTE_REF_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("ref", ""))
+          PY
+          )"
+          test "$REMOTE_REF_NAME" = "refs/tags/$EXPECTED_TAG"
+          REMOTE_TAG_TYPE="$(python - "$REMOTE_REF_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("type", ""))
+          PY
+          )"
+          test "$REMOTE_TAG_TYPE" = "tag"
+          REMOTE_TAG_OBJECT_SHA="$(python - "$REMOTE_REF_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("sha", ""))
+          PY
+          )"
+          if ! [[ "$REMOTE_TAG_OBJECT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "remote annotated tag object SHA is malformed" >&2
+            exit 1
+          fi
+          REMOTE_TAG_JSON="${RUNNER_TEMP}/jobdesk-remote-tag.json"
+          if ! gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${REMOTE_TAG_OBJECT_SHA}" >"$REMOTE_TAG_JSON"; then
+            echo "remote annotated tag query failed closed" >&2
+            exit 1
+          fi
+          REMOTE_TAG_NAME="$(python - "$REMOTE_TAG_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("tag", ""))
+          PY
+          )"
+          test "$REMOTE_TAG_NAME" = "$EXPECTED_TAG"
+          REMOTE_TAG_TARGET_TYPE="$(python - "$REMOTE_TAG_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("type", ""))
+          PY
+          )"
+          test "$REMOTE_TAG_TARGET_TYPE" = "commit"
+          REMOTE_PEELED_SHA="$(python - "$REMOTE_TAG_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("sha", ""))
+          PY
+          )"
+          if ! [[ "$REMOTE_PEELED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "remote peeled tag SHA is malformed" >&2
+            exit 1
+          fi
+          test "$REMOTE_PEELED_SHA" = "$LOCAL_PEELED_SHA"
+          if ! [[ "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "RELEASE_IMMUTABLE_PREFLIGHT_SHA is missing or malformed" >&2
+            exit 1
+          fi
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$GITHUB_SHA"
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$LOCAL_PEELED_SHA"
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$REMOTE_PEELED_SHA"
+          test "$GITHUB_REF" = "refs/tags/$EXPECTED_TAG"
+          test "$GITHUB_SHA" = "$LOCAL_PEELED_SHA"
+          VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          test "$EXPECTED_TAG" = "v$VERSION"
+          RELEASE_CHECK="${RUNNER_TEMP}/jobdesk-release-existence.txt"
+          set +e
+          gh api --include --silent "repos/${GITHUB_REPOSITORY}/releases/tags/${EXPECTED_TAG}" >"$RELEASE_CHECK" 2>&1
+          release_status=$?
+          set -e
+          if [ "$release_status" -eq 0 ]; then
+            echo "release already exists for $EXPECTED_TAG; create a new fix-forward tag" >&2
+            exit 1
+          fi
+          if ! grep -Eq '^HTTP/[0-9.]+[[:space:]]+404([[:space:]]|$)' "$RELEASE_CHECK"; then
+            echo "release existence query failed closed; only an explicit HTTP 404 may continue" >&2
+            cat "$RELEASE_CHECK" >&2
+            exit 1
+          fi
+          RELEASE_PREFLIGHT_EVIDENCE="${RUNNER_TEMP}/jobdesk-release-preflight.json"
+          python - "$RELEASE_PREFLIGHT_EVIDENCE" "$EXPECTED_TAG" "$GITHUB_EVENT_NAME" "$GITHUB_SHA" "$GITHUB_REF" "$LOCAL_PEELED_SHA" "$REMOTE_PEELED_SHA" "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" <<'PY'
+          from __future__ import annotations
+
+          import json
+          import sys
+          from pathlib import Path
+
+          path, tag, event_name, event_sha, event_ref, local_peeled, remote_peeled, immutable_preflight_sha = sys.argv[1:]
+          payload = {
+              "schema": "jobdesk.release-preflight.v1",
+              "tag": tag,
+              "event_name": event_name,
+              "event_sha": event_sha,
+              "event_ref": event_ref,
+              "local_head": local_peeled,
+              "local_peeled_sha": local_peeled,
+              "remote_peeled_sha": remote_peeled,
+              "immutable_preflight_sha": immutable_preflight_sha,
+              "immutable_preflight_source": "repository variable set by owner after live settings verification",
+          }
+          Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          {
+            echo "VERSION=$VERSION"
+            echo "LOCAL_PEELED_SHA=$LOCAL_PEELED_SHA"
+            echo "REMOTE_PEELED_SHA=$REMOTE_PEELED_SHA"
+            echo "RELEASE_PREFLIGHT_EVIDENCE=$RELEASE_PREFLIGHT_EVIDENCE"
+          } >> "$GITHUB_ENV"
+
+      - name: Build final wheel and sdist once from the tagged source
+        run: |
+          set -euo pipefail
+          POST_STAGE="build"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          BUILD_DIR="${RUNNER_TEMP}/jobdesk-release-dist"
+          rm -rf "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR"
+          python -m build --sdist --outdir "$BUILD_DIR"
+          python -m build --wheel --outdir "$BUILD_DIR"
+          rm -rf dist
+          mkdir -p dist
+          cp -- "$BUILD_DIR"/* dist/
+
+      - name: Verify final package metadata
+        run: |
+          set -euo pipefail
+          POST_STAGE="package_metadata"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          test -f "dist/jobdesk-${VERSION}.tar.gz"
+          python - "$VERSION" <<'PY'
+          from __future__ import annotations
+
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          version = sys.argv[1]
+          dist = Path("dist")
+          wheels = sorted(dist.glob(f"jobdesk-{version}-*.whl"))
+          sdists = sorted(dist.glob(f"jobdesk-{version}.tar.gz"))
+          if len(wheels) != 1 or len(sdists) != 1:
+              raise SystemExit(f"expected exactly one {version} wheel and sdist; got {wheels} / {sdists}")
+          wheel = wheels[0]
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+              if len(metadata_names) != 1:
+                  raise SystemExit(f"expected one wheel metadata file, got {metadata_names}")
+              metadata = archive.read(metadata_names[0]).decode("utf-8")
+          if f"Name: jobdesk" not in metadata or f"Version: {version}" not in metadata:
+              raise SystemExit("wheel metadata does not match the tagged project version")
+          print(f"verified {wheel.name} and {sdists[0].name}: version={version}")
+          PY
+
+      - name: Install and smoke-test the final wheel outside the checkout
+        run: |
+          set -euo pipefail
+          POST_STAGE="wheel_smoke"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          WHEEL_VENV="${RUNNER_TEMP}/jobdesk-wheel-smoke"
+          rm -rf "$WHEEL_VENV"
+          python -m venv "$WHEEL_VENV"
+          wheel="$(find dist -maxdepth 1 -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          test -n "$wheel"
+          "$WHEEL_VENV/bin/python" -m pip install --no-deps "$wheel"
+          pushd "$RUNNER_TEMP" >/dev/null
+          "$WHEEL_VENV/bin/python" -c 'import importlib.metadata; import jobdesk_app; assert importlib.metadata.version("jobdesk") == __import__("os").environ["VERSION"]; assert "site-packages" in jobdesk_app.__file__; print(jobdesk_app.__file__)'
+          popd >/dev/null
+
+      - name: Install and smoke-test the final sdist outside the checkout
+        run: |
+          set -euo pipefail
+          POST_STAGE="sdist_smoke"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          SDIST_VENV="${RUNNER_TEMP}/jobdesk-sdist-smoke"
+          rm -rf "$SDIST_VENV"
+          python -m venv "$SDIST_VENV"
+          sdist="dist/jobdesk-${VERSION}.tar.gz"
+          test -f "$sdist"
+          "$SDIST_VENV/bin/python" -m pip install --no-deps "$sdist"
+          pushd "$RUNNER_TEMP" >/dev/null
+          "$SDIST_VENV/bin/python" -c 'import importlib.metadata; import jobdesk_app; assert importlib.metadata.version("jobdesk") == __import__("os").environ["VERSION"]; assert "site-packages" in jobdesk_app.__file__; print(jobdesk_app.__file__)'
+          popd >/dev/null
+
+      - name: Generate CycloneDX SBOM from the controlled Windows lock
+        run: |
+          set -euo pipefail
+          POST_STAGE="sbom"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          cyclonedx-py requirements \
+            requirements/locks/jobdesk-dev-py312-win_amd64.txt \
+            --output-format JSON \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-file dist/sbom.cdx.json
+          test -s dist/sbom.cdx.json
+          python scripts/release_policy.py sbom dist/sbom.cdx.json --package jobdesk --version "$VERSION"
+
+      - name: Attest final wheel build provenance
+        id: attest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/jobdesk-*.whl
+          show-summary: true
+
+      - name: Cryptographically verify the final wheel attestation
+        if: always()
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="attestation_verification"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          test -s "$ATTESTATION_BUNDLE"
+          test "$(git cat-file -t "$EXPECTED_TAG")" = "tag"
+          test "$(git rev-parse "$EXPECTED_TAG^{commit}")" = "$LOCAL_PEELED_SHA"
+          test "$GITHUB_REF" = "refs/tags/$EXPECTED_TAG"
+          test "$GITHUB_SHA" = "$LOCAL_PEELED_SHA"
+          RECHECK_REF_TYPE="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" --jq '.object.type')"
+          test "$RECHECK_REF_TYPE" = "tag"
+          RECHECK_TAG_OBJECT_SHA="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" --jq '.object.sha')"
+          RECHECK_PEELED_SHA="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${RECHECK_TAG_OBJECT_SHA}" --jq '.object.sha')"
+          test "$RECHECK_PEELED_SHA" = "$LOCAL_PEELED_SHA"
+          test "$RECHECK_PEELED_SHA" = "$REMOTE_PEELED_SHA"
+          wheel="$(find dist -maxdepth 1 -type f -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          test -n "$wheel"
+          ATTESTATION_VERIFICATION="${RUNNER_TEMP}/jobdesk-attestation-verification.json"
+          gh attestation verify "$wheel" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$ATTESTATION_BUNDLE" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --predicate-type "https://slsa.dev/provenance/v1" \
+            --source-ref "refs/tags/$EXPECTED_TAG" \
+            --source-digest "$LOCAL_PEELED_SHA" \
+            --format json >"$ATTESTATION_VERIFICATION"
+          test -s "$ATTESTATION_VERIFICATION"
+          echo "ATTESTATION_VERIFICATION=$ATTESTATION_VERIFICATION" >> "$GITHUB_ENV"
+
+      - name: Export attestation bundle and release attestation record
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="attestation_export"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          test -s "$ATTESTATION_BUNDLE"
+          test -s "$ATTESTATION_VERIFICATION"
+          cp -- "$ATTESTATION_BUNDLE" dist/attestation.bundle.json
+          cp -- "$ATTESTATION_VERIFICATION" dist/attestation-verification.json
+          wheel="$(find dist -maxdepth 1 -type f -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          python scripts/verify_release_attestation.py \
+            --bundle dist/attestation.bundle.json \
+            --subject "$wheel" \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "refs/tags/$EXPECTED_TAG" \
+            --commit "$LOCAL_PEELED_SHA" \
+            --workflow .github/workflows/release.yml
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          def digest(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          dist = Path("dist")
+          wheel = next(dist.glob(f"jobdesk-{os.environ['VERSION']}-*.whl"))
+          bundle = dist / "attestation.bundle.json"
+          verification = dist / "attestation-verification.json"
+          commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          payload = {
+              "schema": "jobdesk.release-attestation.v1",
+              "package": "jobdesk",
+              "version": os.environ["VERSION"],
+              "subject_filename": wheel.name,
+              "subject_digest": digest(wheel),
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "tag": os.environ["EXPECTED_TAG"],
+              "peeled_commit": commit,
+              "bundle_filename": bundle.name,
+              "bundle_sha256": digest(bundle),
+              "verification_filename": verification.name,
+              "verification_sha256": digest(verification),
+          }
+          (dist / "attestation.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Write release provenance
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="provenance"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          def digest(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          dist = Path("dist")
+          version = str(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+          wheel = next(dist.glob(f"jobdesk-{version}-*.whl"))
+          sdist = next(dist.glob(f"jobdesk-{version}.tar.gz"))
+          sbom = dist / "sbom.cdx.json"
+          attestation = dist / "attestation.json"
+          attestation_bundle = dist / "attestation.bundle.json"
+          attestation_verification = dist / "attestation-verification.json"
+          lock = Path("requirements/locks/jobdesk-dev-py312-win_amd64.txt")
+          commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          payload = {
+              "schema": "jobdesk.release-provenance.v1",
+              "package": "jobdesk",
+              "version": version,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "tag": os.environ["EXPECTED_TAG"],
+              "commit": commit,
+              "wheel_filename": wheel.name,
+              "wheel_sha256": digest(wheel),
+              "sdist_filename": sdist.name,
+              "sdist_sha256": digest(sdist),
+              "sbom_filename": sbom.name,
+              "sbom_sha256": digest(sbom),
+              "attestation_filename": attestation.name,
+              "attestation_sha256": digest(attestation),
+              "attestation_bundle_filename": attestation_bundle.name,
+              "attestation_bundle_sha256": digest(attestation_bundle),
+              "attestation_verification_filename": attestation_verification.name,
+              "attestation_verification_sha256": digest(attestation_verification),
+              "attestation_subject_digest": digest(wheel),
+              "dependency_lock_filename": lock.name,
+              "dependency_lock_sha256": digest(lock),
+          }
+          (dist / "provenance.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Include release preflight evidence
+        run: |
+          set -euo pipefail
+          POST_STAGE="preflight_evidence"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          test -s "$RELEASE_PREFLIGHT_EVIDENCE"
+          cp -- "$RELEASE_PREFLIGHT_EVIDENCE" dist/release-preflight.json
+
+      - name: Write release notes and SHA256SUMS
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="checksums"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          {
+            echo "JobDesk ${EXPECTED_TAG} release artifacts"
+            echo
+            echo "The wheel and source distribution were built once from the peeled tag commit."
+            echo "GitHub build provenance attestation subject: final wheel."
+          } > dist/RELEASE_ARTIFACTS.md
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          from pathlib import Path
+
+          dist = Path("dist")
+          paths = sorted(path for path in dist.iterdir() if path.is_file())
+          lines = [
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+              for path in paths
+              if path.name != "SHA256SUMS"
+          ]
+          (dist / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          (cd dist && sha256sum --check SHA256SUMS)
+
+      - name: Enforce release dist allowlist
+        run: |
+          set -euo pipefail
+          POST_STAGE="allowlist"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py --path "$RELEASE_POST_EVIDENCE" --stage "$POST_STAGE" --status "$status" --exit-code "$rc" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          python - "$VERSION" <<'PY'
+          from __future__ import annotations
+
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          dist = Path("dist")
+          wheels = sorted(dist.glob(f"jobdesk-{version}-*.whl"))
+          sdists = sorted(dist.glob(f"jobdesk-{version}.tar.gz"))
+          if len(wheels) != 1 or len(sdists) != 1:
+              raise SystemExit(f"expected one wheel and sdist, got {wheels} / {sdists}")
+          expected = {
+              wheels[0].name,
+              sdists[0].name,
+              "sbom.cdx.json",
+              "attestation.bundle.json",
+              "attestation-verification.json",
+              "attestation.json",
+              "provenance.json",
+              "release-preflight.json",
+              "RELEASE_ARTIFACTS.md",
+              "SHA256SUMS",
+          }
+          actual = {path.name for path in dist.iterdir()}
+          if actual != expected:
+              raise SystemExit(f"release dist allowlist mismatch: expected={sorted(expected)}, actual={sorted(actual)}")
+          print("verified release dist allowlist:", ", ".join(sorted(actual)))
+          PY
+
+      - name: Upload workflow artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobdesk-release-artifacts
+          if-no-files-found: error
+          path: dist/
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          POST_STAGE="publish"
+          RELEASE_CREATED=false
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py \
+              --path "$RELEASE_POST_EVIDENCE" \
+              --stage "$POST_STAGE" \
+              --status "$status" \
+              --exit-code "$rc" \
+              --release-created "$RELEASE_CREATED" >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; if [[ "$rc" -ne 0 ]]; then record_release_stage "$rc"; fi; trap - EXIT; exit "$rc"' EXIT
+          test "$(git cat-file -t "$EXPECTED_TAG")" = "tag"
+          test "$(git rev-parse "$EXPECTED_TAG^{commit}")" = "$LOCAL_PEELED_SHA"
+          test "$GITHUB_REF" = "refs/tags/$EXPECTED_TAG"
+          test "$GITHUB_SHA" = "$LOCAL_PEELED_SHA"
+          RECHECK_TAG_OBJECT_SHA="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" --jq '.object.sha')"
+          RECHECK_PEELED_SHA="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${RECHECK_TAG_OBJECT_SHA}" --jq '.object.sha')"
+          test "$RECHECK_PEELED_SHA" = "$LOCAL_PEELED_SHA"
+          test "$RECHECK_PEELED_SHA" = "$REMOTE_PEELED_SHA"
+          wheel="$(find dist -maxdepth 1 -type f -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          sdist="dist/jobdesk-${VERSION}.tar.gz"
+          test -n "$wheel"
+          test -f "$sdist"
+          release_files=(
+            "$wheel"
+            "$sdist"
+            "dist/sbom.cdx.json"
+            "dist/attestation.bundle.json"
+            "dist/attestation-verification.json"
+            "dist/attestation.json"
+            "dist/provenance.json"
+            "dist/release-preflight.json"
+            "dist/RELEASE_ARTIFACTS.md"
+            "dist/SHA256SUMS"
+          )
+          gh release create "$EXPECTED_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "JobDesk $EXPECTED_TAG" \
+            --notes-file dist/RELEASE_ARTIFACTS.md \
+            "${release_files[@]}"
+          RELEASE_CREATED=true
+          python scripts/update_release_evidence.py \
+            --path "$RELEASE_POST_EVIDENCE" \
+            --stage "release_created" \
+            --status "release_created_pending_verification" \
+            --exit-code 0 \
+            --release-created true >/dev/null
+          trap - EXIT
+
+      - name: Verify published release immutability
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : "${RELEASE_POST_EVIDENCE:?release failure evidence was not initialized}"
+          POST_STAGE="release_rest_metadata"
+          record_release_stage() {
+            local rc="$1"
+            local status="failed"
+            if [[ "$rc" -eq 0 ]]; then status="stage_complete"; fi
+            python scripts/update_release_evidence.py \
+              --path "$RELEASE_POST_EVIDENCE" \
+              --stage "$POST_STAGE" \
+              --status "$status" \
+              --exit-code "$rc" \
+              --release-created true >/dev/null 2>&1 || true
+          }
+          trap 'rc=$?; record_release_stage "$rc"; trap - EXIT; exit "$rc"' EXIT
+          RELEASE_POST_JSON="${RUNNER_TEMP}/jobdesk-release-post.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${EXPECTED_TAG}" >"$RELEASE_POST_JSON"
+          test -s "$RELEASE_POST_JSON"
+          POST_STAGE="post_tag_ref"
+          POST_TAG_REF_JSON="${RUNNER_TEMP}/jobdesk-post-tag-ref.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" >"$POST_TAG_REF_JSON"
+          test -s "$POST_TAG_REF_JSON"
+          POST_TAG_TYPE="$(python - "$POST_TAG_REF_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("type", ""))
+          PY
+          )"
+          test "$POST_TAG_TYPE" = "tag"
+          POST_TAG_OBJECT_SHA="$(python - "$POST_TAG_REF_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("sha", ""))
+          PY
+          )"
+          if ! [[ "$POST_TAG_OBJECT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "post-release annotated tag object SHA is malformed" >&2
+            exit 1
+          fi
+          POST_STAGE="post_tag_object"
+          POST_TAG_JSON="${RUNNER_TEMP}/jobdesk-post-tag.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${POST_TAG_OBJECT_SHA}" >"$POST_TAG_JSON"
+          test -s "$POST_TAG_JSON"
+          POST_PEELED_SHA="$(python - "$POST_TAG_JSON" <<'PY'
+          import json
+          import sys
+
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read()).get("object", {}).get("sha", ""))
+          PY
+          )"
+          if ! [[ "$POST_PEELED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "post-release peeled tag SHA is malformed" >&2
+            exit 1
+          fi
+          POST_STAGE="release_immutable"
+          IMMUTABLE_CLI="$(gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable')"
+          test "$IMMUTABLE_CLI" = "true"
+          POST_STAGE="asset_set"
+          wheel="$(find dist -maxdepth 1 -type f -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          sdist="dist/jobdesk-${VERSION}.tar.gz"
+          test -n "$wheel"
+          test -f "$sdist"
+          release_files=(
+            "$wheel"
+            "$sdist"
+            "dist/sbom.cdx.json"
+            "dist/attestation.bundle.json"
+            "dist/attestation-verification.json"
+            "dist/attestation.json"
+            "dist/provenance.json"
+            "dist/release-preflight.json"
+            "dist/RELEASE_ARTIFACTS.md"
+            "dist/SHA256SUMS"
+          )
+          expected_asset_args=()
+          for release_file in "${release_files[@]}"; do
+            expected_asset_args+=(--expected-name "$(basename "$release_file")")
+          done
+          DOWNLOAD_DIR="${RUNNER_TEMP}/jobdesk-release-assets"
+          rm -rf "$DOWNLOAD_DIR"
+          mkdir -p "$DOWNLOAD_DIR"
+          gh release download "$EXPECTED_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$DOWNLOAD_DIR"
+          POST_STAGE="asset_hashes"
+          python scripts/verify_release_assets.py \
+            --release-json "$RELEASE_POST_JSON" \
+            --download-dir "$DOWNLOAD_DIR" \
+            --sha256sums dist/SHA256SUMS \
+            --evidence "$RELEASE_POST_EVIDENCE" \
+            "${expected_asset_args[@]}"
+          POST_STAGE="post_evidence"
+          python - "$RELEASE_POST_JSON" "$RELEASE_POST_EVIDENCE" "$EXPECTED_TAG" "$IMMUTABLE_CLI" "$LOCAL_PEELED_SHA" "$REMOTE_PEELED_SHA" "$POST_PEELED_SHA" <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import tempfile
+          import sys
+          from pathlib import Path
+
+          (
+              release_path,
+              evidence_path,
+              expected_tag,
+              immutable_cli,
+              build_peeled_sha,
+              pre_publish_remote_peeled_sha,
+              post_remote_peeled_sha,
+          ) = sys.argv[1:]
+          release = json.loads(Path(release_path).read_text(encoding="utf-8"))
+          evidence = json.loads(Path(evidence_path).read_text(encoding="utf-8"))
+          if not isinstance(evidence, dict):
+              raise SystemExit("release evidence is not a JSON object")
+          if release.get("tag_name") != expected_tag:
+              raise SystemExit("published release tag does not match the requested tag")
+          if release.get("immutable") is not True or immutable_cli != "true":
+              raise SystemExit("published release isImmutable is not true; fail closed")
+          asset_verification = evidence.get("asset_verification")
+          if not isinstance(asset_verification, dict) or asset_verification.get("hash_result") != "passed":
+              raise SystemExit("published asset set and hashes were not verified")
+          tag_sha_match = post_remote_peeled_sha == build_peeled_sha == pre_publish_remote_peeled_sha
+          if tag_sha_match is not True:
+              raise SystemExit("published tag peeled SHA drifted from the build SHA")
+          evidence.update(
+              {
+                  "schema": "jobdesk.release-post-verification.v1",
+                  "status": "verified",
+                  "stage": "complete",
+                  "exit_code": 0,
+                  "release_created": True,
+                  "repository": os.environ["GITHUB_REPOSITORY"],
+                  "tag": expected_tag,
+                  "release_id": release.get("id"),
+                  "isImmutable": immutable_cli == "true",
+                  "rest_immutable": release.get("immutable"),
+                  "build_peeled_sha": build_peeled_sha,
+                  "pre_publish_remote_peeled_sha": pre_publish_remote_peeled_sha,
+                  "post_remote_peeled_sha": post_remote_peeled_sha,
+                  "tag_sha_match": tag_sha_match,
+                  "release_asset_names": asset_verification.get("remote_asset_names", []),
+                  "downloaded_asset_names": asset_verification.get("downloaded_asset_names", []),
+                  "downloaded_hashes_verified": True,
+              }
+          )
+          evidence_path = Path(evidence_path)
+          with tempfile.NamedTemporaryFile(
+              "w", encoding="utf-8", dir=evidence_path.parent, delete=False
+          ) as stream:
+              json.dump(evidence, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+              temporary = stream.name
+          os.replace(temporary, evidence_path)
+          PY
+          trap - EXIT
+
+      - name: Upload post-release verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobdesk-release-post-verification
+          if-no-files-found: error
+          path: ${{ runner.temp }}/jobdesk-release-post-verification.json

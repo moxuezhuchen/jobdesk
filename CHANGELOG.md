@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.7.3] - Candidate
+
+This fix-forward candidate prepares the next patch release without changing
+the published `v0.7.2` tag or release. The release workflow builds the wheel
+and source distribution from one clean tagged commit, records SHA-256 hashes,
+emits an SBOM and provenance record, and publishes a GitHub build attestation
+for the final wheel. Its chemistry binding is the formally published ConfFlow
+`v2.1.6` wheel at producer merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`
+with SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`.
+The historical `v2.1.3` evidence remains unchanged.
+
 ## [0.7.2] - 2026-08-27
 
 This release carries the full remediation candidate through the paired

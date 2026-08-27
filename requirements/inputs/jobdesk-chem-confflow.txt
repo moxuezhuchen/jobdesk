@@ -1,1 +1,1 @@
-confflow==2.1.3
+confflow==2.1.6
