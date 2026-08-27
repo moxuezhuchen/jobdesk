@@ -307,17 +307,17 @@ def test_known_divergence_direction_matches_id(config, request):
             f"{node_id}: JobDesk offline subset rejected a jobdesk-only "
             "fixture; rename the direction tag or remove the entry."
         )
-        assert cf_ok is False, (
-            f"{node_id}: ConfFlow accepted a jobdesk-only fixture; rename the direction tag or remove the entry."
-        )
+        assert (
+            cf_ok is False
+        ), f"{node_id}: ConfFlow accepted a jobdesk-only fixture; rename the direction tag or remove the entry."
     elif node_id.startswith("accepted_by_confflow_only"):
         assert jd_ok is False, (
             f"{node_id}: JobDesk offline subset accepted a confflow-only "
             "fixture; rename the direction tag or remove the entry."
         )
-        assert cf_ok is True, (
-            f"{node_id}: ConfFlow rejected a confflow-only fixture; rename the direction tag or remove the entry."
-        )
+        assert (
+            cf_ok is True
+        ), f"{node_id}: ConfFlow rejected a confflow-only fixture; rename the direction tag or remove the entry."
     else:
         pytest.fail(f"Unknown direction tag in fixture id: {node_id}")
 

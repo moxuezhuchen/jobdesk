@@ -132,7 +132,14 @@ def test_deployment_doc_mirrors_version_and_capability_contract():
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content
-    for filename in ("run_summary.json", "workflow_stats.json", ".workflow_state.json", "output_manifest.json", "{basename}.txt", "{basename}min.xyz"):
+    for filename in (
+        "run_summary.json",
+        "workflow_stats.json",
+        ".workflow_state.json",
+        "output_manifest.json",
+        "{basename}.txt",
+        "{basename}min.xyz",
+    ):
         assert filename in content
 
 
@@ -145,9 +152,9 @@ def test_preflight_module_has_no_bare_version_literal():
         "confflow_preflight.py must not contain the bare literal '1.5.0'; "
         "it must source the spec from MIN_VERSION/MAX_EXCLUSIVE."
     )
-    assert "2.0.0" not in content, (
-        "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
-    )
+    assert (
+        "2.0.0" not in content
+    ), "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
     # SOURCE_OF_TRUTH imports must be present.
     assert "from .confflow_contract import" in content
     assert "MIN_VERSION" in content
@@ -168,8 +175,8 @@ def test_validator_error_message_uses_version_spec():
         '"capabilities": {"workflow_state": true, "resume": true, "dag": true}, '
         '"artifacts": {"run_summary": "run_summary.json", '
         '"workflow_stats": "workflow_stats.json", '
-        '"workflow_state": ".workflow_state.json", "output_manifest": "output_manifest.json", "run_report": "{basename}.txt", "min_xyz": "{basename}min.xyz"}, ' +
-        '"commands": {"bash": true, "nohup": true, "setsid": true, "xargs": true, "sha256sum": true, "mktemp": true, "base64": true}, "build": {"commit": "abc1234", "dirty": false}, '
+        '"workflow_state": ".workflow_state.json", "output_manifest": "output_manifest.json", "run_report": "{basename}.txt", "min_xyz": "{basename}min.xyz"}, '
+        + '"commands": {"bash": true, "nohup": true, "setsid": true, "xargs": true, "sha256sum": true, "mktemp": true, "base64": true}, "build": {"commit": "abc1234", "dirty": false}, '
         '"producer": {"package": "confflow", "version": "1.4.1", "build": {"commit": "abc1234", "dirty": false}, "wheel": {"filename": "confflow.whl", "sha256": "deadbeef"}}, '
         '"executable": {"path": "/opt/confflow/bin/confflow", "sha256": "cafebabe", "python": "3.12"}}'
     )
