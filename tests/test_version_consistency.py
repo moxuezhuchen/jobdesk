@@ -102,6 +102,21 @@ def test_ci_yaml_uses_version_in_all_four_slots():
     assert content.count("d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548") == 2
 
 
+def test_compatibility_workflows_execute_the_installed_configuration_runtime_boundary():
+    matrix = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    paired = _read(".github/workflows/paired-candidate-compatibility.yml")
+
+    command = "python scripts/verify_confflow_runtime_contract.py"
+    assert command in matrix
+    assert "if: matrix.expect_compatible" in matrix
+    assert command in paired
+    assert "--allow-candidate" in paired
+    assert "tests/test_configuration_contract_client.py" in paired
+    for workflow in (matrix, paired):
+        assert "confflow --capabilities --json" not in workflow
+        assert '--executable "$(command -v confflow)"' in workflow
+
+
 def test_ci_yaml_wheel_glob_matches_wheel_name():
     """PowerShell wheel glob must match the version literal in the assert."""
     content = _read(".github/workflows/ci.yml")

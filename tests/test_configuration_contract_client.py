@@ -6,6 +6,7 @@ import inspect
 import json
 import re
 import shlex
+from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -20,14 +21,7 @@ from jobdesk_app.application.configuration_contract import (
     ConfigurationValidationResult,
 )
 from jobdesk_app.config.schema import ServerConfig
-from jobdesk_app.core.confflow_contract import (
-    EXPECTED_ARTIFACTS,
-    REFERENCE_BUILD_COMMIT,
-    REFERENCE_VERSION,
-    REFERENCE_WHEEL_FILENAME,
-    REFERENCE_WHEEL_SHA256,
-    REQUIRED_COMMANDS,
-)
+from jobdesk_app.core.confflow_contract import EXPECTED_ARTIFACTS, REQUIRED_COMMANDS
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.remote.confflow_config_contract import (
@@ -102,25 +96,25 @@ def _capabilities(
 
 def _contract_payload(capabilities: ConfFlowCapabilities, *, schema: dict | None = None) -> dict:
     schema = schema or json.loads(stable_2_0_0.schema_bytes())
-    schema_bytes = (json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+    schema_bytes = json.dumps(
+        schema,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
     return {
-        "content_schema": "confflow.config.contract-response.v1",
-        "contract": {
-            "fixture_set": {
-                "id": "confflow.config_contract.v2",
-                "manifest_sha256": "2" * 64,
-            },
-            "id": "confflow.config.v2",
-            "schema_id": schema["$id"],
-            "schema_sha256": hashlib.sha256(schema_bytes).hexdigest(),
-            "version": 2,
-        },
+        "schema": "confflow.configuration-contract.v1",
+        "workflow_schema_version": "confflow.workflow.v2",
+        "workflow_schema_sha256": hashlib.sha256(schema_bytes).hexdigest(),
+        "workflow_schema": schema,
         "producer": {
-            "build": capabilities.producer["build"],
             "package": "confflow",
             "version": capabilities.version,
+            "commit": capabilities.producer["build"]["commit"],
+            "dirty": capabilities.producer["build"]["dirty"],
         },
-        "workflow_schema": schema,
+        "validation_response_schema": "confflow.configuration-validation.v1",
     }
 
 
@@ -164,7 +158,7 @@ def test_contract_parser_accepts_producer_legal_unknown_source_build_fields() ->
     capabilities.producer["build"]["dirty"] = None
     capabilities.raw_payload["build"]["dirty"] = None
     contract = _contract(capabilities)
-    assert contract.contract_id == "confflow.config.v2"
+    assert contract.contract_id == "confflow.configuration-contract.v1"
 
 
 @pytest.mark.parametrize("mutation", ["extra", "hash", "producer"])
@@ -174,7 +168,7 @@ def test_contract_parser_rejects_frozen_abi_hash_and_producer_mismatches(mutatio
     if mutation == "extra":
         payload["secret"] = "do-not-accept"
     elif mutation == "hash":
-        payload["contract"]["schema_sha256"] = "0" * 64
+        payload["workflow_schema_sha256"] = "0" * 64
     else:
         payload["producer"]["version"] = "9.9.9"
     with pytest.raises(ConfigurationContractError):
@@ -188,7 +182,7 @@ def test_contract_parser_rejects_frozen_abi_hash_and_producer_mismatches(mutatio
 
 def test_contract_parser_rejects_duplicate_keys_and_extra_json_output() -> None:
     capabilities = _capabilities()
-    for raw in ('{"content_schema":"x","content_schema":"y"}', '{}\n{"secret":1}'):
+    for raw in ('{"schema":"x","schema":"y"}', '{}\n{"secret":1}'):
         with pytest.raises(ConfigurationContractError, match="one valid JSON document"):
             parse_contract_response(
                 raw,
@@ -224,29 +218,111 @@ def test_contract_parser_rejects_capability_executable_drift() -> None:
         )
 
 
-def test_validation_parser_accepts_frozen_diagnostic_and_rejects_leaking_message() -> None:
+def test_validation_parser_accepts_canonical_issue_and_rejects_unknown_issue_fields() -> None:
     contract = _contract()
     payload = {
-        "content_schema": "confflow.config.validate-response.v1",
-        "contract": {
-            "id": contract.contract_id,
-            "schema_sha256": contract.schema_sha256,
-            "version": contract.contract_version,
-        },
-        "diagnostics": [
-            {
-                "code": "config.semantic_invalid",
-                "message": "configuration violates a required semantic rule",
-                "path": "$.steps[0].params.iprog",
-            }
-        ],
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": contract.schema_sha256,
+        "issues": [{"message": "steps must be a list", "path": "steps"}],
         "valid": False,
     }
     result = parse_validation_response(json.dumps(payload), contract=contract)
-    assert result.valid is False and result.diagnostics[0].path == "$.steps[0].params.iprog"
-    payload["diagnostics"][0]["message"] = "SECRET /home/user/input"
-    with pytest.raises(ConfigurationContractError, match="privacy-safe"):
+    assert result.valid is False and result.diagnostics[0].path == "steps"
+    payload["issues"][0]["code"] = "undeclared"
+    with pytest.raises(ConfigurationContractError, match="fields"):
         parse_validation_response(json.dumps(payload), contract=contract)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        ("extra", "fields"),
+        ("schema", "unsupported"),
+        ("hash", "binding"),
+        ("valid-type", "boolean"),
+        ("issues-type", "array"),
+        ("issue-path", "path"),
+        ("issue-message", "message"),
+        ("valid-with-issues", "disagree"),
+        ("invalid-without-issues", "disagree"),
+    ],
+)
+def test_validation_parser_rejects_canonical_abi_mutations(mutation: str, match: str) -> None:
+    contract = _contract()
+    payload: dict[str, object] = {
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": contract.schema_sha256,
+        "issues": [],
+        "valid": True,
+    }
+    if mutation == "extra":
+        payload["unknown"] = True
+    elif mutation == "schema":
+        payload["schema"] = "confflow.configuration-validation.v2"
+    elif mutation == "hash":
+        payload["workflow_schema_sha256"] = "0" * 64
+    elif mutation == "valid-type":
+        payload["valid"] = 1
+    elif mutation == "issues-type":
+        payload["issues"] = {}
+    elif mutation == "issue-path":
+        payload.update(valid=False, issues=[{"path": 1, "message": "bad"}])
+    elif mutation == "issue-message":
+        payload.update(valid=False, issues=[{"path": "steps", "message": "bad\nleak"}])
+    elif mutation == "valid-with-issues":
+        payload["issues"] = [{"path": "steps", "message": "bad"}]
+    else:
+        payload["valid"] = False
+    with pytest.raises(ConfigurationContractError, match=match):
+        parse_validation_response(json.dumps(payload), contract=contract)
+
+
+@pytest.mark.parametrize("contract_exit,valid", [(0, False), (1, True)])
+def test_client_rejects_validation_exit_status_disagreement(contract_exit: int, valid: bool) -> None:
+    contract = _contract()
+    payload = {
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": contract.schema_sha256,
+        "issues": [] if valid else [{"path": "steps", "message": "bad"}],
+        "valid": valid,
+    }
+    client = SSHConfigurationContractClient()
+    with pytest.raises(ConfigurationContractError, match="exit status"):
+        client.validate(
+            contract,
+            b"{}",
+            env_init_scripts=(),
+            ssh=_SSH([_response(contract_exit, json.dumps(payload))]),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["producer-extra", "package", "commit", "dirty", "schema-version", "validation-schema"]
+)
+def test_contract_parser_rejects_exact_producer_and_schema_mutations(mutation: str) -> None:
+    capabilities = _capabilities()
+    payload = deepcopy(_contract_payload(capabilities))
+    producer = payload["producer"]
+    assert isinstance(producer, dict)
+    if mutation == "producer-extra":
+        producer["build"] = {}
+    elif mutation == "package":
+        producer["package"] = "other"
+    elif mutation == "commit":
+        producer["commit"] = "wrong"
+    elif mutation == "dirty":
+        producer["dirty"] = True
+    elif mutation == "schema-version":
+        payload["workflow_schema_version"] = "confflow.workflow.v3"
+    else:
+        payload["validation_response_schema"] = "confflow.configuration-validation.v2"
+    with pytest.raises(ConfigurationContractError):
+        parse_contract_response(
+            json.dumps(payload),
+            server_id="alpha",
+            configured_executable="/opt/confflow/bin/confflow",
+            capabilities=capabilities,
+        )
 
 
 def test_remote_validate_streams_exact_stdin_without_a_remote_file() -> None:
@@ -255,13 +331,9 @@ def test_remote_validate_streams_exact_stdin_without_a_remote_file() -> None:
     contract_stdout = json.dumps(payload)
     contract = _contract(capabilities)
     validation = {
-        "content_schema": "confflow.config.validate-response.v1",
-        "contract": {
-            "id": contract.contract_id,
-            "schema_sha256": contract.schema_sha256,
-            "version": contract.contract_version,
-        },
-        "diagnostics": [],
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": contract.schema_sha256,
+        "issues": [],
         "valid": True,
     }
     ssh = _SSH([_response(0, contract_stdout), _response(0, json.dumps(validation))])
@@ -312,7 +384,7 @@ def test_cached_document_never_masks_a_changed_or_invalid_remote_schema() -> Non
     capabilities = _capabilities()
     good = _contract_payload(capabilities)
     bad = _contract_payload(capabilities)
-    bad["contract"]["schema_sha256"] = "0" * 64
+    bad["workflow_schema_sha256"] = "0" * 64
     ssh = _SSH([_response(0, json.dumps(good)), _response(0, json.dumps(bad))])
     client = SSHConfigurationContractClient()
     kwargs = dict(
@@ -329,10 +401,10 @@ def test_cached_document_never_masks_a_changed_or_invalid_remote_schema() -> Non
 
 def test_only_exact_approved_stable_identity_can_use_checked_in_fallback() -> None:
     stable = _capabilities(
-        version=REFERENCE_VERSION,
-        commit=REFERENCE_BUILD_COMMIT,
-        wheel_name=REFERENCE_WHEEL_FILENAME,
-        wheel_sha=REFERENCE_WHEEL_SHA256,
+        version="2.0.0",
+        commit="69819350d340a6aeccf95aa175edfd1c3f63404b",
+        wheel_name="confflow-2.0.0-py3-none-any.whl",
+        wheel_sha="04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f",
     )
     unsupported = _response(2, stderr="invalid choice: 'config'")
     client = SSHConfigurationContractClient()
@@ -344,18 +416,14 @@ def test_only_exact_approved_stable_identity_can_use_checked_in_fallback() -> No
         capabilities=stable,
     )
     assert fallback.source == "stable-fallback"
-    assert fallback.workflow_schema_bytes == stable_2_0_0.schema_bytes()
+    assert json.loads(fallback.workflow_schema_bytes) == json.loads(stable_2_0_0.schema_bytes())
     response = _response(
         0,
         stdout=json.dumps(
             {
-                "content_schema": "confflow.config.validate-response.v1",
-                "contract": {
-                    "id": fallback.contract_id,
-                    "schema_sha256": fallback.schema_sha256,
-                    "version": fallback.contract_version,
-                },
-                "diagnostics": [],
+                "schema": "confflow.configuration-validation.v1",
+                "workflow_schema_sha256": fallback.schema_sha256,
+                "issues": [],
                 "valid": True,
             },
             sort_keys=True,
@@ -370,7 +438,12 @@ def test_only_exact_approved_stable_identity_can_use_checked_in_fallback() -> No
     assert "config validate" not in command and " -c " in command
     assert stdin_data == b"{}"
 
-    candidate = _capabilities()
+    candidate = _capabilities(
+        version="2.1.6",
+        commit="45bfac11f721b2152eeff5ee26e50463fcc6f657",
+        wheel_name="confflow-2.1.6-py3-none-any.whl",
+        wheel_sha="d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548",
+    )
     with pytest.raises(ConfigurationContractError, match="unsupported"):
         client.resolve(
             server_id="candidate",
@@ -406,7 +479,7 @@ def test_stable_validator_wrapper_is_compilable_and_cleanup_hardened() -> None:
     source = base64.b64decode(encoded.group(1)).decode("utf-8")
     compile(source, "<stable-validator>", "exec")
     assert "tempfile.mkstemp" in source and "os.fchmod" in source and "os.unlink" in source
-    assert "sys.stdin.buffer.read" in source and "config.semantic_invalid" in source
+    assert "sys.stdin.buffer.read" in source and "configuration violates a required semantic rule" in source
 
 
 def test_ssh_wrapper_writes_and_half_closes_optional_stdin() -> None:
@@ -505,7 +578,7 @@ def test_admit_configuration_returns_hashed_result_without_sftp_or_storage(tmp_p
     adapter = MagicMock()
     adapter.resolve.return_value = contract
     adapter.validate.return_value = ConfigurationValidationResult(
-        content_schema="confflow.config.validate-response.v1",
+        content_schema="confflow.configuration-validation.v1",
         contract_id=contract.contract_id,
         contract_version=contract.contract_version,
         schema_sha256=contract.schema_sha256,
@@ -544,7 +617,7 @@ def test_admit_configuration_invalid_is_privacy_safe(tmp_path, monkeypatch) -> N
     adapter = MagicMock()
     adapter.resolve.return_value = contract
     adapter.validate.return_value = ConfigurationValidationResult(
-        "confflow.config.validate-response.v1",
+        "confflow.configuration-validation.v1",
         contract.contract_id,
         contract.contract_version,
         contract.schema_sha256,
@@ -579,7 +652,7 @@ def test_admit_configuration_keeps_only_safe_invalid_path(tmp_path, monkeypatch)
     adapter = MagicMock()
     adapter.resolve.return_value = contract
     adapter.validate.return_value = ConfigurationValidationResult(
-        "confflow.config.validate-response.v1",
+        "confflow.configuration-validation.v1",
         contract.contract_id,
         contract.contract_version,
         contract.schema_sha256,
@@ -686,7 +759,7 @@ def test_admit_configuration_accepts_stable_fallback_only_after_remote_validatio
     adapter = MagicMock()
     adapter.resolve.return_value = fallback
     adapter.validate.return_value = ConfigurationValidationResult(
-        "confflow.config.validate-response.v1",
+        "confflow.configuration-validation.v1",
         fallback.contract_id,
         fallback.contract_version,
         fallback.schema_sha256,
@@ -724,7 +797,7 @@ def test_admit_configuration_accepts_stable_fallback_only_after_remote_validatio
 def test_admission_converts_every_verified_contract_field_to_immutable_binding() -> None:
     contract = _contract()
     result = ConfigurationValidationResult(
-        "confflow.config.validate-response.v1",
+        "confflow.configuration-validation.v1",
         contract.contract_id,
         contract.contract_version,
         contract.schema_sha256,

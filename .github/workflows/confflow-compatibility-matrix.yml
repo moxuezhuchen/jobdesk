@@ -206,6 +206,11 @@ jobs:
           )
           PY
 
+      - name: Verify installed producer configuration ABI through the runtime client
+        if: matrix.expect_compatible
+        run: |
+          python scripts/verify_confflow_runtime_contract.py --executable "$(command -v confflow)"
+
       - name: Run protocol and facade contract tests
         run: |
           python -m pytest -q \
