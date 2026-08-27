@@ -9,10 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.3] - Candidate
+## [0.7.4] - Candidate
 
-This fix-forward candidate prepares the next patch release without changing
-the published `v0.7.2` tag or release. The release workflow builds the wheel
+This fix-forward candidate makes JobDesk consume the producer-owned
+`confflow.configuration-contract.v1` and
+`confflow.configuration-validation.v1` documents emitted by the formally
+released ConfFlow `v2.1.6` wheel.  The runtime boundary rejects unknown
+fields, producer or executable drift, schema-hash mismatches, malformed
+issues, and validation exit-code disagreement.  Both compatibility workflows
+now run the installed producer CLI and feed its actual stdout into the
+JobDesk runtime client.
+
+## [0.7.3] - 2026-08-28
+
+This fix-forward release leaves the published `v0.7.2` tag unchanged. The release workflow builds the wheel
 and source distribution from one clean tagged commit, records SHA-256 hashes,
 emits an SBOM and provenance record, and publishes a GitHub build attestation
 for the final wheel. Its chemistry binding is the formally published ConfFlow

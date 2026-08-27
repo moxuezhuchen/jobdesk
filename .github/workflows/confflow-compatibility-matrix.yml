@@ -19,18 +19,21 @@ jobs:
       matrix:
         include:
           - label: stable
+            production: true
             version: 2.1.6
             schema_snapshot: v2.1.3
             wheel_sha256: d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548
             control_worker: true
             expect_compatible: true
           - label: historical-v1.5.3
+            production: false
             version: 1.5.3
             schema_snapshot: v1.5.3
             wheel_sha256: 213eba551b344c7146450fa1135a884e3c00896371507a1edbf2eb18c7c0c5d6
             control_worker: true
             expect_compatible: false
           - label: historical-v1.5.0
+            production: false
             version: 1.5.0
             schema_snapshot: v1.5.0
             wheel_sha256: d9ac87410f1b73b91e19eb740298431663ee5f07bd4ffaeb19779c3a53c2e8dc
@@ -47,6 +50,14 @@ jobs:
           # producer release requires numpy>=2.2.6. Python 3.13 selects the
           # compatible numpy>=2.1,<2.4 branch for both repositories.
           python-version: "3.13"
+
+      - name: Locate the controlled producer Python
+        id: confflow-python312
+        if: matrix.production == true
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          update-environment: false
 
       - name: Install Linux Qt runtime
         run: |
@@ -75,6 +86,110 @@ jobs:
           # Install the producer runtime dependencies as well as the exact
           # wheel; the capability CLI imports the normal workflow modules.
           python -m pip install "$wheel"
+
+      - name: Build the attested formal producer environment
+        if: matrix.production == true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFLOW_PYTHON312: ${{ steps.confflow-python312.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          wheel="$RUNNER_TEMP/confflow-dist/confflow-2.1.6-py3-none-any.whl"
+          lock="$RUNNER_TEMP/confflow-dist/confflow-2.1.6-py312-linux-x86_64.lock"
+          manifest="$RUNNER_TEMP/confflow-dist/confflow-2.1.6-py312-linux-x86_64.SHA256SUMS"
+          release_sums="$RUNNER_TEMP/confflow-dist/SHA256SUMS"
+          bundle="$RUNNER_TEMP/confflow-dist/attestation.bundle.json"
+          test -f "$wheel"
+          test "$(basename "$wheel")" = "confflow-2.1.6-py3-none-any.whl"
+          gh release download "v2.1.6" \
+            --repo moxuezhuchen/ConfFlow \
+            --pattern "$(basename "$lock")" \
+            --pattern "$(basename "$manifest")" \
+            --pattern "$(basename "$release_sums")" \
+            --pattern "$(basename "$bundle")" \
+            --dir "$RUNNER_TEMP/confflow-dist"
+          test -f "$lock"
+          test -f "$manifest"
+          test -f "$release_sums"
+          test -f "$bundle"
+
+          WHEEL="$wheel" LOCK="$lock" MANIFEST="$manifest" BUNDLE="$bundle" RELEASE_SUMS="$release_sums" \
+            python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          sums = Path(os.environ["RELEASE_SUMS"])
+          expected = {}
+          for raw in sums.read_text(encoding="utf-8").splitlines():
+              digest, filename = raw.split(None, 1)
+              filename = filename.removeprefix("*").strip()
+              if filename in expected:
+                  raise AssertionError(f"duplicate SHA256SUMS member: {filename}")
+              expected[filename] = digest
+          for variable in ("WHEEL", "LOCK", "MANIFEST", "BUNDLE"):
+              path = Path(os.environ[variable])
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              if expected.get(path.name) != actual:
+                  raise AssertionError(f"release SHA256SUMS mismatch for {path.name}")
+          PY
+
+          gh attestation verify "$wheel" \
+            --bundle "$bundle" \
+            --repo "moxuezhuchen/ConfFlow" \
+            --signer-workflow "moxuezhuchen/ConfFlow/.github/workflows/release.yml" \
+            --predicate-type "https://slsa.dev/provenance/v1" \
+            --source-ref "refs/tags/v2.1.6" \
+            --source-digest "45bfac11f721b2152eeff5ee26e50463fcc6f657" \
+            --format json >"$RUNNER_TEMP/confflow-dist/attestation-verification.json"
+          test -s "$RUNNER_TEMP/confflow-dist/attestation-verification.json"
+
+          test -n "$CONFLOW_PYTHON312"
+          "$CONFLOW_PYTHON312" -m venv "$RUNNER_TEMP/confflow-formal"
+          formal_python="$RUNNER_TEMP/confflow-formal/bin/python"
+          "$formal_python" -m pip install --disable-pip-version-check "pip==26.0.1"
+          "$formal_python" -m pip install --disable-pip-version-check --require-hashes -r "$lock"
+          "$formal_python" -m pip install --disable-pip-version-check --no-deps "$wheel"
+
+          WHEEL="$wheel" LOCK="$lock" MANIFEST="$manifest" "$formal_python" - <<'PY'
+          import hashlib
+          import os
+          import platform
+          import sys
+          from pathlib import Path
+
+          from confflow.install_provenance import (
+              install_provenance_path,
+              write_install_provenance_atomic,
+          )
+
+          def digest(name: str) -> str:
+              return hashlib.sha256(Path(os.environ[name]).read_bytes()).hexdigest()
+
+          payload = {
+              "schema": "confflow.install-provenance.v2",
+              "package": "confflow",
+              "version": "2.1.6",
+              "wheel_filename": Path(os.environ["WHEEL"]).name,
+              "wheel_sha256": digest("WHEEL"),
+              "dependency_lock_sha256": digest("LOCK"),
+              "wheelhouse_manifest_sha256": digest("MANIFEST"),
+              "python_version": platform.python_version(),
+              "python_implementation": platform.python_implementation(),
+              "platform": sys.platform,
+              "machine": platform.machine(),
+              "build_commit": "45bfac11f721b2152eeff5ee26e50463fcc6f657",
+              "build_dirty": False,
+              "release_repository": "moxuezhuchen/ConfFlow",
+              "release_tag": "v2.1.6",
+              "release_tag_commit": "45bfac11f721b2152eeff5ee26e50463fcc6f657",
+              "attestation_verified": True,
+              "attestation_subject_digest": digest("WHEEL"),
+          }
+          write_install_provenance_atomic(install_provenance_path(), payload)
+          PY
+          echo "CONFLOW_FORMAL_VENV=$RUNNER_TEMP/confflow-formal" >> "$GITHUB_ENV"
 
       - name: Verify capability contract
         env:
@@ -205,6 +320,12 @@ jobs:
               )
           )
           PY
+
+      - name: Verify installed producer configuration ABI through the runtime client
+        if: matrix.expect_compatible
+        run: |
+          python scripts/verify_confflow_runtime_contract.py \
+            --executable "$CONFLOW_FORMAL_VENV/bin/confflow"
 
       - name: Run protocol and facade contract tests
         run: |

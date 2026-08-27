@@ -15,20 +15,12 @@ from jobdesk_app.application.configuration_contract import (
 )
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 
-CONTRACT_RESPONSE_SCHEMA = "confflow.config.contract-response.v1"
-VALIDATE_RESPONSE_SCHEMA = "confflow.config.validate-response.v1"
-CONTRACT_ID = "confflow.config.v2"
-CONTRACT_VERSION = 2
+CONTRACT_RESPONSE_SCHEMA = "confflow.configuration-contract.v1"
+VALIDATE_RESPONSE_SCHEMA = "confflow.configuration-validation.v1"
+WORKFLOW_SCHEMA_VERSION = "confflow.workflow.v2"
+CONTRACT_ID = CONTRACT_RESPONSE_SCHEMA
+CONTRACT_VERSION = 1
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_DIAGNOSTIC_MESSAGES = {
-    "config.internal_error": "configuration command failed internally",
-    "config.invalid": "configuration is invalid",
-    "config.invalid_arguments": "expected 'contract --json' or 'validate --json --stdin'",
-    "config.invalid_utf8": "configuration input is not valid UTF-8",
-    "config.invalid_yaml": "configuration input is not valid YAML",
-    "config.schema_invalid": "configuration does not satisfy the workflow schema",
-    "config.semantic_invalid": "configuration violates a required semantic rule",
-}
 
 
 class ConfigurationContractError(RuntimeError):
@@ -53,6 +45,22 @@ def canonical_json_bytes(value: object) -> bytes:
     except (TypeError, ValueError) as exc:
         raise ConfigurationContractError("configuration contract contains non-JSON values") from exc
     return (encoded + "\n").encode("utf-8")
+
+
+def producer_canonical_json_bytes(value: object) -> bytes:
+    """Return the exact canonical bytes used by ConfFlow's v1 contract hashes."""
+
+    try:
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationContractError("configuration contract contains non-JSON values") from exc
+    return encoded.encode("utf-8")
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -147,45 +155,51 @@ def parse_contract_response(
     """Parse, hash, and provenance-bind the frozen contract response ABI."""
 
     payload = _document(stdout)
-    _exact_keys(payload, {"content_schema", "contract", "producer", "workflow_schema"}, "contract response")
-    if payload.get("content_schema") != CONTRACT_RESPONSE_SCHEMA:
+    _exact_keys(
+        payload,
+        {
+            "schema",
+            "workflow_schema_version",
+            "workflow_schema_sha256",
+            "workflow_schema",
+            "producer",
+            "validation_response_schema",
+        },
+        "contract response",
+    )
+    if payload.get("schema") != CONTRACT_RESPONSE_SCHEMA:
         raise ConfigurationContractError("unsupported configuration contract response schema")
-
-    contract = _object(payload.get("contract"), "contract")
-    _exact_keys(contract, {"fixture_set", "id", "schema_id", "schema_sha256", "version"}, "contract")
-    if contract.get("id") != CONTRACT_ID or contract.get("version") != CONTRACT_VERSION:
-        raise ConfigurationContractError("unsupported configuration contract identity")
-    schema_id = _text(contract.get("schema_id"), "contract.schema_id")
-    schema_sha256 = _sha(contract.get("schema_sha256"), "contract.schema_sha256")
-    fixture = _object(contract.get("fixture_set"), "contract.fixture_set")
-    _exact_keys(fixture, {"id", "manifest_sha256"}, "contract.fixture_set")
-    fixture_id = _text(fixture.get("id"), "contract.fixture_set.id")
-    fixture_sha = _sha(fixture.get("manifest_sha256"), "contract.fixture_set.manifest_sha256")
+    if payload.get("workflow_schema_version") != WORKFLOW_SCHEMA_VERSION:
+        raise ConfigurationContractError("unsupported workflow schema version")
+    if payload.get("validation_response_schema") != VALIDATE_RESPONSE_SCHEMA:
+        raise ConfigurationContractError("unsupported configuration validation response schema")
+    schema_sha256 = _sha(payload.get("workflow_schema_sha256"), "workflow_schema_sha256")
 
     producer = _object(payload.get("producer"), "producer")
-    _exact_keys(producer, {"build", "package", "version"}, "producer")
-    producer_build = _object(producer.get("build"), "producer.build")
-    _exact_keys(producer_build, {"commit", "dirty"}, "producer.build")
+    _exact_keys(producer, {"package", "version", "commit", "dirty"}, "producer")
     if producer.get("package") != "confflow" or producer.get("version") != capabilities.version:
         raise ConfigurationContractError("configuration producer does not match verified capabilities")
-    commit = producer_build.get("commit")
-    dirty = producer_build.get("dirty")
+    commit = producer.get("commit")
+    dirty = producer.get("dirty")
     if commit is not None and not isinstance(commit, str):
         raise ConfigurationContractError("configuration producer build provenance is malformed")
     if dirty is not None and type(dirty) is not bool:
         raise ConfigurationContractError("configuration producer build provenance is malformed")
     capability_producer = capabilities.producer or {}
-    if producer_build != capability_producer.get("build"):
+    if {"commit": commit, "dirty": dirty} != capability_producer.get("build"):
         raise ConfigurationContractError("configuration producer build does not match verified capabilities")
 
     schema = _object(payload.get("workflow_schema"), "workflow_schema")
-    schema_bytes = canonical_json_bytes(schema)
+    schema_bytes = producer_canonical_json_bytes(schema)
     if hashlib.sha256(schema_bytes).hexdigest() != schema_sha256:
         raise ConfigurationContractError("workflow schema bytes do not match contract digest")
-    if schema.get("$id") != schema_id:
-        raise ConfigurationContractError("workflow schema id does not match contract binding")
-    if schema.get("x-confflow-contract-version") != CONTRACT_VERSION:
-        raise ConfigurationContractError("workflow schema contract version does not match binding")
+    schema_id = _text(schema.get("$id"), "workflow_schema.$id")
+
+    # The existing durable binding columns predate the producer-owned v1 ABI
+    # and name this document digest a fixture manifest.  Preserve the storage
+    # shape while binding it to the complete producer contract document rather
+    # than inventing a producer field that ConfFlow does not emit.
+    contract_document_sha256 = hashlib.sha256(producer_canonical_json_bytes(payload)).hexdigest()
 
     resolved, executable_identity, provenance = _capability_binding(
         capabilities,
@@ -202,8 +216,8 @@ def parse_contract_response(
         contract_version=CONTRACT_VERSION,
         schema_id=schema_id,
         schema_sha256=schema_sha256,
-        fixture_set_id=fixture_id,
-        fixture_manifest_sha256=fixture_sha,
+        fixture_set_id=CONTRACT_RESPONSE_SCHEMA,
+        fixture_manifest_sha256=contract_document_sha256,
         workflow_schema_bytes=schema_bytes,
         source=source,
     )
@@ -215,35 +229,32 @@ def parse_validation_response(
     contract: VerifiedConfigurationContract,
 ) -> ConfigurationValidationResult:
     payload = _document(stdout)
-    _exact_keys(payload, {"content_schema", "contract", "diagnostics", "valid"}, "validation response")
-    if payload.get("content_schema") != VALIDATE_RESPONSE_SCHEMA:
+    _exact_keys(
+        payload,
+        {"schema", "valid", "workflow_schema_sha256", "issues"},
+        "validation response",
+    )
+    if payload.get("schema") != VALIDATE_RESPONSE_SCHEMA:
         raise ConfigurationContractError("unsupported configuration validation response schema")
-    binding = _object(payload.get("contract"), "validation contract")
-    _exact_keys(binding, {"id", "schema_sha256", "version"}, "validation contract")
-    if binding != {
-        "id": contract.contract_id,
-        "schema_sha256": contract.schema_sha256,
-        "version": contract.contract_version,
-    }:
+    if _sha(payload.get("workflow_schema_sha256"), "workflow_schema_sha256") != contract.schema_sha256:
         raise ConfigurationContractError("validation response contract binding mismatch")
     valid = payload.get("valid")
     if type(valid) is not bool:
         raise ConfigurationContractError("validation response valid must be boolean")
-    raw_diagnostics = payload.get("diagnostics")
+    raw_diagnostics = payload.get("issues")
     if not isinstance(raw_diagnostics, list):
-        raise ConfigurationContractError("validation response diagnostics must be an array")
+        raise ConfigurationContractError("validation response issues must be an array")
     diagnostics: list[ConfigurationDiagnostic] = []
     for raw in raw_diagnostics:
-        diagnostic = _object(raw, "diagnostic")
-        _exact_keys(diagnostic, {"code", "message", "path"}, "diagnostic")
-        code = _text(diagnostic.get("code"), "diagnostic.code")
-        message = _text(diagnostic.get("message"), "diagnostic.message")
-        if _DIAGNOSTIC_MESSAGES.get(code) != message:
-            raise ConfigurationContractError("diagnostic is outside the privacy-safe frozen ABI")
-        path = _text(diagnostic.get("path"), "diagnostic.path")
-        if not path.startswith("$") or any(char in path for char in "\x00\r\n"):
-            raise ConfigurationContractError("diagnostic path is malformed")
-        diagnostics.append(ConfigurationDiagnostic(code, message, path))
+        diagnostic = _object(raw, "issue")
+        _exact_keys(diagnostic, {"message", "path"}, "issue")
+        message = _text(diagnostic.get("message"), "issue.message")
+        path = diagnostic.get("path")
+        if not isinstance(path, str) or len(path) > 512 or any(char in path for char in "\x00\r\n"):
+            raise ConfigurationContractError("issue path is malformed")
+        if len(message) > 4096 or any(char in message for char in "\x00\r\n"):
+            raise ConfigurationContractError("issue message is malformed")
+        diagnostics.append(ConfigurationDiagnostic("config.invalid", message, path))
     if valid == bool(diagnostics):
         raise ConfigurationContractError("validation status and diagnostics disagree")
     return ConfigurationValidationResult(
@@ -263,7 +274,9 @@ __all__ = [
     "CONTRACT_VERSION",
     "ConfigurationContractError",
     "VALIDATE_RESPONSE_SCHEMA",
+    "WORKFLOW_SCHEMA_VERSION",
     "canonical_json_bytes",
+    "producer_canonical_json_bytes",
     "parse_contract_response",
     "parse_validation_response",
 ]

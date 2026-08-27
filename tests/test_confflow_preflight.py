@@ -8,7 +8,10 @@ from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
     EXPECTED_ARTIFACTS,
     MIN_VERSION,
+    REFERENCE_BUILD_COMMIT,
     REFERENCE_VERSION,
+    REFERENCE_WHEEL_FILENAME,
+    REFERENCE_WHEEL_SHA256,
     REQUIRED_COMMANDS,
     version_spec,
 )
@@ -16,6 +19,7 @@ from jobdesk_app.core.confflow_preflight import (
     ConfFlowCapabilities,
     parse_confflow_capabilities,
     validate_confflow_capabilities,
+    validate_confflow_production_capability,
 )
 
 
@@ -147,7 +151,15 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but artifacts missing → still rejected.
         (
-            ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, True, artifacts=None, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                REFERENCE_VERSION,
+                True,
+                True,
+                True,
+                artifacts=None,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             "requires an artifacts block",
         ),
@@ -171,41 +183,97 @@ def test_parser_tolerates_missing_artifacts_block_in_v1_payload():
         ),
         # Schema==2 but version is older than MIN_VERSION.
         (
-            ConfFlowCapabilities(4, "1.4.4", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                "1.4.4",
+                True,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             version_spec(),
         ),
         # Schema v4 but version is a minimum-boundary prerelease → rejected.
         (
-            ConfFlowCapabilities(4, "2.0.0-rc.1", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                "2.0.0-rc.1",
+                True,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             version_spec(),
         ),
         # Schema v4 but version is >= MAX_EXCLUSIVE.
         (
-            ConfFlowCapabilities(4, "3.0.0", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                "3.0.0",
+                True,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             version_spec(),
         ),
         # Schema==2 but version is malformed.
         (
-            ConfFlowCapabilities(4, "1.04.3", True, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                "1.04.3",
+                True,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             "semantic version",
         ),
         # Schema==2 but capability flags missing.
         (
-            ConfFlowCapabilities(4, REFERENCE_VERSION, False, True, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                REFERENCE_VERSION,
+                False,
+                True,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             "workflow_state",
         ),
         (
-            ConfFlowCapabilities(4, REFERENCE_VERSION, True, False, True, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                REFERENCE_VERSION,
+                True,
+                False,
+                True,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             False,
             "resume",
         ),
         (
-            ConfFlowCapabilities(4, REFERENCE_VERSION, True, True, False, artifacts=EXPECTED_ARTIFACTS, commands={name: True for name in REQUIRED_COMMANDS}),
+            ConfFlowCapabilities(
+                4,
+                REFERENCE_VERSION,
+                True,
+                True,
+                False,
+                artifacts=EXPECTED_ARTIFACTS,
+                commands={name: True for name in REQUIRED_COMMANDS},
+            ),
             True,
             "dag",
         ),
@@ -265,8 +333,9 @@ def test_validator_rejects_prerelease_at_minimum(version):
         )
 
 
-
-@pytest.mark.parametrize("missing_name", ("run_summary", "workflow_stats", "workflow_state", "output_manifest", "run_report", "min_xyz"))
+@pytest.mark.parametrize(
+    "missing_name", ("run_summary", "workflow_stats", "workflow_state", "output_manifest", "run_report", "min_xyz")
+)
 def test_validator_rejects_missing_v4_artifacts(missing_name):
     payload = json.loads(_payload())
     del payload["artifacts"][missing_name]
@@ -293,6 +362,35 @@ def test_parser_rejects_invalid_commands_and_build_types():
         parse_confflow_capabilities(_payload(commands={"bash": "yes"}))
     with pytest.raises(ValueError, match="build.dirty"):
         parse_confflow_capabilities(_payload(build={"commit": "abc1234", "dirty": "no"}))
+
+
+def test_production_gate_rejects_renamed_release_wheel() -> None:
+    """A digest-identical wheel is not the approved artifact after a rename."""
+
+    payload = json.loads(_payload())
+    build = {"commit": REFERENCE_BUILD_COMMIT, "dirty": False}
+    payload.update(version=REFERENCE_VERSION, build=build)
+    payload["producer"].update(
+        version=REFERENCE_VERSION,
+        build=build,
+        wheel={
+            "filename": f"renamed-{REFERENCE_WHEEL_FILENAME}",
+            "sha256": REFERENCE_WHEEL_SHA256,
+        },
+    )
+    payload["install_provenance"] = {"status": "verified"}
+    payload["producer"]["install_provenance"] = {"status": "verified"}
+    payload["executable"] = {
+        "path": "/opt/confflow/bin/confflow",
+        "realpath": "/opt/confflow/bin/confflow",
+        "sha256": "a" * 64,
+        "python": "/opt/confflow/bin/python3.12",
+    }
+
+    with pytest.raises(ValueError, match="wheel filename"):
+        validate_confflow_production_capability(parse_confflow_capabilities(json.dumps(payload)))
+
+
 def test_validator_accepts_legal_v3_payload_with_extra_unknown_keys():
     """Forward compatibility: extra top-level keys are tolerated."""
     payload = _payload(experimental_feature=True)

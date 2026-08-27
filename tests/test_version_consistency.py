@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from jobdesk_app.core import confflow_contract
 from jobdesk_app.core.confflow_contract import (
@@ -42,6 +43,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def _bash_executable() -> str:
+    if os.name != "nt":
+        bash = shutil.which("bash")
+        assert bash is not None, "bash is required to validate workflow run blocks"
+        return bash
+
+    git = shutil.which("git")
+    assert git is not None, "Git for Windows is required to locate Git Bash"
+    completed = subprocess.run([git, "--exec-path"], capture_output=True, text=True, check=True)
+    roots = [Path(git).resolve().parent.parent]
+    roots.extend(Path(completed.stdout.strip()).resolve().parents)
+    for root in roots:
+        for relative in (Path("bin/bash.exe"), Path("usr/bin/bash.exe")):
+            candidate = (root / relative).resolve()
+            lowered = [part.lower() for part in candidate.parts]
+            if candidate.is_file() and candidate.name.lower() == "bash.exe" and "system32" not in lowered:
+                return str(candidate)
+    raise AssertionError("Git Bash was not found beside the active Git for Windows installation")
 
 
 def test_structured_source_of_truth():
@@ -100,6 +121,22 @@ def test_ci_yaml_uses_version_in_all_four_slots():
     assert content.count("confflow-2.1.6-*.whl") == 2
     assert content.count("confflow.__version__ == '2.1.6'") == 2
     assert content.count("d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548") == 2
+
+
+def test_compatibility_workflows_execute_the_installed_configuration_runtime_boundary():
+    matrix = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    paired = _read(".github/workflows/paired-candidate-compatibility.yml")
+
+    command = "python scripts/verify_confflow_runtime_contract.py"
+    assert command in matrix
+    assert "if: matrix.expect_compatible" in matrix
+    assert command in paired
+    assert "--allow-candidate" in paired
+    assert "tests/test_configuration_contract_client.py" in paired
+    for workflow in (matrix, paired):
+        assert "confflow --capabilities --json" not in workflow
+    assert '--executable "$CONFLOW_FORMAL_VENV/bin/confflow"' in matrix
+    assert '--executable "$(command -v confflow)"' in paired
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
@@ -265,6 +302,46 @@ def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     assert 'pip install --no-deps "$wheel"' not in content
     assert 'python-version: "3.13"' in content
     assert "validate_confflow_capabilities(capabilities, require_dag=False)" in content
+
+
+def test_stable_configuration_abi_uses_attested_canonical_python312_install():
+    content = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    assert content.count("production: true") == 1
+    assert content.count("production: false") == 2
+    assert "Build the attested formal producer environment" in content
+    assert content.count("if: matrix.production == true") == 2
+    assert 'if [[ "${{ matrix.expect_compatible }}"' not in content
+    assert "id: confflow-python312" in content
+    assert 'python-version: "3.12"' in content
+    assert "update-environment: false" in content
+    assert "confflow-2.1.6-py3-none-any.whl" in content
+    assert "confflow-2.1.6-py312-linux-x86_64.lock" in content
+    assert "confflow-2.1.6-py312-linux-x86_64.SHA256SUMS" in content
+    assert "attestation.bundle.json" in content
+    assert 'gh attestation verify "$wheel"' in content
+    assert '--signer-workflow "moxuezhuchen/ConfFlow/.github/workflows/release.yml"' in content
+    assert "write_install_provenance_atomic" in content
+    assert '"attestation_verified": True' in content
+    assert '--executable "$CONFLOW_FORMAL_VENV/bin/confflow"' in content
+
+
+def test_compatibility_matrix_rendered_run_blocks_are_valid_bash():
+    workflow = yaml.safe_load(_read(".github/workflows/confflow-compatibility-matrix.yml"))
+    steps = workflow["jobs"]["producer-matrix"]["steps"]
+    run_blocks = [step["run"] for step in steps if "run" in step]
+    assert run_blocks
+    bash = _bash_executable()
+    for index, run_block in enumerate(run_blocks):
+        rendered = re.sub(r"\$\{\{.*?\}\}", "rendered", run_block)
+        completed = subprocess.run([bash, "-n", "-c", rendered], capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, f"run block {index} is invalid Bash: {completed.stderr}"
+
+
+def test_workflow_bash_helper_never_selects_windows_system32():
+    bash = Path(_bash_executable()).resolve()
+    assert bash.name.lower() in {"bash", "bash.exe"}
+    if os.name == "nt":
+        assert "system32" not in {part.lower() for part in bash.parts}
 
 
 def test_readme_states_version_spec():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import shlex
 from collections.abc import Iterable
@@ -11,18 +12,15 @@ from jobdesk_app.application.configuration_contract import (
     ConfigurationValidationResult,
     VerifiedConfigurationContract,
 )
-from jobdesk_app.core.confflow_contract import REFERENCE_VERSION
-from jobdesk_app.core.confflow_preflight import (
-    ConfFlowCapabilities,
-    validate_confflow_production_capability,
-)
+from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.remote.confflow_config_contract import (
-    CONTRACT_ID,
     CONTRACT_RESPONSE_SCHEMA,
-    CONTRACT_VERSION,
+    VALIDATE_RESPONSE_SCHEMA,
+    WORKFLOW_SCHEMA_VERSION,
     ConfigurationContractError,
     parse_contract_response,
     parse_validation_response,
+    producer_canonical_json_bytes,
 )
 from jobdesk_app.remote.confflow_probe import (
     build_confflow_preflight_shell,
@@ -51,28 +49,21 @@ import yaml
 from confflow.config.models import load_workflow_model
 from confflow.shared.config_validation import validate_yaml_config
 
-CONTRACT = json.loads(__CONTRACT_JSON__)
+SCHEMA_SHA256 = __SCHEMA_SHA256__
 
-def _document(valid, diagnostics):
+def _document(valid, issues):
     return {
-        "content_schema": "confflow.config.validate-response.v1",
-        "contract": CONTRACT,
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": SCHEMA_SHA256,
         "valid": valid,
-        "diagnostics": diagnostics,
+        "issues": issues,
     }
 
-def _diagnostic(code, path="$"):
-    messages = {
-        "config.invalid_yaml": "configuration input is not valid YAML",
-        "config.schema_invalid": "configuration does not satisfy the workflow schema",
-        "config.invalid": "configuration is invalid",
-        "config.semantic_invalid": "configuration violates a required semantic rule",
-        "config.internal_error": "configuration command failed internally",
-    }
-    return {"code": code, "message": messages[code], "path": path}
+def _issue(message, path=""):
+    return {"message": message, "path": path}
 
 path = None
-diagnostics = []
+issues = []
 exit_code = 0
 try:
     content = sys.stdin.buffer.read()
@@ -83,41 +74,46 @@ try:
     try:
         raw = yaml.safe_load(content.decode("utf-8"))
     except (UnicodeDecodeError, yaml.YAMLError):
-        diagnostics = [_diagnostic("config.invalid_yaml")]
+        issues = [_issue("configuration input is not valid YAML")]
     else:
         if raw is None:
             raw = {}
         if not isinstance(raw, dict):
-            diagnostics = [_diagnostic("config.schema_invalid")]
+            issues = [_issue("configuration does not satisfy the workflow schema")]
         else:
             try:
                 load_workflow_model(path)
             except Exception:
-                diagnostics = [_diagnostic("config.invalid")]
+                issues = [_issue("configuration is invalid")]
             else:
                 try:
                     errors = validate_yaml_config(raw)
                 except Exception:
-                    diagnostics = [_diagnostic("config.internal_error")]
+                    issues = [_issue("configuration command failed internally")]
                     exit_code = 2
                 else:
-                    diagnostics = [_diagnostic("config.semantic_invalid") for _ in errors]
-    if diagnostics and exit_code == 0:
+                    issues = [_issue("configuration violates a required semantic rule") for _ in errors]
+    if issues and exit_code == 0:
         exit_code = 1
 except Exception:
-    diagnostics = [_diagnostic("config.internal_error")]
+    issues = [_issue("configuration command failed internally")]
     exit_code = 2
 finally:
     if path is not None:
         try:
             os.unlink(path)
         except Exception:
-            diagnostics = [_diagnostic("config.internal_error")]
+            issues = [_issue("configuration command failed internally")]
             exit_code = 2
 
-sys.stdout.write(json.dumps(_document(not diagnostics, diagnostics), sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
+sys.stdout.write(json.dumps(_document(not issues, issues), sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
 raise SystemExit(exit_code)
 """
+
+_STABLE_FALLBACK_VERSION = "2.0.0"
+_STABLE_FALLBACK_COMMIT = "69819350d340a6aeccf95aa175edfd1c3f63404b"
+_STABLE_FALLBACK_WHEEL = "confflow-2.0.0-py3-none-any.whl"
+_STABLE_FALLBACK_WHEEL_SHA256 = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
 
 
 def build_stable_config_validate_command(contract: VerifiedConfigurationContract) -> str:
@@ -130,17 +126,7 @@ def build_stable_config_validate_command(contract: VerifiedConfigurationContract
         raise ConfigurationContractError("stable producer identity has no validated Python executable") from exc
     if not isinstance(python_executable, str) or not python_executable:
         raise ConfigurationContractError("stable producer identity has no validated Python executable")
-    binding = json.dumps(
-        {
-            "id": contract.contract_id,
-            "version": contract.contract_version,
-            "schema_sha256": contract.schema_sha256,
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    source = _STABLE_VALIDATOR_SCRIPT.replace("__CONTRACT_JSON__", repr(binding))
+    source = _STABLE_VALIDATOR_SCRIPT.replace("__SCHEMA_SHA256__", repr(contract.schema_sha256))
     encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
     program = f"import base64;exec(base64.b64decode({encoded!r}))"
     return f"{quote_confflow_executable(python_executable)} -c {shlex.quote(program)}"
@@ -239,37 +225,36 @@ class SSHConfigurationContractClient:
         configured_executable: str,
         capabilities: ConfFlowCapabilities,
     ) -> VerifiedConfigurationContract:
-        if capabilities.version != REFERENCE_VERSION:
+        if capabilities.version != _STABLE_FALLBACK_VERSION:
             raise ConfigurationContractError("configuration contract command is unsupported")
-        try:
-            validate_confflow_production_capability(
-                capabilities,
-                expected_executable=configured_executable or None,
-            )
-        except ValueError as exc:
-            raise ConfigurationContractError(
-                "configuration fallback requires the exact approved stable producer"
-            ) from exc
+        payload = capabilities.raw_payload
+        producer = capabilities.producer
+        if not isinstance(payload, dict) or not isinstance(producer, dict):
+            raise ConfigurationContractError("configuration fallback requires the exact approved stable producer")
+        expected_build = {"commit": _STABLE_FALLBACK_COMMIT, "dirty": False}
+        if payload.get("build") != expected_build or producer.get("build") != expected_build:
+            raise ConfigurationContractError("configuration fallback requires the exact approved stable producer")
+        if producer.get("package") != "confflow" or producer.get("version") != _STABLE_FALLBACK_VERSION:
+            raise ConfigurationContractError("configuration fallback requires the exact approved stable producer")
+        if producer.get("wheel") != {
+            "filename": _STABLE_FALLBACK_WHEEL,
+            "sha256": _STABLE_FALLBACK_WHEEL_SHA256,
+        }:
+            raise ConfigurationContractError("configuration fallback requires the exact approved stable producer")
         schema = json.loads(stable_2_0_0.schema_bytes())
-        producer = capabilities.producer or {}
+        schema_sha256 = hashlib.sha256(producer_canonical_json_bytes(schema)).hexdigest()
         fallback_payload = {
-            "content_schema": CONTRACT_RESPONSE_SCHEMA,
-            "contract": {
-                "fixture_set": {
-                    "id": stable_2_0_0.FIXTURE_SET_ID,
-                    "manifest_sha256": stable_2_0_0.FIXTURE_MANIFEST_SHA256,
-                },
-                "id": CONTRACT_ID,
-                "schema_id": stable_2_0_0.SCHEMA_ID,
-                "schema_sha256": stable_2_0_0.SCHEMA_SHA256,
-                "version": CONTRACT_VERSION,
-            },
+            "schema": CONTRACT_RESPONSE_SCHEMA,
+            "workflow_schema_version": WORKFLOW_SCHEMA_VERSION,
+            "workflow_schema_sha256": schema_sha256,
+            "workflow_schema": schema,
             "producer": {
-                "build": producer.get("build"),
                 "package": producer.get("package"),
                 "version": producer.get("version"),
+                "commit": expected_build["commit"],
+                "dirty": expected_build["dirty"],
             },
-            "workflow_schema": schema,
+            "validation_response_schema": VALIDATE_RESPONSE_SCHEMA,
         }
         return parse_contract_response(
             json.dumps(fallback_payload, sort_keys=True, separators=(",", ":")),
