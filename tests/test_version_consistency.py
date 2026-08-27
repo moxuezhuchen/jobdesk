@@ -143,7 +143,7 @@ def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
         "EXPECTED_WHEEL_SHA256": REFERENCE_WHEEL_SHA256,
     }
     accepted = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", command],
+        ["pwsh", "-NoProfile", "-Command", command],
         env=environment,
         capture_output=True,
         text=True,
@@ -151,7 +151,7 @@ def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
     assert accepted.returncode == 0, accepted.stderr
     environment["TEST_WHEEL"] = str(tampered)
     rejected = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", command],
+        ["pwsh", "-NoProfile", "-Command", command],
         env=environment,
         capture_output=True,
         text=True,
