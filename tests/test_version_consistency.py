@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -159,6 +160,72 @@ def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
     assert rejected.returncode != 0
 
 
+def _copy_chemistry_check_sandbox(destination: Path, wheel: Path) -> None:
+    """Copy the real chemistry-check inputs into an isolated test repository."""
+    (destination / "scripts").mkdir(parents=True)
+    shutil.copy2(REPO_ROOT / "pyproject.toml", destination / "pyproject.toml")
+    shutil.copy2(
+        REPO_ROOT / "scripts" / "compile_chem_locks.ps1",
+        destination / "scripts" / "compile_chem_locks.ps1",
+    )
+    shutil.copytree(REPO_ROOT / "requirements", destination / "requirements")
+    artifact = destination / ".matrix-artifacts" / wheel.name
+    artifact.parent.mkdir()
+    shutil.copy2(wheel, artifact)
+
+
+def _run_chemistry_check(sandbox: Path) -> subprocess.CompletedProcess[str]:
+    powershell = shutil.which("powershell.exe")
+    assert powershell is not None, "Windows PowerShell is required for this CI-matching gate test"
+    script = str(sandbox / "scripts" / "compile_chem_locks.ps1").replace("'", "''")
+    return subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f"Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; & '{script}' -Check",
+        ],
+        cwd=sandbox,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+    )
+
+
+@pytest.mark.parametrize("tampered_input", ("lock", "manifest"))
+def test_windows_chemistry_check_rejects_tampered_checked_in_inputs(tmp_path: Path, tampered_input: str):
+    """The real lock/manifest gate must reject each checked-in input mutation."""
+    if os.name != "nt":
+        pytest.skip("the chemistry lock gate runs in PowerShell on Windows")
+
+    wheel = REPO_ROOT / ".matrix-artifacts" / "confflow-2.1.6-py3-none-any.whl"
+    assert wheel.is_file(), "the formal ConfFlow v2.1.6 wheel must be present for this gate"
+    assert shutil.which("uv") is not None, "uv 0.11.5 must be available for this gate"
+
+    sandbox = tmp_path / "chemistry-check"
+    _copy_chemistry_check_sandbox(sandbox, wheel)
+    clean = _run_chemistry_check(sandbox)
+    assert clean.returncode == 0, f"clean chemistry check failed:\n{clean.stdout}\n{clean.stderr}"
+
+    if tampered_input == "lock":
+        path = sandbox / "requirements" / "locks" / "jobdesk-chem-py311-win_amd64.txt"
+        path.write_bytes(path.read_bytes() + b"\n# tampered by regression test\n")
+    else:
+        path = sandbox / "requirements" / "locks" / "jobdesk-chem-wheel-manifest.json"
+        original = path.read_bytes()
+        needle = REFERENCE_WHEEL_SHA256.encode("ascii")
+        assert original.count(needle) == 1
+        path.write_bytes(original.replace(needle, b"0" * 64, 1))
+
+    rejected = _run_chemistry_check(sandbox)
+    assert rejected.returncode != 0, (
+        f"chemistry check accepted tampered {tampered_input}:\n{rejected.stdout}\n{rejected.stderr}"
+    )
+
+
 def test_optional_coverage_uses_the_same_released_wheel():
     """The optional Linux job must not silently exercise an older producer."""
     content = _read(".github/workflows/optional-coverage.yml")
@@ -240,9 +307,9 @@ def test_preflight_module_has_no_bare_version_literal():
         "confflow_preflight.py must not contain the bare literal '1.5.0'; "
         "it must source the spec from MIN_VERSION/MAX_EXCLUSIVE."
     )
-    assert (
-        "2.0.0" not in content
-    ), "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
+    assert "2.0.0" not in content, (
+        "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
+    )
     # SOURCE_OF_TRUTH imports must be present.
     assert "from .confflow_contract import" in content
     assert "MIN_VERSION" in content
