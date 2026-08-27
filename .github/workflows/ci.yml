@@ -138,6 +138,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up uv for chemistry lock verification
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.5"
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -169,6 +174,16 @@ jobs:
           if ((Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLower() -ne "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548") { throw "ConfFlow release wheel digest mismatch." }
           python -m pip install --no-deps $wheel.FullName
           python -c "import confflow; assert confflow.__version__ == '2.1.6'; print(confflow.__version__)"
+
+      - name: Verify checked-in chemistry locks against formal wheel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force .matrix-artifacts | Out-Null
+          $wheel = Get-ChildItem -LiteralPath .ci\confflow-dist -Filter "confflow-2.1.6-py3-none-any.whl" | Select-Object -First 1
+          if ($null -eq $wheel) { throw "ConfFlow v2.1.6 wheel is unavailable for chemistry lock verification." }
+          Copy-Item -LiteralPath $wheel.FullName -Destination .matrix-artifacts\confflow-2.1.6-py3-none-any.whl -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\compile_chem_locks.ps1 -Check
 
       - name: Verify ConfFlow wheel build provenance
         shell: pwsh

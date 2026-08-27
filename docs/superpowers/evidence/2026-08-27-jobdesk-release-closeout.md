@@ -40,8 +40,16 @@ The candidate-only changes are:
   validation, a source-tree-external installed-wheel smoke, CycloneDX SBOM,
   GitHub build provenance attestation, attestation/provenance JSON records,
   SHA256SUMS, workflow artifact upload, and one release publication command.
+  The follow-up hardening also initializes failure evidence atomically before
+  checkout, records stage/trap failures, copies the cryptographic
+  `attestation-verification.json` into the allowlisted release dist, and
+  re-reads the published REST asset set before downloading every asset into a
+  fresh directory for byte-for-byte SHA256SUMS verification.
+- `scripts/verify_release_assets.py` and `tests/test_verify_release_assets.py`:
+  offline exact-name, duplicate, missing, extra, and tampered-byte gates for
+  the post-publication release asset set.
 - `tests/test_release_workflow.py`: static YAML, permission, version, build,
-  installed-wheel, attestation, and release-asset assertions.
+  installed-wheel, attestation, failure-evidence, and release-asset assertions.
 
 The workflow is intentionally not executed here. No tag, GitHub release,
 production endpoint, or external workload was changed.
@@ -128,6 +136,12 @@ The test-first sequence was:
     ConfFlow `2.0.0`; that expected environment mismatch was not counted as a
     code failure, and the gate was rerun after installing the formal `2.1.6`
     wheel as CI does.
+12. The follow-up asset/evidence regression set passed: `35 passed`, including
+    missing/extra/duplicate/tampered release assets, atomic failure-evidence
+    updates, and the Windows PowerShell wheel hash gate rejecting a tampered
+    copy. `powershell -ExecutionPolicy Bypass -File
+    scripts/compile_chem_locks.ps1 -Check` again passed against the formal
+    `v2.1.6` wheel.
 
 ## Remaining authorization gates
 

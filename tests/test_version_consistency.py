@@ -19,7 +19,9 @@ slipped through CI), and must fail this test module.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -104,6 +106,54 @@ def test_ci_yaml_wheel_glob_matches_wheel_name():
     content = _read(".github/workflows/ci.yml")
     assert content.count("confflow-2.1.6-*.whl") == 2
     assert content.count("confflow.__version__ == '2.1.6'") == 2
+
+
+def test_windows_matrix_rechecks_chemistry_locks_against_released_wheel():
+    """CI must mechanically reject a stale lock or substituted producer wheel."""
+    content = _read(".github/workflows/ci.yml")
+    assert "Set up uv for chemistry lock verification" in content
+    assert (
+        "Copy-Item -LiteralPath $wheel.FullName -Destination .matrix-artifacts\\confflow-2.1.6-py3-none-any.whl"
+        in content
+    )
+    assert "scripts\\compile_chem_locks.ps1 -Check" in content
+    assert "Get-FileHash -Algorithm SHA256 $wheel.FullName" in content
+    assert REFERENCE_WHEEL_SHA256 in content
+
+
+def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
+    """The CI digest gate must reject a byte-level substitution of the wheel."""
+    if os.name != "nt":
+        pytest.skip("the CI gate runs in PowerShell on Windows")
+    wheel = REPO_ROOT / ".matrix-artifacts" / "confflow-2.1.6-py3-none-any.whl"
+    if not wheel.is_file():
+        pytest.skip("the independently downloaded ConfFlow wheel is not present")
+    tampered = tmp_path / wheel.name
+    tampered.write_bytes(wheel.read_bytes() + b"tampered")
+    command = (
+        "Import-Module Microsoft.PowerShell.Utility; "
+        "$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:TEST_WHEEL).Hash.ToLower(); "
+        "if ($actual -ne $env:EXPECTED_WHEEL_SHA256) { exit 1 }"
+    )
+    environment = os.environ | {
+        "TEST_WHEEL": str(wheel),
+        "EXPECTED_WHEEL_SHA256": REFERENCE_WHEEL_SHA256,
+    }
+    accepted = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", command],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    environment["TEST_WHEEL"] = str(tampered)
+    rejected = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", command],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
 
 
 def test_optional_coverage_uses_the_same_released_wheel():

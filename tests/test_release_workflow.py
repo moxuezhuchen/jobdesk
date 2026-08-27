@@ -86,6 +86,16 @@ def test_release_workflow_requires_provenance_permissions_and_clean_identity() -
     assert 'test "$IMMUTABLE_CLI" = "true"' in text
 
 
+def test_release_workflow_initializes_and_traps_failure_evidence() -> None:
+    text = _workflow_text()
+    assert text.index("Initialize release failure evidence") < text.index("- name: Checkout")
+    assert '"stage": "before_checkout"' in text
+    assert "os.replace(temporary, path)" in text
+    assert "scripts/update_release_evidence.py" in text
+    assert "trap 'rc=$?;" in text
+    assert text.count("if-no-files-found: error") >= 2
+
+
 def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     text = _workflow_text()
     assert 'python -m build --sdist --outdir "$BUILD_DIR"' in text
@@ -103,6 +113,7 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     assert "actions/attest-build-provenance@v2" in text
     for filename in (
         "attestation.bundle.json",
+        "attestation-verification.json",
         "attestation.json",
         "provenance.json",
         "sbom.cdx.json",
@@ -129,6 +140,14 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     assert "--source-ref" in text
     assert "--source-digest" in text
     assert "release-post-verification" in text
+    assert 'cp -- "$ATTESTATION_VERIFICATION" dist/attestation-verification.json' in text
+    assert '"attestation_verification_sha256"' in text
+    assert 'gh release download "$EXPECTED_TAG"' in text
+    assert "scripts/verify_release_assets.py" in text
+    assert "--sha256sums dist/SHA256SUMS" in text
+    assert 'DOWNLOAD_DIR="${RUNNER_TEMP}/jobdesk-release-assets"' in text
+    assert "expected_asset_args" in text
+    assert '"downloaded_hashes_verified": True' in text
 
 
 def test_release_workflow_keeps_artifact_version_checks_dynamic() -> None:
