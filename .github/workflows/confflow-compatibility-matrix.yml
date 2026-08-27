@@ -104,10 +104,8 @@ jobs:
           expected_wheel_sha = os.environ["EXPECTED_WHEEL_SHA256"]
           expected_compatible = os.environ["EXPECTED_COMPATIBLE"].lower() == "true"
           expected_schema_snapshot = os.environ["EXPECTED_SCHEMA_SNAPSHOT"]
-          if expected_schema_snapshot != f"v{expected}":
-              raise AssertionError(
-                  f"schema snapshot {expected_schema_snapshot!r} does not match release {expected!r}"
-              )
+          # Schema snapshots are immutable release records and may be reused
+          # by a later producer release when the wire schema is unchanged.
           if re.fullmatch(r"v\d+\.\d+\.\d+", expected_schema_snapshot) is None:
               raise AssertionError(f"schema snapshot selector is malformed: {expected_schema_snapshot!r}")
           expected_error = f"incompatible ConfFlow version {expected}: require >=2.0,<3.0"

@@ -85,6 +85,7 @@ def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     """The candidate matrix must not silently drift from its wheel digests."""
     content = _read(".github/workflows/confflow-compatibility-matrix.yml")
     assert "version: 2.1.3" in content
+    assert "schema_snapshot: v2.0.0" in content
     assert "label: historical-v1.5.3" in content
     assert "version: 1.5.0" in content
     assert f"wheel_sha256: {REFERENCE_WHEEL_SHA256}" in content
