@@ -83,10 +83,12 @@ def verify(executable: str, *, require_production: bool = True) -> dict[str, Any
         capabilities=capabilities,
     )
 
-    valid_bytes = b'{"global":{},"steps":[]}'
-    invalid_bytes = b'{"steps":[{"type":"bad"}]}'
-    valid_response = _run(executable, "config", "validate", "--json", "--stdin", stdin=valid_bytes)
-    invalid_response = _run(executable, "config", "validate", "--json", "--stdin", stdin=invalid_bytes)
+    valid_bytes = b"global: {}\nsteps: []\n"
+    invalid_bytes = b"steps:\n  - type: bad\n"
+    valid_json = b'{"global":{},"steps":[]}'
+    invalid_json = b'{"steps":[{"type":"bad"}]}'
+    valid_response = _run(executable, "config", "validate", "--json", "--stdin", stdin=valid_json)
+    invalid_response = _run(executable, "config", "validate", "--json", "--stdin", stdin=invalid_json)
     if valid_response.exit_code != 0 or invalid_response.exit_code != 1:
         raise RuntimeError("installed ConfFlow validation exit codes are not 0/1")
 
@@ -103,8 +105,8 @@ def verify(executable: str, *, require_production: bool = True) -> dict[str, Any
     invalid = client.validate(contract, invalid_bytes, env_init_scripts=(), ssh=ssh)
     if contract.cache_key != direct_contract.cache_key or not valid.valid or invalid.valid:
         raise RuntimeError("installed ConfFlow runtime contract results disagree")
-    if ssh.stdin != [None, valid_bytes, invalid_bytes]:
-        raise RuntimeError("runtime client did not stream the exact validation bytes")
+    if ssh.stdin != [None, valid_json, invalid_json]:
+        raise RuntimeError("runtime client did not transcode YAML to the producer canonical JSON ABI")
 
     return {
         "status": "compatible",

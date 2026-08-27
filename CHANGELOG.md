@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.4] - Candidate
+## [0.7.5] - Candidate
+
+This fix-forward candidate keeps the immutable JobDesk `v0.7.4` release
+unchanged and repairs its configuration-admission wire mismatch. JobDesk
+continues to accept YAML workflow documents at its public boundary, but now
+parses them once and sends producer-canonical JSON to the formally released
+ConfFlow `v2.1.6` `config validate --json --stdin` ABI. Invalid YAML or values
+that cannot cross the JSON wire boundary fail closed before SSH validation;
+the exact ConfFlow `v2.0.0` stable fallback retains its historical YAML input.
+
+## [0.7.4] - 2026-08-28
 
 This fix-forward candidate makes JobDesk consume the producer-owned
 `confflow.configuration-contract.v1` and
@@ -19,6 +29,11 @@ fields, producer or executable drift, schema-hash mismatches, malformed
 issues, and validation exit-code disagreement.  Both compatibility workflows
 now run the installed producer CLI and feed its actual stdout into the
 JobDesk runtime client.
+
+The immutable release completed, but the later side-by-side launcher
+acceptance stopped before dispatch: JobDesk streamed the public YAML document
+directly to ConfFlow's JSON-only validation stdin. No scientific workload was
+submitted under this failed acceptance attempt; `0.7.5` is the fix-forward.
 
 ## [0.7.3] - 2026-08-28
 

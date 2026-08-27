@@ -8,6 +8,8 @@ import json
 import shlex
 from collections.abc import Iterable
 
+import yaml
+
 from jobdesk_app.application.configuration_contract import (
     ConfigurationValidationResult,
     VerifiedConfigurationContract,
@@ -37,6 +39,16 @@ def build_config_contract_command(executable: str | None = None) -> str:
 
 def build_config_validate_command(executable: str | None = None) -> str:
     return f"{quote_confflow_executable(executable)} config validate --json --stdin"
+
+
+def _producer_validation_input(configuration: bytes) -> bytes:
+    """Translate JobDesk's YAML document to ConfFlow's canonical JSON wire ABI."""
+
+    try:
+        document = yaml.safe_load(configuration.decode("utf-8"))
+        return producer_canonical_json_bytes(document)
+    except (UnicodeDecodeError, yaml.YAMLError, ConfigurationContractError) as exc:
+        raise ConfigurationContractError("configuration cannot be represented by the producer JSON ABI") from exc
 
 
 _STABLE_VALIDATOR_SCRIPT = r"""
@@ -203,10 +215,12 @@ class SSHConfigurationContractClient:
     ) -> ConfigurationValidationResult:
         if contract.source == "stable-fallback":
             command = _shell(build_stable_config_validate_command(contract), env_init_scripts)
+            validation_input = configuration
         else:
             command = _shell(build_config_validate_command(contract.configured_executable), env_init_scripts)
+            validation_input = _producer_validation_input(configuration)
         try:
-            response = ssh.run(command, timeout=30, stdin_data=configuration)
+            response = ssh.run(command, timeout=30, stdin_data=validation_input)
         except Exception as exc:
             raise ConfigurationContractError("configuration validation command failed") from exc
         if response.exit_code not in {0, 1}:
