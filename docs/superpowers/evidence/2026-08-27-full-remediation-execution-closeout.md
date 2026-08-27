@@ -11,7 +11,7 @@
 - 已发布 ConfFlow `v2.1.3`：`a7c570431976331bb067b204b6300ba17b1f3da5`；依赖 manifest 的精确 filename 与 provenance 链未闭合，阻断正式 side-by-side。
 - 当前配置生产可执行文件仍为 `/opt/confflow-current -> /opt/ConfFlow/.venv/bin/confflow`，报告 `2.0.0`，属于共享 `.venv`；没有批准的生产变更记录。Phase 0 中的旧路径记录保留于 `docs/superpowers/evidence/2026-08-19-full-remediation-phase0.md:30-42`。
 - 未执行真实 workload、生产 promotion 或生产 endpoint 切换；正式 released side-by-side 在首个依赖/供应链 gate 停止。
-- 2026-08-27 live GitHub 查询确认 JobDesk 与 ConfFlow 两个仓库均为 immutable releases `enabled=false`、rulesets `[]`，现有 `v0.7.2` / `v2.1.3` release 也均为 `isImmutable=false`；这是发布前必须由 owner 单独授权处理的外部 gate。
+- 2026-08-27 owner 单独授权后，live GitHub 回读确认 JobDesk 与 ConfFlow 两个仓库均为 immutable releases `enabled=true`；并分别启用 active tag ruleset `21647422` / `21647483`，匹配 `refs/tags/v*`，禁止 update/deletion，`bypass_actors=[]` 且 `current_user_can_bypass=never`。GitHub 的 immutable releases 只约束今后创建的 release，因此既有 `v0.7.2` / `v2.1.3` 仍为 `isImmutable=false`；两者的注释 tag 分别仍解引用到 `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8` / `a7c570431976331bb067b204b6300ba17b1f3da5`。
 
 ## Phase 0 — 基线、授权与隔离
 
@@ -74,6 +74,7 @@
 ## Phase 8 — 文档、供应链、side-by-side 与 promotion
 
 - **completed**：README/架构文档已区分 shared source、isolated candidate、released package、configured production executable；历史 evidence 未改写。
+- **completed**：owner 授权的 GitHub 发布保护 gate 已执行并回读：两个仓库均启用 future immutable releases 与不可绕过的 `v*` tag update/deletion ruleset；未借此授权推送、建 PR、打 tag 或发布。
 - **independently verified**：JobDesk `v0.7.2` 发布资产与 digest 见 `docs/superpowers/evidence/2026-08-27-jobdesk-release-closeout.md`；其未来 `0.7.3` workflow 仍是候选。
 - **not executed**：未执行 `0.7.3`/`2.1.4` 发布、正式 released side-by-side 后续 gate、真实 launcher/workload、生产 promotion。
 - **blocked**：released side-by-side 在首个 dependency/provenance gate 停止；`v2.1.3` manifest filename/provenance 链、JobDesk `v0.7.2` 完整供应链及 Windows fixture identity 均未闭合。
@@ -82,4 +83,4 @@
 
 - 计划尚未完成：`0.7.3`/`2.1.4` 已形成独立复审通过的本地 checkpoint，但均未推送、未发布；生产仍保持共享 `.venv` `2.0.0`。
 - `completed` 与 `independently verified` 仅限上列证据；`not executed` 不得解释为通过；`blocked` 不得由候选测试替代。
-- 最终独立代码复审：JobDesk 与 ConfFlow 候选均为 **APPROVED**。外部发布 gate 为 **BLOCKED**：immutable releases 未启用、tag ruleset 不存在，且尚无发布授权；随后正式 pair side-by-side、真实 workload 与 promotion 也未获各自授权，因此不得宣称 release/production DoD 通过。
+- 最终独立代码复审：JobDesk 与 ConfFlow 候选均为 **APPROVED**。GitHub 发布保护设置 gate 已完成；外部发布 gate 仍为 **BLOCKED**：本地候选尚未获推送/建 PR/合并/发布授权，历史 release 的供应链缺口也未被设置变更补齐。随后正式 pair side-by-side、真实 workload 与 promotion 仍需各自单独授权，因此不得宣称 release/production DoD 通过。
