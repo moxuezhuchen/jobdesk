@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.6] - Candidate
+## [0.7.7] - Candidate
 
-This fix-forward candidate keeps the immutable JobDesk `v0.7.5` release
+This fix-forward candidate preserves the immutable failed `v0.7.6` tag and
+adds the complete Linux Qt runtime used by candidate compatibility CI to the
+tag-only release job before its final wheel and source-distribution GUI
+smokes. The `v0.7.6` release workflow stopped before release creation when
+PySide6 could not load `libEGL.so.1`; its later attestation output was only a
+cascading failure. No scientific workload or production promotion occurred.
+
+## [0.7.6] - 2026-08-28
+
+This fix-forward kept the immutable JobDesk `v0.7.5` release
 unchanged and restores the four built-in workflow examples to both wheel and
 source-distribution package data. Package and release CI now build both
 archives, audit the exact template set, install each archive outside the
@@ -19,6 +28,11 @@ checkout with an empty `PYTHONPATH`, and run the complete 16-step offscreen
 GUI smoke against `site-packages`. The `v0.7.5` release remains immutable;
 its missing JSON resources caused the formal side-by-side acceptance to stop
 before any scientific workload or production change.
+
+The immutable `v0.7.6` tag remains as failure evidence. Its tag-only release
+workflow built and audited both archives, then stopped at the first installed
+wheel GUI smoke because the Ubuntu runner lacked `libEGL.so.1`; no GitHub
+release was created. `0.7.7` is the release-runtime fix-forward.
 
 ## [0.7.5] - 2026-08-28
 
