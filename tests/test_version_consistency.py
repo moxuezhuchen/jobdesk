@@ -114,7 +114,8 @@ def test_compatibility_workflows_execute_the_installed_configuration_runtime_bou
     assert "tests/test_configuration_contract_client.py" in paired
     for workflow in (matrix, paired):
         assert "confflow --capabilities --json" not in workflow
-        assert '--executable "$(command -v confflow)"' in workflow
+    assert '--executable "$CONFLOW_FORMAL_VENV/bin/confflow"' in matrix
+    assert '--executable "$(command -v confflow)"' in paired
 
 
 def test_ci_yaml_wheel_glob_matches_wheel_name():
@@ -280,6 +281,22 @@ def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
     assert 'pip install --no-deps "$wheel"' not in content
     assert 'python-version: "3.13"' in content
     assert "validate_confflow_capabilities(capabilities, require_dag=False)" in content
+
+
+def test_stable_configuration_abi_uses_attested_canonical_python312_install():
+    content = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    assert "id: confflow-python312" in content
+    assert 'python-version: "3.12"' in content
+    assert "update-environment: false" in content
+    assert "confflow-2.1.6-py3-none-any.whl" in content
+    assert "confflow-2.1.6-py312-linux-x86_64.lock" in content
+    assert "confflow-2.1.6-py312-linux-x86_64.SHA256SUMS" in content
+    assert "attestation.bundle.json" in content
+    assert 'gh attestation verify "$wheel"' in content
+    assert '--signer-workflow "moxuezhuchen/ConfFlow/.github/workflows/release.yml"' in content
+    assert "write_install_provenance_atomic" in content
+    assert '"attestation_verified": True' in content
+    assert '--executable "$CONFLOW_FORMAL_VENV/bin/confflow"' in content
 
 
 def test_readme_states_version_spec():
