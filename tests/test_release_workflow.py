@@ -30,7 +30,7 @@ def _workflow_document() -> dict[object, object]:
 
 def test_next_patch_candidate_is_bound_to_the_release_workflow() -> None:
     version = _project_version()
-    assert version == "0.7.5"
+    assert version == "0.7.6"
 
     text = _workflow_text()
     document = _workflow_document()
@@ -104,12 +104,21 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     assert "cyclonedx-py requirements" in text
     assert "requirements/locks/jobdesk-dev-py312-win_amd64.txt" in text
     assert 'python -m venv "$WHEEL_VENV"' in text
-    assert '-m pip install --no-deps "$wheel"' in text
+    assert '-m pip install "$wheel"' in text
     assert 'python -m venv "$SDIST_VENV"' in text
-    assert '-m pip install --no-deps "$sdist"' in text
+    assert '-m pip install "$sdist"' in text
     assert "jobdesk-${VERSION}.tar.gz" in text
     assert 'pushd "$RUNNER_TEMP"' in text
     assert 'importlib.metadata.version("jobdesk")' in text
+    assert "python scripts/verify_jobdesk_distributions.py" in text
+    assert text.count('cp scripts/smoke_gui_offscreen.py "$RUNNER_TEMP/') == 2
+    assert text.count("JOBDESK_SMOKE_EXPECT_SITE_PACKAGES=1") == 2
+    assert text.count("JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT") == 2
+    assert text.count("PYTHONPATH='' QT_QPA_PLATFORM=offscreen") == 2
+    assert text.count("smoke_gui_offscreen.py") >= 2
+    smoke = (ROOT / "scripts" / "smoke_gui_offscreen.py").read_text(encoding="utf-8")
+    assert "JOBDESK_SMOKE_EXPECT_SITE_PACKAGES" in smoke
+    assert "site-packages" in smoke
     assert "actions/attest-build-provenance@v2" in text
     for filename in (
         "attestation.bundle.json",
@@ -180,17 +189,17 @@ def test_sbom_policy_requires_reproducible_top_level_jobdesk(tmp_path: Path) -> 
             {
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
-                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.5"}},
+                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.6"}},
                 "components": [{"type": "library", "name": "packaging", "version": "24.0"}],
             }
         ),
         encoding="utf-8",
     )
-    validate_sbom(sbom, package="jobdesk", version="0.7.5")
+    validate_sbom(sbom, package="jobdesk", version="0.7.6")
 
     sbom.write_text(
-        sbom.read_text(encoding="utf-8").replace('"version": "0.7.5"', '"version": "0.7.4"'),
+        sbom.read_text(encoding="utf-8").replace('"version": "0.7.6"', '"version": "0.7.5"'),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="top-level"):
-        validate_sbom(sbom, package="jobdesk", version="0.7.5")
+        validate_sbom(sbom, package="jobdesk", version="0.7.6")

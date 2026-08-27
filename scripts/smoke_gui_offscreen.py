@@ -54,6 +54,7 @@ import os
 import sys
 import traceback
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
 # -- 1. Qt platform MUST be set before importing PySide6 --
@@ -63,8 +64,33 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # the repo root.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SRC = os.path.join(_REPO_ROOT, "src")
-if _SRC not in sys.path:
+if os.path.isdir(_SRC) and _SRC not in sys.path:
     sys.path.insert(0, _SRC)
+
+if os.environ.get("JOBDESK_SMOKE_EXPECT_SITE_PACKAGES") == "1":
+    import jobdesk_app
+    from jobdesk_app.gui.nodegraph import examples_drawer
+
+    package_paths = (Path(jobdesk_app.__file__).resolve(), Path(examples_drawer.__file__).resolve())
+    for package_path in package_paths:
+        if not any(part.lower() in {"site-packages", "dist-packages"} for part in package_path.parts):
+            raise RuntimeError(f"installed-package smoke imported source checkout module: {package_path}")
+    forbidden_source = os.environ.get("JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT")
+    if not forbidden_source:
+        raise RuntimeError("installed-package smoke requires JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT")
+    source_path = Path(forbidden_source).resolve()
+    resolved_sys_path = {Path(entry or os.curdir).resolve() for entry in sys.path}
+    if source_path in resolved_sys_path:
+        raise RuntimeError(f"installed-package smoke retained source checkout on sys.path: {source_path}")
+    loaded_ids = tuple(template.id for template in examples_drawer.EXAMPLE_TEMPLATES if template.load_graph())
+    if set(loaded_ids) != {
+        "conformer_ensemble",
+        "fan_in_refine",
+        "fan_out_gen_opt",
+        "linear_opt_freq",
+    }:
+        raise RuntimeError(f"installed-package workflow example set is incomplete: {loaded_ids}")
+    print("installed package origin: " + ", ".join(str(path) for path in package_paths))
 
 from PySide6.QtCore import QTimer, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402

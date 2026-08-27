@@ -288,6 +288,10 @@ jobs:
               raise SystemExit("wheel metadata does not match the tagged project version")
           print(f"verified {wheel.name} and {sdists[0].name}: version={version}")
           PY
+          wheel="$(find dist -maxdepth 1 -name "jobdesk-${VERSION}-*.whl" -print -quit)"
+          python scripts/verify_jobdesk_distributions.py \
+            --wheel "$wheel" \
+            --sdist "dist/jobdesk-${VERSION}.tar.gz"
 
       - name: Install and smoke-test the final wheel outside the checkout
         run: |
@@ -305,9 +309,14 @@ jobs:
           python -m venv "$WHEEL_VENV"
           wheel="$(find dist -maxdepth 1 -name "jobdesk-${VERSION}-*.whl" -print -quit)"
           test -n "$wheel"
-          "$WHEEL_VENV/bin/python" -m pip install --no-deps "$wheel"
+          "$WHEEL_VENV/bin/python" -m pip install "$wheel"
+          cp scripts/smoke_gui_offscreen.py "$RUNNER_TEMP/jobdesk-wheel-smoke_gui_offscreen.py"
           pushd "$RUNNER_TEMP" >/dev/null
           "$WHEEL_VENV/bin/python" -c 'import importlib.metadata; import jobdesk_app; assert importlib.metadata.version("jobdesk") == __import__("os").environ["VERSION"]; assert "site-packages" in jobdesk_app.__file__; print(jobdesk_app.__file__)'
+          PYTHONPATH='' QT_QPA_PLATFORM=offscreen JOBDESK_SMOKE_EXPECT_SITE_PACKAGES=1 \
+            JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT="$GITHUB_WORKSPACE/src" \
+            JOBDESK_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/jobdesk-wheel-smoke-output" \
+            "$WHEEL_VENV/bin/python" "$RUNNER_TEMP/jobdesk-wheel-smoke_gui_offscreen.py"
           popd >/dev/null
 
       - name: Install and smoke-test the final sdist outside the checkout
@@ -326,9 +335,14 @@ jobs:
           python -m venv "$SDIST_VENV"
           sdist="dist/jobdesk-${VERSION}.tar.gz"
           test -f "$sdist"
-          "$SDIST_VENV/bin/python" -m pip install --no-deps "$sdist"
+          "$SDIST_VENV/bin/python" -m pip install "$sdist"
+          cp scripts/smoke_gui_offscreen.py "$RUNNER_TEMP/jobdesk-sdist-smoke_gui_offscreen.py"
           pushd "$RUNNER_TEMP" >/dev/null
           "$SDIST_VENV/bin/python" -c 'import importlib.metadata; import jobdesk_app; assert importlib.metadata.version("jobdesk") == __import__("os").environ["VERSION"]; assert "site-packages" in jobdesk_app.__file__; print(jobdesk_app.__file__)'
+          PYTHONPATH='' QT_QPA_PLATFORM=offscreen JOBDESK_SMOKE_EXPECT_SITE_PACKAGES=1 \
+            JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT="$GITHUB_WORKSPACE/src" \
+            JOBDESK_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/jobdesk-sdist-smoke-output" \
+            "$SDIST_VENV/bin/python" "$RUNNER_TEMP/jobdesk-sdist-smoke_gui_offscreen.py"
           popd >/dev/null
 
       - name: Generate CycloneDX SBOM from the controlled Windows lock

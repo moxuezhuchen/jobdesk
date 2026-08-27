@@ -9,7 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.5] - Candidate
+## [0.7.6] - Candidate
+
+This fix-forward candidate keeps the immutable JobDesk `v0.7.5` release
+unchanged and restores the four built-in workflow examples to both wheel and
+source-distribution package data. Package and release CI now build both
+archives, audit the exact template set, install each archive outside the
+checkout with an empty `PYTHONPATH`, and run the complete 16-step offscreen
+GUI smoke against `site-packages`. The `v0.7.5` release remains immutable;
+its missing JSON resources caused the formal side-by-side acceptance to stop
+before any scientific workload or production change.
+
+## [0.7.5] - 2026-08-28
 
 This fix-forward candidate keeps the immutable JobDesk `v0.7.4` release
 unchanged and repairs its configuration-admission wire mismatch. JobDesk
@@ -18,6 +29,11 @@ parses them once and sends producer-canonical JSON to the formally released
 ConfFlow `v2.1.6` `config validate --json --stdin` ABI. Invalid YAML or values
 that cannot cross the JSON wire boundary fail closed before SSH validation;
 the exact ConfFlow `v2.0.0` stable fallback retains its historical YAML input.
+
+The immutable release completed, but its wheel and source distribution omitted
+the four `workflow_examples/*.json` resources. Formal installed-artifact GUI
+acceptance stopped at the Quick-start gate (13/16 steps); no workload or
+production promotion occurred. `0.7.6` is the package-data fix-forward.
 
 ## [0.7.4] - 2026-08-28
 

@@ -1,5 +1,8 @@
+import json
 import tomllib
 from pathlib import Path
+
+import yaml
 
 from jobdesk_app.core.confflow_contract import version_spec
 
@@ -10,11 +13,51 @@ def test_gui_resources_are_declared_as_package_data():
     assert "gui/resources/*.svg" in config["tool"]["setuptools"]["package-data"]["jobdesk_app"]
 
 
+def test_workflow_examples_are_declared_as_package_data():
+    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    package_data = config["tool"]["setuptools"]["package-data"]["jobdesk_app"]
+    assert "resources/workflow_examples/*.json" in package_data
+
+
+def test_quick_start_workflow_example_set_is_complete_and_valid_json():
+    examples = Path("src/jobdesk_app/resources/workflow_examples")
+    expected = {
+        "conformer_ensemble.json",
+        "fan_in_refine.json",
+        "fan_out_gen_opt.json",
+        "linear_opt_freq.json",
+    }
+
+    actual = {path.name for path in examples.glob("*.json")}
+    assert actual == expected
+    for name in sorted(expected):
+        document = json.loads((examples / name).read_text(encoding="utf-8"))
+        assert set(document) == {"nodes", "edges"}
+        assert document["nodes"]
+        assert document["edges"]
+
+
 def test_pyinstaller_bundle_includes_gui_resources():
     spec = Path("packaging/pyinstaller/jobdesk-gui.spec").read_text(encoding="utf-8")
 
     assert 'gui" / "resources' in spec
     assert "jobdesk_app/gui/resources" in spec
+
+
+def test_package_smoke_builds_and_exercises_wheel_and_sdist_outside_checkout():
+    workflow = Path(".github/workflows/package-smoke.yml").read_text(encoding="utf-8")
+    document = yaml.safe_load(workflow)
+
+    assert {"built-distributions", "pyinstaller"} <= set(document["jobs"])
+    assert "python -m build --outdir dist" in workflow
+    assert "scripts/verify_jobdesk_distributions.py" in workflow
+    assert workflow.count("JOBDESK_SMOKE_EXPECT_SITE_PACKAGES") == 2
+    assert workflow.count("JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT") == 2
+    assert workflow.count('$env:PYTHONPATH = ""') == 2
+    assert "jobdesk-wheel-smoke_gui_offscreen.py" in workflow
+    assert "jobdesk-sdist-smoke_gui_offscreen.py" in workflow
+    assert "pip install -e" not in workflow.split("built-distributions:", 1)[1].split("  pyinstaller:", 1)[0]
 
 
 def test_jobdesk_gui_is_gui_script_not_console_script():
