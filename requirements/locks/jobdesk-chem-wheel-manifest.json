@@ -1,12 +1,12 @@
 {
     "schema":  "jobdesk.chem-lock.v1",
     "artifact":  {
-                     "filename":  "confflow-2.0.0-py3-none-any.whl",
-                     "relative_path":  ".matrix-artifacts/confflow-2.0.0-py3-none-any.whl",
-                     "sha256":  "9b273b95018542536fa179e9cd0de09afeccb0fd38ff66d571b4aad98343ac65",
-                     "metadata_sha256":  "e4095cf4ad0de0c12927dfe9c271c97a770996424b24416069732fd8970045eb",
+                     "filename":  "confflow-2.1.3-py3-none-any.whl",
+                     "relative_path":  ".matrix-artifacts/confflow-2.1.3-py3-none-any.whl",
+                     "sha256":  "10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe",
+                     "metadata_sha256":  "0796145a8965c1a07135939115a82613f7d05d14fed4b3d6ed27be9292891060",
                      "name":  "confflow",
-                     "version":  "2.0.0",
+                     "version":  "2.1.3",
                      "requires_python":  "\u003e=3.10",
                      "requires_dist":  [
                                            "numpy\u003e=2.2.6",
@@ -35,7 +35,7 @@
                                            "numba\u003e=0.55.0; extra == \"speed\"",
                                            "numba\u003e=0.55.0; extra == \"all\""
                                        ],
-                     "source":  "local candidate wheel; not a published artifact"
+                     "source":  "exact published ConfFlow v2.1.3 wheel copied locally; production endpoint unchanged"
                  },
     "resolver":  {
                      "uv_version":  "0.11.5",

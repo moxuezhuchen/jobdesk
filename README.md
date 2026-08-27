@@ -199,15 +199,15 @@ producer window; pyproject, CI, and this README are mirrors.
 # Windows (JobDesk side)
 # If the package index does not provide the chemistry build, install the
 # approved wheel first (see docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md):
-# python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+# python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux compute node: install the same approved ConfFlow 2.0.0 wheel.
+# Linux compute node: install the same approved ConfFlow 2.1.3 wheel.
 # The offline wheel workflow is documented in
 # docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md.
-python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
 ```
 
 ### Submit page (Phase 14)

@@ -112,20 +112,20 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 按已发布的 2.0.0 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 按已发布的 2.1.3 wheel 验证。Windows 与 Linux 之间必须保持版本一致，因为 GUI 导入的 Pydantic 模型（`confflow.core.models.GlobalConfigModel` / `CalcConfigModel`）正是远端 `confflow` 二进制所消费的。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
 
 ```powershell
 # Windows（JobDesk 端）
-# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.0.0 wheel；
+# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.1.3 wheel；
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md：
-# python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+# python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux 计算节点也安装相同的已批准 ConfFlow 2.0.0 wheel。
+# Linux 计算节点也安装相同的已批准 ConfFlow 2.1.3 wheel。
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md。
-python -m pip install /path/to/confflow-2.0.0-py3-none-any.whl
+python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
 ```
 
 ### 提交页（Phase 14）

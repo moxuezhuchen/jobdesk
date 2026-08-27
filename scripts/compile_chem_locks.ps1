@@ -14,7 +14,7 @@ $Targets = @(
 )
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$ArtifactRelative = ".matrix-artifacts/confflow-2.0.0-py3-none-any.whl"
+$ArtifactRelative = ".matrix-artifacts/confflow-2.1.3-py3-none-any.whl"
 $ArtifactPath = Join-Path $RepoRoot ($ArtifactRelative -replace "/", "\")
 $ArtifactDirectory = Split-Path -Parent $ArtifactPath
 $LockRoot = Join-Path $RepoRoot "requirements\locks"
@@ -129,7 +129,7 @@ function Write-LockHeader {
         "# confflow-artifact: $ArtifactRelative",
         "# confflow-sha256: $WheelSha256",
         "# confflow-metadata-sha256: $MetadataSha256",
-        "# source: local candidate wheel; not a published artifact",
+        "# source: exact published ConfFlow v2.1.3 wheel copied locally; production endpoint unchanged",
         "# regenerate: powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1",
         ""
     ) -join "`n"
@@ -225,7 +225,7 @@ if ($uvVersion -ne $ExpectedUvVersion) {
 $wheelHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $metadata = Read-WheelMetadata -Path $ArtifactPath
 $metadataHash = Get-Sha256Hex -Bytes $metadata.Bytes
-if ($metadata.Name -ne "confflow" -or $metadata.Version -ne "2.0.0") {
+if ($metadata.Name -ne "confflow" -or $metadata.Version -ne "2.1.3") {
     throw "Unexpected local wheel identity: $($metadata.Name) $($metadata.Version)"
 }
 if ($metadata.RequiresPython -ne ">=3.10") {
@@ -319,7 +319,7 @@ try {
             version = $metadata.Version
             requires_python = $metadata.RequiresPython
             requires_dist = @($metadata.RequiresDist)
-            source = "local candidate wheel; not a published artifact"
+            source = "exact published ConfFlow v2.1.3 wheel copied locally; production endpoint unchanged"
         }
         resolver = [ordered]@{
             uv_version = $uvVersion
