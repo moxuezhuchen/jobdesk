@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from jobdesk_app.core import confflow_contract
 from jobdesk_app.core.confflow_contract import (
@@ -285,6 +286,11 @@ def test_candidate_compatibility_matrix_pins_stable_and_next_wheels():
 
 def test_stable_configuration_abi_uses_attested_canonical_python312_install():
     content = _read(".github/workflows/confflow-compatibility-matrix.yml")
+    assert content.count("production: true") == 1
+    assert content.count("production: false") == 2
+    assert "Build the attested formal producer environment" in content
+    assert content.count("if: matrix.production == true") == 2
+    assert 'if [[ "${{ matrix.expect_compatible }}"' not in content
     assert "id: confflow-python312" in content
     assert 'python-version: "3.12"' in content
     assert "update-environment: false" in content
@@ -297,6 +303,18 @@ def test_stable_configuration_abi_uses_attested_canonical_python312_install():
     assert "write_install_provenance_atomic" in content
     assert '"attestation_verified": True' in content
     assert '--executable "$CONFLOW_FORMAL_VENV/bin/confflow"' in content
+
+
+def test_compatibility_matrix_rendered_run_blocks_are_valid_bash():
+    workflow = yaml.safe_load(_read(".github/workflows/confflow-compatibility-matrix.yml"))
+    steps = workflow["jobs"]["producer-matrix"]["steps"]
+    run_blocks = [step["run"] for step in steps if "run" in step]
+    assert run_blocks
+    assert shutil.which("bash") is not None
+    for index, run_block in enumerate(run_blocks):
+        rendered = re.sub(r"\$\{\{.*?\}\}", "rendered", run_block)
+        completed = subprocess.run(["bash", "-n", "-c", rendered], capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, f"run block {index} is invalid Bash: {completed.stderr}"
 
 
 def test_readme_states_version_spec():
