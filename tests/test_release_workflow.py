@@ -30,7 +30,7 @@ def _workflow_document() -> dict[object, object]:
 
 def test_next_patch_candidate_is_bound_to_the_release_workflow() -> None:
     version = _project_version()
-    assert version == "0.7.6"
+    assert version == "0.7.7"
 
     text = _workflow_text()
     document = _workflow_document()
@@ -84,6 +84,31 @@ def test_release_workflow_requires_provenance_permissions_and_clean_identity() -
     assert '"immutable_preflight_sha"' in text
     assert 'gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" --json isImmutable' in text
     assert 'test "$IMMUTABLE_CLI" = "true"' in text
+
+
+def test_release_workflow_installs_complete_qt_runtime_before_artifact_gui_smokes() -> None:
+    document = _workflow_document()
+    jobs = document.get("jobs")
+    assert isinstance(jobs, dict)
+    build = jobs.get("build")
+    assert isinstance(build, dict)
+    steps = build.get("steps")
+    assert isinstance(steps, list)
+
+    named_steps = {
+        step.get("name"): (index, step)
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and isinstance(step.get("name"), str)
+    }
+    qt_index, qt_step = named_steps["Install Linux Qt runtime"]
+    wheel_index, _ = named_steps["Install and smoke-test the final wheel outside the checkout"]
+    sdist_index, _ = named_steps["Install and smoke-test the final sdist outside the checkout"]
+    assert qt_index < wheel_index < sdist_index
+    assert qt_step.get("run") == (
+        "sudo apt-get update\n"
+        "sudo apt-get install -y libdbus-1-3 libegl1 libgl1 "
+        "libxkbcommon0 libxkbcommon-x11-0\n"
+    )
 
 
 def test_release_workflow_initializes_and_traps_failure_evidence() -> None:
@@ -189,17 +214,17 @@ def test_sbom_policy_requires_reproducible_top_level_jobdesk(tmp_path: Path) -> 
             {
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
-                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.6"}},
+                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.7"}},
                 "components": [{"type": "library", "name": "packaging", "version": "24.0"}],
             }
         ),
         encoding="utf-8",
     )
-    validate_sbom(sbom, package="jobdesk", version="0.7.6")
+    validate_sbom(sbom, package="jobdesk", version="0.7.7")
 
     sbom.write_text(
-        sbom.read_text(encoding="utf-8").replace('"version": "0.7.6"', '"version": "0.7.5"'),
+        sbom.read_text(encoding="utf-8").replace('"version": "0.7.7"', '"version": "0.7.6"'),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="top-level"):
-        validate_sbom(sbom, package="jobdesk", version="0.7.6")
+        validate_sbom(sbom, package="jobdesk", version="0.7.7")

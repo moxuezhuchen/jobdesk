@@ -68,6 +68,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Linux Qt runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-3 libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0
+
       - name: Install build and SBOM tools
         run: |
           set -euo pipefail
