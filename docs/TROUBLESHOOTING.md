@@ -28,12 +28,14 @@ jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
 
 Do not abandon an unverified task: submitting it again can launch a duplicate remote calculation.
 
-Schema v6 is current. Schema v2 introduced the submit/delete operation journal,
+Schema v8 is current. Schema v2 introduced the submit/delete operation journal,
 schema v3 added the trusted-workspace registry and independent delete-operation
 workspace bindings, schema v4 added renewable submit ownership leases, and
 schema v5 adds a `submit_activity_log` table for persisting SubmitPage
-activity, and schema v6 adds the `run_provenance` table for ConfFlow
-producer/executable provenance. Lease timestamps use UTC; recovery skips a live lease and may acquire
+activity, schema v6 adds the `run_provenance` table for ConfFlow
+producer/executable provenance, schema v7 adds immutable accepted-
+configuration bindings for workflow runs, and schema v8 adds the explicit
+selected server identity. Lease timestamps use UTC; recovery skips a live lease and may acquire
 only an ownerless legacy operation or an expired lease. Before upgrading from
 an older JobDesk version, close all JobDesk processes and copy `jobdesk.db`,
 `jobdesk.db-wal`, and `jobdesk.db-shm` as one backup set. Completed operations
@@ -42,7 +44,8 @@ retained until successfully replayed.
 
 ### Rolling back a failed schema upgrade
 
-JobDesk upgrades the database in place from schema v5 to v6 on first open.
+JobDesk upgrades the database in place through schema v6, v7, and the current
+schema v8 on first open.
 If a migration fails (e.g. disk full, antivirus lock, schema corruption),
 JobDesk aborts startup and leaves the database untouched. To roll back:
 

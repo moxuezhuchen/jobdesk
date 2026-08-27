@@ -10,12 +10,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from types import MappingProxyType
+from typing import Callable, Mapping
 
+from ...application.file_transfer_ports import FileTransferPort
 from ...core.file_transfer import OverwritePolicy
-from ...services.file_transfer_service import FileTransferService
 from ..worker_utils import WorkerContext
-from .file_transfer_helpers import _file_signature, _raise_if_upload_failed, _remote_edit_temp_path
+from .file_transfer_helpers import (
+    _file_signature,
+    _raise_if_upload_failed,
+    _remote_edit_temp_path,
+)
 from .file_transfer_tables import _RemoteEditSession
 
 
@@ -27,13 +32,24 @@ class RemoteEditOutcome:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RemoteEditSessionSnapshot:
+    """Immutable public view of one remote-edit session."""
+
+    remote_path: str
+    local_path: Path
+    uploaded_signature: str | None
+    uploading_signature: str | None
+    dirty: bool
+
+
 class RemoteEditSessionManager:
     """Tracks open remote files being edited locally + auto-uploads on save."""
 
     def __init__(
         self,
         *,
-        service_provider: Callable[[], FileTransferService | None],
+        service_provider: Callable[[], FileTransferPort | None],
         settings_provider: Callable,
         server_id_provider: Callable[[], str | None],
         on_status: Callable[[str], None],
@@ -52,16 +68,41 @@ class RemoteEditSessionManager:
         self._process_launcher = process_launcher
         self._sessions: dict[str, _RemoteEditSession] = {}
 
-    @property
-    def dirty_sessions(self) -> list[_RemoteEditSession]:
+    def _dirty_session_models(self) -> list[_RemoteEditSession]:
         dirty = []
         for session in self._sessions.values():
             if session.local_path.exists() and _file_signature(session.local_path) != session.uploaded_signature:
                 dirty.append(session)
         return dirty
 
+    @property
+    def dirty_sessions(self) -> tuple[RemoteEditSessionSnapshot, ...]:
+        """Return frozen views of dirty sessions, never mutable internals."""
+        return tuple(self._snapshot_for(session) for session in self._dirty_session_models())
+
+    @property
+    def sessions(self) -> Mapping[str, RemoteEditSessionSnapshot]:
+        """Return read-only session snapshots keyed by local path."""
+        return MappingProxyType({key: self._snapshot_for(session) for key, session in self._sessions.items()})
+
+    @property
+    def session_snapshots(self) -> tuple[RemoteEditSessionSnapshot, ...]:
+        """Return stable insertion-order snapshots for application callers."""
+        return tuple(self.sessions.values())
+
+    @staticmethod
+    def _snapshot_for(session: _RemoteEditSession) -> RemoteEditSessionSnapshot:
+        signature = _file_signature(session.local_path) if session.local_path.exists() else None
+        return RemoteEditSessionSnapshot(
+            remote_path=session.remote_path,
+            local_path=session.local_path,
+            uploaded_signature=session.uploaded_signature,
+            uploading_signature=session.uploading_signature,
+            dirty=signature != session.uploaded_signature,
+        )
+
     def has_dirty(self) -> bool:
-        return bool(self.dirty_sessions)
+        return bool(self._dirty_session_models())
 
     def register_session(self, remote_path: str, local_path: Path) -> None:
         local_path = Path(local_path)
@@ -71,8 +112,8 @@ class RemoteEditSessionManager:
             uploaded_signature=_file_signature(local_path),
         )
 
-    def teardown(self) -> list[_RemoteEditSession]:
-        """Return list of dirty sessions so the page can warn the user."""
+    def teardown(self) -> tuple[RemoteEditSessionSnapshot, ...]:
+        """Return frozen dirty-session views so the page can warn the user."""
         return self.dirty_sessions
 
     def open_remote_file(

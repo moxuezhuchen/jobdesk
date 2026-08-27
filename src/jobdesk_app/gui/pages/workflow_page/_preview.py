@@ -20,20 +20,54 @@ from .workflow_page_helpers import flow_step_detail
 
 def refresh_generated_yaml(
     preview_widget: QWidget,
+    validation_label: QLabel,
     build_workflow_yaml_fn: Any,
-) -> None:
+    language: str,
+) -> bool:
     """Refresh the YAML preview by calling build_workflow_yaml.
 
     Args:
         preview_widget: Widget with setPlainText method
+        validation_label: Structured status label shown above the preview
         build_workflow_yaml_fn: Callable that returns the workflow YAML string
     """
     try:
         text = build_workflow_yaml_fn()
         WorkflowSpec.from_yaml(text)
         preview_widget.setPlainText(text)
+        set_validation_feedback(validation_label, "valid", tr("Workflow YAML is valid.", language))
+        return True
     except Exception as exc:
-        preview_widget.setPlainText(f"# Cannot generate workflow YAML\n# {exc}")
+        preview_widget.clear()
+        set_validation_feedback(
+            validation_label,
+            "incomplete",
+            tr("Workflow YAML is not ready.", language),
+            detail=str(exc),
+        )
+        return False
+
+
+def set_validation_feedback(
+    label: QLabel,
+    state: str,
+    message: str,
+    *,
+    detail: str = "",
+) -> None:
+    """Render validation state without mixing diagnostics into YAML text."""
+    color = {
+        "valid": Colors.SUCCESS,
+        "invalid": Colors.ERROR,
+        "incomplete": Colors.TEXT_MUTED,
+    }.get(state, Colors.TEXT_MUTED)
+    label.setProperty("validationState", state)
+    label.setText(message)
+    label.setToolTip(detail)
+    label.setStyleSheet(
+        f"color: {color}; font-size: {Metrics.CARD_BODY_FONT_PX}px; "
+        "font-weight: 600; border: none; background: transparent;"
+    )
 
 
 def validate_workflow(
@@ -83,6 +117,7 @@ def build_step_card(
         The constructed card frame widget
     """
     card = QFrame(flow_body)
+    card.setObjectName("WorkflowStepCard")
     selected = node.id == selected_node_id
     accent = Colors.SUCCESS if node.kind is NodeKind.CONF_GEN else Colors.PRIMARY
 
@@ -100,6 +135,7 @@ def build_step_card(
     content.setSpacing(2)
 
     select = QPushButton(f"{index + 1}. {node.title}", card)
+    select.setObjectName("WorkflowStepSelectBtn")
     select.setFlat(True)
     select.setStyleSheet(
         f"QPushButton {{ text-align: left; color: {Colors.TEXT}; "
@@ -127,7 +163,9 @@ def build_step_card(
         f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px; "
         "min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;"
     )
-    up.setToolTip(tr("Move up", language))
+    up_label = f"{tr('Move up', language)}: {node.title}"
+    up.setToolTip(up_label)
+    up.setAccessibleName(up_label)
     up.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, -1))
     row.addWidget(up)
 
@@ -140,7 +178,9 @@ def build_step_card(
         f"padding: 0; background: {Colors.BG_SURFACE}; border: 1px solid {Colors.BORDER}; border-radius: {Radius.SM}px; "
         "min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;"
     )
-    down.setToolTip(tr("Move down", language))
+    down_label = f"{tr('Move down', language)}: {node.title}"
+    down.setToolTip(down_label)
+    down.setAccessibleName(down_label)
     down.clicked.connect(lambda _checked=False, nid=node.id: on_move(nid, 1))
     row.addWidget(down)
 
@@ -155,6 +195,9 @@ def build_step_card(
         f"min-height: 30px; max-height: 30px; }}"
         f"QPushButton:hover {{ background: {Colors.ERROR}; color: white; }}"
     )
+    remove_label = f"{tr('Delete', language)}: {node.title}"
+    remove.setToolTip(remove_label)
+    remove.setAccessibleName(remove_label)
     remove.clicked.connect(lambda _checked=False, nid=node.id: on_delete(nid))
     row.addWidget(remove)
 

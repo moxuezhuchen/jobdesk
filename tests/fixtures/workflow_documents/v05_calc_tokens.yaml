@@ -1,0 +1,7 @@
+version: "0.5"
+calc:
+  program: orca
+  method: B3LYP
+  steps: [confgen, preopt, refine]
+  x-calc: retain
+x-root: retain

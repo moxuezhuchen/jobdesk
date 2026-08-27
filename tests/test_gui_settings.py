@@ -21,6 +21,8 @@ def test_gui_settings_store_roundtrip(tmp_path):
         batch_size=20,
         language="zh",
         column_widths={"files.local": [220, 80, 140], "files.remote": [240, 80, 140, 90]},
+        sidebar_expanded=False,
+        splitter_sizes={"runs": [700, 300], "files": [480, 520]},
     )
 
     store.save(settings)
@@ -39,6 +41,8 @@ def test_gui_settings_defaults(tmp_path):
     assert settings.batch_size == 0
     assert settings.language == "en"
     assert settings.column_widths == {}
+    assert settings.sidebar_expanded is False
+    assert settings.splitter_sizes == {}
     assert settings.software_profiles["ConfFlow"]["input_extensions"] == ".xyz"
     assert settings.software_profiles["ConfFlow"]["command_template"] == "confflow {name}"
 
@@ -168,6 +172,39 @@ def test_update_merges_only_given_fields_without_losing_others(tmp_path):
     loaded = GuiSettingsStore(path).load()
     assert loaded.last_remote_dirs == {"wsl": "/scratch"}  # not lost by the second update
     assert loaded.window_size == [800, 600]
+
+
+def test_update_preserves_unknown_top_level_keys(tmp_path):
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text("language: en\nfuture_extension:\n  enabled: true\n", encoding="utf-8")
+
+    GuiSettingsStore(path).update(splitter_sizes={"runs.main": [640, 360]})
+
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert saved["future_extension"] == {"enabled": True}
+    assert saved["splitter_sizes"] == {"runs.main": [640, 360]}
+
+
+def test_old_gui_settings_gain_layout_defaults(tmp_path):
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text("language: zh\n", encoding="utf-8")
+
+    settings = GuiSettingsStore(path).load()
+
+    assert settings.sidebar_expanded is False
+    assert settings.splitter_sizes == {}
+
+
+def test_invalid_splitter_sizes_are_ignored(tmp_path):
+    path = tmp_path / "gui_settings.yaml"
+    path.write_text(
+        "splitter_sizes:\n  runs.main: [700, nope]\n  files.main: invalid\n  workflow.authoring: [420, 900]\n",
+        encoding="utf-8",
+    )
+
+    settings = GuiSettingsStore(path).load()
+
+    assert settings.splitter_sizes == {"workflow.authoring": [420, 900]}
 
 
 def test_confflow_download_patterns_include_workflow_state_json():

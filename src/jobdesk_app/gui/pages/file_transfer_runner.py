@@ -5,14 +5,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from ...application.file_transfer_ports import FileTransferPort
 from ...core.file_transfer import OverwritePolicy
-from ...services.file_transfer_service import FileTransferService
 from ..worker_utils import WorkerContext
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QProgressBar, QWidget
 
-from .file_transfer_helpers import format_queue_summary, format_transfer_speed, remote_child_path
+from .file_transfer_helpers import (
+    format_queue_summary,
+    format_transfer_speed,
+    remote_child_path,
+)
 
 
 class TransferRunner:
@@ -23,7 +27,7 @@ class TransferRunner:
         *,
         owner: object,
         progress_bar: QProgressBar,
-        service_provider: Callable[[], FileTransferService | None],
+        service_provider: Callable[[], FileTransferPort | None],
         language_provider: Callable[[], str],
         worker_registry: list[Any],
         on_status: Callable[[str], None],
@@ -230,7 +234,7 @@ class TransferRunner:
     def keep_worker(self, worker) -> None:
         self._worker_registry.append(worker)
         worker.finished.connect(
-            lambda: self._worker_registry.remove(worker) if worker in self._worker_registry else None
+            lambda: (self._worker_registry.remove(worker) if worker in self._worker_registry else None)
         )
         if hasattr(worker, "deleteLater"):
             worker.finished.connect(worker.deleteLater)

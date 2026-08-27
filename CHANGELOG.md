@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.7.2] - 2026-08-27
+
+This release carries the full remediation candidate through the paired
+ConfFlow 2.1.3 producer contract gate. Historical release evidence and the
+production endpoint remain separate from this candidate until publication.
+
+### Compatibility
+- The current producer window remains `confflow>=2.0,<3.0`.
+- The release gate validates the exact ConfFlow 2.1.3 candidate build,
+  provenance, schema bundle, and consumer contract before publication.
+- ConfFlow v2.0.0 and older producer records remain preserved as historical
+  compatibility evidence.
+
 ## [0.6.0] - 2026-08-11
 
 This breaking owner-exception release follows the formally published
@@ -39,7 +52,7 @@ period; Phase F remains closed until that period is complete.
 - The release keeps the legacy backend and v1.4.6 rollback path at the run
   boundary; no silent fallback is introduced.
 
-The current schema is **schema v6**. Schema v5 databases auto-upgrade on first open.
+The current schema is **schema v8**. Schema v6/v7 databases auto-upgrade on first open.
 
 ### Fixed
 - `test_architecture_boundaries.py::test_schema_documentation_describes_v2_to_v5_migration_chain`: renamed from the v4-suffix legacy name; the test and all three target documents already referenced v5 correctly.
@@ -60,6 +73,7 @@ The current schema is **schema v6**. Schema v5 databases auto-upgrade on first o
 ### Added (Phase 15C — activity log persistence)
 - `services.run_repository.append_activity()` / `list_recent_activity()`: new repository methods backed by the new `submit_activity_log` SQLite table (schema v5).
 - Schema v6 adds the `run_provenance` table for accepted ConfFlow capability, executable, build, and wheel identity.
+- Schema v7 adds immutable accepted-configuration bindings for workflow runs.
 - `SubmitPage` activity log now persists to the repository on every `_log()` call and reloads the last 50 entries on startup, so activity survives application restarts.
 
 ## [0.5.0] — 2026-07-08

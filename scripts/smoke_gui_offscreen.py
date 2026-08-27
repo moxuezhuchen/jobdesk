@@ -24,8 +24,8 @@ another):
         the page is visible.
     4b. ``workflow_page_structure`` -- verify :class:`WorkflowPage` has the
         expected sub-widgets (settings tabs, flow scroll, preview box).
-    4c. ``workflow_page_yaml_generation`` -- verify the YAML preview
-        shows the "Add at least one workflow step" placeholder.
+    4c. ``workflow_page_empty_state`` -- verify an empty workflow keeps the
+        YAML preview empty and reports a structured incomplete state.
     4d. ``workflow_page_add_step`` -- add a step via the YAML editor
         and verify the flow diagram updates.
     5.  ``open_builder_dialog`` -- open the :class:`WorkflowBuilderDialog`
@@ -47,6 +47,7 @@ The script is read-only against the source tree when
 ``JOBDESK_SMOKE_OUTPUT_DIR`` is set, does not commit, and does not call
 into WSL.
 """
+
 from __future__ import annotations
 
 import os
@@ -71,9 +72,9 @@ from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 # Confirm the platform choice BEFORE we even create the QApplication so
 # the first line of output answers "did we really go offscreen?".
 print(f"[step 1/7] QT_QPA_PLATFORM = {os.environ.get('QT_QPA_PLATFORM')!r}")
-assert os.environ.get("QT_QPA_PLATFORM") == "offscreen", (
-    "QT_QPA_PLATFORM must be 'offscreen' before importing Qt widgets"
-)
+assert (
+    os.environ.get("QT_QPA_PLATFORM") == "offscreen"
+), "QT_QPA_PLATFORM must be 'offscreen' before importing Qt widgets"
 
 
 # -- Step tracker --
@@ -119,9 +120,7 @@ def _capture_uncaught_callback_exceptions(previous_hook):
     """
 
     def _hook(exc_type, exc_value, exc_tb):
-        _UNCAUGHT_CALLBACK_EXCEPTIONS.append(
-            "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        )
+        _UNCAUGHT_CALLBACK_EXCEPTIONS.append("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
         previous_hook(exc_type, exc_value, exc_tb)
 
     return _hook
@@ -145,6 +144,7 @@ def step_qapp() -> QApplication:
 # signal names. This pattern mirrors
 # ``tests/test_gui_behavior.py::TestMainWindowExcepthook``.
 
+
 class _FilesStub(QWidget):
     runs_submitted = Signal(list)
     use_as_input_received = Signal(list)
@@ -154,9 +154,7 @@ class _FilesStub(QWidget):
         self._service = None
         self._connected_server_id = ""
         # Mirror a couple of attributes MainWindow._on_nav reads.
-        self.max_parallel_spin = type(
-            "_Spin", (), {"value": staticmethod(lambda: 1)}
-        )()
+        self.max_parallel_spin = type("_Spin", (), {"value": staticmethod(lambda: 1)})()
 
     def connection_snapshot(self):
         """Mirror the public Files-page connection view used by MainWindow."""
@@ -195,6 +193,7 @@ class _RunsStub(QWidget):
     def __init__(self, *_args, **_kwargs):
         super().__init__()
         from PySide6.QtWidgets import QTableWidget
+
         self.table = QTableWidget()
         self.table.setRowCount(0)
 
@@ -228,11 +227,13 @@ class _GuiSettingsStoreStub:
 
     def update(self, **kwargs):
         from dataclasses import replace
+
         self._settings = replace(self._settings, **kwargs)
 
 
 def _default_gui_settings():
     from jobdesk_app.services.gui_settings import GuiSettings
+
     return GuiSettings(
         window_size=[1320, 860],
         language="en",
@@ -243,6 +244,7 @@ def _default_gui_settings():
 def step_main_window(app: QApplication):
     # Replace the heavy pages BEFORE MainWindow imports them.
     import jobdesk_app.gui.main_window as mw_mod
+
     mw_mod.FileTransferPage = _FilesStub
     mw_mod.RunsResultsPage = _RunsStub
     mw_mod.SettingsServersPage = _SettingsStub
@@ -252,9 +254,11 @@ def step_main_window(app: QApplication):
     # SettingsServersPage imports a few helpers; stub load_servers so
     # they don't hit disk.
     from jobdesk_app.gui.pages import settings_servers_page as ssp
+
     ssp.load_servers = lambda: _EmptyServers()
 
     from jobdesk_app.gui.main_window import MainWindow
+
     window = MainWindow()
     window.setWindowTitle("JobDesk (smoke)")
     window.show()
@@ -280,8 +284,8 @@ class _EmptyServers:
 
 # -- 4a. page navigation --
 
-WORKFLOW_PAGE_INDEX = 1   # "workflow"
-RUNS_PAGE_INDEX = 2       # "bar-chart"
+WORKFLOW_PAGE_INDEX = 1  # "workflow"
+RUNS_PAGE_INDEX = 2  # "bar-chart"
 
 
 def step_switch_to_workflow(window) -> bool:
@@ -294,6 +298,7 @@ def step_switch_to_workflow(window) -> bool:
 
 
 # -- 4b. workflow page structure --
+
 
 def step_workflow_page_structure(window) -> dict:
     """Verify WorkflowPage has expected sub-widgets."""
@@ -316,18 +321,22 @@ def step_workflow_page_structure(window) -> dict:
 
 # -- 4c. workflow page YAML generation --
 
+
 def step_workflow_page_yaml_generation(window) -> bool:
-    """Verify the YAML preview shows the placeholder message."""
+    """Verify the empty workflow uses structured feedback, not YAML comments."""
     page = window.workflow_page
     preview_text = page.full_yaml_preview.toPlainText()
-    if "Add at least one workflow step" not in preview_text:
-        raise RuntimeError(
-            f"Expected placeholder text in YAML preview, got: {preview_text[:100]}"
-        )
+    if preview_text:
+        raise RuntimeError(f"Expected an empty YAML preview, got: {preview_text[:100]}")
+    if page.validation_label.property("validationState") != "incomplete":
+        raise RuntimeError("Expected structured incomplete validation feedback")
+    if not page.full_yaml_preview.isHidden():
+        raise RuntimeError("Expected the YAML preview to be collapsed by default")
     return True
 
 
 # -- 4d. workflow page add step --
+
 
 def step_workflow_page_add_step(window) -> bool:
     """Add a step via the YAML editor and verify flow diagram updates."""
@@ -335,12 +344,7 @@ def step_workflow_page_add_step(window) -> bool:
 
     # Set the step YAML to a valid calc step
     page.step_yaml_editor.setPlainText(
-        "name: sp\n"
-        "type: calc\n"
-        "params:\n"
-        "  iprog: orca\n"
-        "  itask: sp\n"
-        "  keyword: B3LYP def2-SVP\n"
+        "name: sp\n" "type: calc\n" "params:\n" "  iprog: orca\n" "  itask: sp\n" "  keyword: B3LYP def2-SVP\n"
     )
     page._add_step()
 
@@ -359,6 +363,7 @@ def step_workflow_page_add_step(window) -> bool:
 
 # -- 5. open builder dialog --
 
+
 def step_open_builder_dialog(window) -> object:
     """Open WorkflowBuilderDialog and return the dialog instance."""
     from jobdesk_app.gui.dialogs.workflow_builder_dialog import WorkflowBuilderDialog
@@ -376,6 +381,7 @@ def step_open_builder_dialog(window) -> object:
 
 # -- 5a. dialog editor visibility --
 
+
 def step_dialog_editor_visible(dialog) -> bool:
     """Verify the embedded WorkflowGraphEditor is properly set up."""
     editor = dialog.editor
@@ -383,11 +389,7 @@ def step_dialog_editor_visible(dialog) -> bool:
         raise RuntimeError("dialog.editor is None")
 
     # Check the editor has a scene, view, and graph
-    scene_ok = (
-        editor.scene() is not None
-        and editor.view() is not None
-        and editor.scene().graph() is not None
-    )
+    scene_ok = editor.scene() is not None and editor.view() is not None and editor.scene().graph() is not None
     if not scene_ok:
         raise RuntimeError("Editor missing scene/view/graph")
 
@@ -395,6 +397,7 @@ def step_dialog_editor_visible(dialog) -> bool:
 
 
 # -- 5b. dialog onboarding card --
+
 
 def step_dialog_onboarding_card(dialog) -> bool:
     """Verify the empty-canvas onboarding card is visible."""
@@ -410,6 +413,7 @@ def step_dialog_onboarding_card(dialog) -> bool:
 
 
 # -- 5c. dialog quick start --
+
 
 def step_dialog_quick_start(dialog) -> bool:
     """Click Quick-start and verify the graph is populated."""
@@ -439,6 +443,7 @@ def step_dialog_quick_start(dialog) -> bool:
 
 # -- 5d. dialog add nodes --
 
+
 def step_dialog_add_nodes(dialog) -> dict:
     """Add two nodes directly via the scene API.
 
@@ -454,8 +459,7 @@ def step_dialog_add_nodes(dialog) -> dict:
 
     # Clear existing nodes (keep XYZ_FILE and OUTPUT terminals)
     nodes_to_remove = [
-        node_id for node_id, node in graph.nodes.items()
-        if node.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}
+        node_id for node_id, node in graph.nodes.items() if node.kind not in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}
     ]
     for node_id in nodes_to_remove:
         graph.remove_node(node_id)
@@ -480,6 +484,7 @@ def step_dialog_add_nodes(dialog) -> dict:
 
 # -- 5e. dialog connect edge --
 
+
 def step_dialog_connect_edge(dialog, ids: dict) -> str | None:
     """Wire the two nodes together."""
     scene = dialog.editor.scene()
@@ -490,6 +495,7 @@ def step_dialog_connect_edge(dialog, ids: dict) -> str | None:
 
 
 # -- 5f. dialog graph summary --
+
 
 def step_dialog_graph_summary(dialog) -> dict:
     """Verify the graph has expected nodes and edges."""
@@ -504,6 +510,7 @@ def step_dialog_graph_summary(dialog) -> dict:
 
 
 # -- 5g. dialog snapshot --
+
 
 def step_dialog_snapshot(dialog) -> str:
     """Grab the dialog editor into a PNG."""
@@ -520,9 +527,7 @@ def step_dialog_snapshot(dialog) -> str:
 
     # Reject all-black PNGs
     if _is_all_black(editor_pixmap.toImage()):
-        raise RuntimeError(
-            f"Editor snapshot is all-black -- editor likely hidden or unpainted: {out_path}"
-        )
+        raise RuntimeError(f"Editor snapshot is all-black -- editor likely hidden or unpainted: {out_path}")
     return out_path
 
 
@@ -545,6 +550,7 @@ def _is_all_black(image) -> bool:
 
 # -- 6. Runs page empty state --
 
+
 def step_runs_page(window) -> int:
     # Stub never populated rows; switch and let it build.
     window.shell.set_current(RUNS_PAGE_INDEX)
@@ -559,6 +565,7 @@ def step_runs_page(window) -> int:
 
 
 # -- main --
+
 
 def _run_smoke() -> int:
     print("=" * 70)

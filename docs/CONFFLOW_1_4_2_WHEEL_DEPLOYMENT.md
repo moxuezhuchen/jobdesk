@@ -1,8 +1,8 @@
-> **Current release:** ConfFlow 2.0.0 is the certified producer for this JobDesk branch. The filename is retained for deployment-history compatibility.
+> **Current release:** ConfFlow 2.1.3 is the certified producer for this JobDesk branch. The filename is retained for deployment-history compatibility.
 
-> **Current 2.0.0 contract:** use `confflow>=2.0,<3.0` and the released
-> `confflow-2.0.0-py3-none-any.whl` whose SHA-256 is
-> `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`.
+> **Current 2.1.3 contract:** use `confflow>=2.0,<3.0` and the released
+> `confflow-2.1.3-py3-none-any.whl` whose SHA-256 is
+> `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`.
 > The older 1.4.5 command examples below are retained only as deployment
 > history; substitute the current approved wheel and preserve the controlled
 > dependency lock/wheelhouse procedure.

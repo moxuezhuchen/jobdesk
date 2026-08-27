@@ -20,16 +20,16 @@ surface (pyproject pin, CI wheel pin, README, validator error messages)
 must be a *mirror* of these tuples; never a free-floating literal.
 The historical v1.5.3 and v1.4.6 release records remain archived separately;
 the Phase F owner exception removed the legacy backend from the production
-path. Current control submission requires the exact v2.0.0 reference below.
+path. Current control submission requires the exact v2.1.3 reference below.
 
 Reference build artefact
 ------------------------
-The ConfFlow v2.0.0 wheel released from the clean tagged producer commit
+The ConfFlow v2.1.3 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-2.0.0-py3-none-any.whl
-    sha256: 04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f
-    commit: 69819350d340a6aeccf95aa175edfd1c3f63404b
+    confflow-2.1.3-py3-none-any.whl
+    sha256: 10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe
+    commit: a7c570431976331bb067b204b6300ba17b1f3da5
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -136,10 +136,10 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # docs, and the package's expected reference build.
 MIN_VERSION: tuple[int, int, int] = (2, 0, 0)
 MAX_EXCLUSIVE: tuple[int, int, int] = (3, 0, 0)
-REFERENCE_VERSION: str = "2.0.0"
-REFERENCE_BUILD_COMMIT: str = "69819350d340a6aeccf95aa175edfd1c3f63404b"
-REFERENCE_WHEEL_FILENAME: str = "confflow-2.0.0-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f"
+REFERENCE_VERSION: str = "2.1.3"
+REFERENCE_BUILD_COMMIT: str = "a7c570431976331bb067b204b6300ba17b1f3da5"
+REFERENCE_WHEEL_FILENAME: str = "confflow-2.1.3-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe"
 
 # Preserve the last legacy release metadata for historical/rollback evidence;
 # it is not a current production compatibility path after Phase F.

@@ -1,7 +1,9 @@
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -26,6 +28,17 @@ from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.services.run_repository import MergeResult, RunRepository
 from jobdesk_app.services.run_service import RunService
 from tests.repository_helpers import replace_tasks_for_test
+
+
+@contextmanager
+def _sqlite_connection(path: Path) -> Iterator[sqlite3.Connection]:
+    """Commit/rollback like ``sqlite3.Connection`` and close test handles."""
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 @pytest.fixture
@@ -73,7 +86,7 @@ def test_create_run_is_immediately_queryable_from_sqlite(tmp_path, runs_dir):
         run_id="sqlite-run",
     )
 
-    with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
+    with _sqlite_connection(runs_dir / "jobdesk.db") as connection:
         assert connection.execute("SELECT run_id FROM runs WHERE run_id = 'sqlite-run'").fetchone() == ("sqlite-run",)
 
 
@@ -992,7 +1005,9 @@ def test_confflow_dry_run_failure_after_upload_releases_claim_without_nohup(tmp_
     ssh = MagicMock()
     ssh.run.side_effect = [
         SSHResult("capabilities", 0, capability_json, "", 0.01),
-        SSHResult("identity", 0, "/opt/confflow-1.4.6-prod-venv/bin/confflow\n123|456|7|8\n" + "a" * 64 + "\n", "", 0.01),
+        SSHResult(
+            "identity", 0, "/opt/confflow-1.4.6-prod-venv/bin/confflow\n123|456|7|8\n" + "a" * 64 + "\n", "", 0.01
+        ),
         SSHResult("chmod", 0, "", "", 0.01),
         SSHResult("dry-run", 2, "", "invalid workflow", 0.01),
     ]
@@ -1048,7 +1063,10 @@ def test_persist_confflow_provenance_writes_db_and_manifest(tmp_path, runs_dir):
         },
     )
 
-    assert service.repository.load_run_provenance(record.run_id)["resolved_realpath"] == "/opt/confflow-1.4.6-prod-venv/bin/confflow"
+    assert (
+        service.repository.load_run_provenance(record.run_id)["resolved_realpath"]
+        == "/opt/confflow-1.4.6-prod-venv/bin/confflow"
+    )
     manifest = json.loads((record.run_dir / "provenance.json").read_text(encoding="utf-8"))
     assert manifest["content_schema"] == "confflow.provenance.v1"
     assert manifest["capability"] == capability
@@ -1392,7 +1410,7 @@ def test_application_recovery_quarantines_orphan_submit_and_prunes_old_history(t
     recent = service.repository.create_operation("recent", "delete", "completed", {})
     incomplete = service.repository.create_operation("pending", "delete", "prepared", {})
     now = datetime.now()
-    with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
+    with _sqlite_connection(runs_dir / "jobdesk.db") as connection:
         connection.execute(
             "UPDATE operations SET completed_at = ? WHERE operation_id = ?",
             ((now.replace(microsecond=0) - timedelta(days=8)).isoformat(), old.operation_id),

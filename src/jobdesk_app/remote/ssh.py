@@ -322,9 +322,7 @@ class SSHClientWrapper:
         self._server = server
         self._timeout = timeout
         ready_timeout = (
-            max(float(timeout), DEFAULT_WSL_READY_TIMEOUT)
-            if wsl_ready_timeout is None
-            else float(wsl_ready_timeout)
+            max(float(timeout), DEFAULT_WSL_READY_TIMEOUT) if wsl_ready_timeout is None else float(wsl_ready_timeout)
         )
         self._wsl_ready_timeout = max(0.0, ready_timeout)
         self._wsl_ready_poll_interval = max(0.0, float(wsl_ready_poll_interval))
@@ -646,10 +644,7 @@ class SSHClientWrapper:
             # caller may still be booting the distribution, so every caller
             # must continue through the bounded SSH-banner readiness wait.
             now = time.monotonic()
-            within_cooldown = (
-                _wsl_boot_last_attempt is not None
-                and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN
-            )
+            within_cooldown = _wsl_boot_last_attempt is not None and now - _wsl_boot_last_attempt < _WSL_BOOT_COOLDOWN
             if not within_cooldown:
                 _wsl_boot_last_attempt = now
                 try:
@@ -757,13 +752,20 @@ class SSHClientWrapper:
             raise SSHConnectionError("SSH 传输不可用，请重新连接", host=self._server.host)
         return transport.open_session()
 
-    def run(self, command: str, timeout: int | None = None, check: bool = False) -> SSHResult:
+    def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        check: bool = False,
+        stdin_data: bytes | None = None,
+    ) -> SSHResult:
         """在远程服务器执行命令。
 
         Args:
             command: 要执行的 shell 命令。
             timeout: 命令超时（秒），默认使用连接 timeout。
             check: 若为 True，exit_code != 0 时抛 SSHCommandError。
+            stdin_data: Optional bytes streamed to the command's stdin.
 
         Returns:
             SSHResult 实例。
@@ -775,6 +777,10 @@ class SSHClientWrapper:
         _timeout = timeout or self._timeout
         try:
             stdin, stdout, stderr = self._client.exec_command(command, timeout=_timeout)
+            if stdin_data is not None:
+                stdin.write(stdin_data)
+                stdin.flush()
+                stdin.channel.shutdown_write()
             # Drain stdout and stderr concurrently to prevent deadlock.
             channel = stdout.channel
             channel.settimeout(_timeout)

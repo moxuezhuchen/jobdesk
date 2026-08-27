@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from tests.test_gui_behavior.conftest import _FakeWorker
 
+from jobdesk_app.application.runs_runtime import MonitorRunInput, RunsMonitorInput
 from jobdesk_app.core.run import WorkflowKind
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
@@ -16,6 +17,24 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 class TestRunsPage:
     def test_page_creates_without_crash(self, runs_page):
         assert runs_page is not None
+
+    def test_qt_monitor_uses_bounded_default_budget(self, qtbot, monkeypatch):
+        from jobdesk_app.gui import run_monitor_qt
+
+        service_monitor = MagicMock()
+        monkeypatch.setattr(run_monitor_qt, "ServiceRunMonitor", service_monitor)
+
+        monitor = run_monitor_qt.RunMonitor()
+
+        service_monitor.assert_called_once()
+        args, kwargs = service_monitor.call_args
+        assert args[0] is run_monitor_qt.create_ssh_client
+        assert args[1].__self__ is monitor
+        assert kwargs == {
+            "max_watchers": run_monitor_qt.DEFAULT_MAX_WATCHERS,
+            "max_watchers_per_server": run_monitor_qt.DEFAULT_MAX_WATCHERS_PER_SERVER,
+            "queue_capacity": run_monitor_qt.DEFAULT_QUEUE_CAPACITY,
+        }
 
     def test_runs_page_uses_workflow_kind(self, runs_page):
         from jobdesk_app.gui.pages.runs_results_page import _format_row
@@ -65,34 +84,61 @@ class TestRunsPage:
         assert runs_page.result_table.item(0, 1).text() == "\u26a0 Parse Error"
 
     def test_refresh_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
-        coordinator = MagicMock()
         expected = SimpleNamespace(errors=[])
-        runs_page._coordinator_factory = MagicMock(return_value=coordinator)
-        client = MagicMock()
-        handle = MagicMock()
-        client.attach.return_value = handle
-        client.refresh_outcome.return_value = expected
-        runs_page._client_factory = MagicMock(return_value=client)
+        runtime = MagicMock()
+        runtime.refresh_run.return_value = expected
+        runs_page._runtime = runtime
+        runs_page._client_factory = MagicMock()
         record = SimpleNamespace(run_id="run-1", server_id="srv", local_dir=str(tmp_path))
 
         outcome = runs_page._execute_refresh_use_case(record, ["*.out"], download=True)
 
         assert outcome is expected
-        runs_page._client_factory.assert_called_once_with(coordinator, "srv")
-        client.attach.assert_called_once_with("run-1")
-        client.refresh_outcome.assert_called_once_with(handle, ["*.out"], download=True)
+        runtime.refresh_run.assert_called_once_with(
+            tmp_path,
+            "run-1",
+            ["*.out"],
+            download=True,
+            server_id="srv",
+            resolver=runs_page._coordinator_for,
+            client_factory=runs_page._client_factory,
+        )
+
+    def test_download_use_case_delegates_to_runtime(self, runs_page, tmp_path):
+        expected = SimpleNamespace(errors=[], transfer_records=[], failures=[])
+        runtime = MagicMock()
+        runtime.download_run.return_value = expected
+        runs_page._runtime = runtime
+        runs_page._client_factory = MagicMock()
+        record = SimpleNamespace(run_id="run-download", server_id="srv", local_dir=str(tmp_path))
+
+        outcome = runs_page._execute_download_use_case(record, ["*.out"])
+
+        assert outcome is expected
+        runtime.download_run.assert_called_once_with(
+            tmp_path,
+            "run-download",
+            ["*.out"],
+            server_id="srv",
+            resolver=runs_page._coordinator_for,
+            client_factory=runs_page._client_factory,
+        )
 
     def test_progress_use_case_delegates_to_coordinator(self, runs_page, tmp_path):
-        coordinator = MagicMock()
         expected = SimpleNamespace(errors=[])
-        coordinator.sync_progress.return_value = expected
-        runs_page._coordinator_factory = MagicMock(return_value=coordinator)
+        runtime = MagicMock()
+        runtime.sync_progress.return_value = expected
+        runs_page._runtime = runtime
         record = SimpleNamespace(run_id="run-progress", local_dir=str(tmp_path))
 
         outcome = runs_page._execute_progress_use_case(record)
 
         assert outcome is expected
-        coordinator.sync_progress.assert_called_once_with("run-progress")
+        runtime.sync_progress.assert_called_once_with(
+            tmp_path,
+            "run-progress",
+            resolver=runs_page._coordinator_for,
+        )
 
     def test_confflow_progress_uses_selected_run_owned_checkpoint(self, runs_page, tmp_path):
         """The table reads the selected run's checkpoint, never a shared basename path."""
@@ -212,8 +258,9 @@ class TestRunsPage:
 
         payload = runs_page._collect_result_preview(record)
 
-        assert payload[0] == "confflow"
-        assert payload[2] == tmp_path / "results" / "submission-a"
+        assert payload.kind == "confflow"
+        assert payload.run_id == "submission-a"
+        assert payload.result_dir == tmp_path / "results" / "submission-a"
 
     def test_bound_run_preview_does_not_fall_back_to_stale_workspace_results(self, runs_page, tmp_path):
         """A bound run with an empty result directory must not use root files from run A."""
@@ -243,7 +290,7 @@ class TestRunsPage:
             )
         ]
 
-        assert runs_page._collect_result_preview(record) == ("empty",)
+        assert runs_page._collect_result_preview(record).kind == "empty"
 
     def test_bound_confflow_preview_ignores_stale_workspace_summary(self, runs_page, tmp_path):
         """A bound ConfFlow run must not display a same-name root summary from run A."""
@@ -276,7 +323,9 @@ class TestRunsPage:
 
         payload = runs_page._collect_result_preview(record)
 
-        assert payload == ("confflow", record, canonical)
+        assert payload.kind == "confflow"
+        assert payload.run_id == "run-B"
+        assert payload.result_dir == canonical
 
     def test_start_monitoring_passes_persisted_progress_paths(self, runs_page):
         record = SimpleNamespace(
@@ -319,6 +368,169 @@ class TestRunsPage:
             ],
         )
         assert args[5] == runs_page._monitor_identity(runs_page._workspace(), "run-progress", "wsl")
+
+    def test_start_monitoring_consumes_runtime_monitor_dto(self, runs_page):
+        """Monitoring input assembly stays outside the Qt page."""
+        workspace = runs_page._workspace()
+        server = object()
+        runtime = MagicMock()
+        runtime.monitor_inputs.return_value = RunsMonitorInput(
+            workspace=workspace,
+            server_ids=frozenset({"wsl"}),
+            runs=(
+                MonitorRunInput(
+                    run_id="run-runtime-input",
+                    server_id="wsl",
+                    remote_dir="/remote/submission",
+                    status_summary={"running": 1},
+                    server_config=server,
+                    durable_backend={"backend": "legacy"},
+                    remote_batch_dir="/remote/submission/.jobdesk_runs/run-runtime-input",
+                    progress_paths=("/remote/progress/state", "/remote/progress/stats"),
+                ),
+            ),
+        )
+        runs_page._runtime = runtime
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+
+        runs_page._start_monitoring()
+
+        runtime.monitor_inputs.assert_called_once_with(workspace)
+        monitor.watch.assert_called_once_with(
+            "run-runtime-input",
+            "wsl",
+            "/remote/submission/.jobdesk_runs/run-runtime-input",
+            server,
+            ["/remote/progress/state", "/remote/progress/stats"],
+            runs_page._monitor_identity(workspace, "run-runtime-input", "wsl"),
+        )
+
+    def test_start_monitoring_prunes_removed_server_once_across_refreshes(self, runs_page):
+        workspace = runs_page._workspace()
+        stale_watch = runs_page._monitor_identity(workspace, "stale", "removed-server")
+        runs_page._monitor_contexts[stale_watch] = (workspace, "stale", "removed-server")
+        runs_page._in_progress.add(stale_watch)
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+        ):
+            service_class.return_value.list_runs.return_value = []
+            load_servers.return_value.servers = {"wsl": MagicMock()}
+
+            # Activation and the next refresh can race with a settings-page
+            # change; pruning must be idempotent and must not call unwatch a
+            # second time after the context has been retired.
+            runs_page._start_monitoring()
+            runs_page._start_monitoring()
+
+        monitor.unwatch.assert_called_once_with("stale", "removed-server", stale_watch)
+        assert stale_watch not in runs_page._monitor_contexts
+        assert stale_watch not in runs_page._in_progress
+
+    def test_start_monitoring_prunes_terminal_watch_without_final_event(self, runs_page):
+        """A terminal list snapshot releases a watcher even when no DONE event arrived."""
+        workspace = runs_page._workspace()
+        watch_id = runs_page._monitor_identity(workspace, "terminal-no-event", "wsl")
+        runs_page._monitor_contexts[watch_id] = (workspace, "terminal-no-event", "wsl")
+        runs_page._pending_task_events[watch_id] = {"has_done": False}
+        runs_page._in_progress.add(watch_id)
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+        record = SimpleNamespace(
+            run_id="terminal-no-event",
+            server_id="wsl",
+            status_summary={"remote_completed": 1},
+        )
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+        ):
+            service_class.return_value.list_runs.return_value = [record]
+            load_servers.return_value.servers = {"wsl": MagicMock()}
+            runs_page._start_monitoring()
+
+        monitor.unwatch.assert_called_once_with("terminal-no-event", "wsl", watch_id)
+        assert watch_id not in runs_page._monitor_contexts
+        assert watch_id not in runs_page._pending_task_events
+        assert watch_id not in runs_page._in_progress
+
+    @pytest.mark.parametrize("next_status", ["local_ready", "uploaded"])
+    def test_start_monitoring_retires_pre_remote_watch_and_keeps_running_watch(self, runs_page, next_status):
+        """Pre-remote statuses retire legacy watches while remote-active ones stay watched."""
+        workspace = runs_page._workspace()
+        transitioned_watch = runs_page._monitor_identity(workspace, "transitioned", "wsl")
+        running_watch = runs_page._monitor_identity(workspace, "still-running", "wsl")
+        runs_page._monitor_contexts[transitioned_watch] = (workspace, "transitioned", "wsl")
+        runs_page._pending_task_events[transitioned_watch] = {"has_done": False}
+        runs_page._in_progress.add(transitioned_watch)
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+        transitioned = SimpleNamespace(
+            run_id="transitioned",
+            server_id="wsl",
+            remote_dir="/remote/transitioned",
+            status_summary={next_status: 1},
+        )
+        running = SimpleNamespace(
+            run_id="still-running",
+            server_id="wsl",
+            remote_dir="/remote/still-running",
+            status_summary={"running": 1},
+        )
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_servers") as load_servers,
+            patch("jobdesk_app.gui.pages.runs_results_page.load_state", return_value=None),
+        ):
+            service = service_class.return_value
+            service.list_runs.return_value = [transitioned, running]
+            service.load_tasks.return_value = []
+            load_servers.return_value.servers = {"wsl": MagicMock()}
+            runs_page._start_monitoring()
+
+        monitor.unwatch.assert_called_once_with("transitioned", "wsl", transitioned_watch)
+        assert transitioned_watch not in runs_page._monitor_contexts
+        assert transitioned_watch not in runs_page._pending_task_events
+        assert transitioned_watch not in runs_page._in_progress
+        monitor.watch.assert_called_once()
+        assert running_watch in runs_page._monitor_contexts
+
+    def test_refresh_run_list_prunes_deleted_watch_but_keeps_active_watch(self, runs_page):
+        """Refresh retires missing runs without tearing down a still-active run."""
+        workspace = runs_page._workspace()
+        deleted_watch = runs_page._monitor_identity(workspace, "deleted", "wsl")
+        active_watch = runs_page._monitor_identity(workspace, "active", "wsl")
+        runs_page._monitor_contexts = {
+            deleted_watch: (workspace, "deleted", "wsl"),
+            active_watch: (workspace, "active", "wsl"),
+        }
+        monitor = MagicMock()
+        runs_page._monitor = monitor
+        records = [
+            SimpleNamespace(
+                run_id="active",
+                server_id="wsl",
+                remote_dir="/remote/active",
+                command_template="g16 water",
+                workflow_kind=None,
+                created_at="2026-08-24T00:00:00",
+                status_summary={"running": 1},
+            )
+        ]
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service_class:
+            service_class.return_value.list_runs.return_value = records
+            runs_page.refresh_run_list()
+
+        monitor.unwatch.assert_called_once_with("deleted", "wsl", deleted_watch)
+        assert deleted_watch not in runs_page._monitor_contexts
+        assert active_watch in runs_page._monitor_contexts
 
     def test_start_monitoring_isolates_watch_failure_and_continues_other_runs(self, runs_page):
         records = [
@@ -389,6 +601,8 @@ class TestRunsPage:
             task_id="_ckpt_progress",
             exit_code=None,
         )
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), event.run_id, event.server_id)
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), event.run_id, event.server_id)
         record = SimpleNamespace(run_id="run-progress", local_dir=str(runs_page._workspace()))
         outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
         captured: dict[str, object] = {}
@@ -458,22 +672,25 @@ class TestRunsPage:
         runs_page._monitor.unwatch = MagicMock()
         runs_page.state.current_project_root = workspace_a
         with (
-            patch("jobdesk_app.gui.pages.runs_results_page.RunService", side_effect=lambda ws: {
-                workspace_a: service_a,
-                workspace_b: service_b,
-            }[ws]),
+            patch(
+                "jobdesk_app.gui.pages.runs_results_page.RunService",
+                side_effect=lambda ws: {
+                    workspace_a: service_a,
+                    workspace_b: service_b,
+                }[ws],
+            ),
             patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=_make_worker),
-            patch.object(runs_page, "_execute_refresh_use_case", side_effect=lambda record, *_args, **_kwargs: (
-                refreshed.append(record) or outcome
-            )),
+            patch.object(
+                runs_page,
+                "_execute_refresh_use_case",
+                side_effect=lambda record, *_args, **_kwargs: (refreshed.append(record) or outcome),
+            ),
             patch.object(runs_page, "_get_download_patterns", return_value=["*.out"]),
             patch.object(runs_page, "refresh_run_list") as refresh_list,
         ):
             for watch_id in (watch_a, watch_b):
                 runs_page._on_task_done(
-                    SimpleNamespace(
-                        run_id="same", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id
-                    )
+                    SimpleNamespace(run_id="same", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id)
                 )
             assert set(runs_page._pending_task_events) == {watch_a, watch_b}
             assert runs_page._in_progress == set()
@@ -501,6 +718,106 @@ class TestRunsPage:
             (("same", "wsl", watch_a),),
             (("same", "wsl", watch_b),),
         ]
+
+    def test_legacy_monitor_event_uses_registered_composite_watch_key(self, runs_page, tmp_path):
+        """A watch-id-less compatibility event keeps the matched context key."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        watch_id = runs_page._monitor_identity(workspace, "same", "wsl")
+        runs_page._monitor_contexts[watch_id] = (workspace, "same", "wsl")
+
+        runs_page._on_task_done(SimpleNamespace(run_id="same", server_id="wsl", task_id="task", exit_code=None))
+
+        assert set(runs_page._pending_task_events) == {watch_id}
+        assert "same" not in runs_page._pending_task_events
+        assert watch_id in runs_page._task_done_timers
+
+    def test_unknown_legacy_done_event_is_ignored_without_workspace_fallback(self, runs_page):
+        """A watch-id-less event cannot target a mismatched registered context."""
+        event = SimpleNamespace(run_id="stale", server_id="wsl", task_id="task", exit_code=0)
+        runs_page._monitor_contexts["other-watch"] = (runs_page._workspace(), "other-run", "wsl")
+        with (
+            patch.object(runs_page, "_workspace") as workspace,
+            patch.object(runs_page, "refresh_run_list") as refresh,
+        ):
+            runs_page._on_task_done(event)
+
+        workspace.assert_not_called()
+        refresh.assert_not_called()
+        assert runs_page._pending_task_events == {}
+        assert runs_page._in_progress == set()
+        assert runs_page._task_done_timers == {}
+        assert runs_page._pending_checkpoint_events == {}
+
+    def test_registered_watch_event_identity_mismatch_fails_closed(self, runs_page):
+        """A known watcher id cannot authorize an event for another run/server."""
+        watch_id = runs_page._monitor_identity(runs_page._workspace(), "real-run", "wsl")
+        runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "real-run", "wsl")
+        event = SimpleNamespace(
+            run_id="other-run",
+            server_id="other-server",
+            task_id="task",
+            exit_code=0,
+            watch_id=watch_id,
+        )
+
+        with patch.object(runs_page, "refresh_run_list") as refresh:
+            runs_page._on_task_done(event)
+
+        refresh.assert_not_called()
+        assert runs_page._pending_task_events == {}
+        assert runs_page._pending_checkpoint_events == {}
+        assert runs_page._task_done_timers == {}
+        assert runs_page._in_progress == set()
+        assert watch_id in runs_page._monitor_contexts
+
+    def test_ambiguous_legacy_done_event_is_ignored_without_bare_run_id_state(self, runs_page, tmp_path):
+        """A legacy event with multiple matching contexts must fail closed."""
+        workspace_a = tmp_path / "workspace-a"
+        workspace_b = tmp_path / "workspace-b"
+        context = (tmp_path / "registered", "same", "wsl")
+        runs_page._monitor_contexts = {
+            "watch-a": (workspace_a, "same", "wsl"),
+            "watch-b": (workspace_b, "same", "wsl"),
+        }
+
+        runs_page._on_task_done(SimpleNamespace(run_id="same", server_id="wsl", task_id="task", exit_code=0))
+
+        assert context not in runs_page._monitor_contexts.values()
+        assert runs_page._pending_task_events == {}
+        assert runs_page._in_progress == set()
+        assert runs_page._task_done_timers == {}
+
+    def test_retire_recreate_releases_gate_for_legacy_monitor_event(self, runs_page, tmp_path):
+        """A retired watcher can be recreated and refreshed after a stale gate."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        watch_id = runs_page._monitor_identity(workspace, "same", "wsl")
+        context = (workspace, "same", "wsl")
+        runs_page._monitor_contexts[watch_id] = context
+        runs_page._in_progress.add(watch_id)
+
+        runs_page._retire_monitor_watch(watch_id)
+
+        assert watch_id not in runs_page._in_progress
+        runs_page._monitor_contexts[watch_id] = context
+        worker = _FakeWorker()
+        record = SimpleNamespace(run_id="same", server_id="wsl", status_summary={"running": 1})
+        outcome = SimpleNamespace(errors=[], transfer_records=[], failures=[])
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service,
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+            patch.object(runs_page, "_execute_refresh_use_case", return_value=outcome),
+            patch.object(runs_page, "_get_download_patterns", return_value=[]),
+        ):
+            service.return_value.load_run.return_value = record
+            runs_page._on_task_done(SimpleNamespace(run_id="same", server_id="wsl", task_id="task", exit_code=0))
+            runs_page._flush_task_done(watch_id)
+
+        worker.start.assert_called_once_with()
+        assert watch_id in runs_page._in_progress
+        worker.finished.emit()
+        assert watch_id not in runs_page._in_progress
 
     def test_table_has_correct_columns(self, runs_page):
         table = runs_page.table
@@ -530,7 +847,8 @@ class TestRunsPage:
         runs_page._delete_feedback.restore()
 
         assert runs_page.delete_btn.text() == idle_text
-        assert runs_page.delete_btn.isEnabled()
+        assert not runs_page.delete_btn.isEnabled()
+        assert runs_page.delete_btn.toolTip()
 
     def test_retry_failed_sync_submit_error_sets_feedback_error(self, runs_page):
         from jobdesk_app.gui.i18n import tr
@@ -634,6 +952,36 @@ class TestRunsPage:
             runs_page.result_table.horizontalHeaderItem(c).text() for c in range(runs_page.result_table.columnCount())
         ]
 
+    def test_compare_worker_freezes_result_before_dispatch(self, runs_page):
+        """The compare worker emits an immutable payload through the GUI dispatcher."""
+        from PySide6.QtWidgets import QInputDialog
+
+        from jobdesk_app.application.runs_artifacts import ComparePayload
+        from jobdesk_app.services.comparison import RunComparison
+
+        comparison = RunComparison(
+            rows=[{"run_id": "run_a", "task_id": "task", "scf_energy": -1.2}],
+            field_names=["run_id", "task_id", "scf_energy"],
+        )
+        worker = _FakeWorker()
+        with (
+            patch.object(runs_page, "_selected_run_ids", return_value=["run_a", "run_b"]),
+            patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)),
+            patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store,
+            patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison),
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker) as worker_factory,
+            patch.object(runs_page._gui_dispatcher, "post", wraps=runs_page._gui_dispatcher.post) as post,
+        ):
+            store.return_value.list_profiles.return_value = {"gaussian_opt_freq": object()}
+            runs_page._compare_selected()
+            payload = worker_factory.call_args.args[0]()
+
+            assert isinstance(payload, ComparePayload)
+            worker.result.emit(payload)
+
+        post.assert_called_once()
+        assert isinstance(post.call_args.args[1], ComparePayload)
+
     def test_compare_selected_requires_two_runs(self, runs_page):
         """Comparing with <2 runs shows a hint and does not crash."""
         from PySide6.QtWidgets import QTableWidgetItem
@@ -657,6 +1005,241 @@ class TestRunsPage:
             runs_page.refresh_run_list()
             mock_svc.return_value.list_runs.assert_called_once_with()
         assert runs_page.table.rowCount() == 0
+
+    def test_activity_log_starts_collapsed_is_bounded_and_deduplicated(self, runs_page):
+        assert not runs_page._log_view.isVisible()
+        assert runs_page._log_view.document().maximumBlockCount() == 500
+
+        runs_page._append_activity_log("Run records: 3")
+        runs_page._append_activity_log("Run records: 3")
+
+        assert runs_page._log_view.document().blockCount() == 1
+        assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
+
+    def test_results_stay_hidden_until_a_valid_run_is_selected(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="run-1",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 water.gjf",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
+        )
+        assert not runs_page._results_card.isVisible()
+
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = [record]
+            runs_page.refresh_run_list()
+        assert not runs_page._results_card.isVisible()
+
+        runs_page.table.setCurrentCell(0, 0)
+        assert runs_page._results_card.isVisibleTo(runs_page)
+
+        runs_page.table.setCurrentCell(-1, -1)
+        runs_page._on_run_selected(-1, -1, 0, 0)
+        assert not runs_page._results_card.isVisible()
+
+    def test_filters_use_and_semantics_and_survive_refresh(self, runs_page):
+        from jobdesk_app.core.run import WorkflowKind
+        from jobdesk_app.services.run_service import RunRecord
+
+        def record(run_id, server, status, workflow, command, created_at):
+            return RunRecord(
+                run_id=run_id,
+                server_id=server,
+                remote_dir=f"/remote/{run_id}",
+                command_template=command,
+                max_parallel=1,
+                mode="selected_files",
+                created_at=created_at,
+                run_dir=Path("rd") / run_id,
+                manifest_path=Path("m") / run_id,
+                batch_path=Path("b") / run_id,
+                status_summary=status,
+                workflow_kind=workflow,
+            )
+
+        records = [
+            record("RUN-ALPHA", "Luna", {"running": 2}, WorkflowKind.dag, "Confflow WATER", "2026-08-15T08:00:00"),
+            record("run-beta", "Luna", {"downloaded": 1}, WorkflowKind.dag, "confflow water", "2026-08-15T08:00:00"),
+            record("run-gamma", "Other", {"running": 1}, None, "g16 water", "2026-08-15T08:00:00"),
+        ]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = records
+            runs_page.refresh_run_list()
+            runs_page.table.setCurrentCell(0, 0)
+            runs_page.search_edit.setText("alpha")
+            runs_page.status_filter.setCurrentIndex(runs_page.status_filter.findData("active"))
+            runs_page.server_filter.setCurrentIndex(runs_page.server_filter.findData("Luna"))
+            runs_page.workflow_filter.setCurrentIndex(runs_page.workflow_filter.findData("dag"))
+            assert runs_page.table.rowCount() == 1
+            assert runs_page.table.item(0, 0).text() == "RUN-ALPHA"
+
+            runs_page.refresh_run_list()
+
+        assert runs_page.search_edit.text() == "alpha"
+        assert runs_page.status_filter.currentData() == "active"
+        assert runs_page.server_filter.currentData() == "Luna"
+        assert runs_page.workflow_filter.currentData() == "dag"
+        assert runs_page.table.item(runs_page.table.currentRow(), 0).text() == "RUN-ALPHA"
+        assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
+
+    def test_filter_with_no_matches_shows_results_empty_state(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="run-1",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 water",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
+        )
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service:
+            service.return_value.list_runs.return_value = [record]
+            runs_page.refresh_run_list()
+            runs_page.search_edit.setText("does-not-match")
+
+        assert runs_page.table.rowCount() == 0
+        assert not runs_page._empty_hint.isHidden()
+        assert runs_page._empty_hint._title_label.text() == "No results found"
+        assert not runs_page._empty_hint._action_buttons["go_to_submit"].isVisible()
+
+    def test_multiple_selected_runs_survive_filter_and_refresh(self, runs_page):
+        from PySide6.QtCore import QItemSelectionModel
+
+        from jobdesk_app.services.run_service import RunRecord
+
+        def record(run_id):
+            return RunRecord(
+                run_id=run_id,
+                server_id="wsl",
+                remote_dir=f"/r/{run_id}",
+                command_template="g16 water",
+                max_parallel=1,
+                mode="selected_files",
+                created_at="2026-08-15T09:00:00",
+                run_dir=Path("rd") / run_id,
+                manifest_path=Path("m") / run_id,
+                batch_path=Path("b") / run_id,
+            )
+
+        records = [record("alpha"), record("beta"), record("gamma")]
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as service:
+            service.return_value.list_runs.return_value = records
+            runs_page.refresh_run_list()
+            selection = runs_page.table.selectionModel()
+            for row in (0, 1):
+                selection.select(
+                    runs_page.table.model().index(row, 0),
+                    QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                )
+            runs_page.search_edit.setText("a")
+            runs_page.refresh_run_list()
+
+        assert runs_page._selected_run_ids() == ["alpha", "beta"]
+
+    def test_overview_separates_run_count_and_task_totals_including_other(self, runs_page):
+        records = [
+            SimpleNamespace(status_summary={"running": 2, "cancelled": 1}),
+            SimpleNamespace(status_summary={"downloaded": 3, "mystery": 4}),
+        ]
+        runs_page._run_records = records
+        runs_page._filtered_records = records[:1]
+
+        runs_page._refresh_status_overview()
+
+        text = runs_page._overview_label.text()
+        assert "Runs: 1 of 2" in text
+        assert "Tasks:" in text
+        assert "Other 5" in text
+
+    def test_explicit_refresh_updates_timestamp_and_status_has_accessible_cue(self, runs_page):
+        from jobdesk_app.services.run_service import RunRecord
+
+        record = RunRecord(
+            run_id="failed-run",
+            server_id="wsl",
+            remote_dir="/r",
+            command_template="g16 x",
+            max_parallel=1,
+            mode="selected_files",
+            created_at="2026-08-15T09:00:00",
+            run_dir=Path("rd"),
+            manifest_path=Path("m"),
+            batch_path=Path("b"),
+            status_summary={"failed": 1},
+        )
+        with patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc:
+            mock_svc.return_value.list_runs.return_value = [record]
+            runs_page.refresh_btn.click()
+
+        assert runs_page.last_updated_label.text().startswith("Last updated:")
+        status_item = runs_page.table.item(0, 3)
+        assert "Failed" in status_item.toolTip()
+        assert status_item.foreground().color().isValid()
+
+    def test_actions_explain_why_they_are_disabled(self, runs_page):
+        runs_page._update_action_buttons()
+
+        assert not runs_page.retry_btn.isEnabled()
+        assert "Select" in runs_page.retry_btn.toolTip()
+        assert not runs_page.stop_btn.isEnabled()
+        assert "Select" in runs_page.stop_btn.toolTip()
+        assert not runs_page.delete_btn.isEnabled()
+        assert "Select" in runs_page.delete_btn.toolTip()
+
+    def test_main_splitter_restores_defensively_and_persists_user_move(self, qtbot, app_state, tmp_path):
+        from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
+        from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+
+        store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
+        store.save(GuiSettings(splitter_sizes={"runs.main": [720, 280]}))
+        original_update = store.update
+        store.update = MagicMock(side_effect=original_update)
+
+        with (
+            patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore", return_value=store),
+            patch("jobdesk_app.gui.pages.runs_results_page.RunService") as mock_svc,
+        ):
+            mock_svc.return_value.list_runs.return_value = []
+            page = RunsResultsPage(app_state, log_cb=None, status_cb=None)
+        qtbot.addWidget(page)
+
+        assert page._main_splitter.sizes()[0] > page._main_splitter.sizes()[1]
+        assert page._restored_main_splitter_sizes == [720, 280]
+        store.update.assert_not_called()
+        page._restore_main_splitter(SimpleNamespace(splitter_sizes={"runs.main": [720, -1]}))
+        assert page._restored_main_splitter_sizes == [700, 300]
+        store.update.assert_not_called()
+        page._restore_main_splitter(SimpleNamespace(splitter_sizes={"runs.main": [720, 280]}))
+
+        page.resize(1000, 800)
+        page.show()
+        qtbot.wait(0)
+        page._set_results_visible(True)
+        qtbot.wait(0)
+        restored = page._main_splitter.sizes()
+        assert restored[0] > restored[1]
+        page._main_splitter.setSizes([400, 600])
+        page._main_splitter.splitterMoved.emit(400, 1)
+
+        assert store.update.call_count == 1
+        persisted = store.load().splitter_sizes["runs.main"]
+        assert len(persisted) == 2
+        assert all(isinstance(value, int) and value > 0 for value in persisted)
+        page.shutdown()
+        page.close()
 
     def test_refresh_run_list_handles_unavailable_database(self, runs_page):
         messages = []
@@ -1256,9 +1839,7 @@ class TestRunsPage:
     def test_shutdown_blocks_late_full_refresh_callbacks(self, runs_page):
         watch_id = runs_page._monitor_identity(runs_page._workspace(), "late-full", "wsl")
         runs_page._monitor_contexts[watch_id] = (runs_page._workspace(), "late-full", "wsl")
-        event = SimpleNamespace(
-            run_id="late-full", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id
-        )
+        event = SimpleNamespace(run_id="late-full", server_id="wsl", task_id="task", exit_code=0, watch_id=watch_id)
         worker = _FakeWorker()
         runs_page._status_cb = MagicMock()
         with (
@@ -1545,7 +2126,12 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run001", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="run001",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
 
         runs_page._load_result_preview(record)
 
@@ -1629,7 +2215,66 @@ class TestRunsPage:
         ):
             payload = runs_page._collect_result_preview(record)
 
-        assert payload == ("analysis", [["water", "water.log"]], "Result Preview - Local Files", False)
+        assert payload.kind == "analysis"
+        assert payload.rows == (("water", "water.log"),)
+        assert payload.label == "Result Preview - Local Files"
+        assert payload.stale is False
+
+    def test_async_preview_result_is_applied_on_gui_thread(self, runs_page, qtbot):
+        import threading
+
+        from jobdesk_app.application.runs_artifacts import PreviewPayload, PreviewRequest
+
+        record = SimpleNamespace(run_id="preview", command_template="orca", local_dir=None)
+        applied_threads: list[int] = []
+        applied = []
+
+        def capture(payload, *, record=None):
+            applied_threads.append(threading.get_ident())
+            applied.append((payload, record))
+
+        runs_page._selected_record = lambda: record
+        runs_page._build_preview_request = lambda _record: PreviewRequest(run_id="preview")
+        runs_page._apply_result_preview = capture
+        gui_thread = threading.get_ident()
+
+        runs_page._render_selected_preview()
+        qtbot.waitUntil(lambda: bool(applied), timeout=2000)
+
+        payload, applied_record = applied[0]
+        assert isinstance(payload, PreviewPayload)
+        assert payload.kind == "empty"
+        assert payload.rows == ()
+        assert applied_record is None
+        assert applied_threads == [gui_thread]
+
+    def test_preview_worker_target_has_only_frozen_request_dependency(self, runs_page):
+        import inspect
+
+        from jobdesk_app.application.runs_artifacts import PreviewPayload, PreviewRequest
+
+        record = SimpleNamespace(run_id="preview")
+        request = PreviewRequest(run_id="preview")
+        captured = {}
+
+        def capture_worker(*args, **kwargs):
+            captured["target"] = kwargs["target"]
+
+        runs_page._selected_record = lambda: record
+        runs_page._build_preview_request = lambda _record: request
+        with patch(
+            "jobdesk_app.gui.pages.runs_results_page.start_context_worker",
+            side_effect=capture_worker,
+        ):
+            runs_page._render_selected_preview()
+
+        target = captured["target"]
+        assert "self" not in target.__code__.co_freevars
+        assert "record" not in target.__code__.co_freevars
+        assert not inspect.getclosurevars(target).nonlocals
+        payload = target(MagicMock())
+        assert isinstance(payload, PreviewPayload)
+        assert payload.kind == "empty"
 
     def test_async_workspace_preview_does_not_promote_remote_completed_from_local_file(self, runs_page, tmp_path):
         runs_page.state.current_project_root = tmp_path
@@ -1666,7 +2311,7 @@ class TestRunsPage:
             payload = runs_page._collect_result_preview(record)
 
         refresh_run_list.assert_not_called()
-        assert payload == ("empty",)
+        assert payload.kind == "empty"
 
         with patch.object(runs_page, "refresh_run_list") as refresh_run_list:
             runs_page._apply_result_preview(payload)
@@ -1955,6 +2600,86 @@ class TestRunsPage:
         assert questions
         assert "results" not in questions[0].lower()
 
+    def test_delete_worker_uses_runtime_lookup_and_action_port(self, runs_page, tmp_path):
+        """The GUI worker resolves records and deletes through its fake runtime."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        runtime = MagicMock()
+        runtime.load_run.return_value = SimpleNamespace(local_dir=str(tmp_path))
+        runtime.delete_run.return_value = SimpleNamespace(errors=[])
+        coordinator = MagicMock()
+        captured: dict[str, object] = {}
+
+        runs_page._runtime = runtime
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run-runtime"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+
+        def capture_worker(*_args, **kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch.object(runs_page, "_coordinator_for", return_value=coordinator),
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker),
+        ):
+            runs_page._delete_run()
+            result = captured["target"](None)
+
+        assert result == (1, [], ("run-runtime",))
+        runtime.load_run.assert_called_once_with(runs_page._workspace(), "run-runtime")
+        runtime.delete_run.assert_called_once_with(
+            tmp_path,
+            "run-runtime",
+            coordinator=coordinator,
+        )
+
+    def test_delete_run_retires_successfully_deleted_watcher(self, runs_page):
+        """A successful delete releases the watcher before the list refresh."""
+        from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+        workspace = runs_page._workspace()
+        watch_id = runs_page._monitor_identity(workspace, "run-delete", "wsl")
+        runs_page._monitor_contexts[watch_id] = (workspace, "run-delete", "wsl")
+        runs_page._monitor = MagicMock()
+        runs_page.table.blockSignals(True)
+        runs_page.table.setRowCount(1)
+        runs_page.table.setItem(0, 0, QTableWidgetItem("run-delete"))
+        runs_page.table.selectRow(0)
+        runs_page.table.blockSignals(False)
+        captured: dict[str, object] = {}
+
+        def capture_worker(*args, **kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        with (
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker", side_effect=capture_worker),
+            patch.object(runs_page, "refresh_run_list"),
+        ):
+            runs_page._delete_run()
+            # Execute the worker target so the callback's success list is
+            # populated exactly as it would be on the real worker thread.
+            service = MagicMock()
+            service.load_run.return_value = SimpleNamespace(local_dir="")
+            with (
+                patch("jobdesk_app.gui.pages.runs_results_page.RunService", return_value=service),
+                patch.object(
+                    runs_page,
+                    "_coordinator_for",
+                    return_value=MagicMock(delete=MagicMock(return_value=SimpleNamespace(errors=[]))),
+                ),
+            ):
+                captured["target"](None)
+            captured["on_result"]((1, []))
+
+        runs_page._monitor.unwatch.assert_called_once_with("run-delete", "wsl", watch_id)
+        assert watch_id not in runs_page._monitor_contexts
+
     def test_load_result_preview_renders_multi_molecule_batch(self, runs_page, tmp_path):
         """A batch with multiple molecules shows per-molecule status table."""
         runs_page.state.current_project_root = tmp_path
@@ -1994,7 +2719,12 @@ class TestRunsPage:
                 for mol in ("mol1", "mol2", "mol3", "mol4")
             ],
         )
-        record = MagicMock(run_id="batch01", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="batch01",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 4
@@ -2047,7 +2777,12 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="batch02", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="batch02",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 2
@@ -2085,7 +2820,12 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="batch03", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="batch03",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
         runs_page._load_result_preview(record)
 
         assert runs_page.result_table.rowCount() == 2
@@ -2133,7 +2873,12 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run04", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="run04",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace
@@ -2359,7 +3104,12 @@ class TestRunsPage:
                 ),
             ],
         )
-        record = MagicMock(run_id="run05", command_template="confflow {name}", workflow_kind=WorkflowKind.confflow, manifest_path=str(manifest_path))
+        record = MagicMock(
+            run_id="run05",
+            command_template="confflow {name}",
+            workflow_kind=WorkflowKind.confflow,
+            manifest_path=str(manifest_path),
+        )
 
         with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
             from dataclasses import replace as dc_replace
@@ -2539,6 +3289,42 @@ class TestRunsPage:
 
         assert runs_page._selected_uncertain_task_ids() == ["b"]
 
+    def test_uncertain_actions_accept_rendered_user_role_dictionary(self, runs_page):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        runs_page.result_table.setColumnCount(1)
+        runs_page.result_table.setRowCount(1)
+        item = QTableWidgetItem("uncertain-task")
+        item.setData(
+            Qt.UserRole,
+            {"kind": "uncertain", "task_id": "uncertain-task", "status": "uncertain", "error": "timeout"},
+        )
+        runs_page.result_table.setItem(0, 0, item)
+        runs_page.result_table.selectRow(0)
+
+        assert runs_page._selected_uncertain_task_ids() == ["uncertain-task"]
+
+    def test_uncertain_resolution_has_single_remote_mutation_gate(self, runs_page):
+        from PySide6.QtWidgets import QMessageBox
+
+        record = MagicMock(status_summary={"uncertain": 1})
+        statuses = []
+        runs_page._status_cb = statuses.append
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "_selected_uncertain_task_ids", return_value=["task-1"]),
+            patch.object(runs_page, "_result_workspace", return_value=Path("workspace")),
+            patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+            patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
+        ):
+            runs_page._resolve_uncertain_selection(confirm=True)
+            runs_page._resolve_uncertain_selection(confirm=True)
+
+        assert start_worker.call_count == 1
+        assert runs_page._remote_mutation_running is True
+        assert any("already in progress" in status for status in statuses)
+
     def test_mixed_task_selection_disables_uncertain_actions(self, runs_page):
         from PySide6.QtCore import QItemSelectionModel, Qt
         from PySide6.QtWidgets import QTableWidgetItem
@@ -2701,6 +3487,29 @@ class TestRunsPage:
         assert worker in runs_page._bg_workers
         worker.start.assert_called_once_with()
 
+    @pytest.mark.parametrize("failure_point", ["construct", "start"])
+    def test_manual_refresh_gate_blocks_duplicates_and_recovers_after_start_failure(self, runs_page, failure_point):
+        record = MagicMock(run_id="run_refresh", local_dir="")
+        worker = _FakeWorker()
+        if failure_point == "start":
+            worker.start.side_effect = RuntimeError("start")
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker)
+        else:
+            factory = patch("jobdesk_app.gui.workers.BackgroundWorker", side_effect=RuntimeError("construct"))
+
+        with patch.object(runs_page, "_selected_record", return_value=record), factory:
+            runs_page._refresh_status()
+            if failure_point == "start":
+                assert not runs_page._manual_refresh_running
+                worker.start.side_effect = None
+                runs_page._refresh_status()
+                runs_page._refresh_status()
+                assert worker.start.call_count == 2
+                assert runs_page._manual_refresh_running
+                worker.finished.emit()
+
+        assert not runs_page._manual_refresh_running
+
     def test_manual_refresh_without_download_reports_refreshed(self, runs_page):
         from jobdesk_app.gui.i18n import tr
 
@@ -2737,25 +3546,29 @@ class TestRunsPage:
         client_factory.assert_called_once_with(coordinator_factory.return_value, "srv")
         client.submit_with_outcome.assert_called_once()
 
-    def test_cancel_worker_delegates_to_client_handle(self, runs_page):
+    def test_cancel_worker_delegates_to_runtime(self, runs_page, tmp_path):
         from PySide6.QtWidgets import QMessageBox
 
-        record = SimpleNamespace(run_id="run-1", server_id="srv", local_dir="")
-        client = MagicMock()
-        handle = MagicMock()
-        client.attach.return_value = handle
+        record = SimpleNamespace(run_id="run-1", server_id="srv", local_dir=str(tmp_path))
+        runtime = MagicMock()
+        runtime.cancel_run.return_value = (1, [])
+        runs_page._runtime = runtime
 
         with (
             patch.object(runs_page, "_selected_record", return_value=record),
             patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
-            patch.object(runs_page, "_client_for", return_value=client),
             patch("jobdesk_app.gui.pages.runs_results_page.start_context_worker") as start_worker,
         ):
             runs_page._stop_run()
             start_worker.call_args.kwargs["target"](MagicMock())
 
-        client.attach.assert_called_once_with("run-1")
-        handle.cancel.assert_called_once_with()
+        runtime.cancel_run.assert_called_once_with(
+            tmp_path,
+            "run-1",
+            server_id="srv",
+            resolver=runs_page._coordinator_for,
+            client_factory=runs_page._client_factory,
+        )
 
     def test_submit_cancel_worker_overlap_keeps_single_tracked_mutation(self, runs_page):
         from PySide6.QtWidgets import QMessageBox
@@ -2901,6 +3714,66 @@ class TestRunsPage:
         assert worker in runs_page._bg_workers
         worker.finished.emit()
         assert worker not in runs_page._bg_workers
+
+    def test_retry_download_rejects_when_action_controller_is_busy(self, runs_page):
+        record = MagicMock(
+            run_id="run_refresh",
+            status_summary={"remote_completed": 1},
+        )
+        intent = runs_page._actions.begin(
+            "retry_download",
+            [record.run_id],
+            workspace=runs_page._workspace(),
+        )
+        assert intent is not None
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch("jobdesk_app.gui.workers.BackgroundWorker") as worker,
+        ):
+            runs_page._retry_download()
+
+        worker.assert_not_called()
+        assert not getattr(runs_page, "_retry_dl_running", False)
+        runs_page._actions.finish(intent)
+
+    @pytest.mark.parametrize(
+        ("signal_name", "payload", "callback_name"),
+        [("result", ([], []), "_done"), ("error", "download failed", "_err")],
+    )
+    def test_retry_download_worker_callbacks_queue_and_finished_releases_guard(
+        self, runs_page, signal_name, payload, callback_name
+    ):
+        worker = _FakeWorker()
+        record = MagicMock(
+            run_id="run_refresh",
+            status_summary={"remote_completed": 1},
+        )
+        queued_callbacks: list[str] = []
+        original_queue = runs_page._queue_gui
+
+        def capture_queue(callback, *args):
+            queued_callbacks.append(getattr(callback, "__name__", ""))
+            return original_queue(callback, *args)
+
+        runs_page._queue_gui = capture_queue
+        with (
+            patch.object(runs_page, "_selected_record", return_value=record),
+            patch.object(runs_page, "refresh_run_list"),
+            patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker),
+        ):
+            runs_page._retry_download()
+            assert runs_page._actions.active_intent is not None
+            assert runs_page._retry_dl_running is True
+
+            getattr(worker, signal_name).emit(payload)
+            assert callback_name in queued_callbacks
+            assert runs_page._actions.active_intent is not None
+            assert runs_page._retry_dl_running is True
+
+            worker.finished.emit()
+
+        assert runs_page._actions.active_intent is None
+        assert runs_page._retry_dl_running is False
 
     def test_retry_download_delegates_session_ownership_to_use_case(self, runs_page):
         record = MagicMock(

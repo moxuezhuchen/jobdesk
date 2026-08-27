@@ -227,6 +227,9 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
     up_icon = style.standardIcon(QStyle.SP_ArrowUp)
     # kind column: local=3, remote=4
     kind_col = 4 if table.role == "remote" else 3
+    sorting_enabled = table.isSortingEnabled()
+    sort_column = table.horizontalHeader().sortIndicatorSection()
+    sort_order = table.horizontalHeader().sortIndicatorOrder()
     table.setSortingEnabled(False)
     table.setRowCount(len(rows))
     for r, row in enumerate(rows):
@@ -243,8 +246,32 @@ def _load_rows(table: QTableWidget, rows: list[list[str]]) -> None:
                     item.setIcon(folder_icon)
                 else:
                     item.setIcon(file_icon)
+                path_col = 5 if table.role == "remote" else 4
+                item.setToolTip(str(row[path_col]) if path_col < len(row) else str(value))
+            else:
+                item.setToolTip(str(value))
             table.setItem(r, c, item)
-    table.setSortingEnabled(True)
+    table.setSortingEnabled(sorting_enabled)
+    if sorting_enabled and 0 <= sort_column < table.columnCount():
+        table.sortItems(sort_column, sort_order)
+
+
+def _filter_rows(table: QTableWidget, query: str) -> tuple[int, int]:
+    """Filter a file table by name, always retaining the synthetic parent row."""
+    needle = query.strip().casefold()
+    visible = 0
+    total = 0
+    for row in range(table.rowCount()):
+        item = table.item(row, 0)
+        name = item.text() if item is not None else ""
+        is_parent = name == ".."
+        hidden = not is_parent and bool(needle) and needle not in name.casefold()
+        table.setRowHidden(row, hidden)
+        if not is_parent:
+            total += 1
+            if not hidden:
+                visible += 1
+    return visible, total
 
 
 class _SortableItem(QTableWidgetItem):

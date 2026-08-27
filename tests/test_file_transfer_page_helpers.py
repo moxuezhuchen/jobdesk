@@ -30,6 +30,7 @@ from jobdesk_app.gui.pages.file_transfer_helpers import (
     remote_parent_path,
     remote_parent_row,
     remote_table_row,
+    restored_splitter_sizes,
     run_button_reason,
     table_resize_mode_name,
 )
@@ -231,6 +232,7 @@ def test_parent_rows_for_local_and_remote_navigation(tmp_path):
 def test_connection_status_text():
     assert connection_status_text("s1", True, "") == "Connected: s1"
     assert connection_status_text("s1", False, "") == "Connecting: s1"
+    assert connection_status_text("s1", False, "", connecting=False) == "Disconnected: s1"
     assert connection_status_text("s1", False, "boom") == "Connection failed: boom"
     assert connection_status_text("", False, "") == "No server selected"
 
@@ -290,6 +292,22 @@ def test_files_layout_is_split_into_short_rows():
 def test_format_selection_summary():
     assert format_selection_summary(0, 0) == "Local 0 | Remote 0"
     assert format_selection_summary(2, 3) == "Local 2 | Remote 3"
+    assert format_selection_summary(2, 3, local_visible=4, local_total=8, remote_visible=5, remote_total=9) == (
+        "Local 2 selected, 4/8 visible | Remote 3 selected, 5/9 visible"
+    )
+
+
+def test_restored_splitter_sizes_accepts_only_valid_shape():
+    settings = type(
+        "Settings",
+        (),
+        {"splitter_sizes": {"files.panes": [420, 680], "files.main": [700, 0, 50], "bad": [1, -1]}},
+    )()
+
+    assert restored_splitter_sizes(settings, "files.panes", [500, 620]) == [420, 680]
+    assert restored_splitter_sizes(settings, "files.main", [100, 0, 48]) == [700, 0, 50]
+    assert restored_splitter_sizes(settings, "bad", [3, 4]) == [3, 4]
+    assert restored_splitter_sizes(settings, "missing", [3, 4]) == [3, 4]
 
 
 def test_table_resize_mode_is_interactive():

@@ -67,12 +67,16 @@ def format_queue_summary(statuses: list[TransferStatus], language: str = "en") -
 def build_file_button_reasons(local_selected: bool, remote_selected: bool, connected: bool) -> dict[str, str]:
     return {
         "upload": "" if local_selected else "Select a local file or folder",
-        "download": ""
-        if connected and remote_selected
-        else ("Connect to a server first" if not connected else "Select a remote file or folder"),
-        "preview": ""
-        if connected and remote_selected
-        else ("Connect to a server first" if not connected else "Select a remote file"),
+        "download": (
+            ""
+            if connected and remote_selected
+            else ("Connect to a server first" if not connected else "Select a remote file or folder")
+        ),
+        "preview": (
+            ""
+            if connected and remote_selected
+            else ("Connect to a server first" if not connected else "Select a remote file")
+        ),
     }
 
 
@@ -236,12 +240,24 @@ def breadcrumb_parts(remote_dir: str) -> list[tuple[str, str]]:
     return parts
 
 
-def connection_status_text(server_id: str | None, connected: bool, error: str = "", language: str = "en") -> str:
+def connection_status_text(
+    server_id: str | None,
+    connected: bool,
+    error: str = "",
+    language: str = "en",
+    *,
+    connecting: bool = True,
+) -> str:
     if error:
         return tr("Connection failed: {error}", language, error=error)
     if not server_id:
         return tr("No server selected", language)
-    key = "Connected: {server_id}" if connected else "Connecting: {server_id}"
+    if connected:
+        key = "Connected: {server_id}"
+    elif connecting:
+        key = "Connecting: {server_id}"
+    else:
+        key = "Disconnected: {server_id}"
     return tr(key, language, server_id=server_id)
 
 
@@ -282,13 +298,48 @@ def remote_table_row(name: str, is_dir: bool, size: str, modified: str, permissi
     return [name, size, modified, permissions, "dir" if is_dir else "file", path]
 
 
-def format_selection_summary(local_count: int, remote_count: int, language: str = "en") -> str:
+def format_selection_summary(
+    local_count: int,
+    remote_count: int,
+    language: str = "en",
+    *,
+    local_visible: int | None = None,
+    local_total: int | None = None,
+    remote_visible: int | None = None,
+    remote_total: int | None = None,
+) -> str:
+    if None not in (local_visible, local_total, remote_visible, remote_total):
+        return tr(
+            "Local {local_count} selected, {local_visible}/{local_total} visible | "
+            "Remote {remote_count} selected, {remote_visible}/{remote_total} visible",
+            language,
+            local_count=local_count,
+            local_visible=local_visible,
+            local_total=local_total,
+            remote_count=remote_count,
+            remote_visible=remote_visible,
+            remote_total=remote_total,
+        )
     return tr(
         "Local {local_count} | Remote {remote_count}",
         language,
         local_count=local_count,
         remote_count=remote_count,
     )
+
+
+def restored_splitter_sizes(settings, key: str, defaults: list[int]) -> list[int]:
+    """Return a valid persisted splitter shape or a defensive copy of defaults."""
+    saved = getattr(settings, "splitter_sizes", {})
+    values = saved.get(key, []) if isinstance(saved, dict) else []
+    if (
+        not isinstance(values, list)
+        or len(values) != len(defaults)
+        or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values)
+        or not any(values)
+    ):
+        return list(defaults)
+    return list(values)
 
 
 def build_local_rows(base: Path, hide_dot: bool) -> tuple[dict[str, float], list[list[str]], str | None]:

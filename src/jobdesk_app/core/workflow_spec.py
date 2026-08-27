@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .workflow_codec import decode_workflow_yaml, encode_workflow_yaml
+from .workflow_document import WorkflowDocument
+from .workflow_mapping import canonical_mapping, normalize_steps, token_to_step
+from .workflow_schema_lint import lint_workflow_schema
+
 
 @functools.lru_cache(maxsize=1)
 def _load_confflow_models() -> tuple[Any, Any] | None:
@@ -148,6 +153,13 @@ def _validate_confflow_semantics(payload: dict[str, Any], *, allow_legacy_confge
         raise ValueError("Invalid workflow YAML: " + "; ".join(errors))
 
 
+def _validate_local_structure(payload: dict[str, Any]) -> list[str]:
+    """Compatibility validation available even when the chem extra is absent."""
+    from ._confflow_validation import validate_yaml_config
+
+    return validate_yaml_config(payload)
+
+
 @functools.lru_cache(maxsize=1)
 def _kb_to_mb(n: float) -> int:
     return max(1, int(n / 1024))
@@ -264,21 +276,6 @@ def _itask_token(value: str) -> str:
     return s
 
 
-_STEP_TOKEN_TO_TYPE: dict[str, tuple[str, dict[str, Any]]] = {
-    "confgen": (
-        "confgen",
-        {"chains": ["1-2-3-4"], "angle_step": 120, "bond_multiplier": 1.15},
-    ),
-    "preopt": ("calc", {"itask": "opt"}),
-    "opt": ("calc", {"itask": "opt"}),
-    "opt_freq": ("calc", {"itask": "opt_freq"}),
-    "sp": ("calc", {"itask": "sp"}),
-    "freq": ("calc", {"itask": "freq"}),
-    "ts": ("calc", {"itask": "ts"}),
-    "refine": ("calc", {"itask": "sp"}),
-}
-
-
 def _token_to_step(token: str, *, idx: int | None = None) -> dict[str, Any]:
     """Convert a wizard token (``opt_freq``/``sp``/...) into a step dict.
 
@@ -286,21 +283,7 @@ def _token_to_step(token: str, *, idx: int | None = None) -> dict[str, Any]:
     injected later by :meth:`WorkflowSpec.from_form` because they are
     the same across steps.
     """
-    tok = str(token or "").strip().lower()
-    if not tok:
-        return {
-            "name": f"step_{(idx or 1):02d}",
-            "type": "calc",
-            "params": {"itask": "sp"},
-        }
-    step_type, base_params = _STEP_TOKEN_TO_TYPE.get(tok, ("calc", {"itask": tok}))
-    # Name: prefer the token; fall back to a deterministic step_xx.
-    name = tok if tok in {"confgen", "preopt", "opt_freq", "refine"} else tok
-    return {
-        "name": name,
-        "type": step_type,
-        "params": dict(base_params),
-    }
+    return token_to_step(token, idx=idx)
 
 
 def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
@@ -320,120 +303,12 @@ def _normalise_yaml_to_schema(data: dict[str, Any]) -> dict[str, Any]:
     ``{name, type, params}`` confflow contract.  Bare string tokens
     (``"opt_freq"``) are converted; already-dict steps pass through.
     """
-    if not isinstance(data, dict):
-        return {"global": {}, "steps": []}
-    has_global = "global" in data
-    has_steps = "steps" in data
-    if has_global and has_steps:
-        # Fully canonical — pass through.
-        global_dict = dict(data.get("global") or {})
-        steps_list = _normalise_steps_list(data.get("steps") or [])
-        _lift_legacy_resource_keys(global_dict)
-        return {"global": global_dict, "steps": steps_list}
-    if has_global:
-        # Has ``global`` but ``steps`` may be missing or a list of
-        # bare tokens.
-        global_dict = dict(data.get("global") or {})
-        steps_list = _normalise_steps_list(data.get("steps") or [])
-        _lift_legacy_resource_keys(global_dict)
-        return {"global": global_dict, "steps": steps_list}
-    if has_steps:
-        # v5-flat shape: ``{work_dir, program, charge, ..., steps: [...]}``
-        # — everything except ``steps`` is treated as global, and
-        # ``keyword``/``iprog`` are attached to the first calc step.
-        global_dict = {k: v for k, v in data.items() if k != "steps"}
-        _lift_legacy_resource_keys(global_dict)
-        steps_list = _normalise_steps_list(data.get("steps") or [])
-        if steps_list:
-            first_calc = next(
-                (s for s in steps_list if isinstance(s, dict) and s.get("type") == "calc"),
-                None,
-            )
-            if first_calc is not None:
-                for k in ("keyword", "iprog", "blocks"):
-                    if k in global_dict and k not in first_calc.get("params", {}):
-                        first_calc.setdefault("params", {})[k] = global_dict.pop(k)
-        return {"global": global_dict, "steps": steps_list}
-    # Neither ``global`` nor ``steps`` — fully flat legacy / ``calc:`` shape.
-    legacy_calc = data.get("calc") if isinstance(data.get("calc"), dict) else None
-    global_dict = {k: v for k, v in data.items() if k != "calc" and k != "steps"}
-    if legacy_calc:
-        for k, v in legacy_calc.items():
-            if k == "steps":
-                continue
-            global_dict.setdefault(k, v)
-    _lift_legacy_resource_keys(global_dict)
-    raw_steps = (legacy_calc or {}).get("steps") or data.get("steps") or []
-    steps_list = _normalise_steps_list(raw_steps)
-    if steps_list:
-        first_calc = next(
-            (s for s in steps_list if isinstance(s, dict) and s.get("type") == "calc"),
-            None,
-        )
-        if first_calc is not None:
-            for k in ("keyword", "iprog", "blocks"):
-                if k in global_dict and k not in first_calc.get("params", {}):
-                    first_calc.setdefault("params", {})[k] = global_dict.pop(k)
-    return {"global": global_dict, "steps": steps_list}
-
-
-def _lift_legacy_resource_keys(global_dict: dict[str, Any]) -> None:
-    """Translate wizard-only resource names into confflow-native ones."""
-    if "nproc" in global_dict and "cores_per_task" not in global_dict:
-        try:
-            global_dict["cores_per_task"] = int(global_dict["nproc"])
-        except (TypeError, ValueError):
-            pass
-        global_dict.pop("nproc", None)
-    if "memory_mb" in global_dict and "total_memory" not in global_dict:
-        global_dict["total_memory"] = _format_mem_mb(global_dict["memory_mb"])
-        global_dict.pop("memory_mb", None)
+    return canonical_mapping(data)
 
 
 def _normalise_steps_list(raw_steps: Any) -> list[dict[str, Any]]:
     """Coerce whatever ``steps:`` looks like into ``[{name, type, params}]``."""
-    if not raw_steps:
-        return []
-    if not isinstance(raw_steps, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for idx, step in enumerate(raw_steps, start=1):
-        if isinstance(step, str):
-            out.append(_token_to_step(step, idx=idx))
-            continue
-        if not isinstance(step, dict):
-            continue
-        # Already a step dict — pass through, filling in defaults.
-        name = str(step.get("name") or f"step_{idx:02d}")
-        step_type = str(step.get("type") or "calc")
-        params = dict(step.get("params") or {})
-        # If the legacy ``keyword`` / ``iprog`` ended up at the step's
-        # top level instead of inside ``params``, hoist them.
-        for k in (
-            "iprog",
-            "itask",
-            "keyword",
-            "energy_window",
-            "cores_per_task",
-            "total_memory",
-            "max_parallel_jobs",
-            "blocks",
-        ):
-            if k in step and k not in params:
-                params[k] = step[k]
-        if step_type == "calc":
-            params.setdefault("itask", "sp")
-        normalised = {"name": name, "type": step_type, "params": params}
-        # Dependencies are workflow-owned, but they are still part of the
-        # final document.  Preserve them when loading a saved workflow so a
-        # graph projection or submit preview cannot silently flatten a DAG.
-        if "inputs" in step:
-            inputs = step["inputs"]
-            if not isinstance(inputs, list) or not all(isinstance(item, str) for item in inputs):
-                raise ValueError("step inputs must be a list of step names")
-            normalised["inputs"] = list(inputs)
-        out.append(normalised)
-    return out
+    return normalize_steps(raw_steps)
 
 
 def _validate_via_global_model(raw: dict[str, Any]) -> None:
@@ -468,6 +343,7 @@ class WorkflowSpec:
     # ownership, R-M4 / P-M4).  ``to_yaml`` strips this; ``to_form``
     # reads ``work_dir`` from here when populating the form.
     _wizard_metadata: dict[str, Any] = field(default_factory=dict)
+    _document: WorkflowDocument | None = None
 
     @classmethod
     def from_form(
@@ -512,7 +388,6 @@ class WorkflowSpec:
         ``max_parallel_jobs`` are also global because they describe the
         whole conformer search.
         """
-        require_confflow()
         keyword = assemble_orca_keyword(method, basis, extra_keyword)
         if program in ("gaussian", "g16") and not keyword.strip():
             keyword = f"{method} {basis}".strip()
@@ -566,18 +441,20 @@ class WorkflowSpec:
         # error reporting on garbage input, but the canonical
         # serialization is the ``raw`` dict (which IS the schema
         # confflow actually consumes).
-        try:
-            _validate_via_global_model(raw)
-        except Exception:
-            # Fall back to a permissive model_validate of just the
-            # global part so users still get typed defaults.
+        model: Any = None
+        if _confflow_available():
+            try:
+                _validate_via_global_model(raw)
+            except Exception:
+                _, GlobalConfigModel = _confflow_models()
+                GlobalConfigModel.model_validate(global_payload or {})
             _, GlobalConfigModel = _confflow_models()
-            GlobalConfigModel.model_validate(global_payload or {})
-        _, GlobalConfigModel = _confflow_models()
+            model = GlobalConfigModel.model_validate(global_payload or {})
         return cls(
-            global_config=GlobalConfigModel.model_validate(global_payload or {}),
+            global_config=model,
             _raw=raw,
             _wizard_metadata=wizard_metadata,
+            _document=WorkflowDocument.from_mapping(raw),
         )
 
     @classmethod
@@ -593,18 +470,22 @@ class WorkflowSpec:
         normalise them on the way in so the rest of the pipeline can
         rely on one shape.
         """
-        require_confflow()
-        import yaml
-
-        data = yaml.safe_load(yaml_text)
-        if not isinstance(data, dict):
-            raise ValueError("workflow YAML must be a mapping at the top level")
+        document = decode_workflow_yaml(yaml_text)
+        data = document.to_mapping()
+        portable_metadata: dict[str, Any] = {}
+        envelope = data.get("__jobdesk_document_extensions__")
+        if isinstance(envelope, dict) and isinstance(envelope.get("wizard_metadata"), dict):
+            portable_metadata = deepcopy(envelope["wizard_metadata"])
         is_legacy_token_layout = not ("global" in data and "steps" in data)
         normalised = _normalise_yaml_to_schema(data)
-        _validate_confflow_semantics(
-            normalised,
-            allow_legacy_confgen_placeholder=is_legacy_token_layout,
-        )
+        local_errors = _validate_local_structure(normalised)
+        if local_errors:
+            raise ValueError("Invalid workflow YAML: " + "; ".join(local_errors))
+        if _confflow_available():
+            _validate_confflow_semantics(
+                normalised,
+                allow_legacy_confgen_placeholder=is_legacy_token_layout,
+            )
         # Populate the typed global model for callers that want it
         # (engine integration, default-supplementation).
         global_dict = normalised.get("global", {}) or {}
@@ -612,15 +493,18 @@ class WorkflowSpec:
         # metadata.  Older YAML files (pre-R-M4) wrote it there; we
         # preserve the value for the form without leaking it into the
         # next ``to_yaml`` output.
-        wizard_metadata: dict[str, Any] = {}
+        wizard_metadata: dict[str, Any] = portable_metadata
         if "work_dir" in global_dict:
             wizard_metadata["work_dir"] = global_dict.pop("work_dir")
-        _, GlobalConfigModel = _confflow_models()
-        model = GlobalConfigModel.model_validate(global_dict)
+        model: Any = None
+        if _confflow_available():
+            _, GlobalConfigModel = _confflow_models()
+            model = GlobalConfigModel.model_validate(global_dict)
         return cls(
             global_config=model,
             _raw=normalised,
             _wizard_metadata=wizard_metadata,
+            _document=WorkflowDocument.from_mapping(normalised),
         )
 
     def to_yaml(self) -> str:
@@ -649,9 +533,6 @@ class WorkflowSpec:
         they actually picked. The full model state is still kept in
         memory in case the engine ever needs the resolved defaults.
         """
-        require_confflow()
-        import yaml
-
         raw = getattr(self, "_raw", None)
         if not raw:
             # Legacy flat-shape models built before _raw existed —
@@ -668,7 +549,7 @@ class WorkflowSpec:
         global_block = out.get("global") if isinstance(out, dict) else None
         if isinstance(global_block, dict) and "work_dir" in global_block:
             global_block.pop("work_dir", None)
-        return yaml.safe_dump(out, sort_keys=False, allow_unicode=True, default_flow_style=False)
+        return encode_workflow_yaml(WorkflowDocument.from_mapping(out))
 
     def to_user_yaml(self) -> str:
         """Wizard-side YAML rendering — leaner than :meth:`to_yaml`.
@@ -704,7 +585,6 @@ class WorkflowSpec:
         via :meth:`from_yaml` (which can recover the missing ``type``
         and ``global`` from the source ``WorkflowSpec``).
         """
-        require_confflow()
         import yaml
 
         raw = getattr(self, "_raw", None)
@@ -719,6 +599,19 @@ class WorkflowSpec:
             omit_type_calc=True,
         )
         out: dict[str, Any] = {"steps": steps_list} if steps_list else {}
+        # Keep the deliberately hidden global card state and producer-owned
+        # top-level extensions in an explicit portable envelope.  This avoids
+        # silently erasing data when a caller round-trips user YAML without
+        # the GUI's richer merge context, while retaining the historic no
+        # ``global:`` presentation contract.
+        top_level = {key: deepcopy(value) for key, value in raw.items() if key not in {"global", "steps"}}
+        global_block = raw.get("global")
+        if top_level or isinstance(global_block, dict):
+            out["__jobdesk_document_extensions__"] = {
+                "state": deepcopy(global_block) if isinstance(global_block, dict) else {},
+                "top_level": top_level,
+                "wizard_metadata": deepcopy(getattr(self, "_wizard_metadata", None) or {}),
+            }
         return yaml.safe_dump(
             out,
             sort_keys=False,
@@ -735,6 +628,8 @@ class WorkflowSpec:
         defaults and the user didn't pick them. ``freeze`` is shown
         when non-empty (a non-trivial constraint).
         """
+        if not _confflow_available():
+            return {k: v for k, v in global_dict.items() if v not in (None, "", [], {})}
         _, GlobalConfigModel = _confflow_models()
         defaults = {
             fname: field.default for fname, field in GlobalConfigModel.model_fields.items() if field.default is not None
@@ -874,6 +769,12 @@ class WorkflowSpec:
             # engine-facing YAML so reopening a workflow cannot flatten it.
             if "inputs" in step:
                 entry["inputs"] = list(step["inputs"])
+            # Unknown step-level state (including ``disabled`` and producer
+            # extensions) is user data, not presentation noise.  Preserve it
+            # in the editable representation so Apply cannot erase it.
+            for key, value in step.items():
+                if key not in {"name", "type", "params", "inputs"}:
+                    entry[key] = deepcopy(value)
             clean.append(entry)
         return clean
 
@@ -882,6 +783,8 @@ class WorkflowSpec:
         the typed model.  Used when ``_raw`` wasn't populated (e.g. a
         legacy ``GlobalConfigModel``-only instance from before v6).
         """
+        if self.global_config is None:
+            return deepcopy(self._raw) if self._raw else {"global": {}, "steps": []}
         data = self.global_config.model_dump(mode="json", exclude_none=True)
         return {
             "global": data,
@@ -898,7 +801,6 @@ class WorkflowSpec:
         ``multiplicity``, ``freeze``, ``max_parallel_jobs``) come
         from ``global``.
         """
-        require_confflow()
         raw = getattr(self, "_raw", None) or self._reconstruct_raw()
         global_dict = raw.get("global") or {}
         steps_list = raw.get("steps") or []
@@ -970,6 +872,19 @@ class WorkflowSpec:
             "max_parallel_jobs": int(global_dict.get("max_parallel_jobs", 1) or 1),
         }
 
+    @property
+    def document(self) -> WorkflowDocument:
+        """Return the portable document view used by base installations."""
+        return self._document or WorkflowDocument.from_mapping(self._raw or self._reconstruct_raw())
+
+    def schema_lint(self, verified_schema: dict[str, Any] | None) -> list[str]:
+        """Run only caller-supplied, verified structural schema checks.
+
+        This never imports ConfFlow and is intentionally advisory; remote
+        contract admission remains the final authority.
+        """
+        return lint_workflow_schema(self.document.to_mapping(), verified_schema)
+
     def dry_run(self) -> DryRunReport:
         """Best-effort local dry-run.
 
@@ -981,7 +896,6 @@ class WorkflowSpec:
         called there).
         """
         try:
-            require_confflow()
             # Round-trip serialize/parse: if this works the document is valid.
             text = self.to_yaml()
             WorkflowSpec.from_yaml(text)
@@ -994,7 +908,6 @@ class WorkflowSpec:
 
 def write_workflow_yaml(spec: WorkflowSpec, path: str | Path) -> Path:
     """Convenience: serialize ``spec`` and write atomically to ``path``."""
-    require_confflow()
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = spec.to_yaml()

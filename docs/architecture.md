@@ -1,15 +1,39 @@
 # JobDesk Architecture
 
-## ConfFlow contract update (2026-07-28)
+## Current status and identity boundaries
+
+This document describes the current source-level boundaries. It is not a
+release, merge, endpoint-switch, workload, or promotion record. The four
+identities below must not be conflated (values recorded during the 2026-08-19
+baseline; revalidate before acceptance):
+
+| Identity | Recorded value | Boundary |
+|---|---|---|
+| Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Dirty/shared development sources; not installed runtime |
+| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, base `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Review candidates; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.6.0` at `e4d8f74af0dff80b233f7bd9cb360b43d040069f`; ConfFlow `v2.0.0` at `69819350d340a6aeccf95aa175edfd1c3f63404b`, wheel SHA-256 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f` | Historical artifacts; not a claim about this candidate |
+| Configured production executable | Recorded `wsl` endpoint `/usr/local/bin/confflow` → `/opt/confflow-2.0.0-prod-venv/bin/confflow` | Protected runtime identity; revalidate live before acceptance |
+
+The phase notes, compatibility records, and remediation evidence under
+`docs/` are historical evidence. Their counters, hashes, commands, and
+acceptance facts are intentionally unchanged and must not be read as current
+product behavior or as release/promotion authorization. This includes the
+older Phase 8/9 wizard and g16 notes, the Phase F owner-exception record, and
+the compatibility-period records.
+
+## ConfFlow contract boundaries
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
-Workflow method presets are supplied by `jobdesk_app.services.method_presets`,
-while the editable local `WorkflowSpec` and the remote `confflow` CLI form a
-two-part contract. JobDesk accepts ConfFlow in the compatibility window
-`>=2.0,<3.0`; control submission is pinned to the exact clean `v2.0.0`
-provenance. The Phase F owner exception removed the legacy backend from the
-production path; v1.5.3 and v1.4.6 remain historical release evidence only.
-This is a capability window, not an exact shared model pin.
+Workflow method presets are supplied by `jobdesk_app.services.method_presets`.
+The portable `WorkflowDocument`/codec/mapping path is dependency-free; the
+optional `WorkflowSpec` facade may use producer Pydantic models for local
+authoring compatibility, but those models are not a shared runtime contract.
+JobDesk accepts the capability window `>=2.0,<3.0`; production admission is
+separately fail-closed to the recorded exact clean `v2.0.0` producer identity.
+The Phase F owner exception removed the legacy backend from the production
+path; v1.5.3 and v1.4.6 remain historical release evidence only. This is a
+capability window plus a producer-owned configuration contract, not an exact
+shared Pydantic model pin.
 
 An executable DAG must have one semantic terminal step. The OUTPUT node
 visualizes that one result and does not aggregate independent branches; add a
@@ -46,21 +70,29 @@ contributor trying to locate where to make a change.
                     └──────────────────────────────────────────┘
 ```
 
-The GUI never talks directly to `remote/`; everything routes through
-`services/run_coordinator.RunCoordinator`, which is the only place
-that holds session leases via `SessionPool`.
+The GUI never talks directly to `remote/`; application services and
+`services/run_coordinator.RunCoordinator` own those ports. `MainWindow` shares
+one `SessionPool` with ordinary Files/Runs operations, but the pool is not the
+owner of every remote connection.
 
-> **P-M1 (R-M1) — serialised reuse, not concurrency.** The
-> `SessionPool` owned by `MainWindow` is shared by the Files page and
-> the Runs page (and each `RunCoordinator` they create).  When the
-> GUI runs a ConfFlow capability probe before upload, the probe
-> borrows the same SSH transport that the subsequent upload will
-> reuse.  Each `pool.lease(...)` returns both an SSH and an SFTP
-> handle and they are released together when the lease exits — read
-> and write therefore serialise through one SFTP channel rather
-> than racing two.  Long-lived leases held across multiple
-> operations are intentionally not supported: every file operation
-> enters and exits its own lease.
+### Ordinary pooled sessions versus monitor transports
+
+`services/session_pool.py::SessionPool` owns one reusable, serialized SSH
+session per server. Each `pool.lease(...)` is an exclusive, short-lived scope;
+callers request either SSH-only (`need_sftp=False`) or SSH plus an SFTP channel
+(`need_sftp=True`) and release the lease when the operation ends. The pool
+closes detached clients after active leases return and on application
+shutdown. It must not be held across a long-running watcher or a sequence of
+unrelated operations.
+
+`services/run_monitor.py::RunMonitor` is different: each watcher owns a
+long-lived transport for tailing `events.log` and probing declared workflow
+state/statistics paths. Its `MonitorTransportProvider` explicitly must not
+borrow a `SessionPool` lease, because a tail channel would starve ordinary
+short operations. `application/runs_monitor.py` owns watcher identity and
+lifecycle snapshots; `gui/run_monitor_qt.py` only bridges immutable events to
+Qt. The watcher budget and reconnect/close state therefore remain separate
+from ordinary pooled I/O.
 
 ## 4-page GUI shell
 
@@ -98,9 +130,11 @@ is intentionally framework-free.
 
 ## Run lifecycle
 
-The lifecycle of a single run is owned by `RunService` and
-`RunCoordinator`. The CLI and GUI both call into them and never
-touch the database directly.
+JobDesk's local lifecycle orchestration is owned by `RunService` and
+`RunCoordinator`. The CLI and GUI both call into them and never touch the
+database directly. The remote workflow lifecycle remains owned by ConfFlow;
+the two state machines are connected through the control protocol and typed
+projections, not by shared database writes.
 
 ```
 create     →  submit  →   running   →  download  →   analyzed
@@ -111,8 +145,25 @@ create     →  submit  →   running   →  download  →   analyzed
  + lease      nohup       .log +         → results/   → analysis.tsv
               setsid      workflow_      <task_id>/   + detail pane
                           stats.json     + manifest                render
-                                          update
+                                           update
 ```
+
+### State ownership
+
+ConfFlow is authoritative for the remote aggregate state, revisions, event
+ordering, checkpoints, idempotency, worker/launch tokens, and terminal
+artifact manifests. JobDesk reads those producer-owned values through its
+control client and monitor and never writes the producer's SQLite/state store.
+
+JobDesk owns the local SQLite journal and projection: run/task records,
+submit/delete and control-decision journal entries, accepted producer and
+configuration provenance, handoff evidence, launcher reconciliation, and the
+monotonic local task projection. In schema v8, the immutable
+`run_configuration_bindings` row binds the exact configuration digest,
+producer-owned contract/schema identity, configured/resolved executable, and
+canonical producer/executable provenance to one workflow run.
+`control_backend.json` is a rollback-compatible projection regenerated from
+the SQLite control decision; it is not an independent authority.
 
 A failed submit, dropped SSH session, or external scheduler failure
 ends up as one of `uncertain` / `failed` / `cancelled` in the task
@@ -122,9 +173,10 @@ over a lease (Schema v4).
 
 ## SQLite architecture
 
-`%APPDATA%/JobDesk/runs/jobdesk.db` is the single source of truth
-for runs and tasks. WAL mode allows concurrent reads from CLI and
-GUI without manifest rewrites.
+`%APPDATA%/JobDesk/runs/jobdesk.db` is the local source of truth for JobDesk
+runs, tasks, journals, provenance, and projections. WAL mode allows concurrent
+reads from CLI and GUI without manifest rewrites. It is not a second owner of
+ConfFlow's remote aggregate state.
 
 Schemas:
 
@@ -133,12 +185,21 @@ Schemas:
 - **v3** — added trusted-workspace registry and delete-op-to-workspace bindings
 - **v4** — added UTC submit-ownership leases
 - **v5** — added `submit_activity_log` table for persisting Submit dialog activity (Phase 15C)
+- **v6** — added `run_provenance` for accepted ConfFlow producer identity
+- **v7** — added immutable `run_configuration_bindings` for accepted workflow
+  configuration, contract/schema identity, executable identity, and producer
+  provenance
+- **v8** — added the explicit selected `server_id` to each immutable
+  configuration binding and backfilled it from the parent run during migration
 
 `services/run_repository/` is split into `_schema`, `_paths`,
-`_workspaces`, `_leases`, `_submit`, `_delete`, `_tasks`, `_runs`,
-`_operations`, `_legacy`, `_operations_types`, `_activity`. The split is purely
-organisational; all reads / writes still flow through
-`RunRepository` (the package's `__init__.py`).
+`_workspaces`, `_submit`, `_delete`, `_tasks`, `_tasks_helpers`, `_runs`,
+`_operations`, `_operations_types`, `_legacy`, `_activity`, `_provenance`,
+`_configuration_bindings`, and `_control_decisions`. The split is purely
+organisational; all reads/writes still flow through `RunRepository` (the
+package's `__init__.py`). Control decisions commit the local journal,
+provenance, and task projection atomically; `control_backend.json` remains a
+byte-compatible projection for older readers.
 
 ## Method Preset Store
 
@@ -163,13 +224,15 @@ reusable steps follow the same persistence rules.
 ## ConfFlow integration
 
 The Submit page's "Build workflow" tab is the optional ConfFlow
-front-end. JobDesk works without it. When installed
-(`pip install -e ".[chem]"`), `SubmitUseCase` produces a
-`WorkflowSpec` that round-trips through ConfFlow's Pydantic models
-plus a uniquely named local staging file (`workflow.<submission-id>.yaml`),
-which is uploaded as `workflow.yaml` inside that submission's isolated remote
-namespace. The
-page-level worker callback then:
+front-end. JobDesk works without it. `WorkflowDocument`, `workflow_codec`,
+`workflow_mapping`, and `workflow_schema_lint` keep the base install
+dependency-free and lossless for saved documents. The compatibility
+`WorkflowSpec` facade may use ConfFlow's Pydantic models when the `chem` extra
+is installed, but those models are for local authoring compatibility rather
+than a shared JobDesk/ConfFlow runtime contract. The page-level worker builds
+a uniquely named local staging file (`workflow.<submission-id>.yaml`), which
+is uploaded as `workflow.yaml` inside that submission's isolated remote
+namespace, then:
 
 1. Uploads the local XYZ inputs to the configured `remote_dir`.
 2. Uploads the rendered `workflow.yaml` alongside them.
@@ -177,16 +240,24 @@ page-level worker callback then:
    confflow …`). Initial launches do not pass `--resume`; an explicit
    retry/rerun reuses the same isolated namespace and adds `--resume`.
 
-The local model validates authoring inputs, while the remote CLI owns execution
-and artifact production. They are coupled by the capability and file contracts,
-not by an exact shared Pydantic model version.
+The local document/schema lint is advisory. Before a workflow run is created,
+`services/ssh_configuration_contract_client.py` resolves the configured
+producer's `config contract --json` response and submits the exact YAML bytes
+to `config validate --json --stdin`; the producer's canonical validator owns
+semantic admission. `application/configuration_contract.py` stores the typed
+admission, while `remote/confflow_config_contract.py` parses the frozen response
+ABI. The exact contract/schema hash and executable/producer identities are
+persisted in schema-v8 `run_configuration_bindings` and rechecked before
+submission. Local and remote sides are coupled by capability, configuration,
+control, and artifact contracts, not by an exact shared Pydantic model version.
 
 A ConfFlow run is observed via `services/run_monitor.py` polling the
-remote `events.log` (DONE / RUNNING) **and** probing the SHA-256 digest
-of state + stats files once per iteration (see
-`_CHECKPOINT_PROBE_SECONDS` in `run_monitor.py`). The latter fires a
-synthetic DoneEvent so the Runs page Progress column updates
-between DONE lines.
+remote `events.log` (DONE / RUNNING) **and** probing the SHA-256 content
+digest/presence of the exact state + stats paths supplied by the run plan
+(see `_CHECKPOINT_PROBE_SECONDS`). Mtime-only changes are ignored. A changed
+snapshot fires a synthetic `DoneEvent` so the Runs page Progress column
+updates between DONE lines; this remains observation, not producer-state
+ownership.
 
 ## Where to make changes
 

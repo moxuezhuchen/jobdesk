@@ -14,6 +14,7 @@ This module is organized into the following submodules:
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Callable
 
 import yaml
@@ -40,6 +41,196 @@ from ...nodegraph.model import Edge, NodeGraph, NodeKind, default_node
 from ...nodegraph.spec_bridge import from_workflow_spec
 from . import _form_builder, _preview
 from ._state import _STEP_KINDS, WorkflowDraft, _dump_yaml, _node_fragment, _step_kind
+
+# These are the fields the page's step editor understands.  Anything outside
+# this set is producer-owned document data; when a known field is edited we
+# merge the edit into the original params rather than treating an older
+# editor view as permission to delete an unknown field.
+_KNOWN_STEP_PARAMS: frozenset[str] = frozenset(
+    {
+        "itask",
+        "iprog",
+        "keyword",
+        "method",
+        "basis",
+        "program",
+        "chains",
+        "chain",
+        "angle_step",
+        "bond_multiplier",
+        "add_bond",
+        "del_bond",
+        "no_rotate",
+        "force_rotate",
+        "freeze",
+        "charge",
+        "multiplicity",
+        "cores_per_task",
+        "total_memory",
+        "max_parallel_jobs",
+        "energy_window",
+        "blocks",
+    }
+)
+
+
+def _step_fragment_for_editor(node: Any) -> dict[str, Any]:
+    """Return a selected node fragment without dropping step extensions."""
+
+    fragment = _node_fragment(node)
+    raw = getattr(node, "_workflow_raw_step", None)
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if key not in {"name", "type", "params", "inputs"}:
+                fragment[key] = deepcopy(value)
+    overrides = getattr(node, "_workflow_step_overrides", None)
+    if isinstance(overrides, dict):
+        for key, value in overrides.items():
+            if key not in {"name", "type", "params", "inputs"}:
+                fragment[key] = deepcopy(value)
+    return fragment
+
+
+def _merge_step_params(node: Any, edited: dict[str, Any]) -> dict[str, Any]:
+    """Merge editor params while retaining unknown original producer keys."""
+
+    merged = dict(edited)
+    raw = getattr(node, "_workflow_raw_step", None)
+    original = raw.get("params") if isinstance(raw, dict) else None
+    if isinstance(original, dict):
+        for key, value in original.items():
+            if key not in _KNOWN_STEP_PARAMS and key not in merged:
+                merged[key] = deepcopy(value)
+    return merged
+
+
+def _merged_loaded_document(draft: WorkflowDraft) -> dict[str, Any]:
+    """Apply graph/global edits to a loaded canonical document.
+
+    The raw document remains authoritative for top-level fields, step order,
+    dependency lists, disabled state, and unknown members.  Only fields the
+    page explicitly owns are projected from the graph.  This is deliberately
+    conservative: an unsupported imported DAG can still be saved safely, but
+    it cannot be rewritten by an accidental lossy projection.
+    """
+
+    raw = deepcopy(draft.raw_document or {})
+    raw["global"] = deepcopy(draft.global_config)
+    original_steps = raw.get("steps")
+    if not isinstance(original_steps, list):
+        original_steps = []
+
+    nodes_by_index: dict[int, Any] = {}
+    unindexed: list[Any] = []
+    for node in draft.graph.nodes.values():
+        if node.kind not in _STEP_KINDS:
+            continue
+        index = getattr(node, "_workflow_raw_index", None)
+        if isinstance(index, int) and index >= 0:
+            nodes_by_index[index] = node
+        else:
+            unindexed.append(node)
+
+    # ``inputs`` is a name-based edge list in the saved document, while the
+    # graph edges are ID-based.  A normal loaded graph keeps its original
+    # ``inputs`` lists as document data, so a node rename must be projected to
+    # every downstream list explicitly.  Only unambiguous source names are
+    # eligible for replacement: duplicate imported names are not made more
+    # ambiguous by guessing which node a reference meant.  The editor rejects
+    # a new name that collides with another node; retain the same fail-closed
+    # rule here for direct graph callers as well.
+    current_names = [str(node.title) for node in nodes_by_index.values()]
+    if len(current_names) != len(set(current_names)):
+        raise ValueError("Step names must be unique.")
+    renamed_inputs: dict[str, str] = {}
+    ambiguous_names: set[str] = set()
+    for node in nodes_by_index.values():
+        raw_step = getattr(node, "_workflow_raw_step", None)
+        original_name = raw_step.get("name") if isinstance(raw_step, dict) else None
+        if not isinstance(original_name, str):
+            original_name = getattr(node, "_workflow_original_name", None)
+        if not isinstance(original_name, str):
+            continue
+        new_name = str(node.title)
+        previous = renamed_inputs.get(original_name)
+        if previous is None:
+            renamed_inputs[original_name] = new_name
+        elif previous != new_name:
+            ambiguous_names.add(original_name)
+    for original_name in ambiguous_names:
+        renamed_inputs.pop(original_name, None)
+
+    def sync_input_references(entry: dict[str, Any]) -> None:
+        """Update only valid string references, preserving unknown input data.
+
+        This is intentionally a literal old-name -> new-name substitution.
+        It handles fan-out and fan-in without changing list order or
+        multiplicity, and an existing self-reference remains a self-reference
+        after a rename.  Unknown names and ambiguous duplicate source names
+        remain untouched rather than being reassigned to an arbitrary node.
+        """
+
+        inputs = entry.get("inputs")
+        if not isinstance(inputs, list):
+            return
+        entry["inputs"] = [renamed_inputs.get(value, value) if isinstance(value, str) else value for value in inputs]
+
+    def merge_node(node: Any, original: Any) -> dict[str, Any]:
+        entry = deepcopy(original) if isinstance(original, dict) else {}
+        rendered = _node_fragment(node)
+        entry["name"] = node.title
+        entry["type"] = rendered["type"]
+        entry["params"] = _merge_step_params(node, rendered["params"])
+        overrides = getattr(node, "_workflow_step_overrides", None)
+        if isinstance(overrides, dict):
+            for key, value in overrides.items():
+                if key not in {"name", "type", "params", "inputs"}:
+                    entry[key] = deepcopy(value)
+        sync_input_references(entry)
+        return entry
+
+    if draft.topology_dirty and not draft.projection_error:
+        # A complete projection is a normal editable graph.  Rebuild the
+        # step list in its current topological order so add/delete/move do
+        # not duplicate, retain, or reorder stale source steps.  The old
+        # entry is still used as the base for each indexed node, preserving
+        # disabled and unknown producer-owned fields.
+        try:
+            ordered_nodes = [node for node in draft.graph.topological_order() if node.kind in _STEP_KINDS]
+        except ValueError:
+            ordered_nodes = []
+        merged_steps = []
+        for node in ordered_nodes:
+            index = getattr(node, "_workflow_raw_index", None)
+            original = original_steps[index] if isinstance(index, int) and 0 <= index < len(original_steps) else None
+            entry = merge_node(node, original)
+            upstream = [
+                draft.graph.nodes[edge.src_node].title
+                for edge in draft.graph.incoming_edges(node.id)
+                if edge.src_node in draft.graph.nodes and draft.graph.nodes[edge.src_node].kind in _STEP_KINDS
+            ]
+            entry["inputs"] = upstream
+            merged_steps.append(entry)
+    else:
+        merged_steps = []
+        for index, original in enumerate(original_steps):
+            node = nodes_by_index.get(index)
+            if node is None or not isinstance(original, dict):
+                # Unknown/unprojectable steps stay byte-for-byte equivalent
+                # at the mapping level; they are never silently dropped.
+                merged_steps.append(deepcopy(original))
+                continue
+            merged_steps.append(merge_node(node, original))
+
+        # New nodes are only expected for a fresh draft, but appending them
+        # here keeps direct graph API users from losing a step if they mark a
+        # loaded draft dirty themselves.
+        for node in unindexed:
+            rendered = _node_fragment(node)
+            rendered["inputs"] = []
+            merged_steps.append(rendered)
+    raw["steps"] = merged_steps
+    return raw
 
 
 class WorkflowPage(QWidget):
@@ -73,10 +264,9 @@ class WorkflowPage(QWidget):
         self._step_text_dirty = False
         self._loaded_step_preset: tuple[str, str] | None = None
         self._global_text_dirty = False
+        self._server_connected = False
         self._current_server_label = ""
         self._remote_dir = "/"
-        self.setMinimumWidth(1040)
-
         self.setStyleSheet(
             f"QFrame#WorkflowHeader {{ background: {Colors.CARD_BG}; "
             f"border: 1px solid {Colors.BORDER}; border-radius: {Radius.MD}px; }} "
@@ -114,6 +304,10 @@ class WorkflowPage(QWidget):
 
         # Build workspace with flow body
         self._flow_body, self._flow_layout = _preview.build_flow_body_and_layout(self)
+
+        def save_from_graph() -> None:
+            self._save_workflow()
+
         (
             self._graph_panel,
             self.add_step_button,
@@ -125,7 +319,7 @@ class WorkflowPage(QWidget):
             self._flow_body,
             self._flow_layout,
             self._add_step,
-            self._save_workflow,
+            save_from_graph,
         )
 
         # Build step tab with widgets
@@ -149,6 +343,7 @@ class WorkflowPage(QWidget):
         (
             self._preview_box,
             self.full_yaml_preview,
+            self.validation_label,
             self._set_preview_expanded,
             self._apply_preview_language,
         ) = _form_builder.build_preview_box(self, self._language)
@@ -158,6 +353,7 @@ class WorkflowPage(QWidget):
         (
             self._footer,
             self.server_pill,
+            self.action_reason_label,
             self.btn_dispatch,
         ) = _form_builder.build_footer(
             self,
@@ -169,6 +365,9 @@ class WorkflowPage(QWidget):
         self._refresh_workflow_presets()
         self._refresh_step_presets()
         self._load_initial_preset()
+        self._restore_authoring_splitter()
+        self._workspace.splitterMoved.connect(self._persist_authoring_splitter)
+        self._update_action_state()
 
     # ---- step tab widget setup -----------------------------------------
 
@@ -187,14 +386,16 @@ class WorkflowPage(QWidget):
 
         # Setup new step menu
         self._new_step_menu = QMenu(self.new_step_button)
-        self._new_step_menu.addAction(
+        calc_action = self._new_step_menu.addAction(
             tr("Calculation step (calc)", self._language),
             lambda: self._new_step("calc"),
         )
-        self._new_step_menu.addAction(
+        calc_action.setProperty("workflowI18nText", "Calculation step (calc)")
+        confgen_action = self._new_step_menu.addAction(
             tr("Conformer generation step (confgen)", self._language),
             lambda: self._new_step("confgen"),
         )
+        confgen_action.setProperty("workflowI18nText", "Conformer generation step (confgen)")
         self.new_step_button.setMenu(self._new_step_menu)
 
         # Connect signals
@@ -264,12 +465,7 @@ class WorkflowPage(QWidget):
 
     @staticmethod
     def _empty_graph() -> NodeGraph:
-        graph = NodeGraph()
-        xyz = default_node(NodeKind.XYZ_FILE, position=(30.0, 120.0))
-        output = default_node(NodeKind.OUTPUT, position=(540.0, 120.0))
-        graph.add_node(xyz)
-        graph.add_node(output)
-        return graph
+        return NodeGraph()
 
     def _refresh_workflow_presets(self) -> None:
         self.preset_combo.blockSignals(True)
@@ -279,6 +475,8 @@ class WorkflowPage(QWidget):
                 continue
             self.preset_combo.addItem(preset.name, (preset.name, preset.source))
         self.preset_combo.setEnabled(self.preset_combo.count() > 0)
+        if self.preset_combo.count() and self.preset_combo.currentIndex() < 0:
+            self.preset_combo.setCurrentIndex(0)
         self.preset_combo.blockSignals(False)
 
     def _refresh_step_presets(self) -> None:
@@ -335,21 +533,46 @@ class WorkflowPage(QWidget):
         )
         if preset is None:
             return
-        raw = getattr(preset.spec, "_raw", {}) or {}
-        global_config = dict(raw.get("global") or self._default_global())
+        raw = deepcopy(getattr(preset.spec, "_raw", {}) or {})
+        global_config = deepcopy(raw.get("global") or self._default_global())
+        projection_error = ""
         try:
-            graph_payload = dict(global_config)
-            graph_payload["steps"] = list(raw.get("steps") or [])
-            graph = from_workflow_spec(graph_payload)
-        except Exception:
+            graph = from_workflow_spec(raw)
+            projection_errors = tuple(getattr(graph, "_workflow_projection_errors", ()))
+            if projection_errors:
+                projection_error = "Imported workflow topology is not editable: " + "; ".join(projection_errors)
+        except Exception as exc:
+            # Keep the source document attached to the draft.  A graph
+            # projection failure must be visible and recoverable, never a
+            # silent replacement with an empty workflow.
             graph = self._empty_graph()
+            projection_error = f"Workflow graph projection failed: {exc}"
+            self._on_error(tr("Load workflow", self._language), projection_error)
+        if projection_error:
+            self._on_status(projection_error)
         self._auto_place_steps(graph)
-        self._replace_draft(WorkflowDraft(graph, global_config, preset, False))
+        self._replace_draft(
+            WorkflowDraft(
+                graph,
+                global_config,
+                preset,
+                False,
+                raw_document=raw,
+                projection_error=projection_error,
+            )
+        )
 
     @staticmethod
     def _auto_place_steps(graph: NodeGraph) -> None:
         x = 250.0
-        for node in graph.topological_order():
+        try:
+            ordered = graph.topological_order()
+        except ValueError:
+            # A cyclic/otherwise unprojectable source document is still
+            # displayed in declaration order where possible; the raw source
+            # remains the save authority and the page reports read-only state.
+            ordered = list(graph.nodes.values())
+        for node in ordered:
             if node.kind in _STEP_KINDS:
                 node.position = (x, 120.0)
                 x += 230.0
@@ -364,6 +587,7 @@ class WorkflowPage(QWidget):
         self._sync_step_editor()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     # ---- selected step YAML ------------------------------------------
 
@@ -387,9 +611,11 @@ class WorkflowPage(QWidget):
             self.apply_step_preset_btn.setEnabled(False)
             self.save_step_preset_btn.setEnabled(True)
             self._load_selected_step_into_editor()
+            if self.step_yaml_editor.toPlainText().strip():
+                self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
         else:
             self.step_yaml_editor.setReadOnly(False)
-            self.step_yaml_editor.setPlainText(_dump_yaml(_node_fragment(node)))
+            self.step_yaml_editor.setPlainText(_dump_yaml(_step_fragment_for_editor(node)))
             self.selected_step_label.setText(node.title)
             incoming = [
                 self._draft.graph.nodes[edge.src_node].title
@@ -397,13 +623,20 @@ class WorkflowPage(QWidget):
                 if edge.src_node in self._draft.graph.nodes
                 and self._draft.graph.nodes[edge.src_node].kind in _STEP_KINDS
             ]
-            self.inputs_label.setText("Inputs: " + (", ".join(incoming) if incoming else "workflow input"))
+            self.inputs_label.setText(
+                tr(
+                    "Inputs: {names}",
+                    self._language,
+                    names=", ".join(incoming) if incoming else tr("workflow input", self._language),
+                )
+            )
             self.step_preset_combo.setEnabled(True)
             self.apply_step_preset_btn.setEnabled(True)
             self.save_step_preset_btn.setEnabled(True)
         self.step_yaml_editor.blockSignals(False)
         self.step_error_label.setText("")
         self._step_text_dirty = False
+        self._update_action_state()
 
     def _on_step_preset_selected(self, _index: int) -> None:
         if not self._confirm_discard_step_text():
@@ -450,6 +683,8 @@ class WorkflowPage(QWidget):
         self.save_step_preset_btn.setEnabled(True)
         self.step_error_label.setText("")
         self._step_text_dirty = True
+        self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
+        self._update_action_state()
 
     def _load_selected_step_into_editor(self) -> None:
         data = self.step_preset_combo.currentData()
@@ -470,6 +705,9 @@ class WorkflowPage(QWidget):
         self.step_error_label.setText("")
         self._step_text_dirty = False
         self._loaded_step_preset = data
+        if self._selected_node_id is None:
+            self.selected_step_label.setText(tr("Draft step — not added to workflow.", self._language))
+        self._update_action_state()
 
     def _on_step_text_changed(self) -> None:
         self._step_text_dirty = True
@@ -478,6 +716,7 @@ class WorkflowPage(QWidget):
             self.step_error_label.setText("")
         except Exception as exc:
             self.step_error_label.setText(str(exc))
+        self._update_action_state()
 
     def _parse_step_text(self, *, require_unique: bool = True) -> dict[str, Any]:
         value = yaml.safe_load(self.step_yaml_editor.toPlainText()) or {}
@@ -492,7 +731,12 @@ class WorkflowPage(QWidget):
             raise ValueError("Step name is required.")
         if not isinstance(params, dict):
             raise ValueError("params must be a YAML mapping.")
-        fragment = {"name": name.strip(), "type": value.get("type"), "params": dict(params)}
+        fragment = {
+            key: deepcopy(item)
+            for key, item in value.items()
+            if key not in {"name", "type", "params", "inputs", "global", "steps"}
+        }
+        fragment.update({"name": name.strip(), "type": value.get("type"), "params": dict(params)})
         _step_kind(fragment)
         if require_unique:
             for node_id, node in self._draft.graph.nodes.items():
@@ -518,10 +762,25 @@ class WorkflowPage(QWidget):
             replacement.id = old.id
             replacement.title = fragment["name"]
             replacement.params = dict(fragment["params"])
+            # Keep the loaded step's original mapping alongside the edited
+            # node.  The document merge later uses it to retain disabled and
+            # unknown producer fields that are not part of the node schema.
+            for attr in ("_workflow_raw_step", "_workflow_original_name", "_workflow_raw_index"):
+                if hasattr(old, attr):
+                    setattr(replacement, attr, deepcopy(getattr(old, attr)))
+            replacement._workflow_step_overrides = {
+                key: deepcopy(value)
+                for key, value in fragment.items()
+                if key not in {"name", "type", "params", "inputs"}
+            }
             self._draft.graph.nodes[old.id] = replacement
             issues = self._draft.graph.validate()
             blocking = [issue.message for issue in issues if issue.severity == "error"]
-            if blocking:
+            # Existing imported projection errors belong to the source DAG;
+            # they must not prevent a known parameter edit from being merged
+            # back into that source document.  Fresh graph authoring keeps
+            # the original strict validation gate.
+            if blocking and self._draft.raw_document is None:
                 self._draft.graph.nodes[old.id] = old
                 raise ValueError("; ".join(blocking))
         except Exception as exc:
@@ -534,12 +793,23 @@ class WorkflowPage(QWidget):
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
         self._on_status(tr("Step YAML applied.", self._language))
+        self._update_action_state()
 
     def _commit_pending_step_yaml(self) -> bool:
         if not self._step_text_dirty:
             return True
         self._apply_step_yaml()
         return not self._step_text_dirty
+
+    def _commit_pending_edits(self) -> bool:
+        if self._step_text_dirty and self._selected_node_id is None:
+            self._update_action_state()
+            return False
+        if not self._commit_pending_step_yaml():
+            return False
+        if self._global_text_dirty:
+            self._apply_global_yaml()
+        return not self._global_text_dirty
 
     def _apply_step_preset(self) -> None:
         if self._selected_node_id is None:
@@ -594,6 +864,7 @@ class WorkflowPage(QWidget):
         self.global_yaml_editor.blockSignals(False)
         self.global_error_label.setText("")
         self._global_text_dirty = False
+        self._update_action_state()
 
     def _on_global_text_changed(self) -> None:
         self._global_text_dirty = True
@@ -604,6 +875,7 @@ class WorkflowPage(QWidget):
             self.global_error_label.setText("")
         except Exception as exc:
             self.global_error_label.setText(str(exc))
+        self._update_action_state()
 
     def _apply_global_yaml(self) -> None:
         try:
@@ -621,8 +893,15 @@ class WorkflowPage(QWidget):
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
         self._on_status(tr("Global YAML applied.", self._language))
+        self._update_action_state()
 
     def _add_step(self) -> None:
+        if self._draft.projection_error:
+            self._on_error(
+                tr("Add step", self._language),
+                "Loaded workflow topology is preserved read-only; create a new workflow to change steps.",
+            )
+            return
         try:
             fragment = self._parse_step_text(require_unique=False)
             kind = _step_kind(fragment)
@@ -640,13 +919,21 @@ class WorkflowPage(QWidget):
             self._on_error(tr("Add step", self._language), str(exc))
             return
         self._draft.dirty = True
+        self._draft.topology_dirty = True
         self._selected_node_id = node.id
         self._refresh_flow_diagram()
         self._sync_step_editor()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     def _delete_step(self, node_id: str) -> None:
+        if self._draft.projection_error:
+            self._on_error(
+                tr("Delete step", self._language),
+                "Loaded workflow topology is preserved read-only; create a new workflow to change steps.",
+            )
+            return
         node = self._draft.graph.nodes.get(node_id)
         if node is None or node.kind not in _STEP_KINDS:
             return
@@ -656,9 +943,11 @@ class WorkflowPage(QWidget):
             self._selected_node_id = None
         self._sync_step_editor()
         self._draft.dirty = True
+        self._draft.topology_dirty = True
         self._refresh_flow_diagram()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     def _ordered_step_nodes(self) -> list[Any]:
         return [node for node in self._draft.graph.topological_order() if node.kind in _STEP_KINDS]
@@ -681,6 +970,11 @@ class WorkflowPage(QWidget):
         previous_edges = list(graph.edges.values())
         for edge in previous_edges:
             graph.remove_edge(edge.id)
+        if not ordered:
+            for node in list(graph.nodes.values()):
+                if node.kind in {NodeKind.XYZ_FILE, NodeKind.OUTPUT}:
+                    graph.remove_node(node.id)
+            return
         xyz = next((node for node in graph.nodes.values() if node.kind is NodeKind.XYZ_FILE), None)
         output = next((node for node in graph.nodes.values() if node.kind is NodeKind.OUTPUT), None)
         if xyz is None:
@@ -690,8 +984,6 @@ class WorkflowPage(QWidget):
             output = default_node(NodeKind.OUTPUT)
             graph.add_node(output)
         try:
-            if not ordered:
-                return
             previous = xyz
             for index, node in enumerate(ordered):
                 node.position = (260.0, 80.0 + index * 116.0)
@@ -709,6 +1001,12 @@ class WorkflowPage(QWidget):
             raise ValueError(str(exc)) from exc
 
     def _move_step(self, node_id: str, delta: int) -> None:
+        if self._draft.projection_error:
+            self._on_error(
+                tr("Move step", self._language),
+                "Loaded workflow topology is preserved read-only; create a new workflow to change steps.",
+            )
+            return
         ordered = self._ordered_step_nodes()
         index = next((i for i, node in enumerate(ordered) if node.id == node_id), -1)
         target = index + delta
@@ -721,13 +1019,29 @@ class WorkflowPage(QWidget):
             self._on_error(tr("Move step", self._language), str(exc))
             return
         self._draft.dirty = True
+        self._draft.topology_dirty = True
         self._refresh_flow_diagram()
         self._refresh_generated_yaml()
         self._refresh_dirty_label()
+        self._update_action_state()
 
     # ---- serialisation / actions -------------------------------------
 
     def _build_workflow_yaml(self, *, global_config: dict[str, Any] | None = None) -> str:
+        # A loaded document is the lossless source until an explicit edit is
+        # applied.  In particular, do not ask NodeGraph to validate or
+        # serialise a producer DAG whose edges are valid to persist but not
+        # representable by the current visual port model.
+        loaded = self._draft.raw_document
+        if isinstance(loaded, dict):
+            requested_global = global_config if global_config is not None else self._draft.global_config
+            if not self._draft.dirty and requested_global == self._draft.global_config:
+                return _dump_yaml(deepcopy(loaded))
+            merged = _merged_loaded_document(self._draft)
+            if global_config is not None:
+                merged["global"] = deepcopy(global_config)
+            return _dump_yaml(merged)
+
         graph = self._draft.graph
         issues = graph.validate()
         errors = [issue.message for issue in issues if issue.severity == "error"]
@@ -742,7 +1056,7 @@ class WorkflowPage(QWidget):
             upstream = [by_id[edge.src_node] for edge in graph.incoming_edges(node.id) if edge.src_node in by_id]
             if len(upstream) > 1:
                 raise ValueError(f"Step '{node.title}' has multiple inputs; fan-in is not executable yet.")
-            step = _node_fragment(node)
+            step = _step_fragment_for_editor(node)
             step["inputs"] = upstream
             steps.append(step)
         return _dump_yaml(
@@ -767,14 +1081,14 @@ class WorkflowPage(QWidget):
     def _refresh_generated_yaml(self) -> None:
         _preview.refresh_generated_yaml(
             self.full_yaml_preview,
+            self.validation_label,
             self._build_workflow_yaml,
+            self._language,
         )
 
     def _validate_workflow(self) -> None:
-        if not self._commit_pending_step_yaml():
+        if not self._commit_pending_edits():
             return
-        # Phase 19: show preview when validating so user can see generated YAML
-        self._set_preview_expanded(True)
         _preview.validate_workflow(
             self._build_workflow_yaml,
             lambda exc: self._on_error(tr("Workflow validation", self._language), exc),
@@ -789,15 +1103,20 @@ class WorkflowPage(QWidget):
         self.preset_combo.blockSignals(False)
         self._replace_draft(WorkflowDraft(self._empty_graph(), self._default_global(), None, True))
 
-    def _save_workflow(self) -> None:
-        if not self._commit_pending_step_yaml():
-            return
+    def _save_workflow(self) -> bool:
+        if not self._commit_pending_edits():
+            message = self.step_error_label.text() or self.global_error_label.text()
+            self._on_error(
+                tr("Save workflow", self._language),
+                message or tr("Fix workflow validation errors before continuing.", self._language),
+            )
+            return False
         try:
             yaml_text = self._build_workflow_yaml()
             spec = WorkflowSpec.from_yaml(yaml_text)
         except Exception as exc:
             self._on_error(tr("Save workflow", self._language), str(exc))
-            return
+            return False
         default = (
             self._draft.preset.name if self._draft.preset and self._draft.preset.source == "user" else "new_workflow"
         )
@@ -809,7 +1128,7 @@ class WorkflowPage(QWidget):
         )
         name = name.strip()
         if not ok or not name:
-            return
+            return False
         self._store.save_user_yaml(name, yaml_text)
         self._refresh_workflow_presets()
         saved_preset = next(
@@ -818,34 +1137,177 @@ class WorkflowPage(QWidget):
         )
         if saved_preset is None:
             self._on_error(tr("Save workflow", self._language), "Saved workflow could not be reloaded.")
-            return
+            return False
+        was_loaded = isinstance(self._draft.raw_document, dict)
         self._draft.preset = saved_preset
+        saved_raw = deepcopy(getattr(saved_preset.spec, "_raw", {}) or {})
+        if was_loaded and saved_raw:
+            self._draft.raw_document = saved_raw
+            self._draft.global_config = deepcopy(saved_raw.get("global") or self._draft.global_config)
+            saved_steps_value = saved_raw.get("steps")
+            saved_steps: list[Any] = saved_steps_value if isinstance(saved_steps_value, list) else []
+            if self._draft.projection_error:
+                nodes = list(self._draft.graph.nodes.values())
+            else:
+                try:
+                    nodes = [node for node in self._draft.graph.topological_order() if node.kind in _STEP_KINDS]
+                except ValueError:
+                    nodes = []
+            for fallback_index, node in enumerate(nodes):
+                index = getattr(node, "_workflow_raw_index", None) if self._draft.projection_error else fallback_index
+                if isinstance(index, int) and 0 <= index < len(saved_steps) and isinstance(saved_steps[index], dict):
+                    node._workflow_raw_index = index
+                    node._workflow_raw_step = deepcopy(saved_steps[index])
+                    node._workflow_original_name = str(saved_steps[index].get("name", node.title))
+                    node._workflow_step_overrides = {}
+        elif not was_loaded:
+            # A newly authored graph is already represented by NodeGraph.  Do
+            # not turn its first save into a loaded raw-document draft: its
+            # nodes have no source indexes, so doing so would disable normal
+            # editing and make later saves append duplicate steps.
+            self._draft.raw_document = None
+        self._draft.topology_dirty = False
+        self.preset_combo.blockSignals(True)
         for index in range(self.preset_combo.count()):
             data = self.preset_combo.itemData(index)
             if data == (name, "user"):
                 self.preset_combo.setCurrentIndex(index)
                 break
+        self.preset_combo.blockSignals(False)
         self._draft.dirty = False
         self._refresh_dirty_label()
         self.preset_saved.emit(name, "user")
         self.workflow_authored.emit(spec, name)
         self._on_status(tr("Workflow saved.", self._language))
+        self._update_action_state()
+        return True
+
+    def save_current(self) -> bool:
+        """Save the current workflow through the same guarded UI path."""
+        return self._save_workflow()
 
     def _on_use_for_submit(self) -> None:
-        if not self._commit_pending_step_yaml():
-            return
-        if self._draft.dirty or self._draft.preset is None:
+        self._update_action_state()
+        if not self.btn_dispatch.isEnabled():
             self._on_error(
                 tr("Use this workflow for submit", self._language),
-                tr("Save the workflow before submitting.", self._language),
+                self.btn_dispatch.toolTip(),
             )
             return
         self.preset_chosen_for_submit.emit(self._draft.preset.name, self._draft.preset.source)
 
-    def _refresh_dirty_label(self) -> None:
-        self.dirty_label.setText(
-            tr("Modified — save workflow before submitting.", self._language) if self._draft.dirty else ""
+    def _update_action_state(self) -> None:
+        """Centralize workflow action eligibility and user-facing blockers."""
+        if not hasattr(self, "btn_dispatch"):
+            return
+
+        step_error = ""
+        try:
+            self._parse_step_text(require_unique=self._selected_node_id is not None)
+        except Exception as exc:
+            step_error = str(exc)
+
+        global_error = ""
+        global_config: dict[str, Any] | None = None
+        try:
+            value = yaml.safe_load(self.global_yaml_editor.toPlainText()) or {}
+            if not isinstance(value, dict):
+                raise ValueError("Global YAML must be a mapping.")
+            global_config = dict(value)
+        except Exception as exc:
+            global_error = str(exc)
+
+        raw_steps = self._draft.raw_document.get("steps") if isinstance(self._draft.raw_document, dict) else None
+        has_steps = bool(self._ordered_step_nodes()) or bool(raw_steps)
+        pending_draft = self._step_text_dirty and self._selected_node_id is None
+        yaml_valid = False
+        workflow_error = ""
+        if has_steps and not step_error and not global_error:
+            try:
+                text = self._build_workflow_yaml(global_config=global_config)
+                WorkflowSpec.from_yaml(text)
+                yaml_valid = True
+            except Exception as exc:
+                workflow_error = str(exc)
+
+        pending_edits = self._step_text_dirty or self._global_text_dirty
+        saved_valid = yaml_valid and self._draft.preset is not None and not self._draft.dirty and not pending_edits
+
+        if step_error:
+            reason = tr("Fix the step YAML before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = step_error
+        elif global_error:
+            reason = tr("Fix the global YAML before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = global_error
+        elif not has_steps:
+            reason = tr("Add at least one workflow step.", self._language)
+            validation_state = "incomplete"
+            validation_detail = reason
+        elif pending_draft:
+            reason = tr("Add the current draft step to the workflow.", self._language)
+            validation_state = "incomplete"
+            validation_detail = reason
+        elif not yaml_valid:
+            reason = tr("Fix workflow validation errors before continuing.", self._language)
+            validation_state = "invalid"
+            validation_detail = workflow_error
+        elif self._draft.projection_error:
+            reason = "Loaded workflow topology is read-only; the original document will be preserved."
+            validation_state = "valid"
+            validation_detail = self._draft.projection_error
+        elif not saved_valid:
+            reason = tr("Save the workflow before submitting.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+        elif not self._server_connected:
+            reason = tr("Connect to a server before submitting.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+        else:
+            reason = tr("Ready to submit.", self._language)
+            validation_state = "valid"
+            validation_detail = ""
+
+        can_add = not step_error and not self._draft.projection_error
+        can_validate_or_save = yaml_valid and not pending_draft
+        can_submit = saved_valid and self._server_connected
+
+        self.add_step_button.setEnabled(can_add)
+        self.add_step_button.setToolTip(
+            tr("Add the step currently shown on the left.", self._language) if can_add else reason
         )
+        self.btn_validate.setEnabled(can_validate_or_save)
+        self.btn_validate.setToolTip(
+            tr("Validate the workflow YAML.", self._language) if can_validate_or_save else reason
+        )
+        self.save_workflow_button.setEnabled(can_validate_or_save)
+        self.save_workflow_button.setToolTip(
+            tr("Save the workflow.", self._language) if can_validate_or_save else reason
+        )
+        self.btn_dispatch.setEnabled(can_submit)
+        self.btn_dispatch.setToolTip(tr("Use this workflow for submit", self._language) if can_submit else reason)
+        self.action_reason_label.setText(reason)
+        _preview.set_validation_feedback(
+            self.validation_label,
+            validation_state,
+            {
+                "valid": tr("Workflow YAML is valid.", self._language),
+                "invalid": tr("Workflow YAML has errors.", self._language),
+                "incomplete": tr("Workflow YAML is not ready.", self._language),
+            }[validation_state],
+            detail=validation_detail,
+        )
+
+    def _refresh_dirty_label(self) -> None:
+        if self._draft.dirty:
+            text = tr("Modified — save workflow before submitting.", self._language)
+        elif self._draft.projection_error:
+            text = "Read-only topology: original workflow document will be preserved."
+        else:
+            text = ""
+        self.dirty_label.setText(text)
 
     def _confirm_discard_step_text(self) -> bool:
         if not self._step_text_dirty:
@@ -867,7 +1329,45 @@ class WorkflowPage(QWidget):
 
     # ---- MainWindow contract -----------------------------------------
 
+    def focus_authoring(self) -> None:
+        """Focus the primary workflow authoring control."""
+        self.settings_tabs.setCurrentIndex(0)
+        self.step_yaml_editor.setFocus()
+
+    def focus_search(self) -> None:
+        """Honor the MainWindow focus shortcut with the authoring editor."""
+        self.focus_authoring()
+
+    def _restore_authoring_splitter(self) -> None:
+        if self._settings_store is None:
+            return
+        try:
+            sizes = self._settings_store.load().splitter_sizes.get("workflow.authoring")
+            if (
+                isinstance(sizes, list)
+                and len(sizes) == 2
+                and all(isinstance(size, int) and size > 0 for size in sizes)
+            ):
+                self._workspace.setSizes(sizes)
+        except Exception:
+            return
+
+    def _persist_authoring_splitter(self, _position: int = 0, _index: int = 0) -> None:
+        if self._settings_store is None:
+            return
+        sizes = self._workspace.sizes()
+        if len(sizes) != 2 or any(size <= 0 for size in sizes):
+            return
+        try:
+            current = self._settings_store.load()
+            splitter_sizes = dict(current.splitter_sizes)
+            splitter_sizes["workflow.authoring"] = list(sizes)
+            self._settings_store.update(splitter_sizes=splitter_sizes)
+        except Exception:
+            return
+
     def set_server_status(self, connected: bool, server_label: str) -> None:
+        self._server_connected = bool(connected and server_label)
         self._current_server_label = server_label
         if connected and server_label:
             self.server_pill.set_state("success")
@@ -875,14 +1375,42 @@ class WorkflowPage(QWidget):
         else:
             self.server_pill.set_state("neutral")
             self.server_pill.setText(tr("No server", self._language))
+        self._update_action_state()
 
     def set_remote_dir(self, remote_dir: str) -> None:
         self._remote_dir = remote_dir
 
     def apply_language(self, language: str) -> None:
         self._language = language
+        _form_builder.apply_static_language(self, language)
+        self.settings_tabs.setTabText(0, tr("Step YAML", language))
+        self.settings_tabs.setTabText(1, tr("Global YAML", language))
         self._apply_preview_language(language)
         self._refresh_flow_diagram()
+        self._retranslate_step_context()
+        self._refresh_dirty_label()
+        self.set_server_status(self._server_connected, self._current_server_label)
+        self._update_action_state()
+
+    def _retranslate_step_context(self) -> None:
+        """Refresh state-derived authoring copy without discarding editor text."""
+        node = self._draft.graph.nodes.get(self._selected_node_id or "")
+        if node is None:
+            if not self.step_yaml_editor.toPlainText().strip():
+                self.selected_step_label.setText(tr("Choose a step to edit.", self._language))
+            return
+        incoming = [
+            self._draft.graph.nodes[edge.src_node].title
+            for edge in self._draft.graph.incoming_edges(node.id)
+            if edge.src_node in self._draft.graph.nodes and self._draft.graph.nodes[edge.src_node].kind in _STEP_KINDS
+        ]
+        self.inputs_label.setText(
+            tr(
+                "Inputs: {names}",
+                self._language,
+                names=", ".join(incoming) if incoming else tr("workflow input", self._language),
+            )
+        )
 
 
 __all__ = ["WorkflowDraft", "WorkflowPage"]

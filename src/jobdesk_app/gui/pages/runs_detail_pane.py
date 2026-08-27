@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..design.tokens import Colors, Metrics, Radius
+from ..i18n import tr
 from .runs_results_helpers import format_energy, format_seconds
 
 MAX_PREVIEW_FILE_BYTES = 25 * 1024 * 1024
@@ -38,6 +39,8 @@ class ResultDetailPane(QWidget):
         )
         self._program = "—"
         self._language = "en"  # updated via apply_language()
+        self._current_result = None
+        self._result_kind: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -72,21 +75,39 @@ class ResultDetailPane(QWidget):
         self.walltime_value = QLabel("—")
         self.cputime_value = QLabel("—")
 
-        form.addRow(self._field_label("Final SCF energy"), self.energy_value)
-        form.addRow(self._field_label("Zero-point correction"), self.zpe_value)
-        form.addRow(self._field_label("Gibbs free energy"), self.gibbs_value)
-        form.addRow(self._field_label("Imaginary frequencies"), self.imag_value)
-        form.addRow(self._field_label("Wall time"), self.walltime_value)
-        form.addRow(self._field_label("CPU time"), self.cputime_value)
-        form.addRow(self._field_label("Termination"), self.termination_value)
-        form.addRow(self._field_label("Error"), self.error_value)
+        self.energy_label = self._field_label("Final SCF energy")
+        self.zpe_label = self._field_label("Zero-point correction")
+        self.gibbs_label = self._field_label("Gibbs free energy")
+        self.imag_label = self._field_label("Imaginary frequencies")
+        self.walltime_label = self._field_label("Wall time")
+        self.cputime_label = self._field_label("CPU time")
+        self.termination_label = self._field_label("Termination")
+        self.error_label = self._field_label("Error")
+        self._field_labels = {
+            "Final SCF energy": self.energy_label,
+            "Zero-point correction": self.zpe_label,
+            "Gibbs free energy": self.gibbs_label,
+            "Imaginary frequencies": self.imag_label,
+            "Wall time": self.walltime_label,
+            "CPU time": self.cputime_label,
+            "Termination": self.termination_label,
+            "Error": self.error_label,
+        }
+        form.addRow(self.energy_label, self.energy_value)
+        form.addRow(self.zpe_label, self.zpe_value)
+        form.addRow(self.gibbs_label, self.gibbs_value)
+        form.addRow(self.imag_label, self.imag_value)
+        form.addRow(self.walltime_label, self.walltime_value)
+        form.addRow(self.cputime_label, self.cputime_value)
+        form.addRow(self.termination_label, self.termination_value)
+        form.addRow(self.error_label, self.error_value)
         layout.addLayout(form)
 
-        geom_label = QLabel("Final geometry (XYZ, first 100 lines)")
-        geom_label.setStyleSheet(
+        self.geometry_label = QLabel("Final geometry (XYZ, first 100 lines)")
+        self.geometry_label.setStyleSheet(
             f"color: {Colors.TEXT}; font-weight: 600; font-size: {Metrics.CARD_TITLE_FONT_PX}px;"
         )
-        layout.addWidget(geom_label)
+        layout.addWidget(self.geometry_label)
         self.geometry_view = QTextEdit()
         self.geometry_view.setReadOnly(True)
         self.geometry_view.setLineWrapMode(QTextEdit.NoWrap)
@@ -101,15 +122,15 @@ class ResultDetailPane(QWidget):
         layout.addStretch(1)
         self.clear()
 
-    @staticmethod
-    def _field_label(text: str) -> QLabel:
-        lbl = QLabel(f"{text}:")
+    def _field_label(self, text: str) -> QLabel:
+        lbl = QLabel(f"{tr(text, self._language)}:")
         lbl.setStyleSheet("color: #475569;")
         return lbl
 
     def clear(self) -> None:
         self._program = "—"
-        from ..i18n import tr
+        self._current_result = None
+        self._result_kind = None
 
         self.title_label.setText(tr("Select a task to see details", self._language))
         self.status_label.setText("—")
@@ -126,11 +147,16 @@ class ResultDetailPane(QWidget):
         self.geometry_view.setPlainText("")
 
     def apply_language(self, language: str) -> None:
-        """Re-translate the placeholder shown when no task is selected."""
-        from ..i18n import tr
-
+        """Re-translate static labels and the currently rendered result."""
         self._language = language
-        if not self.title_label.text() or self.title_label.text() == tr("Select a task to see details", language):
+        for key, label in self._field_labels.items():
+            label.setText(f"{tr(key, language)}:")
+        self.geometry_label.setText(tr("Final geometry (XYZ, first 100 lines)", language))
+        if self._result_kind == "gaussian":
+            self._render_gaussian(self._current_result)
+        elif self._result_kind == "orca":
+            self._render_orca(self._current_result)
+        else:
             self.title_label.setText(tr("Select a task to see details", language))
 
     def _status_text(self, result) -> tuple[str, str]:
@@ -145,14 +171,19 @@ class ResultDetailPane(QWidget):
         washed out against the white card background.
         """
         if getattr(result, "error_termination", False):
-            return "✗ Error termination", "#b91c1c"
+            return f"✗ {tr('Error termination', self._language)}", "#b91c1c"
         if getattr(result, "normal_termination", False):
-            return "✓ Normal termination", "#15803d"
+            return f"✓ {tr('Normal termination', self._language)}", "#15803d"
         if getattr(result, "scf_energies", None):
-            return "⚠ Abnormal termination", "#b45309"
-        return "— Unknown", "#475569"
+            return f"⚠ {tr('Abnormal termination', self._language)}", "#b45309"
+        return f"— {tr('Unknown', self._language)}", "#475569"
 
     def render_gaussian(self, result) -> None:
+        self._current_result = result
+        self._result_kind = "gaussian"
+        self._render_gaussian(result)
+
+    def _render_gaussian(self, result) -> None:
         self._program = "Gaussian"
         route = ""
         method = getattr(result, "method", None)
@@ -170,10 +201,14 @@ class ResultDetailPane(QWidget):
         self.zpe_value.setText(format_energy(getattr(result, "zpe_au", None)))
         self.gibbs_value.setText(format_energy(getattr(result, "gibbs_au", None)))
         imag = getattr(result, "imaginary_freq_count", 0) or 0
-        self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
+        self.imag_value.setText(
+            tr("0 (minimum)", self._language) if imag == 0 else tr("{n} imaginary", self._language, n=imag)
+        )
         self.walltime_value.setText(format_seconds(getattr(result, "walltime_seconds", None)))
         self.cputime_value.setText(format_seconds(getattr(result, "cpu_time_seconds", None)))
-        self.termination_value.setText("Normal termination of Gaussian" if result.normal_termination else "—")
+        self.termination_value.setText(
+            tr("Normal termination of Gaussian", self._language) if result.normal_termination else "—"
+        )
         err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)
         if err:
             self.error_value.setText(str(err))
@@ -184,6 +219,11 @@ class ResultDetailPane(QWidget):
         self._render_geometry(result)
 
     def render_orca(self, result) -> None:
+        self._current_result = result
+        self._result_kind = "orca"
+        self._render_orca(result)
+
+    def _render_orca(self, result) -> None:
         self._program = "ORCA"
         total = getattr(result, "total_energy_au", None)
         final = getattr(result, "final_energy_au", None)
@@ -196,10 +236,14 @@ class ResultDetailPane(QWidget):
         self.zpe_value.setText(format_energy(getattr(result, "zpe_au", None)))
         self.gibbs_value.setText(format_energy(getattr(result, "gibbs_au", None)))
         imag = getattr(result, "imaginary_freq_count", 0) or 0
-        self.imag_value.setText("0 (minimum)" if imag == 0 else f"{imag} imaginary")
+        self.imag_value.setText(
+            tr("0 (minimum)", self._language) if imag == 0 else tr("{n} imaginary", self._language, n=imag)
+        )
         self.walltime_value.setText(format_seconds(getattr(result, "walltime_seconds", None)))
         self.cputime_value.setText("—")
-        self.termination_value.setText("ORCA TERMINATED NORMALLY" if result.normal_termination else "—")
+        self.termination_value.setText(
+            tr("ORCA TERMINATED NORMALLY", self._language) if result.normal_termination else "—"
+        )
         err = getattr(result, "error_message", None) or getattr(result, "diagnosis", None)
         if err:
             self.error_value.setText(str(err))
@@ -215,12 +259,12 @@ class ResultDetailPane(QWidget):
         if xyz:
             lines = xyz.splitlines()
             n = len(symbols) or len(lines)
-            display = [f"{n} atoms", *lines]
+            display = [tr("{n} atoms", self._language, n=n), *lines]
             if len(lines) > 100:
                 display = display[:101]
             self.geometry_view.setPlainText("\n".join(display))
         else:
-            self.geometry_view.setPlainText("(no geometry parsed)")
+            self.geometry_view.setPlainText(tr("(no geometry parsed)", self._language))
 
 
 def _resolve_output_path(task, workspace: Path | None = None) -> Path | None:

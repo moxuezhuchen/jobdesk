@@ -7,6 +7,7 @@ Viewer integration opens local files in configured external programs.
 from __future__ import annotations
 
 import subprocess
+from importlib import import_module
 from pathlib import Path
 
 # ---- SMILES → 3D -----------------------------------------------------------
@@ -36,8 +37,11 @@ def smiles_to_xyz(
         ValueError: If SMILES is invalid or 3D embedding fails.
     """
     try:
-        from rdkit import Chem
-        from rdkit.Chem import AllChem
+        # Keep the optional runtime dependency out of the static import graph.
+        # The published RDKit stubs are not parseable by every supported Mypy
+        # interpreter, while this feature must remain optional for base installs.
+        Chem = import_module("rdkit.Chem")
+        AllChem = import_module("rdkit.Chem.AllChem")
     except ImportError:
         raise ImportError("rdkit is required for SMILES→3D conversion. Install it with: pip install rdkit")
 
@@ -95,7 +99,7 @@ def smiles_to_gjf(
 def is_rdkit_available() -> bool:
     """Return True if rdkit is importable."""
     try:
-        import rdkit  # noqa: F401
+        import_module("rdkit")
 
         return True
     except ImportError:

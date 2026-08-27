@@ -11,11 +11,13 @@ import yaml
 
 pytest.importorskip("PySide6", reason="PySide6 not installed")
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSplitter  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSplitter, QWidget  # noqa: E402
 
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
+from jobdesk_app.gui.i18n import tr  # noqa: E402
 from jobdesk_app.gui.nodegraph.model import Edge, NodeKind, default_node  # noqa: E402
 from jobdesk_app.gui.pages.workflow_page import WorkflowPage  # noqa: E402
+from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore  # noqa: E402
 from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
 
 
@@ -52,7 +54,7 @@ def _first_step_id(page: WorkflowPage) -> str:
 
 
 def test_page_has_two_authoring_panes_and_generated_preview(page):
-    assert page.minimumWidth() >= 1040
+    assert page.minimumWidth() == 0
     assert page.settings_tabs.count() == 2
     splitter = page.findChild(QSplitter, "WorkflowAuthoringSplitter")
     assert splitter is page._workspace
@@ -75,9 +77,28 @@ def test_page_has_two_authoring_panes_and_generated_preview(page):
             NodeKind.REFINE,
         }
     ]
-    assert "Add at least one workflow step" in page.full_yaml_preview.toPlainText()
+    assert not page._draft.graph.nodes
+    assert page.full_yaml_preview.toPlainText() == ""
+    assert page.validation_label.objectName() == "WorkflowValidationLabel"
+    assert page.validation_label.property("validationState") == "incomplete"
+    assert page.selected_step_label.text() == "Draft step — not added to workflow."
     assert page.save_workflow_button.text() == "Save workflow"
     assert page.btn_dispatch.objectName() == "WorkflowDispatchBtn"
+
+
+def test_page_does_not_force_a_1006_by_652_host_window_to_grow(page, qapp):
+    host = QWidget()
+    host.resize(1006, 652)
+    page.setParent(host)
+    page.show()
+    host.show()
+    QApplication.processEvents()
+
+    assert host.size().width() == 1006
+    assert host.size().height() == 652
+
+    page.setParent(None)
+    host.close()
 
 
 def test_empty_workflow_error_uses_active_language(page):
@@ -152,7 +173,9 @@ def test_each_flow_card_deletes_its_own_step_and_empty_flow_is_allowed(page):
             NodeKind.REFINE,
         }
     ]
-    assert "Add at least one workflow step" in page.full_yaml_preview.toPlainText()
+    assert not page._draft.graph.nodes
+    assert page.full_yaml_preview.toPlainText() == ""
+    assert page.validation_label.property("validationState") == "incomplete"
 
 
 def test_builtin_steps_are_available_but_no_workflow_is_preloaded(page):
@@ -306,7 +329,45 @@ def test_preview_retranslates_after_language_switch(page):
     assert toggle.toolTip() == "隐藏 YAML 预览"
 
 
-def test_validate_expands_yaml_preview_and_first_toggle_collapses_it(page):
+def test_page_retranslates_static_controls_immediately(page):
+    page.apply_language("zh")
+
+    assert page._header.findChild(QLabel).text() == "工作流"
+    assert page.preset_combo.placeholderText() == "暂无已保存的工作流"
+    assert page.btn_new.text() == "新建"
+    assert page.btn_validate.text() == "校验"
+    assert page.settings_tabs.tabText(0) == "步骤 YAML"
+    assert page.settings_tabs.tabText(1) == "全局 YAML"
+    assert page.new_step_button.text() == "新建步骤"
+    assert page.add_step_button.text() == "添加当前步骤"
+    assert page.save_workflow_button.text() == "保存工作流"
+    assert page.btn_dispatch.text() == "使用此工作流提交"
+
+    page._new_step()
+    page._add_step()
+    page.apply_language("zh")
+    assert page.inputs_label.text() == tr("Inputs: {names}", "zh", names=tr("workflow input", "zh"))
+
+
+def test_flow_icon_buttons_name_their_target_for_tooltips_and_accessibility(page):
+    page._new_step()
+    page._add_step()
+    node_id = _first_step_id(page)
+    node = page._draft.graph.nodes[node_id]
+    page._refresh_flow_diagram()
+    card = next(card for card in page._flow_body.findChildren(QWidget) if card.objectName() == "WorkflowStepCard")
+    buttons = card.findChildren(QPushButton)
+    up, down, remove = (button for button in buttons if button.objectName() != "WorkflowStepSelectBtn")
+
+    assert up.toolTip() == f"Move up: {node.title}"
+    assert up.accessibleName() == up.toolTip()
+    assert down.toolTip() == f"Move down: {node.title}"
+    assert down.accessibleName() == down.toolTip()
+    assert remove.toolTip() == f"Delete: {node.title}"
+    assert remove.accessibleName() == remove.toolTip()
+
+
+def test_validate_keeps_yaml_preview_collapsed_until_user_expands_it(page):
     toggle = page.findChild(QPushButton, "PreviewToggleBtn")
 
     assert toggle is not None
@@ -317,15 +378,15 @@ def test_validate_expands_yaml_preview_and_first_toggle_collapses_it(page):
     _first_step_id(page)
     page._validate_workflow()
 
-    assert not page.full_yaml_preview.isHidden()
-    assert toggle.text() == "\u25bc"
-    assert toggle.toolTip() == "Hide YAML preview"
-
-    toggle.click()
-
     assert page.full_yaml_preview.isHidden()
     assert toggle.text() == "\u25b6"
     assert toggle.toolTip() == "Show YAML preview"
+
+    toggle.click()
+
+    assert not page.full_yaml_preview.isHidden()
+    assert toggle.text() == "\u25bc"
+    assert toggle.toolTip() == "Hide YAML preview"
 
 
 def test_step_yaml_rejects_graph_owned_inputs(page):
@@ -378,7 +439,94 @@ def test_saved_preset_can_be_dispatched(page):
     _first_step_id(page)
     page._draft.preset = type("SavedWorkflow", (), {"name": "saved", "source": "user"})()
     page._draft.dirty = False
+    page.set_server_status(True, "connected")
+    page._update_action_state()
     captured = []
     page.preset_chosen_for_submit.connect(lambda name, source: captured.append((name, source)))
     page._on_use_for_submit()
     assert captured
+
+
+def test_four_step_guide_and_action_reasons_follow_authoring_state(page):
+    guide = [label.text() for label in page.findChildren(QLabel) if label.objectName() == "WorkflowGuideStep"]
+    assert guide == [
+        "1. Choose or edit a step",
+        "2. Add steps to the workflow",
+        "3. Validate and save the workflow",
+        "4. Submit a saved workflow",
+    ]
+
+    assert page.add_step_button.isEnabled()
+    assert not page.btn_validate.isEnabled()
+    assert not page.save_workflow_button.isEnabled()
+    assert not page.btn_dispatch.isEnabled()
+    assert page.btn_validate.toolTip() == "Add at least one workflow step."
+    assert page.action_reason_label.text() == "Add at least one workflow step."
+
+    _first_step_id(page)
+
+    assert page.btn_validate.isEnabled()
+    assert page.save_workflow_button.isEnabled()
+    assert not page.btn_dispatch.isEnabled()
+    assert page.btn_dispatch.toolTip() == "Save the workflow before submitting."
+
+    page._draft.preset = type("SavedWorkflow", (), {"name": "saved", "source": "user"})()
+    page._draft.dirty = False
+    page._update_action_state()
+    assert not page.btn_dispatch.isEnabled()
+    assert page.btn_dispatch.toolTip() == "Connect to a server before submitting."
+
+    page.set_server_status(True, "server")
+    assert page.btn_dispatch.isEnabled()
+    assert page.action_reason_label.text() == "Ready to submit."
+
+
+def test_invalid_pending_yaml_disables_actions_and_uses_structured_feedback(page):
+    _first_step_id(page)
+    page.step_yaml_editor.setPlainText("not: [valid")
+
+    assert not page.add_step_button.isEnabled()
+    assert not page.btn_validate.isEnabled()
+    assert not page.save_workflow_button.isEnabled()
+    assert not page.btn_dispatch.isEnabled()
+    assert page.add_step_button.toolTip() == "Fix the step YAML before continuing."
+    assert page.validation_label.property("validationState") == "invalid"
+    assert page.full_yaml_preview.toPlainText() != ""
+    assert "Cannot generate workflow YAML" not in page.full_yaml_preview.toPlainText()
+    assert not page.full_yaml_preview.toPlainText().lstrip().startswith("#")
+
+
+def test_public_focus_helper_targets_step_editor(page):
+    page.show()
+    page.focus_authoring()
+    QApplication.processEvents()
+
+    assert page.step_yaml_editor.hasFocus()
+
+
+def test_authoring_splitter_sizes_restore_and_persist(qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
+    store.save(GuiSettings(splitter_sizes={"workflow.authoring": [360, 680]}))
+    widget = WorkflowPage(
+        state=_StubState(),
+        language="en",
+        preset_store=MethodPresetStore(),
+        settings_store=store,
+    )
+    widget.resize(1200, 800)
+    widget.show()
+    QApplication.processEvents()
+
+    restored = widget._workspace.sizes()
+    assert restored[0] < restored[1]
+
+    widget._workspace.setSizes([420, 620])
+    widget._workspace.splitterMoved.emit(420, 1)
+    persisted = store.load().splitter_sizes["workflow.authoring"]
+    assert len(persisted) == 2
+    assert persisted[0] > 0
+    assert persisted[1] > 0
+
+    widget.close()
+    widget.deleteLater()

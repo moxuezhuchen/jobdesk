@@ -1,0 +1,5 @@
+global: {cores_per_task: 2}
+steps:
+  - {name: start, type: calc, params: {itask: sp}}
+  - {name: left, type: calc, params: {itask: opt}, inputs: [start]}
+  - {name: right, type: calc, params: {itask: freq}, inputs: [start], disabled: true}

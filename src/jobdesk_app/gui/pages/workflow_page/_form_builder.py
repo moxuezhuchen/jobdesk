@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -28,6 +29,35 @@ from ...design.components import StatusChip
 from ...design.tokens import Colors, Metrics, Radius
 from ...i18n import tr
 from ...theme import help_text, section_title_label
+
+
+def _set_text(widget: QWidget | QAction, key: str, language: str) -> None:
+    widget.setProperty("workflowI18nText", key)
+    widget.setText(tr(key, language))
+
+
+def _set_placeholder(widget: QComboBox, key: str, language: str) -> None:
+    widget.setProperty("workflowI18nPlaceholder", key)
+    widget.setPlaceholderText(tr(key, language))
+
+
+def _set_tooltip(widget: QWidget, key: str, language: str) -> None:
+    widget.setProperty("workflowI18nToolTip", key)
+    widget.setToolTip(tr(key, language))
+
+
+def apply_static_language(root: QWidget, language: str) -> None:
+    """Retitle builder-owned, non-stateful controls in place."""
+    for widget in root.findChildren(QWidget):
+        if key := widget.property("workflowI18nText"):
+            widget.setText(tr(key, language))
+        if key := widget.property("workflowI18nPlaceholder"):
+            widget.setPlaceholderText(tr(key, language))
+        if key := widget.property("workflowI18nToolTip"):
+            widget.setToolTip(tr(key, language))
+    for action in root.findChildren(QAction):
+        if key := action.property("workflowI18nText"):
+            action.setText(tr(key, language))
 
 
 def build_header(
@@ -52,22 +82,41 @@ def build_header(
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(8)
 
-    title = QLabel(tr("Workflow", language), panel)
+    title = QLabel(panel)
+    _set_text(title, "Workflow", language)
     title.setStyleSheet(f"color: {Colors.TEXT}; font-size: {Metrics.PAGE_TITLE_FONT_PX}px; font-weight: 600;")
     layout.addWidget(title)
+
+    guide = QHBoxLayout()
+    guide.setSpacing(12)
+    for copy in (
+        "1. Choose or edit a step",
+        "2. Add steps to the workflow",
+        "3. Validate and save the workflow",
+        "4. Submit a saved workflow",
+    ):
+        label = QLabel(panel)
+        _set_text(label, copy, language)
+        label.setObjectName("WorkflowGuideStep")
+        label.setWordWrap(True)
+        label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
+        guide.addWidget(label, 1)
+    layout.addLayout(guide)
 
     row = QHBoxLayout()
     row.setSpacing(8)
     preset_combo = QComboBox(panel)
     preset_combo.setObjectName("WorkflowPresetCombo")
-    preset_combo.setPlaceholderText(tr("No saved workflows", language))
+    _set_placeholder(preset_combo, "No saved workflows", language)
     row.addWidget(preset_combo, 1)
 
-    btn_new = QPushButton(tr("New", language), panel)
+    btn_new = QPushButton(panel)
+    _set_text(btn_new, "New", language)
     btn_new.clicked.connect(on_new)
     row.addWidget(btn_new)
 
-    btn_validate = QPushButton(tr("Validate", language), panel)
+    btn_validate = QPushButton(panel)
+    _set_text(btn_validate, "Validate", language)
     btn_validate.clicked.connect(on_validate)
     row.addWidget(btn_validate)
 
@@ -213,7 +262,8 @@ def build_step_tab_widgets(
 
     step_preset_combo = QComboBox(page)
 
-    new_step_button = QPushButton(tr("New step", language), page)
+    new_step_button = QPushButton(page)
+    _set_text(new_step_button, "New step", language)
     _new_step_menu = QMenu(new_step_button)
     _new_step_menu.addAction(
         tr("Calculation step (calc)", language),
@@ -224,14 +274,16 @@ def build_step_tab_widgets(
         lambda: None,  # Will be connected by caller
     )
     new_step_button.setMenu(_new_step_menu)
-    new_step_button.setToolTip(tr("Choose the type for the new step.", language))
+    _set_tooltip(new_step_button, "Choose the type for the new step.", language)
 
-    apply_step_preset_btn = QPushButton(tr("Load step", language), page)
+    apply_step_preset_btn = QPushButton(page)
+    _set_text(apply_step_preset_btn, "Load step", language)
 
     step_yaml_editor = QPlainTextEdit(page)
     step_error_label = QLabel("", page)
 
-    save_step_preset_btn = QPushButton(tr("Save step", language), page)
+    save_step_preset_btn = QPushButton(page)
+    _set_text(save_step_preset_btn, "Save step", language)
 
     return (
         selected_step_label,
@@ -258,7 +310,8 @@ def build_global_tab(
     layout.setContentsMargins(0, 8, 0, 0)
     layout.setSpacing(8)
 
-    hint = help_text(tr("Workflow-wide resources and molecular settings.", language))
+    hint = help_text("")
+    _set_text(hint, "Workflow-wide resources and molecular settings.", language)
     hint.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
     layout.addWidget(hint)
 
@@ -273,9 +326,10 @@ def build_global_tab(
     layout.addWidget(global_error_label)
 
     button = apply_button_role(
-        QPushButton(tr("Apply global settings", language), tab),
+        QPushButton(tab),
         ButtonRole.PRIMARY_ACTION,
     )
+    _set_text(button, "Apply global settings", language)
     button.clicked.connect(on_apply)
     layout.addWidget(button)
 
@@ -300,14 +354,16 @@ def build_graph_panel(
     layout.setContentsMargins(8, 0, 0, 0)
     layout.setSpacing(8)
 
-    title = section_title_label(tr("Workflow flow", language))
+    title = section_title_label("")
+    _set_text(title, "Workflow flow", language)
     layout.addWidget(title)
 
     toolbar = QHBoxLayout()
     toolbar.setSpacing(8)
 
-    add_step_button = QPushButton(tr("Add current step", language), panel)
-    add_step_button.setToolTip(tr("Add the step currently shown on the left.", language))
+    add_step_button = QPushButton(panel)
+    _set_text(add_step_button, "Add current step", language)
+    _set_tooltip(add_step_button, "Add the step currently shown on the left.", language)
     add_step_button.clicked.connect(on_add_step)
     toolbar.addWidget(add_step_button)
     toolbar.addStretch(1)
@@ -320,9 +376,10 @@ def build_graph_panel(
     layout.addWidget(flow_scroll, 1)
 
     save_workflow_button = apply_button_role(
-        QPushButton(tr("Save workflow", language), panel),
+        QPushButton(panel),
         ButtonRole.PRIMARY_ACTION,
     )
+    _set_text(save_workflow_button, "Save workflow", language)
     save_workflow_button.setObjectName("SaveWorkflowButton")
     save_workflow_button.clicked.connect(on_save)
     layout.addWidget(save_workflow_button)
@@ -333,14 +390,15 @@ def build_graph_panel(
 def build_preview_box(
     page: QWidget,
     language: str,
-) -> tuple[QWidget, QPlainTextEdit, Callable[[bool], None], Callable[[str], None]]:
+) -> tuple[QWidget, QPlainTextEdit, QLabel, Callable[[bool], None], Callable[[str], None]]:
     """Build the YAML preview box (collapsible).
 
     Phase 19: the preview is now collapsible via a checkable header,
     allowing users to hide it when not needed to reduce visual competition.
 
     Returns:
-        Tuple of (box, full_yaml_preview, set_expanded_fn, apply_language_fn)
+        Tuple of (box, full_yaml_preview, validation_label,
+                  set_expanded_fn, apply_language_fn)
     """
     box = QFrame(page)
     box.setObjectName("WorkflowPreviewBox")
@@ -382,6 +440,7 @@ def build_preview_box(
         "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0;"
     )
     toggle_btn.setToolTip(tr("Show YAML preview", language))
+    toggle_btn.setAccessibleName(f"{tr('Show YAML preview', language)}: {tr('YAML Preview', language)}")
 
     def set_expanded(expanded: bool):
         """Set the preview expanded state and update UI accordingly."""
@@ -390,12 +449,16 @@ def build_preview_box(
         toggle_btn.setText("\u25b6" if not expanded else "\u25bc")  # ▶ or ▼
         tooltip_key = "Hide YAML preview" if expanded else "Show YAML preview"
         toggle_btn.setToolTip(tr(tooltip_key, current_language[0]))
+        toggle_btn.setAccessibleName(
+            f"{tr(tooltip_key, current_language[0])}: {tr('YAML Preview', current_language[0])}"
+        )
 
     def apply_language(new_language: str) -> None:
         current_language[0] = new_language
         title.setText(tr("YAML Preview", new_language))
         tooltip_key = "Hide YAML preview" if is_expanded[0] else "Show YAML preview"
         toggle_btn.setToolTip(tr(tooltip_key, new_language))
+        toggle_btn.setAccessibleName(f"{tr(tooltip_key, new_language)}: {tr('YAML Preview', new_language)}")
 
     def toggle_preview():
         set_expanded(not is_expanded[0])
@@ -403,21 +466,26 @@ def build_preview_box(
     toggle_btn.clicked.connect(toggle_preview)
     header.addWidget(toggle_btn)
     layout.addLayout(header)
+
+    validation_label = QLabel("", box)
+    validation_label.setObjectName("WorkflowValidationLabel")
+    validation_label.setWordWrap(True)
+    layout.addWidget(validation_label)
     layout.addWidget(full_yaml_preview)
     set_expanded(False)
 
-    return box, full_yaml_preview, set_expanded, apply_language
+    return box, full_yaml_preview, validation_label, set_expanded, apply_language
 
 
 def build_footer(
     page: QWidget,
     language: str,
     on_use_for_submit: Callable[[], None],
-) -> tuple[QWidget, StatusChip, QPushButton]:
+) -> tuple[QWidget, StatusChip, QLabel, QPushButton]:
     """Build the footer with server status and submit button.
 
     Returns:
-        Tuple of (footer_widget, server_pill, btn_dispatch)
+        Tuple of (footer_widget, server_pill, action_reason_label, btn_dispatch)
     """
     panel = QFrame(page)
     layout = QHBoxLayout(panel)
@@ -427,14 +495,19 @@ def build_footer(
     server_pill = StatusChip(tr("No server", language), state="neutral")
     layout.addWidget(server_pill)
 
-    layout.addStretch(1)
+    action_reason_label = QLabel("", panel)
+    action_reason_label.setObjectName("WorkflowActionReasonLabel")
+    action_reason_label.setWordWrap(True)
+    action_reason_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Metrics.CARD_BODY_FONT_PX}px;")
+    layout.addWidget(action_reason_label, 1)
 
     btn_dispatch = apply_button_role(
-        QPushButton(tr("Use this workflow for submit", language), panel),
+        QPushButton(panel),
         ButtonRole.PRIMARY_ACTION,
     )
+    _set_text(btn_dispatch, "Use this workflow for submit", language)
     btn_dispatch.setObjectName("WorkflowDispatchBtn")
     btn_dispatch.clicked.connect(on_use_for_submit)
     layout.addWidget(btn_dispatch)
 
-    return panel, server_pill, btn_dispatch
+    return panel, server_pill, action_reason_label, btn_dispatch

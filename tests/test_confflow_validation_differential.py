@@ -14,7 +14,7 @@ pin the *boundaries* between the two:
   / ``accepted_by_confflow_only``) and a stable ``id`` so the gap can
   be referenced in code review without being mistaken for a bug.
 
-When ConfFlow is installed (the CI runner installs the pinned v2.0.0 wheel),
+When ConfFlow is installed (the CI runner installs the pinned v2.1.3 wheel),
 the differential runs against the real producer-side validator. When
 ConfFlow is *not* installed the file is skipped through the
 ``test_module_skips_are_never_silent`` guard so silent skips cannot
@@ -307,17 +307,17 @@ def test_known_divergence_direction_matches_id(config, request):
             f"{node_id}: JobDesk offline subset rejected a jobdesk-only "
             "fixture; rename the direction tag or remove the entry."
         )
-        assert cf_ok is False, (
-            f"{node_id}: ConfFlow accepted a jobdesk-only fixture; rename the direction tag or remove the entry."
-        )
+        assert (
+            cf_ok is False
+        ), f"{node_id}: ConfFlow accepted a jobdesk-only fixture; rename the direction tag or remove the entry."
     elif node_id.startswith("accepted_by_confflow_only"):
         assert jd_ok is False, (
             f"{node_id}: JobDesk offline subset accepted a confflow-only "
             "fixture; rename the direction tag or remove the entry."
         )
-        assert cf_ok is True, (
-            f"{node_id}: ConfFlow rejected a confflow-only fixture; rename the direction tag or remove the entry."
-        )
+        assert (
+            cf_ok is True
+        ), f"{node_id}: ConfFlow rejected a confflow-only fixture; rename the direction tag or remove the entry."
     else:
         pytest.fail(f"Unknown direction tag in fixture id: {node_id}")
 
@@ -330,7 +330,7 @@ def test_known_divergence_direction_matches_id(config, request):
 def test_module_skips_are_never_silent():
     """If ConfFlow is installed *and* the differential fixtures do not
     run, the test session must fail. The CI runner installs the
-    ConfFlow v2.0.0 wheel as part of the workflow's pinned install step, so a
+    ConfFlow v2.1.3 wheel as part of the workflow's pinned install step, so a
     skip here means the
     install failed silently.
     """

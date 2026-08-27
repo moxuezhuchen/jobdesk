@@ -74,6 +74,9 @@ Desktop.ini
 # ``scripts/install_stubs.sh`` workflow.
 stubs/
 
+# Disposable isolated type-check environment; dependency locks reproduce it.
+.venv-static-py311/
+
 # Local workflow templates accidentally written to cwd during
 # dev/test cycles of the nodegraph editor.
 workflow.yaml

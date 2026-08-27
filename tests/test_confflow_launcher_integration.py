@@ -81,7 +81,9 @@ class FakeControlTransport:
 
 
 class FakeScheduler:
-    def __init__(self, *, service: RunService, sftp: FakeSFTP, job_id: str = "98765", lose_response: bool = False) -> None:
+    def __init__(
+        self, *, service: RunService, sftp: FakeSFTP, job_id: str = "98765", lose_response: bool = False
+    ) -> None:
         self.service = service
         self.sftp = sftp
         self.job_id = job_id
@@ -180,7 +182,15 @@ def _seed_control_state(service: RunService, run_id: str) -> None:
 
 
 def _client(service: RunService, transport: FakeControlTransport, scheduler: FakeScheduler) -> SSHConfFlowClient:
-    coordinator = type("Coordinator", (), {"service": service})()
+    service.load_configuration_binding = lambda run_id: object()  # type: ignore[method-assign]
+    coordinator = type(
+        "Coordinator",
+        (),
+        {
+            "service": service,
+            "verify_configuration_binding": lambda self, server_id, binding, **kwargs: None,
+        },
+    )()
     return SSHConfFlowClient(
         coordinator,
         "server",
@@ -216,7 +226,7 @@ def test_control_launcher_script_uses_existing_scheduler_headers(scheduler_type:
     assert "--run-id run-1" in script
     assert "/tmp/jobdesk-control/launcher.json" in script
     assert '"execute_rc":null' in script
-    assert "completed_marker=\"${marker//$old_fragment/$new_fragment}\"" in script
+    assert 'completed_marker="${marker//$old_fragment/$new_fragment}"' in script
     assert "sed" not in script
     assert header in script
     assert "gaussian" not in script.lower()
@@ -402,9 +412,7 @@ def test_unknown_submit_result_records_bounded_reconciliation_without_retry(tmp_
         SSHConnectionError("scheduler SSH connection dropped", host="scheduler.example"),
     ],
 )
-def test_scheduler_remote_error_is_durable_unknown_and_fail_closed(
-    tmp_path, monkeypatch, remote_error
-) -> None:
+def test_scheduler_remote_error_is_durable_unknown_and_fail_closed(tmp_path, monkeypatch, remote_error) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     service.create_run(_spec(), run_id="run-1")
     _seed_control_state(service, "run-1")
@@ -803,9 +811,7 @@ def test_old_producer_is_rejected_before_control_backend_admission(tmp_path) -> 
         (),
         {
             "service": service,
-            "server_config": lambda self, server_id: SimpleNamespace(
-                confflow_executable="/opt/confflow/bin/confflow"
-            ),
+            "server_config": lambda self, server_id: SimpleNamespace(confflow_executable="/opt/confflow/bin/confflow"),
         },
     )()
     client = SSHConfFlowClient(coordinator, "server", backend_mode="control")

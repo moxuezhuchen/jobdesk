@@ -1,0 +1,25 @@
+version: "0.6"
+global:
+  charge: 0
+  multiplicity: 1
+  x-global: preserved
+steps:
+  - name: source
+    type: calc
+    params: {itask: sp, iprog: gaussian, x-param: untouched}
+    disabled: true
+  - name: left
+    type: calc
+    params: {itask: opt}
+    inputs: [source]
+  - name: right
+    type: calc
+    params: {itask: opt}
+    inputs: [source]
+  - name: join
+    type: calc
+    params: {itask: freq}
+    inputs: [left, right]
+    x-step: preserve-me
+x-top:
+  wizard: metadata

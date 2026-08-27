@@ -85,3 +85,13 @@ class WorkflowDraft:
     global_config: dict[str, Any]
     preset: Any = None
     dirty: bool = False
+    # A loaded workflow keeps its canonical document beside the projected
+    # graph.  The graph is an editing view and cannot represent every
+    # producer extension (for example disabled steps or an unsupported
+    # port-compatible DAG), so it must never become the sole save source.
+    raw_document: dict[str, Any] | None = None
+    projection_error: str = ""
+    # A fully projected loaded graph may still be edited.  Keep this bit
+    # separate from ``raw_document`` so topology edits can be merged back
+    # into the canonical document without making the graph read-only.
+    topology_dirty: bool = False

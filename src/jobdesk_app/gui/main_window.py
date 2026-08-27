@@ -1,12 +1,16 @@
 """JobDesk GUI — 4-page layout: Files / Submit / Runs+Results / Settings+Servers."""
 
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
 from ..application.confflow_client import ConfFlowClientError, SubmitRequest
+from ..application.configuration_contract import ConfigurationAdmissionError
+from ..application.gui_ports import FilesPagePort, PageRefreshPort
 from ..config.servers import load_servers
 from ..core.run import WorkflowKind
 from ..core.submit_payload import SubmitPayload
@@ -46,6 +50,7 @@ def _construct_page_with_session_pool(page_factory, *args, session_pool):
         if "session_pool" not in str(exc):
             raise
         return page_factory(*args)
+
 
 def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
     if run_ids:
@@ -92,6 +97,7 @@ class MainWindow(QMainWindow):
             self.show_error,
             session_pool=self._session_pool,
         )
+        self._files_port = FilesPagePort(self.files_page)
         self._preset_store = MethodPresetStore()
         self.workflow_page = WorkflowPage(
             self.state,
@@ -158,6 +164,7 @@ class MainWindow(QMainWindow):
         self.shell.add_page(self.settings_page)  # 3
 
         self.shell.page_changed.connect(self._on_nav)
+        self._install_shortcuts()
         # Applying translations must not synchronously open the runs
         # database while the window is still being constructed.  The Runs
         # page is disabled until startup recovery completes and refreshes
@@ -191,26 +198,24 @@ class MainWindow(QMainWindow):
         # Keep WorkflowPage's server pill in sync with whatever Files page
         # is currently connected to.
         if index == 1 and page is self.workflow_page:
-            connection = self.files_page.connection_snapshot()
+            connection = self._files_port.snapshot()
             if hasattr(page, "set_server_status"):
                 page.set_server_status(
                     connected=connection.connected,
                     server_label=connection.server_id or "",
                 )
-            if hasattr(page, "set_remote_dir") and hasattr(self.files_page, "remote_path"):
-                page.set_remote_dir(self.files_page.remote_path.text().strip() or "/")
+            if hasattr(page, "set_remote_dir"):
+                page.set_remote_dir(connection.remote_dir)
         if index == 0:
             # Refresh the Files page so a returning user sees fresh state.
             # The first activation already performs its initial connection and
             # local refresh.  Skipping this duplicate call prevents two
             # concurrent WSL bootstrap/list workers on application startup.
             if self._initial_nav_completed:
-                refresh = getattr(self.files_page, "refresh", None) or getattr(self.files_page, "_refresh_all", None)
-                if refresh is not None:
-                    try:
-                        refresh()
-                    except Exception:
-                        pass
+                try:
+                    self._files_port.refresh()
+                except Exception:
+                    pass
             self._initial_nav_completed = True
         # Apply language whenever the user changes pages (cheap; cached).
         # Keep the Runs page in label-only mode here as well; its activation
@@ -249,6 +254,40 @@ class MainWindow(QMainWindow):
         self.shell.sidebar.blockSignals(False)
         self.shell.pages.setCurrentIndex(index)
         self.shell.page_changed.emit(index)
+
+    def _install_shortcuts(self) -> None:
+        """Install discoverable window-level navigation and page actions."""
+        self._shortcuts: list[QShortcut] = []
+
+        def bind(sequence: str, callback) -> None:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.activated.connect(callback)
+            self._shortcuts.append(shortcut)
+
+        for index in range(4):
+            bind(f"Alt+{index + 1}", lambda target=index: self._switch_page(target))
+        bind("F5", self._refresh_current_page)
+        bind("Ctrl+F", self._focus_current_search)
+        bind("Ctrl+S", self._save_current_page)
+
+    def _current_page(self):
+        return self.shell.pages.currentWidget()
+
+    def _refresh_current_page(self) -> None:
+        page = self._current_page()
+        # Prefer a page's full refresh action so F5 is equivalent to the
+        # visible Refresh button (the Runs page also refreshes remote status).
+        PageRefreshPort.for_page(page).refresh()
+
+    def _focus_current_search(self) -> None:
+        focus_search = getattr(self._current_page(), "focus_search", None)
+        if callable(focus_search):
+            focus_search()
+
+    def _save_current_page(self) -> None:
+        save_current = getattr(self._current_page(), "save_current", None)
+        if callable(save_current):
+            save_current()
 
     def _on_go_to_submit_with_examples(self) -> None:
         """Land on Submit and pop the editor's Examples drawer.
@@ -345,15 +384,14 @@ class MainWindow(QMainWindow):
         )
         from ..services.submit_use_case import SubmitUseCase
 
-        connection = self.files_page.connection_snapshot()
+        connection = self._files_port.snapshot()
         if payload.server_id != (connection.server_id or ""):
             self.show_error(
                 tr("Submit", self.language),
                 tr("Connect to a server first.", self.language),
             )
             return
-        service = connection.service
-        if service is None:
+        if not connection.ready:
             self.show_error(
                 tr("Submit", self.language),
                 tr("Connect to a server first.", self.language),
@@ -380,30 +418,56 @@ class MainWindow(QMainWindow):
                 sftp_factory=create_sftp_client,
                 session_pool=self._session_pool,
             )
+            client = SSHConfFlowClient(coordinator, payload.server_id)
+            workflow_specs = [
+                spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+            ]
+            admission = None
+            validated_yaml_bytes = None
+            if workflow_specs:
+                if batch.yaml_local_path is None:
+                    batch.errors.append("Prepared workflow batch has no local YAML document")
+                    return batch
+                try:
+                    validated_yaml_bytes = batch.yaml_local_path.read_bytes()
+                    admission = coordinator.admit_configuration(
+                        payload.server_id,
+                        validated_yaml_bytes,
+                        require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
+                    )
+                except (ConfigurationAdmissionError, OSError) as exc:
+                    batch.errors.append(str(exc))
+                    return batch
+            outcomes = _create_and_maybe_submit_specs(
+                coordinator,
+                client,
+                batch.specs,
+                workspace,
+                admission=admission,
+                submit=False,
+            )
+            if any(outcome.errors for outcome in outcomes):
+                return _combine_outcomes(outcomes)
             try:
-                _upload_prepared_batch(batch, payload, service, SSHConfFlowClient(coordinator, payload.server_id))
+                _upload_prepared_batch(
+                    batch,
+                    payload,
+                    self._files_port,
+                    client,
+                    validated_yaml_bytes=validated_yaml_bytes,
+                )
             except ConfFlowClientError as exc:
                 batch.errors.append(str(exc))
                 return batch
-            outcomes = _create_and_maybe_submit_specs(
-                coordinator, SSHConfFlowClient(coordinator, payload.server_id), batch.specs, workspace, submit=submit
-            )
-            # Bundle into a single RunOperationOutcome-shaped payload.
-            from ..services.run_coordinator import RunOperationOutcome
-
-            combined = RunOperationOutcome()
-            for outcome in outcomes:
-                combined.records.extend(outcome.records)
-                combined.submit_results.extend(outcome.submit_results)
-                combined.errors.extend(outcome.errors)
-            return combined
+            if submit:
+                for created in tuple(outcomes):
+                    if not created.errors and created.records:
+                        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
+                        outcomes.append(submitted)
+            return _combine_outcomes(outcomes)
 
         def _done(outcome):
-            warnings = [
-                warning
-                for result in getattr(outcome, "submit_results", [])
-                for warning in result.warnings
-            ]
+            warnings = [warning for result in getattr(outcome, "submit_results", []) for warning in result.warnings]
             self.runs_page.set_submit_warnings(warnings)
             if outcome.errors:
                 self.show_error(tr("Submit", self.language), "\n".join(outcome.errors))
@@ -466,7 +530,7 @@ class MainWindow(QMainWindow):
             Pass ``False`` to keep the dialog on the dialog-side
             default (first builtin).
         """
-        connection = self.files_page.connection_snapshot()
+        connection = self._files_port.snapshot()
         server_id = connection.server_id or ""
         remote_dir = connection.remote_dir
         dialog = SubmitDialog(
@@ -575,11 +639,9 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def _upload_prepared_batch(batch, payload, service, client) -> None:
+def _upload_prepared_batch(batch, payload, service, client, *, validated_yaml_bytes: bytes | None = None) -> None:
     """Preflight and upload a prepared batch without creating a run."""
-    workflow_specs = [
-        spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
-    ]
+    workflow_specs = [spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}]
     if workflow_specs:
         client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
 
@@ -594,21 +656,61 @@ def _upload_prepared_batch(batch, payload, service, client) -> None:
         yaml_target = batch.yaml_remote_path
         if yaml_target is None:
             raise RuntimeError("Prepared workflow batch has no remote YAML target")
-        records = service.upload_path(batch.yaml_local_path, yaml_target)
-        _raise(records, yaml_target)
+        if validated_yaml_bytes is None:
+            records = service.upload_path(batch.yaml_local_path, yaml_target)
+            _raise(records, yaml_target)
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as staged:
+                staged.write(validated_yaml_bytes)
+                staged_path = Path(staged.name)
+            try:
+                records = service.upload_path(staged_path, yaml_target)
+                _raise(records, yaml_target)
+            finally:
+                staged_path.unlink(missing_ok=True)
 
 
-def _create_and_maybe_submit_specs(coordinator, client, specs, workspace: Path, *, submit: bool):
+def _create_and_maybe_submit_specs(
+    coordinator,
+    client,
+    specs,
+    workspace: Path,
+    *,
+    admission=None,
+    submit: bool,
+):
     """Create durable records locally, then submit each successful record once via the client."""
     outcomes = []
     for spec in specs:
-        created = coordinator.create_run(spec, local_dir=str(workspace))
+        workflow_kind = getattr(spec, "workflow_kind", None)
+        is_workflow = workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+        if is_workflow and admission is not None:
+            created = coordinator.create_admitted_run(spec, admission, local_dir=str(workspace))
+        elif is_workflow:
+            from ..services.run_coordinator import RunOperationOutcome
+
+            created = RunOperationOutcome(errors=["configuration admission is required before creating workflow run"])
+        else:
+            created = coordinator.create_run(spec, local_dir=str(workspace))
         outcomes.append(created)
         if not submit or created.errors or not created.records:
             continue
         _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
         outcomes.append(submitted)
     return outcomes
+
+
+def _combine_outcomes(outcomes):
+    """Return one presentation-compatible result while preserving operation order."""
+
+    from ..services.run_coordinator import RunOperationOutcome
+
+    combined = RunOperationOutcome()
+    for outcome in outcomes:
+        combined.records.extend(outcome.records)
+        combined.submit_results.extend(outcome.submit_results)
+        combined.errors.extend(outcome.errors)
+    return combined
 
 
 def _raise(records, target):

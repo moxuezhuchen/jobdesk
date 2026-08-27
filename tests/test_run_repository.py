@@ -6,7 +6,9 @@ import json
 import multiprocessing
 import sqlite3
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -18,6 +20,23 @@ from jobdesk_app.core.manifest import Manifest, ResourceBudget, TaskRecord
 from jobdesk_app.core.run import WorkflowKind
 from jobdesk_app.services.run_repository import OperationRecord, RunRecord, RunRepository
 from tests.repository_helpers import replace_tasks_for_test
+
+
+@contextmanager
+def _sqlite_connection(path: Path) -> Iterator[sqlite3.Connection]:
+    """Keep the transaction context and explicitly close test connections.
+
+    ``sqlite3.Connection``'s context manager commits or rolls back a
+    transaction, but it does not close the connection.  Tests that only used
+    ``with sqlite3.connect(...)`` therefore leaked handles until garbage
+    collection, which coverage runs exposed as ``ResourceWarning``.
+    """
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def _record(runs_dir: Path, run_id: str = "run-1") -> RunRecord:
@@ -80,7 +99,7 @@ def test_resource_budget_sqlite_round_trip(tmp_path: Path) -> None:
     assert repository.load_tasks("run-1")[0].resource_budget == budget
 
 
-def test_run_provenance_round_trip_and_schema_v6(tmp_path: Path) -> None:
+def test_run_provenance_round_trip_and_schema_v7(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
     repository.create_run(_record(repository.runs_dir), [_task("a")])
     capability = {
@@ -97,7 +116,7 @@ def test_run_provenance_round_trip_and_schema_v6(tmp_path: Path) -> None:
         resolved_realpath="/opt/venv/bin/confflow-1.4.3",
     )
 
-    assert repository.schema_version() == 6
+    assert repository.schema_version() == 8
     assert repository.load_run_provenance("run-1") == {
         "capability": capability,
         "resolved_executable": "/opt/venv/bin/confflow",
@@ -108,6 +127,7 @@ def test_run_provenance_round_trip_and_schema_v6(tmp_path: Path) -> None:
         "wheel_sha256": "deadbeef",
         "recorded_at": repository.load_run_provenance("run-1")["recorded_at"],
     }
+
 
 def test_replace_tasks_rejects_batch_id_mismatch_without_changing_existing_rows(
     tmp_path: Path,
@@ -286,14 +306,14 @@ def test_resolve_uncertain_rejects_status_changed_by_concurrent_writer(
 def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
     repository = RunRepository(tmp_path / "runs")
 
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         version = connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0]
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
-    assert version == "6"
-    assert repository.schema_version() == 6
-    assert repository.current_schema_version() == 6
+    assert version == "8"
+    assert repository.schema_version() == 8
+    assert repository.current_schema_version() == 8
     assert journal_mode.lower() == "wal"
     assert {"workspace_roots", "delete_operation_workspaces"}.issubset(tables)
 
@@ -301,16 +321,16 @@ def test_initializes_versioned_wal_database(tmp_path: Path) -> None:
 def test_v3_migration_adds_nullable_submit_lease_columns(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("ALTER TABLE operations DROP COLUMN lease_expires_at")
         connection.execute("ALTER TABLE operations DROP COLUMN owner_id")
         connection.execute("UPDATE schema_metadata SET value = '3' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
-    with sqlite3.connect(upgraded.database_path) as connection:
+    with _sqlite_connection(upgraded.database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
-    assert upgraded.schema_version() == 6
+    assert upgraded.schema_version() == 8
     assert {"owner_id", "lease_expires_at"} <= columns
 
 
@@ -331,7 +351,7 @@ def test_submit_recovery_acquisition_rejects_live_lease_and_takes_expired_lease(
     operation = operations[0]
 
     assert not repository.acquire_submit_recovery(operation.operation_id, "recovery-b", lease_seconds=120)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             (
@@ -365,7 +385,7 @@ def test_submit_leases_use_utc_z_and_compare_offset_timestamps_by_instant(
 
     future = datetime.now(timezone.utc) + timedelta(minutes=5)
     future_offset = future.astimezone(timezone(timedelta(hours=-12))).isoformat()
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             (future_offset, operation.operation_id),
@@ -374,7 +394,7 @@ def test_submit_leases_use_utc_z_and_compare_offset_timestamps_by_instant(
 
     past = datetime.now(timezone.utc) - timedelta(minutes=5)
     past_offset = past.astimezone(timezone(timedelta(hours=14))).isoformat()
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             (past_offset, operation.operation_id),
@@ -397,7 +417,7 @@ def test_naive_submit_lease_is_invalid_and_does_not_block_recovery(
         lease_seconds=120,
     )
     operation = operations[0]
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET lease_expires_at = ? WHERE operation_id = ?",
             ("9999-12-31T23:59:59.999999", operation.operation_id),
@@ -454,7 +474,7 @@ def test_reopening_ready_repository_skips_write_initialization(tmp_path: Path, m
 
     reopened = RunRepository(runs_dir)
 
-    assert reopened.schema_version() == 6
+    assert reopened.schema_version() == 8
     initialize.assert_not_called()
 
 
@@ -462,15 +482,15 @@ def test_upgrades_v1_database_without_changing_task_state(tmp_path: Path) -> Non
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
     repository.create_run(_record(runs_dir), [_task("a", TaskStatus.running)])
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("DROP TABLE operations")
         connection.execute("UPDATE schema_metadata SET value = '1' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 6
+    assert upgraded.current_schema_version() == 8
     assert upgraded.load_tasks("run-1")[0].status == TaskStatus.running
-    with sqlite3.connect(upgraded.database_path) as connection:
+    with _sqlite_connection(upgraded.database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(operations)")}
         foreign_keys = connection.execute("PRAGMA foreign_key_list(operations)").fetchall()
@@ -509,13 +529,13 @@ def test_upgrades_v2_registry_only_from_live_absolute_run_workspaces(
     empty = _record(runs_dir, "empty")
     empty.local_dir = ""
     repository.create_run(empty, [_task("c", TaskStatus.uploaded, batch_id="empty")])
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("DROP TABLE workspace_roots")
         connection.execute("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'")
 
     upgraded = RunRepository(runs_dir)
 
-    assert upgraded.current_schema_version() == 6
+    assert upgraded.current_schema_version() == 8
     assert upgraded.list_workspace_roots() == [trusted.resolve()]
     assert upgraded.delete_operation_workspace("missing") is None
 
@@ -533,7 +553,7 @@ def test_v2_migration_never_trusts_delete_operation_payload(tmp_path: Path) -> N
             "results_root": str((external / "results").resolve()),
         },
     )
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("DROP TABLE workspace_roots")
         connection.execute("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'")
 
@@ -628,7 +648,7 @@ def test_prune_completed_operations_uses_strict_older_than_boundary(
     assert repository.advance_operation(at_cutoff.operation_id, "prepared", "done", complete=True)
     assert repository.advance_operation(newer.operation_id, "prepared", "done", complete=True)
     cutoff = datetime(2026, 6, 28, 12, 0, 0)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET completed_at = ? WHERE operation_id = ?",
             (cutoff.isoformat(), at_cutoff.operation_id),
@@ -1099,7 +1119,7 @@ def test_submit_outcome_rejects_missing_journal_task_without_advancing(tmp_path:
     )
     operation = operations[0]
     assert repository.start_submit_operation(operation.operation_id)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("DELETE FROM tasks WHERE run_id = ? AND task_id = ?", ("run-1", "a"))
 
     assert not repository.record_submit_outcome(operation.operation_id, task_ids=["a"], job_ids={"a": "123"})
@@ -1197,7 +1217,7 @@ def test_recover_submit_rejects_missing_task_without_phase_change(tmp_path: Path
     operation = operations[0]
     if phase == "remote_started":
         assert repository.start_submit_operation(operation.operation_id)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute("DELETE FROM tasks WHERE run_id = ? AND task_id = ?", ("run-1", "a"))
 
     assert not repository.recover_submit_operation(operation.operation_id)
@@ -1449,7 +1469,7 @@ def test_recover_uncertain_rejects_inconsistent_outcome(
     payload.update(payload_update)
     task = repository.load_tasks("run-1")[0].model_copy(update=task_update)
     replace_tasks_for_test(repository, "run-1", [task])
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         connection.execute(
             "UPDATE operations SET payload_json = ?, last_error = ? WHERE operation_id = ?",
             (json.dumps(payload), last_error, operation.operation_id),
@@ -1858,12 +1878,12 @@ def test_ready_database_restores_wal_after_external_journal_mode_change(
 ) -> None:
     runs_dir = tmp_path / "runs"
     repository = RunRepository(runs_dir)
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         assert connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0] == "delete"
 
     RunRepository(runs_dir)
 
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -1877,12 +1897,8 @@ def test_run_record_workflow_kind_derived_from_tasks(tmp_path: Path) -> None:
         repository,
         record.run_id,
         [
-            _task("a", batch_id=record.run_id).model_copy(
-                update={"workflow_kind": "confflow"}
-            ),
-            _task("b", batch_id=record.run_id).model_copy(
-                update={"workflow_kind": "confflow"}
-            ),
+            _task("a", batch_id=record.run_id).model_copy(update={"workflow_kind": "confflow"}),
+            _task("b", batch_id=record.run_id).model_copy(update={"workflow_kind": "confflow"}),
         ],
     )
 
@@ -1911,12 +1927,8 @@ def test_run_record_workflow_kind_none_when_mixed(tmp_path: Path) -> None:
         repository,
         record.run_id,
         [
-            _task("a", batch_id=record.run_id).model_copy(
-                update={"workflow_kind": "confflow"}
-            ),
-            _task("b", batch_id=record.run_id).model_copy(
-                update={"workflow_kind": "dag"}
-            ),
+            _task("a", batch_id=record.run_id).model_copy(update={"workflow_kind": "confflow"}),
+            _task("b", batch_id=record.run_id).model_copy(update={"workflow_kind": "dag"}),
         ],
     )
 
@@ -1933,9 +1945,7 @@ def test_list_runs_populates_workflow_kind(tmp_path: Path) -> None:
         repository,
         record.run_id,
         [
-            _task("a", batch_id=record.run_id).model_copy(
-                update={"workflow_kind": "dag"}
-            ),
+            _task("a", batch_id=record.run_id).model_copy(update={"workflow_kind": "dag"}),
         ],
     )
 
@@ -1971,7 +1981,7 @@ def test_legacy_import_is_idempotent(tmp_path: Path) -> None:
     RunRepository(runs_dir)
     RunRepository(runs_dir)
 
-    with sqlite3.connect(runs_dir / "jobdesk.db") as connection:
+    with _sqlite_connection(runs_dir / "jobdesk.db") as connection:
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
         assert (
@@ -1984,14 +1994,14 @@ def test_newer_schema_version_is_rejected_without_relabeling(tmp_path: Path) -> 
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
     database = runs_dir / "jobdesk.db"
-    with sqlite3.connect(database) as connection:
+    with _sqlite_connection(database) as connection:
         connection.execute("CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         connection.execute("INSERT INTO schema_metadata VALUES ('schema_version', '999')")
 
     with pytest.raises(RuntimeError, match="newer schema version"):
         RunRepository(runs_dir)
 
-    with sqlite3.connect(database) as connection:
+    with _sqlite_connection(database) as connection:
         assert (
             connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0] == "999"
         )
@@ -2014,13 +2024,13 @@ def test_future_schema_race_is_rejected_inside_initialize_transaction(
     class RacingRepository(RunRepository):
         def _validate_existing_schema(self) -> None:
             super()._validate_existing_schema()
-            with sqlite3.connect(self.database_path) as connection:
+            with _sqlite_connection(self.database_path) as connection:
                 connection.execute("UPDATE schema_metadata SET value = '999' WHERE key = 'schema_version'")
 
     with pytest.raises(RuntimeError, match="newer schema version"):
         RacingRepository(runs_dir)
 
-    with sqlite3.connect(repository.database_path) as connection:
+    with _sqlite_connection(repository.database_path) as connection:
         assert (
             connection.execute("SELECT value FROM schema_metadata WHERE key = 'schema_version'").fetchone()[0] == "999"
         )
