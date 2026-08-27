@@ -174,18 +174,18 @@ def _copy_chemistry_check_sandbox(destination: Path, wheel: Path) -> None:
     shutil.copy2(wheel, artifact)
 
 
-def _run_chemistry_check(sandbox: Path) -> subprocess.CompletedProcess[str]:
-    powershell = shutil.which("powershell.exe")
-    assert powershell is not None, "Windows PowerShell is required for this CI-matching gate test"
-    script = str(sandbox / "scripts" / "compile_chem_locks.ps1").replace("'", "''")
+def _run_chemistry_script(sandbox: Path, *, check: bool) -> subprocess.CompletedProcess[str]:
+    pwsh = shutil.which("pwsh")
+    assert pwsh is not None, "PowerShell Core (pwsh) is required for this CI-matching gate test"
     return subprocess.run(
         [
-            powershell,
+            pwsh,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            f"Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; & '{script}' -Check",
+            "-File",
+            str(sandbox / "scripts" / "compile_chem_locks.ps1"),
+            *(["-Check"] if check else []),
         ],
         cwd=sandbox,
         capture_output=True,
@@ -193,6 +193,10 @@ def _run_chemistry_check(sandbox: Path) -> subprocess.CompletedProcess[str]:
         errors="replace",
         timeout=300,
     )
+
+
+def _run_chemistry_check(sandbox: Path) -> subprocess.CompletedProcess[str]:
+    return _run_chemistry_script(sandbox, check=True)
 
 
 @pytest.mark.parametrize("tampered_input", ("lock", "manifest"))
@@ -207,6 +211,11 @@ def test_windows_chemistry_check_rejects_tampered_checked_in_inputs(tmp_path: Pa
 
     sandbox = tmp_path / "chemistry-check"
     _copy_chemistry_check_sandbox(sandbox, wheel)
+    # PowerShell 5.1 and Core serialize ConvertTo-Json with different spacing
+    # and escaping.  Establish the clean checked-in state with the same Core
+    # interpreter that runs this behavior test before exercising -Check.
+    generated = _run_chemistry_script(sandbox, check=False)
+    assert generated.returncode == 0, f"clean chemistry generation failed:\n{generated.stdout}\n{generated.stderr}"
     clean = _run_chemistry_check(sandbox)
     assert clean.returncode == 0, f"clean chemistry check failed:\n{clean.stdout}\n{clean.stderr}"
 
@@ -221,9 +230,9 @@ def test_windows_chemistry_check_rejects_tampered_checked_in_inputs(tmp_path: Pa
         path.write_bytes(original.replace(needle, b"0" * 64, 1))
 
     rejected = _run_chemistry_check(sandbox)
-    assert rejected.returncode != 0, (
-        f"chemistry check accepted tampered {tampered_input}:\n{rejected.stdout}\n{rejected.stderr}"
-    )
+    assert (
+        rejected.returncode != 0
+    ), f"chemistry check accepted tampered {tampered_input}:\n{rejected.stdout}\n{rejected.stderr}"
 
 
 def test_optional_coverage_uses_the_same_released_wheel():
@@ -307,9 +316,9 @@ def test_preflight_module_has_no_bare_version_literal():
         "confflow_preflight.py must not contain the bare literal '1.5.0'; "
         "it must source the spec from MIN_VERSION/MAX_EXCLUSIVE."
     )
-    assert "2.0.0" not in content, (
-        "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
-    )
+    assert (
+        "2.0.0" not in content
+    ), "confflow_preflight.py must not contain the bare literal '2.0.0'; it must source the cap from MAX_EXCLUSIVE."
     # SOURCE_OF_TRUTH imports must be present.
     assert "from .confflow_contract import" in content
     assert "MIN_VERSION" in content
