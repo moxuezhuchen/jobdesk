@@ -2,7 +2,10 @@
 
 JobDesk is a Windows-first desktop and CLI tool for managing single scientific-computing jobs over SSH/SFTP. It helps prepare Gaussian and ORCA inputs, submit jobs to a remote machine or local WSL environment, monitor status, download outputs, and preview parsed results.
 
-JobDesk is currently a preview project. It is suitable for source review and controlled local use, but not yet a stable public package release.
+JobDesk is currently a preview project with an isolated `0.7.3` source
+candidate. That candidate has not been tagged or published. The released
+JobDesk package is `v0.7.2`, paired with the released ConfFlow package
+`v2.1.3`; publication does not by itself promote either package to production.
 
 ## Documentation and identity status
 
@@ -15,18 +18,20 @@ endpoint, or promotion status. Current product boundaries are maintained in
 this file and [docs/architecture.md](docs/architecture.md).
 
 The four identities below are deliberately separate (recorded during the
-2026-08-19 baseline and updated for the paired candidate; revalidate them
-before any acceptance or release action):
+remediation and release closeout; revalidate the live endpoint before any
+acceptance or promotion action):
 
 | Identity | Recorded value | Meaning |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Shared/dirty development sources, not runtime identity |
-| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, base `154ee77b065cd71787418be312700c996bf01c57`); paired ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Candidate code under review; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.6.0` at `e4d8f74af0dff80b233f7bd9cb360b43d040069f`; ConfFlow `v2.0.0` at `69819350d340a6aeccf95aa175edfd1c3f63404b` (wheel SHA-256 `04ea51666d4c12538c14f2e47eb3000148bbb666ca401318edd87f301a636e3f`) | Historical released artifacts, not the implementation candidate |
-| Configured production executable | Recorded `wsl` endpoint `/usr/local/bin/confflow` → `/opt/confflow-2.0.0-prod-venv/bin/confflow` | Protected runtime identity; revalidate live before acceptance |
+| Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, candidate `0.7.3`, base `154ee77b065cd71787418be312700c996bf01c57`); paired ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Candidate code under review; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8` (wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`); ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5` (wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`) | Published artifacts; not the isolated `0.7.3` candidate and not a production switch |
+| Configured production executable | `wsl` `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.3` executable has not been promoted |
 
-This documentation-only slice does not claim a new release, endpoint switch,
-or production promotion.
+The `0.7.3` value above identifies an isolated source candidate only. The
+published `v0.7.2` / `v2.1.3` pair and the configured production executable
+remain separate identities; production is still on ConfFlow `2.0.0` until a
+separately authorized endpoint switch and post-switch smoke pass.
 
 ## Scope
 
@@ -114,11 +119,14 @@ Schema v8 is current. Schema v2 introduced the durable submit/delete operation
 journal; schema v3 added an independent trusted-workspace registry and
 delete-operation-to-workspace bindings; schema v4 added renewable submit
 ownership leases (lease timestamps stored and compared in UTC); schema v5
-adds a `submit_activity_log` table that persists SubmitPage activity, and
-    schema v6 adds the `run_provenance` table for ConfFlow producer identity
-    across restarts, schema v7 adds immutable accepted-configuration bindings
-    for workflow runs, and schema v8 adds the explicit selected server identity.
-    Recovery takes over only ownerless legacy submissions or
+adds a `submit_activity_log` table that persists SubmitPage activity; schema
+v6 adds the `run_provenance` table for ConfFlow producer identity across
+restarts; schema v7 adds immutable accepted-configuration bindings for
+workflow runs; and schema v8 adds the explicit selected server identity.
+The ConfFlow control decision is authoritative in the SQLite `operations`
+journal (kind `confflow_control`); `control_backend.json` is only a
+rollback-compatible projection that can be regenerated and is never a second
+authority. Recovery takes over only ownerless legacy submissions or
 submissions whose lease has expired. The v2-to-v3 migration seeds
 workspace trust only from live run rows and leaves old delete operations
 unbound; journal payloads are never treated as trust anchors. Back up the
@@ -135,7 +143,7 @@ For backup, close JobDesk and copy `jobdesk.db` together with any `jobdesk.db-wa
 
 An `uncertain` task means a remote submit command may have started but JobDesk cannot prove whether it was accepted. Inspect the scheduler or remote process before resolving it. Use `confirm-submitted` (and `--job-id <task_id>=<job_id>` when known) only after confirming the remote job exists. `abandon-submit` makes the task eligible for submission again and can create a duplicate remote job if the original actually started.
 
-For ordinary SSH/SFTP work, `SessionPool` owns one reusable session per server. Each short-lived lease is exclusive, may request SSH-only or SSH+SFTP (`need_sftp=False/True`), and must be released promptly; application shutdown closes the pool after active leases return. The long-lived `RunMonitor` watcher is a separate transport owner and must not borrow a `SessionPool` lease. GUI objects receive application snapshots/events rather than owning pooled sessions.
+For ordinary SSH/SFTP work, `SessionPool` owns one reusable session per server. Each short-lived lease is exclusive, may request SSH-only or SSH+SFTP (`need_sftp=False/True`), and must be released promptly; application shutdown closes the pool after active leases return. The long-lived `RunMonitor` watcher has a separate monitor transport owner and must not borrow a `SessionPool` lease. GUI objects receive application snapshots/events rather than owning pooled sessions.
 
 ## Development
 
@@ -156,12 +164,12 @@ loads and runs without it. A base install can open and preserve workflow
 documents and perform advisory structural lint; the optional `chem` extra
 enables producer-model authoring conveniences and the local dry-run path. The
 remote compute node still needs the configured producer executable. The current
-JobDesk
-contract is `confflow>=2.0,<3.0`; CI validates against the recorded stable
-producer baseline. Versions do not need to match between Windows and Linux
-through shared Pydantic imports: JobDesk resolves the configured executable's
-producer-owned workflow configuration contract and sends the exact YAML bytes
-to its canonical validator.
+JobDesk contract is `confflow>=2.0,<3.0`; CI and the published pair validate
+against ConfFlow `2.1.3`. Versions do not need to match between Windows and
+Linux through shared Pydantic imports: JobDesk resolves the configured
+executable's producer-owned workflow configuration contract and sends the exact
+YAML bytes to its canonical validator. The configured production executable
+remains ConfFlow `2.0.0` until separately promoted.
 The Phase F owner exception removed the legacy backend from the production
 path. The provenance-verified v1.4.6 rollback remains historical evidence only
 and never authorizes a current control run.
@@ -247,7 +255,9 @@ and rechecks the producer-owned configuration contract, validates the exact
 configuration bytes remotely, requires the declared `artifacts` block to
 match field-by-field, and runs the exact per-task command with `--dry-run`.
 The accepted contract, configuration digest, producer provenance, and
-   server/executable identities are bound immutably to the workflow run in schema v8.
+server/executable identities are bound immutably to the workflow run in
+schema v7/v8 (`run_configuration_bindings`; v8 adds the selected server
+identity).
 Only a successful admission and preflight may start the batch through the
 existing `nohup setsid` scheduler.
 

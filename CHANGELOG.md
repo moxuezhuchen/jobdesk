@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
+## [0.7.3] - Candidate
+
+This fix-forward candidate prepares the next patch release without changing
+the published `v0.7.2` tag or release. The release workflow builds the wheel
+and source distribution from one clean tagged commit, records SHA-256 hashes,
+emits an SBOM and provenance record, and publishes a GitHub build attestation
+for the final wheel.
+
 ## [0.7.2] - 2026-08-27
 
 This release carries the full remediation candidate through the paired
