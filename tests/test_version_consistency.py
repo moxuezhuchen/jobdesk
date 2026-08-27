@@ -45,6 +45,26 @@ def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
+def _bash_executable() -> str:
+    if os.name != "nt":
+        bash = shutil.which("bash")
+        assert bash is not None, "bash is required to validate workflow run blocks"
+        return bash
+
+    git = shutil.which("git")
+    assert git is not None, "Git for Windows is required to locate Git Bash"
+    completed = subprocess.run([git, "--exec-path"], capture_output=True, text=True, check=True)
+    roots = [Path(git).resolve().parent.parent]
+    roots.extend(Path(completed.stdout.strip()).resolve().parents)
+    for root in roots:
+        for relative in (Path("bin/bash.exe"), Path("usr/bin/bash.exe")):
+            candidate = (root / relative).resolve()
+            lowered = [part.lower() for part in candidate.parts]
+            if candidate.is_file() and candidate.name.lower() == "bash.exe" and "system32" not in lowered:
+                return str(candidate)
+    raise AssertionError("Git Bash was not found beside the active Git for Windows installation")
+
+
 def test_structured_source_of_truth():
     """Lock the structured tuple so the rest of the suite mirrors it."""
     assert MIN_VERSION == (2, 0, 0)
@@ -310,11 +330,18 @@ def test_compatibility_matrix_rendered_run_blocks_are_valid_bash():
     steps = workflow["jobs"]["producer-matrix"]["steps"]
     run_blocks = [step["run"] for step in steps if "run" in step]
     assert run_blocks
-    assert shutil.which("bash") is not None
+    bash = _bash_executable()
     for index, run_block in enumerate(run_blocks):
         rendered = re.sub(r"\$\{\{.*?\}\}", "rendered", run_block)
-        completed = subprocess.run(["bash", "-n", "-c", rendered], capture_output=True, text=True, check=False)
+        completed = subprocess.run([bash, "-n", "-c", rendered], capture_output=True, text=True, check=False)
         assert completed.returncode == 0, f"run block {index} is invalid Bash: {completed.stderr}"
+
+
+def test_workflow_bash_helper_never_selects_windows_system32():
+    bash = Path(_bash_executable()).resolve()
+    assert bash.name.lower() in {"bash", "bash.exe"}
+    if os.name == "nt":
+        assert "system32" not in {part.lower() for part in bash.parts}
 
 
 def test_readme_states_version_spec():
