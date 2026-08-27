@@ -1,6 +1,6 @@
 [project]
 name = "jobdesk"
-version = "0.7.5"
+version = "0.7.6"
 description = "Windows-first scientific-computing job desk for local inputs, remote execution, result download, and local analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -61,7 +61,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jobdesk_app = ["gui/resources/*.svg", "resources/**/*.yaml"]
+jobdesk_app = ["gui/resources/*.svg", "resources/**/*.yaml", "resources/workflow_examples/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

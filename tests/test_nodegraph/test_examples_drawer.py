@@ -99,6 +99,16 @@ def test_drawer_emits_selected_with_known_template_id(qtbot):
     assert captured == ["linear_opt_freq"]
 
 
+def test_drawer_builds_real_menu_for_all_templates(qtbot):
+    drawer = ExamplesDrawer(language="en")
+    qtbot.addWidget(drawer)
+
+    menu = drawer._ensure_menu()
+
+    assert [action.text() for action in menu.actions()] == [template.title for template in EXAMPLE_TEMPLATES]
+    assert all(action.statusTip() for action in menu.actions())
+
+
 def test_editor_loads_template_via_examples_drawer(qtbot, tmp_path):
     """Clicking the toolbar Examples entry loads the graph on the editor."""
     store = GuiSettingsStore(tmp_path / "gui_settings.yaml")

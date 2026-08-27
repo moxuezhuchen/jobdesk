@@ -191,9 +191,9 @@ class ExamplesDrawer(QPushButton):
     def _ensure_menu(self) -> QMenu:
         menu = QMenu(self)
         for tpl in EXAMPLE_TEMPLATES:
-            label = tr(tpl.title_en, self._language)
+            label = tr(tpl.title, self._language)
             action = menu.addAction(label)
-            action.setStatusTip(tr(tpl.description_en, self._language))
+            action.setStatusTip(tr(tpl.description, self._language))
             action.triggered.connect(lambda _checked=False, tid=tpl.id: self.selected.emit(tid))
         self._menu = menu
         return menu

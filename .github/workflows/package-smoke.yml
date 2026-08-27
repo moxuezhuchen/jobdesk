@@ -6,10 +6,79 @@ on:
       - ".github/workflows/package-smoke.yml"
       - "packaging/**"
       - "pyproject.toml"
+      - "scripts/smoke_gui_offscreen.py"
+      - "scripts/verify_jobdesk_distributions.py"
       - "src/jobdesk_app/gui/**"
+      - "src/jobdesk_app/resources/workflow_examples/**"
   workflow_dispatch:
 
 jobs:
+  built-distributions:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel and source distribution
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --outdir dist
+          $wheel = Get-ChildItem -LiteralPath dist -Filter "jobdesk-*.whl" -File
+          $sdist = Get-ChildItem -LiteralPath dist -Filter "jobdesk-*.tar.gz" -File
+          if ($wheel.Count -ne 1 -or $sdist.Count -ne 1) {
+            throw "Expected exactly one wheel and one sdist"
+          }
+          python scripts/verify_jobdesk_distributions.py --wheel $wheel.FullName --sdist $sdist.FullName
+
+      - name: Install and smoke-test wheel outside checkout
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem -LiteralPath dist -Filter "jobdesk-*.whl" -File
+          $venv = Join-Path $env:RUNNER_TEMP "jobdesk-wheel-smoke"
+          python -m venv $venv
+          & "$venv\Scripts\python.exe" -m pip install $wheel.FullName
+          $smoke = Join-Path $env:RUNNER_TEMP "jobdesk-wheel-smoke_gui_offscreen.py"
+          Copy-Item -LiteralPath scripts\smoke_gui_offscreen.py -Destination $smoke
+          Push-Location $env:RUNNER_TEMP
+          try {
+            $env:PYTHONPATH = ""
+            $env:JOBDESK_SMOKE_EXPECT_SITE_PACKAGES = "1"
+            $env:JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT = Join-Path $env:GITHUB_WORKSPACE "src"
+            $env:JOBDESK_SMOKE_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "jobdesk-wheel-smoke-output"
+            & "$venv\Scripts\python.exe" $smoke
+            if ($LASTEXITCODE -ne 0) { throw "Installed wheel GUI smoke failed" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Install and smoke-test source distribution outside checkout
+        shell: pwsh
+        run: |
+          $sdist = Get-ChildItem -LiteralPath dist -Filter "jobdesk-*.tar.gz" -File
+          $venv = Join-Path $env:RUNNER_TEMP "jobdesk-sdist-smoke"
+          python -m venv $venv
+          & "$venv\Scripts\python.exe" -m pip install $sdist.FullName
+          $smoke = Join-Path $env:RUNNER_TEMP "jobdesk-sdist-smoke_gui_offscreen.py"
+          Copy-Item -LiteralPath scripts\smoke_gui_offscreen.py -Destination $smoke
+          Push-Location $env:RUNNER_TEMP
+          try {
+            $env:PYTHONPATH = ""
+            $env:JOBDESK_SMOKE_EXPECT_SITE_PACKAGES = "1"
+            $env:JOBDESK_SMOKE_FORBIDDEN_SOURCE_ROOT = Join-Path $env:GITHUB_WORKSPACE "src"
+            $env:JOBDESK_SMOKE_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "jobdesk-sdist-smoke-output"
+            & "$venv\Scripts\python.exe" $smoke
+            if ($LASTEXITCODE -ne 0) { throw "Installed sdist GUI smoke failed" }
+          } finally {
+            Pop-Location
+          }
+
   pyinstaller:
     runs-on: windows-latest
     env:
