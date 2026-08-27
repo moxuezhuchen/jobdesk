@@ -342,7 +342,9 @@ try {
             throw "Expected chem wheel manifest is missing: requirements/locks/jobdesk-chem-wheel-manifest.json"
         }
         $expectedManifest = [System.IO.File]::ReadAllText($ManifestPath)
-        if ($expectedManifest -ne $manifestText) {
+        $normalisedExpectedManifest = $expectedManifest -replace "`r`n", "`n"
+        $normalisedManifestText = $manifestText -replace "`r`n", "`n"
+        if ($normalisedExpectedManifest -ne $normalisedManifestText) {
             throw "The chem wheel manifest is stale; run scripts/compile_chem_locks.ps1 to regenerate it."
         }
     } else {

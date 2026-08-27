@@ -119,6 +119,9 @@ def test_windows_matrix_rechecks_chemistry_locks_against_released_wheel():
     assert "scripts\\compile_chem_locks.ps1 -Check" in content
     assert "Get-FileHash -Algorithm SHA256 $wheel.FullName" in content
     assert REFERENCE_WHEEL_SHA256 in content
+    compile_script = _read("scripts/compile_chem_locks.ps1")
+    assert "$normalisedExpectedManifest = $expectedManifest -replace" in compile_script
+    assert "$normalisedManifestText = $manifestText -replace" in compile_script
 
 
 def test_windows_wheel_hash_gate_rejects_tampered_bytes(tmp_path: Path):
