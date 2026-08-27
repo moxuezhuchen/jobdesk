@@ -30,7 +30,7 @@ def _workflow_document() -> dict[object, object]:
 
 def test_next_patch_candidate_is_bound_to_the_release_workflow() -> None:
     version = _project_version()
-    assert version == "0.7.4"
+    assert version == "0.7.5"
 
     text = _workflow_text()
     document = _workflow_document()
@@ -180,17 +180,17 @@ def test_sbom_policy_requires_reproducible_top_level_jobdesk(tmp_path: Path) -> 
             {
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
-                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.4"}},
+                "metadata": {"component": {"type": "application", "name": "jobdesk", "version": "0.7.5"}},
                 "components": [{"type": "library", "name": "packaging", "version": "24.0"}],
             }
         ),
         encoding="utf-8",
     )
-    validate_sbom(sbom, package="jobdesk", version="0.7.4")
+    validate_sbom(sbom, package="jobdesk", version="0.7.5")
 
     sbom.write_text(
-        sbom.read_text(encoding="utf-8").replace('"version": "0.7.4"', '"version": "0.7.3"'),
+        sbom.read_text(encoding="utf-8").replace('"version": "0.7.5"', '"version": "0.7.4"'),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="top-level"):
-        validate_sbom(sbom, package="jobdesk", version="0.7.4")
+        validate_sbom(sbom, package="jobdesk", version="0.7.5")

@@ -325,7 +325,7 @@ def test_contract_parser_rejects_exact_producer_and_schema_mutations(mutation: s
         )
 
 
-def test_remote_validate_streams_exact_stdin_without_a_remote_file() -> None:
+def test_remote_validate_transcodes_yaml_to_producer_canonical_json_without_a_remote_file() -> None:
     capabilities = _capabilities()
     payload = _contract_payload(capabilities)
     contract_stdout = json.dumps(payload)
@@ -347,10 +347,54 @@ def test_remote_validate_streams_exact_stdin_without_a_remote_file() -> None:
     )
     raw = b"global: {}\nsteps: []\n"
     assert client.validate(resolved, raw, env_init_scripts=(), ssh=ssh).valid is True
-    assert ssh.calls[1][3] == raw
+    assert ssh.calls[1][3] == b'{"global":{},"steps":[]}'
     assert "mktemp" not in ssh.calls[1][0]
     assert "config validate --json --stdin" in ssh.calls[1][0]
     assert "[ -f '/opt/site env.sh' ]" in ssh.calls[0][0]
+
+
+def test_remote_validate_preserves_yaml_semantics_and_unicode_in_canonical_json() -> None:
+    contract = _contract()
+    validation = {
+        "schema": "confflow.configuration-validation.v1",
+        "workflow_schema_sha256": contract.schema_sha256,
+        "issues": [],
+        "valid": True,
+    }
+    ssh = _SSH([_response(0, json.dumps(validation))])
+
+    result = SSHConfigurationContractClient().validate(
+        contract,
+        "steps: []\nglobal:\n  label: 甲烷\n  enabled: true\n".encode(),
+        env_init_scripts=(),
+        ssh=ssh,
+    )
+
+    assert result.valid is True
+    assert ssh.calls[0][3] == '{"global":{"enabled":true,"label":"甲烷"},"steps":[]}'.encode()
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        b"global: [unterminated\n",
+        "global:\n  when: 2026-08-28\nsteps: []\n".encode(),
+        b"global:\n  threshold: .nan\nsteps: []\n",
+        b"\xff",
+    ),
+)
+def test_remote_validate_rejects_yaml_that_cannot_cross_the_json_abi(raw: bytes) -> None:
+    ssh = _SSH([])
+
+    with pytest.raises(ConfigurationContractError, match="cannot be represented by the producer JSON ABI"):
+        SSHConfigurationContractClient().validate(
+            _contract(),
+            raw,
+            env_init_scripts=(),
+            ssh=ssh,
+        )
+
+    assert ssh.calls == []
 
 
 def test_commands_quote_selected_executable_and_env_script() -> None:
@@ -432,11 +476,12 @@ def test_only_exact_approved_stable_identity_can_use_checked_in_fallback() -> No
         + "\n",
     )
     remote = _SSH([response])
-    result = client.validate(fallback, b"{}", env_init_scripts=(), ssh=remote)
+    stable_yaml = b"global: {}\nsteps: []\n"
+    result = client.validate(fallback, stable_yaml, env_init_scripts=(), ssh=remote)
     assert result.valid is True and result.source == "stable-fallback"
     command, _timeout, _check, stdin_data = remote.calls[0]
     assert "config validate" not in command and " -c " in command
-    assert stdin_data == b"{}"
+    assert stdin_data == stable_yaml
 
     candidate = _capabilities(
         version="2.1.6",
