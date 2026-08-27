@@ -4,16 +4,17 @@
 
 This document describes the current source-level boundaries. It is not a
 release, merge, endpoint-switch, workload, or promotion record. The isolated
-source candidate is JobDesk `0.7.3`; the released pair is JobDesk `v0.7.2` and
-ConfFlow `v2.1.3`. The four identities below must not be conflated (revalidate
+source candidate is JobDesk `0.7.3`; the historical released pair is JobDesk
+`v0.7.2` and ConfFlow `v2.1.3`, while the current published producer is ConfFlow
+`v2.1.6`. The four identities below must not be conflated (revalidate
 the live endpoint before acceptance or promotion):
 
 | Identity | Recorded value | Boundary |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Dirty/shared development sources; not installed runtime |
 | Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, candidate `0.7.3`, base `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Review candidates; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8`, wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`; ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5`, wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe` | Published artifacts; not the isolated `0.7.3` candidate and not a production switch |
-| Configured production executable | `wsl` endpoint `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.3` executable has not been promoted |
+| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8`, wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`, historically paired with ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5`, wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`; current producer ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published artifacts; the isolated `0.7.3` candidate is not published and not a production switch |
+| Configured production executable | `wsl` endpoint `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
 The phase notes, compatibility records, and remediation evidence under
 `docs/` are historical evidence. Their counters, hashes, commands, and
@@ -23,9 +24,10 @@ older Phase 8/9 wizard and g16 notes, the Phase F owner-exception record, and
 the compatibility-period records.
 
 The published package and the isolated source candidate are separate from the
-configured production executable. Release `v0.7.2` / `v2.1.3` is not a
-production endpoint switch; production remains on ConfFlow `2.0.0` until the
-separately authorized promotion gate passes.
+configured production executable. Historical release `v0.7.2` / `v2.1.3` and
+current producer `v2.1.6` are not a production endpoint switch; production
+remains on ConfFlow `2.0.0` until the separately authorized promotion gate
+passes.
 
 ## ConfFlow contract boundaries
 
@@ -35,7 +37,8 @@ The portable `WorkflowDocument`/codec/mapping path is dependency-free; the
 optional `WorkflowSpec` facade may use producer Pydantic models for local
 authoring compatibility, but those models are not a shared runtime contract.
 JobDesk accepts the capability window `>=2.0,<3.0`; CI and the released pair
-validate against ConfFlow `2.1.3`, while production admission remains
+validate against ConfFlow `2.1.6` (the unchanged wire schemas reuse the
+`v2.1.3` snapshot), while production admission remains
 separately fail-closed to the configured exact clean `v2.0.0` producer identity
 until promotion is authorized.
 The Phase F owner exception removed the legacy backend from the production

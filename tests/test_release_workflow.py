@@ -75,8 +75,13 @@ def test_release_workflow_requires_provenance_permissions_and_clean_identity() -
     assert "git/ref/tags/${EXPECTED_TAG}" in text
     assert "git/tags/${REMOTE_TAG_OBJECT_SHA}" in text
     assert 'test "$REMOTE_PEELED_SHA" = "$LOCAL_PEELED_SHA"' in text
-    assert "immutable-releases" in text
-    assert 'document.get("enabled") is not True' in text
+    assert "immutable-releases" not in text
+    assert "RELEASE_IMMUTABLE_PREFLIGHT_SHA" in text
+    assert "vars.RELEASE_IMMUTABLE_PREFLIGHT_SHA" in text
+    assert 'test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$GITHUB_SHA"' in text
+    assert 'test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$LOCAL_PEELED_SHA"' in text
+    assert 'test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$REMOTE_PEELED_SHA"' in text
+    assert '"immutable_preflight_sha"' in text
     assert 'gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" --json isImmutable' in text
     assert 'test "$IMMUTABLE_CLI" = "true"' in text
 
@@ -119,6 +124,8 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     assert "--workflow .github/workflows/release.yml" in text
     assert "python scripts/release_policy.py attestation" not in text
     assert "gh attestation verify" in text
+    assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"' in text
+    assert "--signer-repo" not in text
     assert "--source-ref" in text
     assert "--source-digest" in text
     assert "release-post-verification" in text

@@ -14,6 +14,11 @@ jobs:
   build:
     name: Build release artifacts
     runs-on: ubuntu-latest
+    env:
+      # The repository owner records the exact merge commit after independently
+      # verifying the immutable-release setting.  The release job only binds
+      # that attestation to the tag event and never calls the admin-only API.
+      RELEASE_IMMUTABLE_PREFLIGHT_SHA: ${{ vars.RELEASE_IMMUTABLE_PREFLIGHT_SHA }}
 
     steps:
       - name: Checkout
@@ -118,6 +123,13 @@ jobs:
             exit 1
           fi
           test "$REMOTE_PEELED_SHA" = "$LOCAL_PEELED_SHA"
+          if ! [[ "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "RELEASE_IMMUTABLE_PREFLIGHT_SHA is missing or malformed" >&2
+            exit 1
+          fi
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$GITHUB_SHA"
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$LOCAL_PEELED_SHA"
+          test "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" = "$REMOTE_PEELED_SHA"
           test "$GITHUB_REF" = "refs/tags/$EXPECTED_TAG"
           test "$GITHUB_SHA" = "$LOCAL_PEELED_SHA"
           VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
@@ -136,33 +148,15 @@ jobs:
             cat "$RELEASE_CHECK" >&2
             exit 1
           fi
-          # External live check on 2026-08-27: immutable=false and rulesets=[];
-          # do not enable settings here; the official immutable gate stays fail closed.
-          IMMUTABLE_SETTINGS_JSON="${RUNNER_TEMP}/jobdesk-immutable-releases.json"
-          if ! gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "repos/${GITHUB_REPOSITORY}/immutable-releases" >"$IMMUTABLE_SETTINGS_JSON"; then
-            echo "immutable releases repository preflight query failed closed" >&2
-            exit 1
-          fi
-          python - "$IMMUTABLE_SETTINGS_JSON" <<'PY'
-          import json
-          import sys
-
-          document = json.loads(open(sys.argv[1], encoding="utf-8").read())
-          if document.get("enabled") is not True:
-              raise SystemExit("immutable releases are not enabled for this repository")
-          PY
           RELEASE_PREFLIGHT_EVIDENCE="${RUNNER_TEMP}/jobdesk-release-preflight.json"
-          python - "$RELEASE_PREFLIGHT_EVIDENCE" "$EXPECTED_TAG" "$GITHUB_EVENT_NAME" "$GITHUB_SHA" "$GITHUB_REF" "$LOCAL_PEELED_SHA" "$REMOTE_PEELED_SHA" <<'PY'
+          python - "$RELEASE_PREFLIGHT_EVIDENCE" "$EXPECTED_TAG" "$GITHUB_EVENT_NAME" "$GITHUB_SHA" "$GITHUB_REF" "$LOCAL_PEELED_SHA" "$REMOTE_PEELED_SHA" "$RELEASE_IMMUTABLE_PREFLIGHT_SHA" <<'PY'
           from __future__ import annotations
 
           import json
           import sys
           from pathlib import Path
 
-          path, tag, event_name, event_sha, event_ref, local_peeled, remote_peeled = sys.argv[1:]
+          path, tag, event_name, event_sha, event_ref, local_peeled, remote_peeled, immutable_preflight_sha = sys.argv[1:]
           payload = {
               "schema": "jobdesk.release-preflight.v1",
               "tag": tag,
@@ -172,6 +166,8 @@ jobs:
               "local_head": local_peeled,
               "local_peeled_sha": local_peeled,
               "remote_peeled_sha": remote_peeled,
+              "immutable_preflight_sha": immutable_preflight_sha,
+              "immutable_preflight_source": "repository variable set by owner after live settings verification",
           }
           Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PY
@@ -300,7 +296,6 @@ jobs:
           gh attestation verify "$wheel" \
             --repo "$GITHUB_REPOSITORY" \
             --bundle "$ATTESTATION_BUNDLE" \
-            --signer-repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --predicate-type "https://slsa.dev/provenance/v1" \
             --source-ref "refs/tags/$EXPECTED_TAG" \

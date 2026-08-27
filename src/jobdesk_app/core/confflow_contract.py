@@ -18,18 +18,19 @@ Structured version source of truth
 ``version_spec()`` derives the human-readable spec from. Every other
 surface (pyproject pin, CI wheel pin, README, validator error messages)
 must be a *mirror* of these tuples; never a free-floating literal.
-The historical v1.5.3 and v1.4.6 release records remain archived separately;
-the Phase F owner exception removed the legacy backend from the production
-path. Current control submission requires the exact v2.1.3 reference below.
+The historical v1.5.3, v1.4.6, and v2.1.3 release records remain archived
+separately; the Phase F owner exception removed the legacy backend from the
+production path. Current control submission requires the exact v2.1.6
+reference below.
 
 Reference build artefact
 ------------------------
-The ConfFlow v2.1.3 wheel released from the clean tagged producer commit
+The ConfFlow v2.1.6 wheel released from the clean tagged producer commit
 has the following SHA-256::
 
-    confflow-2.1.3-py3-none-any.whl
-    sha256: 10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe
-    commit: a7c570431976331bb067b204b6300ba17b1f3da5
+    confflow-2.1.6-py3-none-any.whl
+    sha256: d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548
+    commit: 45bfac11f721b2152eeff5ee26e50463fcc6f657
 
 The provenance is enforced by ``tests/test_confflow_wheel_build.py``
 in CI, which asserts both the COMMIT and the DIRTY flag captured at
@@ -136,10 +137,10 @@ EXPECTED_ARTIFACTS: ConfFlowArtifactContract = ConfFlowArtifactContract(
 # docs, and the package's expected reference build.
 MIN_VERSION: tuple[int, int, int] = (2, 0, 0)
 MAX_EXCLUSIVE: tuple[int, int, int] = (3, 0, 0)
-REFERENCE_VERSION: str = "2.1.3"
-REFERENCE_BUILD_COMMIT: str = "a7c570431976331bb067b204b6300ba17b1f3da5"
-REFERENCE_WHEEL_FILENAME: str = "confflow-2.1.3-py3-none-any.whl"
-REFERENCE_WHEEL_SHA256: str = "10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe"
+REFERENCE_VERSION: str = "2.1.6"
+REFERENCE_BUILD_COMMIT: str = "45bfac11f721b2152eeff5ee26e50463fcc6f657"
+REFERENCE_WHEEL_FILENAME: str = "confflow-2.1.6-py3-none-any.whl"
+REFERENCE_WHEEL_SHA256: str = "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548"
 
 # Preserve the last legacy release metadata for historical/rollback evidence;
 # it is not a current production compatibility path after Phase F.

@@ -4,8 +4,10 @@ JobDesk is a Windows-first desktop and CLI tool for managing single scientific-c
 
 JobDesk is currently a preview project with an isolated `0.7.3` source
 candidate. That candidate has not been tagged or published. The released
-JobDesk package is `v0.7.2`, paired with the released ConfFlow package
-`v2.1.3`; publication does not by itself promote either package to production.
+JobDesk package is `v0.7.2`, historically paired with ConfFlow `v2.1.3`;
+the current published producer is ConfFlow `v2.1.6`, which this candidate
+binds exactly. Publication does not by itself promote either package to
+production.
 
 ## Documentation and identity status
 
@@ -25,13 +27,14 @@ acceptance or promotion action):
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Shared/dirty development sources, not runtime identity |
 | Isolated implementation candidates | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819` (`codex/full-remediation-20260819-local`, candidate `0.7.3`, base `154ee77b065cd71787418be312700c996bf01c57`); paired ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824` (`codex/full-remediation-20260824`, base `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Candidate code under review; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8` (wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`); ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5` (wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`) | Published artifacts; not the isolated `0.7.3` candidate and not a production switch |
-| Configured production executable | `wsl` `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.3` executable has not been promoted |
+| Released package evidence | JobDesk `v0.7.2` at merge `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8` (wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`), historically paired with ConfFlow `v2.1.3` at producer merge `a7c570431976331bb067b204b6300ba17b1f3da5` (wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`); current producer ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657` (wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`) | Published artifacts; the `0.7.3` candidate is not published and not a production switch |
+| Configured production executable | `wsl` `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
 The `0.7.3` value above identifies an isolated source candidate only. The
-published `v0.7.2` / `v2.1.3` pair and the configured production executable
-remain separate identities; production is still on ConfFlow `2.0.0` until a
-separately authorized endpoint switch and post-switch smoke pass.
+published `v0.7.2` / historical `v2.1.3` pair, current producer `v2.1.6`,
+and the configured production executable remain separate identities;
+production is still on ConfFlow `2.0.0` until a separately authorized
+endpoint switch and post-switch smoke pass.
 
 ## Scope
 
@@ -165,7 +168,8 @@ documents and perform advisory structural lint; the optional `chem` extra
 enables producer-model authoring conveniences and the local dry-run path. The
 remote compute node still needs the configured producer executable. The current
 JobDesk contract is `confflow>=2.0,<3.0`; CI and the published pair validate
-against ConfFlow `2.1.3`. Versions do not need to match between Windows and
+against ConfFlow `2.1.6`; the historical `2.1.3` pair remains archived.
+Versions do not need to match between Windows and
 Linux through shared Pydantic imports: JobDesk resolves the configured
 executable's producer-owned workflow configuration contract and sends the exact
 YAML bytes to its canonical validator. The configured production executable
@@ -207,15 +211,15 @@ producer window; pyproject, CI, and this README are mirrors.
 # Windows (JobDesk side)
 # If the package index does not provide the chemistry build, install the
 # approved wheel first (see docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md):
-# python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
+# python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux compute node: install the same approved ConfFlow 2.1.3 wheel.
+# Linux compute node: install the same approved ConfFlow 2.1.6 wheel.
 # The offline wheel workflow is documented in
 # docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md.
-python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
+python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
 ```
 
 ### Submit page (Phase 14)

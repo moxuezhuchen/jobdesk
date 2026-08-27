@@ -3,8 +3,9 @@
 JobDesk 是面向 Windows 的桌面与命令行工具，通过 SSH/SFTP 管理单次科学计算任务（Gaussian / ORCA）。它负责准备输入、提交任务到远程机器或本地 WSL 环境、监控状态、下载输出、解析并预览结果。
 
 JobDesk 当前是公开预览项目。隔离源码候选版本为 `0.7.3`，尚未打 tag
-或发布；已发布的 JobDesk 包为 `v0.7.2`，配套的 ConfFlow 发布包为
-`v2.1.3`。发布不等于生产提升，当前生产执行端仍为 ConfFlow `2.0.0`。
+或发布；已发布的 JobDesk 包为 `v0.7.2`，历史配套的 ConfFlow 包为
+`v2.1.3`，当前正式 producer 为 `v2.1.6`，本候选严格绑定该版本。
+发布不等于生产提升，当前生产执行端仍为 ConfFlow `2.0.0`。
 
 ## 文档与身份边界
 
@@ -18,11 +19,12 @@ JobDesk 当前是公开预览项目。隔离源码候选版本为 `0.7.3`，尚�
 |---|---|---|
 | 共享源码树 | JobDesk `C:\dft\tool\jobdesk`（`codex/gui-ux-remediation`，`154ee77b065cd71787418be312700c996bf01c57`）；ConfFlow `/opt/ConfFlow`（`main`，`c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`） | 共享/可能有未提交修改的开发源码，不是运行时身份 |
 | 隔离实现候选 | JobDesk `.worktrees/jobdesk-full-remediation-154ee77-20260819`（`codex/full-remediation-20260819-local`，候选 `0.7.3`）；配套 ConfFlow `/opt/.worktrees/confflow-full-remediation-c6a4263-20260824`（`codex/full-remediation-20260824`） | 仅供审查和验收，不表示已发布或已切换端点 |
-| 已发布包 | JobDesk `v0.7.2`（合并提交 `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8`，wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`）；ConfFlow `v2.1.3`（producer merge `a7c570431976331bb067b204b6300ba17b1f3da5`，wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`） | 已发布制品，不等于隔离候选或生产运行时 |
-| 已配置生产可执行文件 | `wsl` `/usr/local/bin/confflow` → 当前观测为 `/opt/ConfFlow/.venv/bin/confflow`，报告版本 `2.0.0` | 受保护的生产身份；`2.1.3` 尚未提升到生产 |
+| 已发布包 | JobDesk `v0.7.2`（合并提交 `f63c1ca6d24bb76d25f1df021ddfe745dc3a33a8`，wheel SHA-256 `a9ef59f788a22c476d7a0558a53df286c7fc93c12ab2afef87c5c8995feb7139`），历史配套 ConfFlow `v2.1.3`（producer merge `a7c570431976331bb067b204b6300ba17b1f3da5`，wheel SHA-256 `10dab012cc8dafea9de2279bddfea3e978807cb0d526111dbe5eaee26cf542fe`）；当前 producer ConfFlow `v2.1.6`（merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`，wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`） | 已发布制品；`0.7.3` 仍未发布，也不是生产切换 |
+| 已配置生产可执行文件 | `wsl` `/usr/local/bin/confflow` → 当前观测为 `/opt/ConfFlow/.venv/bin/confflow`，报告版本 `2.0.0` | 受保护的生产身份；`2.1.6` 尚未提升到生产 |
 
-`0.7.3` 只表示隔离源码候选；`v0.7.2` / `v2.1.3` 表示已发布制品。
-只有单独授权的端点切换、切换后非计算 smoke 和回滚核验完成后，生产身份才会改变。
+`0.7.3` 只表示隔离源码候选；`v0.7.2` / 历史 `v2.1.3` 以及当前
+`v2.1.6` producer 表示已发布制品。只有单独授权的端点切换、切换后非计算
+smoke 和回滚核验完成后，生产身份才会改变。
 
 ## 适用范围
 
@@ -132,20 +134,20 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 和已发布配对制品按 ConfFlow `2.1.3` 验证。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件仍报告 ConfFlow `2.0.0`，尚未提升到 `2.1.3`。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，CI 和本候选按正式 ConfFlow `2.1.6` 验证，`2.1.3` 仅保留为历史 release evidence。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件仍报告 ConfFlow `2.0.0`，尚未提升到 `2.1.6`。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
 
 ```powershell
 # Windows（JobDesk 端）
-# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.1.3 wheel；
+# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.1.6 wheel；
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md：
-# python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
+# python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
 python -m pip install -e ".[chem]"
 ```
 
 ```bash
-# Linux 计算节点也安装相同的已批准 ConfFlow 2.1.3 wheel。
+# Linux 计算节点也安装相同的已批准 ConfFlow 2.1.6 wheel。
 # 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md。
-python -m pip install /path/to/confflow-2.1.3-py3-none-any.whl
+python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
 ```
 
 ### 提交页（Phase 14）

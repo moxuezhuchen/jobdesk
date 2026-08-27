@@ -46,14 +46,38 @@ The candidate-only changes are:
 The workflow is intentionally not executed here. No tag, GitHub release,
 production endpoint, or external workload was changed.
 
+## Current producer binding
+
+The producer was subsequently published independently as ConfFlow `v2.1.6`:
+
+```text
+https://github.com/moxuezhuchen/ConfFlow/releases/tag/v2.1.6
+annotated-tag peeled commit: 45bfac11f721b2152eeff5ee26e50463fcc6f657
+confflow-2.1.6-py3-none-any.whl
+sha256:d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548
+METADATA sha256:ccbdcf2dd308451f3532f21b35ff703aef8ca453edfd40f721550a00eb689afb
+Requires-Python: >=3.10
+```
+
+The wheel's five control-protocol schemas are byte-identical to the retained
+JobDesk `v2.1.3` snapshot. The candidate's consumer contract, chemistry input,
+three Windows chemistry locks, and wheel manifest bind to this exact `v2.1.6`
+filename, digest, metadata digest, and producer commit. The historical
+`v2.1.3` release evidence remains unchanged.
+
 ## External publication blocker
 
-The final live-repository checks reported immutable releases disabled
+The earlier live-repository checks reported immutable releases disabled
 (`GET /immutable-releases` returned `enabled:false`) and no active tag
-rulesets (`GET /rulesets` returned `[]`). These settings were not changed.
-The candidate workflow therefore remains blocked until an authorized owner
-enables and protects the release surface; this evidence does not authorize
-writing settings or secrets.
+rulesets (`GET /rulesets` returned `[]`); those observations remain historical
+evidence and were not changed by this candidate. The release workflow no
+longer calls that admin-only endpoint. Instead, an authorized repository owner
+must independently verify the release protection and set the repository
+variable `RELEASE_IMMUTABLE_PREFLIGHT_SHA` to the exact merge commit that will
+be tagged. The workflow binds that variable to `GITHUB_SHA` and both local and
+remote peeled tag SHAs, and fails closed unless the post-release API reports
+`isImmutable=true`. This evidence does not authorize writing settings,
+variables, secrets, tags, or releases.
 
 ## Local verification
 
@@ -87,6 +111,23 @@ The test-first sequence was:
    `.venv-release-verify` and probed from `.pytest_tmp_release_install`; it
    reported package version `0.7.3` and an import path under
    `site-packages`, outside the source tree.
+8. The formal ConfFlow `v2.1.6` wheel was independently downloaded, hashed,
+   and inspected: the wheel SHA-256, `METADATA` SHA-256, `Requires-Python`,
+   and `Requires-Dist` values match the checked-in manifest; all five wheel
+   control schemas are byte-identical to the retained `v2.1.3` snapshot.
+9. `powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1
+   -Check` passed after regenerating the three Windows chemistry locks and
+   manifest from that exact wheel.
+10. The release/contract regression set passed on Python 3.11, 3.12, and
+    3.13 with the formal wheel installed: `87 passed, 1 skipped` on each
+    matrix entry. The full non-integration Python 3.11 gate passed with
+    `2237 passed, 36 skipped, 12 deselected`.
+11. Ruff and Black passed for all changed Python files; MyPy passed for 189
+    source files; YAML parsing and `git diff --check` passed. The local
+    matrix environments initially contained the protected production-compatible
+    ConfFlow `2.0.0`; that expected environment mismatch was not counted as a
+    code failure, and the gate was rerun after installing the formal `2.1.6`
+    wheel as CI does.
 
 ## Remaining authorization gates
 
