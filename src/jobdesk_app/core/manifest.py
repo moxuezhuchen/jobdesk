@@ -44,6 +44,7 @@ _MANIFEST_COLUMNS: list[str] = [
     "max_parallel",
     "task_files",
     "remote_task_files",
+    "remote_source_path",
     "remote_result_files",
     "workflow_kind",
     "remote_config_path",
@@ -113,6 +114,10 @@ class TaskRecord(BaseModel):
     remote_job_dir: str = Field(...)
     task_files: list[str] = Field(default_factory=list)
     remote_task_files: list[str] = Field(default_factory=list)
+    # Exact immutable source locator selected at admission time.  Workflow
+    # inputs may live outside ``remote_work_dir``; legacy records omit this
+    # field and deliberately retain the historical workspace/basename lookup.
+    remote_source_path: str = ""
     remote_result_files: list[str] = Field(default_factory=list)
     workflow_kind: str = ""
     remote_config_path: str = ""
@@ -207,6 +212,7 @@ def _task_to_row(task: TaskRecord) -> list[str]:
         str(task.max_parallel) if task.max_parallel is not None else "",
         json.dumps(task.task_files, ensure_ascii=False) if task.task_files else "",
         json.dumps(task.remote_task_files, ensure_ascii=False) if task.remote_task_files else "",
+        task.remote_source_path,
         json.dumps(task.remote_result_files, ensure_ascii=False) if task.remote_result_files else "",
         task.workflow_kind,
         task.remote_config_path,
@@ -325,6 +331,7 @@ def _row_to_task(
         remote_task_files=_parse_json_list(
             values.get("remote_task_files", ""), "remote_task_files", manifest_path, row_number
         ),
+        remote_source_path=values.get("remote_source_path", ""),
         remote_result_files=_parse_json_list(
             values.get("remote_result_files", ""), "remote_result_files", manifest_path, row_number
         ),

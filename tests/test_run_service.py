@@ -110,6 +110,7 @@ def test_create_run_persists_exact_confflow_paths_in_sqlite(tmp_path, runs_dir):
     task = service.repository.load_tasks("sqlite-workflow-paths")[0]
 
     assert task.workflow_kind == "confflow"
+    assert task.remote_source_path == "/remote/source/water.xyz"
     assert task.remote_config_path == "/remote/submission/workflow.yaml"
     assert task.remote_workflow_dir == "/remote/submission/water_confflow_work"
     assert task.remote_state_path.endswith("/water_confflow_work/.workflow_state.json")

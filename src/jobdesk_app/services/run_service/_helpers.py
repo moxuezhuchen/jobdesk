@@ -45,6 +45,7 @@ def _tasks_from_plan(plan: RunPlan) -> list[TaskRecord]:
             remote_job_dir=task.remote_job_dir,
             task_files=[],
             remote_task_files=[task.source_name, *[Path(path).name for path in task.supporting_paths]],
+            remote_source_path=task.source_path,
             remote_result_files=list(task.remote_result_files),
             workflow_kind=task.workflow_kind.value,
             remote_config_path=task.remote_config_path,

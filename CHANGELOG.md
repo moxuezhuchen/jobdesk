@@ -9,9 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.7] - Candidate
+## [0.7.8] - Candidate
 
-This fix-forward candidate preserves the immutable failed `v0.7.6` tag and
+This fix-forward preserves the immutable JobDesk `v0.7.7` release and the
+formally released ConfFlow `v2.1.6` producer. A single real-launcher acceptance
+attempt exposed that JobDesk persisted only an input basename plus submission
+workspace, even when the admitted `.xyz` was an existing remote file outside
+that workspace. Control handoff consequently digested the wrong path before
+the adapter could stage the source.
+
+Each task now durably records its exact admitted remote source locator in the
+existing SQLite JSON payload and TSV projection. Control handoff digests that
+exact regular source before staging it into the private producer attempt;
+collision-free staged names remain separate from source identity. Legacy
+database rows and manifests without the locator retain their prior
+workspace/basename behavior, so no SQLite schema migration is required.
+Unsafe, missing, or digest-mismatched sources fail before producer prepare,
+launcher creation, or dispatch. The failed acceptance performed no G16
+calculation and made no production endpoint change.
+
+## [0.7.7] - 2026-08-28
+
+This fix-forward release preserves the immutable failed `v0.7.6` tag and
 adds the complete Linux Qt runtime used by candidate compatibility CI to the
 tag-only release job before its final wheel and source-distribution GUI
 smokes. The `v0.7.6` release workflow stopped before release creation when

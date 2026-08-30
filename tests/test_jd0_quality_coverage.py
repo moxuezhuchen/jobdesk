@@ -412,7 +412,26 @@ def test_confflow_client_helper_validation_and_artifact_paths(tmp_path: Path) ->
         _validate_safe_component("../bad", "component")
     _validate_safe_component("valid.name-1", "component")
     assert _worker_work_dir_name(_task(work_dir="/remote/work/terminal")) == "terminal"
+    assert _worker_work_dir_name(_task(work_dir="/remote/work/mol one_confflow_work")) == ("mol one_confflow_work")
     assert _remote_input_path(_task()) == "/remote/input/input.xyz"
+    assert (
+        _remote_input_path(
+            SimpleNamespace(
+                remote_source_path="/shared/source files/input one.xyz",
+                remote_task_files=["input one.xyz"],
+                remote_work_dir="/remote/workspace",
+            )
+        )
+        == "/shared/source files/input one.xyz"
+    )
+    with pytest.raises(ConfFlowClientError, match="exact input source path is unsafe"):
+        _remote_input_path(
+            SimpleNamespace(
+                remote_source_path="/shared/../escape.xyz",
+                remote_task_files=["escape.xyz"],
+                remote_work_dir="/remote/workspace",
+            )
+        )
     with pytest.raises(ConfFlowClientError):
         _remote_input_path(SimpleNamespace(remote_task_files=["../bad.xyz"], remote_work_dir="/remote/input"))
     assert _workflow_config_path([_task()]) == "/remote/workflow.yaml"

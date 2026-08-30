@@ -2,10 +2,9 @@
 
 JobDesk is a Windows-first desktop and CLI tool for managing single scientific-computing jobs over SSH/SFTP. It helps prepare Gaussian and ORCA inputs, submit jobs to a remote machine or local WSL environment, monitor status, download outputs, and preview parsed results.
 
-JobDesk is currently a preview project with an isolated `0.7.7` source
-candidate. The released JobDesk package is `v0.7.5`; the failed immutable
-`v0.7.6` tag did not create a release. The current published
-producer is ConfFlow `v2.1.6`, which this consumer candidate binds exactly.
+JobDesk is currently a preview project with an isolated `0.7.8` source
+candidate. The released JobDesk package is immutable `v0.7.7`. The current
+published producer is ConfFlow `v2.1.6`, which this consumer candidate binds exactly.
 Publication does not by itself promote either package to production.
 
 ## Documentation and identity status
@@ -25,12 +24,12 @@ acceptance or promotion action):
 | Identity | Recorded value | Meaning |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Shared/dirty development sources, not runtime identity |
-| Isolated implementation candidate | JobDesk `0.7.7` release-runtime fix based on failed immutable tag `v0.7.6`; no producer source change | Candidate code under review; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.7.5` at merge `df8cd1c42cb423456ae4677d6964e1ec832bbfcc` (wheel SHA-256 `cf10c91843ed59a4fe41fe9d44f71cdb5ef033ca6a375f1598ffe1837164d3fa`); current producer ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657` (wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`) | Published immutable artifacts; neither publication is a production switch |
+| Isolated implementation candidate | JobDesk `0.7.8` exact remote-source control-handoff fix; no producer source change | Candidate code under review; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.7.7` (wheel SHA-256 `d62e456657192ba7aa20add21d00be7eabd2137b43280b240c384ecf8293c6ec`); current producer ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657` (wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`) | Published immutable artifacts; neither publication is a production switch |
 | Configured production executable | `wsl` `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
-The `0.7.7` value above identifies an isolated source candidate only. The
-published `v0.7.5` and current producer `v2.1.6`,
+The `0.7.8` value above identifies an isolated source candidate only. The
+published `v0.7.7` and current producer `v2.1.6`,
 and the configured production executable remain separate identities;
 production is still on ConfFlow `2.0.0` until a separately authorized
 endpoint switch and post-switch smoke pass.

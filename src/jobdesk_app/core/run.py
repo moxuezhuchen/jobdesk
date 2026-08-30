@@ -169,7 +169,10 @@ def build_run_plan(spec: RunSpec, run_id: str | None = None) -> RunPlan:
             RunTaskPlan(
                 task_id=task_id,
                 source_path=source.path,
-                source_name=source.name,
+                # ``rendered_name`` is the collision-free filename staged in
+                # the submission workspace.  ``source_path`` remains the
+                # exact remote locator from which control handoff is digested.
+                source_name=source.rendered_name,
                 remote_job_dir=remote_job_dir,
                 command=rendered_command,
                 supporting_paths=[item.path for item in spec.supporting_sources],

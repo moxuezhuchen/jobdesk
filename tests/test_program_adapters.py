@@ -119,6 +119,8 @@ def test_same_basename_inputs_get_distinct_staged_work_and_checkpoint_paths():
     assert [source.rendered_name for source in spec.sources] == ["same.xyz", "same_2.xyz"]
     plan = build_run_plan(spec, run_id="same-batch")
     assert [task.task_id for task in plan.tasks] == ["same", "same_2"]
+    assert [task.source_path for task in plan.tasks] == ["/shared/a/same.xyz", "/shared/b/same.xyz"]
+    assert [task.source_name for task in plan.tasks] == ["same.xyz", "same_2.xyz"]
     assert "{artifact_name}" not in plan.tasks[0].command
     assert 'staged="$workspace/"same.xyz' in plan.tasks[0].command
     assert 'staged="$workspace/"same_2.xyz' in plan.tasks[1].command

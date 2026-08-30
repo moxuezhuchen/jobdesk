@@ -2,8 +2,8 @@
 
 JobDesk 是面向 Windows 的桌面与命令行工具，通过 SSH/SFTP 管理单次科学计算任务（Gaussian / ORCA）。它负责准备输入、提交任务到远程机器或本地 WSL 环境、监控状态、下载输出、解析并预览结果。
 
-JobDesk 当前是公开预览项目。隔离源码候选版本为 `0.7.7`；已发布的
-JobDesk 包为 `v0.7.5`，失败且不可变的 `v0.7.6` tag 未创建 release。
+JobDesk 当前是公开预览项目。隔离源码候选版本为 `0.7.8`；已发布的
+JobDesk 包为不可变的 `v0.7.7`。
 当前正式 producer 为 `v2.1.6`，本 consumer
 候选严格绑定该版本。
 发布不等于生产提升，当前生产执行端仍为 ConfFlow `2.0.0`。
@@ -19,11 +19,11 @@ JobDesk 包为 `v0.7.5`，失败且不可变的 `v0.7.6` tag 未创建 release�
 | 身份 | 当前记录 | 边界 |
 |---|---|---|
 | 共享源码树 | JobDesk `C:\dft\tool\jobdesk`（`codex/gui-ux-remediation`，`154ee77b065cd71787418be312700c996bf01c57`）；ConfFlow `/opt/ConfFlow`（`main`，`c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`） | 共享/可能有未提交修改的开发源码，不是运行时身份 |
-| 隔离实现候选 | JobDesk `0.7.7` 发布运行库修复，基于失败且不可变的 tag `v0.7.6`，不修改 producer | 仅供审查和验收，不表示已发布或已切换端点 |
-| 已发布包 | JobDesk `v0.7.5`（merge `df8cd1c42cb423456ae4677d6964e1ec832bbfcc`，wheel SHA-256 `cf10c91843ed59a4fe41fe9d44f71cdb5ef033ca6a375f1598ffe1837164d3fa`）；ConfFlow `v2.1.6`（merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`，wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`） | 已发布不可变制品；均不表示生产切换 |
+| 隔离实现候选 | JobDesk `0.7.8` 精确远端源 control-handoff 修复，不修改 producer | 仅供审查和验收，不表示已发布或已切换端点 |
+| 已发布包 | JobDesk `v0.7.7`（wheel SHA-256 `d62e456657192ba7aa20add21d00be7eabd2137b43280b240c384ecf8293c6ec`）；ConfFlow `v2.1.6`（merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`，wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`） | 已发布不可变制品；均不表示生产切换 |
 | 已配置生产可执行文件 | `wsl` `/usr/local/bin/confflow` → 当前观测为 `/opt/ConfFlow/.venv/bin/confflow`，报告版本 `2.0.0` | 受保护的生产身份；`2.1.6` 尚未提升到生产 |
 
-`0.7.7` 只表示隔离源码候选；`v0.7.5` 与 `v2.1.6` producer 表示已发布
+`0.7.8` 只表示隔离源码候选；`v0.7.7` 与 `v2.1.6` producer 表示已发布
 制品。只有单独授权的端点切换、切换后非计算
 smoke 和回滚核验完成后，生产身份才会改变。
 

@@ -295,6 +295,51 @@ def test_control_submit_dispatches_scheduler_and_persists_provenance(tmp_path, m
     assert task.remote_job_id == "98765"
 
 
+def test_missing_exact_remote_source_fails_before_prepare_launcher_or_marker(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    spec = RunSpec(
+        server_id="server",
+        remote_dir="/remote/submission workspace",
+        command_template="confflow {name} -c {path}",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/shared/source files/methane one.xyz")],
+        supporting_sources=[RunSource("/remote/submission workspace/workflow.yaml")],
+        workflow_kind=WorkflowKind.confflow,
+    )
+    service.create_run(spec, run_id="run-1")
+    task = service.load_tasks("run-1")[0]
+    assert task.remote_source_path == "/shared/source files/methane one.xyz"
+
+    sftp = FakeSFTP()
+    transport = FakeControlTransport(sftp)
+    scheduler = FakeScheduler(service=service, sftp=sftp)
+    client = _client(service, transport, scheduler)
+    client._selected_backend = "control"
+    client._selected_state_locator = "/home/test/.local/state/confflow/control"
+    client._selected_capability = SimpleNamespace(control_worker=True)
+    monkeypatch.setattr(client, "_measure_control_identity", lambda capability: {"sha256": "d" * 64})
+    digested: list[str] = []
+
+    def digest(run_id: str, locator: str, path: str) -> str:
+        del run_id, locator
+        digested.append(path)
+        if path == task.remote_source_path:
+            raise ConfFlowClientError("control remote source digest failed: missing")
+        return "b" * 64
+
+    monkeypatch.setattr(client, "_remote_digest", digest)
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    assert outcome.errors == ["control remote source digest failed: missing"]
+    assert digested == [task.remote_config_path, task.remote_source_path]
+    assert transport.prepared == []
+    assert scheduler.calls == []
+    assert sftp.files == {}
+    assert load_state(service, "run-1") is None
+
+
 def test_dispatch_response_loss_reconciles_from_remote_launcher_marker(tmp_path, monkeypatch) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     service.create_run(_spec(), run_id="run-1")
