@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.8] - Candidate
+## [0.7.9] - Candidate
+
+This fix-forward preserves the immutable JobDesk `v0.7.8` release and the
+formally released ConfFlow `v2.1.6` producer. Configuration-binding
+reverification failures now carry bounded structured diagnostics for the
+failed admission stage, a non-sensitive cause classification, and whether a
+retry can be considered. Server lookup, local configuration, SSH
+authentication, host-key verification, capability probing, contract
+resolution, and producer identity comparison are distinguished without
+exposing credentials, remote stderr, configuration content, host details, or
+other private exception text.
+
+The compatibility error string remains unchanged for existing callers, while
+the structured failure is preserved through both coordinator and SSH control
+submission results. Every admission failure still fails closed before
+scheduler selection, producer prepare, launcher creation, or dispatch; this
+release changes diagnosis and retry guidance only, not submission semantics.
+
+## [0.7.8] - 2026-08-30
 
 This fix-forward preserves the immutable JobDesk `v0.7.7` release and the
 formally released ConfFlow `v2.1.6` producer. A single real-launcher acceptance
@@ -259,7 +277,9 @@ The schema at v0.5.0 was **schema v4** (introduced in v0.2.x and retained by v0.
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.9...HEAD
+[0.7.9]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.8...v0.7.9
+[0.7.8]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.7.8
 [0.6.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.6.0
 [0.5.1]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.5.0

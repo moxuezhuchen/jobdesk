@@ -17,14 +17,14 @@ from scripts.verify_release_attestation import (
 )
 
 REPOSITORY = "moxuezhuchen/jobdesk"
-REF = "refs/tags/v0.7.8"
+REF = "refs/tags/v0.7.9"
 COMMIT = "a" * 40
 WORKFLOW = ".github/workflows/release.yml"
 MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
 
 
 def _subject(tmp_path: Path) -> Path:
-    wheel = tmp_path / "jobdesk-0.7.8-py3-none-any.whl"
+    wheel = tmp_path / "jobdesk-0.7.9-py3-none-any.whl"
     wheel.write_bytes(b"wheel bytes used by the attestation fixture")
     return wheel
 
@@ -106,7 +106,7 @@ def test_valid_github_bundle_matches_final_wheel_and_source_identity(tmp_path: P
     ("path", "replacement", "message"),
     [
         ("subject", [{"name": "other.whl", "digest": {"sha256": "0" * 64}}], "subject"),
-        ("subject", [{"name": "jobdesk-0.7.8-py3-none-any.whl", "digest": {"sha256": "0" * 64}}], "digest"),
+        ("subject", [{"name": "jobdesk-0.7.9-py3-none-any.whl", "digest": {"sha256": "0" * 64}}], "digest"),
     ],
 )
 def test_subject_name_and_digest_must_match_final_wheel(

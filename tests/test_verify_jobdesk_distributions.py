@@ -23,14 +23,14 @@ def _write_sdist(path: Path, names: set[str]) -> None:
     with tarfile.open(path, "w:gz") as archive:
         for name in sorted(names):
             payload = b"{}"
-            info = tarfile.TarInfo(f"jobdesk-0.7.8/src/{_member(name)}")
+            info = tarfile.TarInfo(f"jobdesk-0.7.9/src/{_member(name)}")
             info.size = len(payload)
             archive.addfile(info, io.BytesIO(payload))
 
 
 def test_distribution_verifier_accepts_exact_workflow_example_set(tmp_path: Path) -> None:
-    wheel = tmp_path / "jobdesk-0.7.8-py3-none-any.whl"
-    sdist = tmp_path / "jobdesk-0.7.8.tar.gz"
+    wheel = tmp_path / "jobdesk-0.7.9-py3-none-any.whl"
+    sdist = tmp_path / "jobdesk-0.7.9.tar.gz"
     _write_wheel(wheel, EXPECTED_EXAMPLES)
     _write_sdist(sdist, EXPECTED_EXAMPLES)
 
@@ -40,8 +40,8 @@ def test_distribution_verifier_accepts_exact_workflow_example_set(tmp_path: Path
 @pytest.mark.parametrize("archive", ["wheel", "sdist"])
 @pytest.mark.parametrize("mutation", ["missing", "extra"])
 def test_distribution_verifier_rejects_each_archive_mismatch(tmp_path: Path, archive: str, mutation: str) -> None:
-    wheel = tmp_path / "jobdesk-0.7.8-py3-none-any.whl"
-    sdist = tmp_path / "jobdesk-0.7.8.tar.gz"
+    wheel = tmp_path / "jobdesk-0.7.9-py3-none-any.whl"
+    sdist = tmp_path / "jobdesk-0.7.9.tar.gz"
     wheel_names = set(EXPECTED_EXAMPLES)
     sdist_names = set(EXPECTED_EXAMPLES)
     selected = wheel_names if archive == "wheel" else sdist_names
