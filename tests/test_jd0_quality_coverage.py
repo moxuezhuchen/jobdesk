@@ -1061,17 +1061,17 @@ def test_client_facade_probe_attach_restore_and_outcome_errors(monkeypatch) -> N
     with pytest.raises(ValueError, match="only the control"):
         SSHConfFlowClient(coordinator, "server", backend_mode="legacy")
 
-    with pytest.raises(ConfFlowClientError, match="required control capability"):
+    with pytest.raises(ConfFlowClientError, match="capability selection failed"):
         client.probe()
     coordinator.capability_result = ValueError("probe failed")
-    with pytest.raises(ConfFlowClientError, match="probe failed"):
+    with pytest.raises(ConfFlowClientError, match="capability selection failed"):
         client.probe()
     coordinator.capability_result = ConfFlowCapabilityPreflightError("preflight failed")
     with pytest.raises(ConfFlowClientError, match="preflight failed"):
         client.probe_capabilities("server")
     capability = ConfFlowCapabilities(4, "2.0.0", True, True, True, control_worker=True)
     coordinator.capability_result = capability
-    monkeypatch.setattr(client, "_negotiate_backend", lambda value: None)
+    monkeypatch.setattr(client, "_resolve_control_state_locator", lambda value: "/durable/control")
     assert client.probe(require_dag=True) is capability
 
     coordinator.service.record.server_id = "other"
@@ -1124,7 +1124,9 @@ def test_client_facade_probe_attach_restore_and_outcome_errors(monkeypatch) -> N
     )
     monkeypatch.setattr(client_module, "load_state", lambda service, run_id: None)
     result_handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
-    assert result_handle is None and result.errors == ["no probe"]
+    assert result_handle is None and result.errors == [
+        "control backend admission failed [control_backend_admission_unavailable]"
+    ]
     client._selected_backend = "control"
     monkeypatch.setattr(client_module, "load_state", lambda service, run_id: {"backend": "legacy"})
     _handle, retired = client.submit_with_outcome(SubmitRequest("run-1"))

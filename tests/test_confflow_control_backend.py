@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pickle
 import stat
-from dataclasses import dataclass, field
+from copy import copy, deepcopy
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
+from paramiko.ssh_exception import AuthenticationException
 
-from jobdesk_app.application.confflow_client import SubmitRequest
+from jobdesk_app.application.confflow_client import ConfFlowClientError, SubmitRequest
+from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
+from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError
 from jobdesk_app.services.confflow_control import (
     ControlArtifact,
     ControlArtifactManifest,
@@ -29,6 +36,7 @@ from jobdesk_app.services.confflow_control import (
     parse_snapshot_response,
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
+from jobdesk_app.services.run_coordinator import OperationFailure
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.services.ssh_confflow_client import (
     SSHConfFlowClient,
@@ -479,6 +487,329 @@ def _control_binding() -> ConfigurationBinding:
         canonical_producer_provenance_json='{"version":"2.0.0"}',
         validated_at="2026-08-20T00:00:00+00:00",
     )
+
+
+def _fresh_control_client(tmp_path):
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+    )
+    client = SSHConfFlowClient(coordinator, "server", backend_mode="control")
+    client._submit_control = MagicMock(return_value=("handle", "outcome"))
+    return service, coordinator, client
+
+
+def test_fresh_control_submit_initializes_locator_without_external_probe(tmp_path) -> None:
+    _service, coordinator, client = _fresh_control_client(tmp_path)
+    capability = SimpleNamespace(control_worker=True)
+    events: list[str] = []
+    coordinator.verify_configuration_binding.side_effect = lambda *args, **kwargs: events.append("verify")
+
+    def initialize(*, require_dag: bool = False):
+        events.append("probe")
+        assert require_dag is False
+        client._selected_capability = capability
+        client._selected_state_locator = "/home/test/.local/state/confflow/control"
+        return capability
+
+    client.probe = MagicMock(side_effect=initialize)
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client.probe.assert_called_once_with(require_dag=False)
+    coordinator.verify_configuration_binding.assert_called_once()
+    client._submit_control.assert_called_once()
+    assert events == ["verify", "probe"]
+
+
+def test_preset_backend_with_missing_locator_reprobes_atomically_during_submit(tmp_path) -> None:
+    _service, _coordinator, client = _fresh_control_client(tmp_path)
+    capability = SimpleNamespace(control_worker=True)
+    client._selected_backend = "control"
+    client._selected_capability = capability
+    client._selected_state_locator = None
+
+    refreshed = SimpleNamespace(control_worker=True)
+
+    def probe(*, require_dag: bool = False):
+        assert require_dag is False
+        client._selected_capability = refreshed
+        client._selected_state_locator = "/durable/control"
+        return refreshed
+
+    client.probe = MagicMock(side_effect=probe)
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client.probe.assert_called_once_with(require_dag=False)
+    assert client._selected_capability is refreshed
+
+
+def test_complete_control_selection_does_not_repeat_probe(tmp_path) -> None:
+    _service, _coordinator, client = _fresh_control_client(tmp_path)
+    client._selected_capability = SimpleNamespace(control_worker=True)
+    client._selected_state_locator = "/durable/control"
+    client.probe = MagicMock(side_effect=AssertionError("probe must not repeat"))
+    client._negotiate_backend = MagicMock(side_effect=AssertionError("negotiation must not repeat"))
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client.probe.assert_not_called()
+    client._negotiate_backend.assert_not_called()
+
+
+def test_control_locator_probe_failure_is_structured_and_has_zero_submit_side_effects(tmp_path) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+
+    def reject(*, require_dag: bool = False):
+        del require_dag
+        cause = ControlProtocolError("capabilities", "internal", "private endpoint detail", retryable=True)
+        raise ConfFlowClientError(str(cause)) from cause
+
+    client.probe = MagicMock(side_effect=reject)
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    expected_message = "control backend admission failed [control_backend_admission_unavailable]"
+    assert result.errors == [expected_message]
+    assert result.error_messages == result.errors
+    assert len(result.structured_failures) == 1
+    failure = result.structured_failures[0]
+    assert failure.as_dict() == {
+        "stage": "control_backend_admission",
+        "code": "control_backend_admission_unavailable",
+        "message": expected_message,
+        "retryable": True,
+        "task_id": None,
+        "cause_code": "producer_unavailable",
+    }
+    assert "private endpoint detail" not in json.dumps(asdict(result))
+    coordinator.verify_configuration_binding.assert_called_once()
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+@pytest.mark.parametrize(
+    ("remote_error", "cause_code", "retryable"),
+    [
+        (AuthenticationException("password=secret"), "authentication_failed", False),
+        (TimeoutError("ssh://private-host timed out"), "timeout", True),
+        (ConnectionError("token=secret"), "connection_error", True),
+        (
+            ControlProtocolError("capabilities", "unknown_<yaml-secret>", "endpoint=/private", retryable=True),
+            "producer_protocol_error",
+            False,
+        ),
+        (
+            ConfFlowCapabilityPreflightError("stderr contains PRIVATE_TOKEN and workflow yaml"),
+            "producer_unavailable",
+            True,
+        ),
+    ],
+)
+def test_control_admission_public_failure_is_bounded_for_remote_errors(
+    tmp_path, remote_error: Exception, cause_code: str, retryable: bool
+) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    coordinator.probe_capabilities = MagicMock(side_effect=remote_error)
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    expected = "control backend admission failed [control_backend_admission_unavailable]"
+    failure = result.structured_failures[0]
+    assert result.errors == [expected]
+    assert failure.as_dict() == {
+        "stage": "control_backend_admission",
+        "code": "control_backend_admission_unavailable",
+        "message": expected,
+        "retryable": retryable,
+        "task_id": None,
+        "cause_code": cause_code,
+    }
+    serialized = json.dumps(asdict(result))
+    for secret in ("secret", "private", "PRIVATE_TOKEN", "yaml", "endpoint", "unknown_"):
+        assert secret not in serialized
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_failed_reprobe_clears_old_selection_and_subsequent_submit_remains_fail_closed(tmp_path) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    old = ConfFlowCapabilities(4, "2.1.5", True, True, True, control_worker=True)
+    refreshed = ConfFlowCapabilities(4, "2.1.6", True, True, True, control_worker=True)
+    client._selected_capability = old
+    client._selected_state_locator = "/old/control"
+    coordinator.probe_capabilities = MagicMock(return_value=refreshed)
+    client._resolve_control_state_locator = MagicMock(
+        side_effect=ControlProtocolError("capabilities", "internal", "new endpoint leaked a credential", retryable=True)
+    )
+
+    with pytest.raises(ConfFlowClientError):
+        client.probe()
+    assert client._selected_capability is None
+    assert client._selected_state_locator is None
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert result.errors == ["control backend admission failed [control_backend_admission_unavailable]"]
+    assert result.structured_failures[0].cause_code == "producer_unavailable"
+    assert result.structured_failures[0].retryable is True
+    assert "credential" not in json.dumps(asdict(result))
+    assert coordinator.probe_capabilities.call_count == 2
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+@pytest.mark.parametrize(
+    "post_probe_error",
+    [
+        RuntimeError("runtime collaborator leaked endpoint=/private and token=secret"),
+        KeyError("private-control-locator"),
+    ],
+)
+def test_unexpected_post_probe_failure_clears_selection_and_repeated_submit_is_safe(
+    tmp_path, post_probe_error: Exception
+) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    old = ConfFlowCapabilities(4, "2.1.5", True, True, True, control_worker=True)
+    refreshed = ConfFlowCapabilities(4, "2.1.6", True, True, True, control_worker=True)
+    client._selected_capability = old
+    client._selected_state_locator = "/old/control"
+    coordinator.probe_capabilities = MagicMock(return_value=refreshed)
+    client._resolve_control_state_locator = MagicMock(side_effect=post_probe_error)
+
+    with pytest.raises(ConfFlowClientError, match="control backend capability selection failed") as raised:
+        client.probe()
+    assert raised.value.__cause__ is post_probe_error
+    assert client._selected_capability is None
+    assert client._selected_state_locator is None
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert result.errors == ["control backend admission failed [control_backend_admission_unavailable]"]
+    failure = result.structured_failures[0]
+    assert failure.cause_code == "control_locator_unavailable"
+    assert failure.retryable is False
+    serialized = json.dumps(asdict(result))
+    for secret in ("private", "secret", "endpoint", "runtime collaborator"):
+        assert secret not in serialized
+    assert coordinator.probe_capabilities.call_count == 2
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_partial_non_dag_selection_reprobes_with_dag_requirement_and_fails_closed(tmp_path) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    spec = replace(_control_spec(), workflow_kind=WorkflowKind.dag)
+    service.create_run_with_configuration_binding(spec, _control_binding(), run_id="run-1")
+    probe_error = ConfFlowCapabilityPreflightError("private DAG contract stderr")
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+        probe_capabilities=MagicMock(side_effect=probe_error),
+    )
+    client = SSHConfFlowClient(coordinator, "server", backend_mode="control")
+    client._selected_capability = ConfFlowCapabilities(4, "2.1.6", True, True, False, control_worker=True)
+    client._selected_state_locator = None
+    client._submit_control = MagicMock(side_effect=AssertionError("submit side effects are forbidden"))
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    coordinator.probe_capabilities.assert_called_once_with("server", require_dag=True)
+    assert result.structured_failures[0].cause_code == "producer_unavailable"
+    assert result.structured_failures[0].retryable is True
+    assert "private" not in json.dumps(asdict(result))
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_submit_result_dataclass_serialization_preserves_structured_failure_text() -> None:
+    failure = OperationFailure.from_text(
+        "control backend admission failed [control_backend_admission_unavailable]",
+        stage="control_backend_admission",
+        code="control_backend_admission_unavailable",
+        retryable=True,
+        cause_code="internal",
+    )
+    serialized = asdict(
+        SubmitResult(
+            "run-1",
+            0,
+            "/remote/project",
+            errors=[failure],
+            structured_failures=[failure],
+        )
+    )
+
+    assert serialized["errors"] == [str(failure)]
+    assert serialized["structured_failures"] == [str(failure)]
+    assert json.loads(json.dumps(serialized))["errors"] == [str(failure)]
+
+    for restored in (copy(failure), deepcopy(failure), pickle.loads(pickle.dumps(failure))):
+        assert restored == failure
+        assert restored.as_dict() == failure.as_dict()
+
+
+def test_fresh_submit_persists_one_locator_identity_for_prepare_launcher_and_attach(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
+    sftp = FakeLauncherSFTP()
+    transport = FakeControlTransport(sftp=sftp)
+    scheduler = FakeLauncherScheduler(service, sftp)
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+    )
+    seen_locators: list[str] = []
+
+    def transport_for(run_id: str, locator: str):
+        assert run_id == "run-1"
+        seen_locators.append(locator)
+        return transport
+
+    client = SSHConfFlowClient(
+        coordinator,
+        "server",
+        control_transport_factory=transport_for,
+        scheduler_factory=lambda scheduler_type: scheduler,
+        backend_mode="control",
+    )
+    client._selected_capability = ConfFlowCapabilities(
+        4,
+        "2.1.6",
+        True,
+        True,
+        True,
+        executable={"path": "/opt/confflow/bin/confflow", "python": "/opt/confflow/bin/python"},
+        raw_payload={
+            "schema_version": 4,
+            "version": "2.1.6",
+            "capabilities": {"workflow_state": True, "resume": True, "dag": True, "control_worker": True},
+            "executable": {"path": "/opt/confflow/bin/confflow", "python": "/opt/confflow/bin/python"},
+        },
+        control_worker=True,
+    )
+    client._selected_state_locator = "/home/test/.local/state/confflow/control"
+    monkeypatch.setattr(client, "_measure_control_identity", lambda capability: {"sha256": "d" * 64})
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+    monkeypatch.setattr(
+        "jobdesk_app.services.ssh_confflow_client._upload_control_worker_handoff",
+        lambda *args, **kwargs: None,
+    )
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is not None
+    assert not outcome.errors
+    saved = load_state(service, "run-1")
+    assert saved is not None
+    expected = "/home/test/.local/state/confflow/jobdesk-run-1/state"
+    assert saved["state_locator"] == expected
+    assert saved["launcher"]["state_root"] == expected
+    assert handle.to_dict()["state_locator"] == expected
+    assert seen_locators and set(seen_locators) == {expected}
 
 
 def _seed_control_state(service: RunService, run_id: str, *, revision: int = 0, state: str = "prepared") -> None:
