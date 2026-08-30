@@ -252,19 +252,52 @@ class SSHConfFlowClient:
         state = load_state(self._coordinator.service, request.run_id)
         if (
             state is None
-            and self._selected_backend is None
-            and record.workflow_kind is not None
-            and record.workflow_kind.value in {"confflow", "dag"}
+            and is_workflow
+            and (
+                self._selected_backend != CONTROL_BACKEND
+                or self._selected_capability is None
+                or not self._selected_state_locator
+            )
         ):
             try:
-                self.probe(require_dag=record.workflow_kind is not None and record.workflow_kind.value == "dag")
+                self._ensure_control_submission_admission(
+                    require_dag=workflow_kind is not None and workflow_kind.value == "dag"
+                )
             except ConfFlowClientError as exc:
-                return None, SubmitResult(request.run_id, 0, record.remote_dir, errors=[str(exc)])
+                failure = _control_admission_failure(exc)
+                return None, SubmitResult(
+                    request.run_id,
+                    0,
+                    record.remote_dir,
+                    errors=[failure],
+                    structured_failures=[failure],
+                )
         if state is not None and state.get("backend") != CONTROL_BACKEND:
             return None, SubmitResult(
                 request.run_id, 0, record.remote_dir, errors=["legacy ConfFlow backend is retired"]
             )
         return self._submit_control(request, record, state)
+
+    def _ensure_control_submission_admission(self, *, require_dag: bool) -> None:
+        """Make a fresh control submission self-sufficient before side effects.
+
+        A durable run state is authoritative on retries.  For a new run, a
+        caller-provided probe is merely an optimization: submit performs the
+        missing capability/locator work itself.  A complete in-memory
+        selection is reused so normal probe-then-submit paths do not issue a
+        second remote probe.
+        """
+
+        capability = self._selected_capability
+        if self._selected_backend != CONTROL_BACKEND or capability is None:
+            self.probe(require_dag=require_dag)
+        elif not self._selected_state_locator:
+            try:
+                self._negotiate_backend(capability)
+            except (ConfFlowCapabilityPreflightError, ControlProtocolError, ValueError) as exc:
+                raise ConfFlowClientError(str(exc)) from exc
+        if self._selected_backend != CONTROL_BACKEND or not self._selected_state_locator:
+            raise ConfFlowClientError("control backend has no durable producer state locator")
 
     def refresh_outcome(self, handle, patterns: list[str], *, download: bool):
         return handle.refresh_outcome(patterns, download=download)
@@ -1077,6 +1110,29 @@ class ControlRefreshResult:
     def __init__(self, *, changed_count: int, warnings: list[str]) -> None:
         self.changed_count = changed_count
         self.warnings = warnings
+
+
+def _control_admission_failure(exc: ConfFlowClientError) -> OperationFailure:
+    """Return a stable structured failure for pre-prepare admission."""
+
+    cause = exc.__cause__
+    cause_code: str | None = None
+    retryable = False
+    if isinstance(cause, ControlProtocolError):
+        cause_code = cause.code
+        retryable = cause.retryable
+    elif isinstance(cause, ConfFlowCapabilityPreflightError):
+        cause_code = "capability_probe_failed"
+        retryable = True
+    elif isinstance(cause, ValueError):
+        cause_code = "capability_contract_invalid"
+    return OperationFailure.from_text(
+        str(exc),
+        stage="control_backend_admission",
+        code="control_backend_admission_unavailable",
+        retryable=retryable,
+        cause_code=cause_code,
+    )
 
 
 def _reference_for(

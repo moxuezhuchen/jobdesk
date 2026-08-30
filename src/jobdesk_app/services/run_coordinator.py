@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from typing import Any, Protocol
+from typing import Any, Protocol, SupportsIndex
 
 from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
 
@@ -114,6 +114,24 @@ class OperationFailure(str):
             "task_id": self.task_id,
             "cause_code": self.cause_code,
         }
+
+    def __reduce_ex__(
+        self, protocol: SupportsIndex
+    ) -> tuple[type[OperationFailure], tuple[str, str, str, bool, str | None, str | None]]:
+        """Preserve both display text and metadata across dataclass copying.
+
+        ``dataclasses.asdict`` deep-copies leaf values.  A ``str`` subclass is
+        otherwise reconstructed with its single string value passed to our
+        structured ``stage`` argument, which silently turns the copied value
+        into ``""``.  Supplying the complete constructor tuple keeps legacy
+        text serialization lossless while retaining the structured fields.
+        """
+
+        del protocol
+        return (
+            type(self),
+            (self.stage, self.code, self.message, self.retryable, self.task_id, self.cause_code),
+        )
 
 
 @dataclass(init=False)

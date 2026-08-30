@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pickle
 import stat
-from dataclasses import dataclass, field
+from copy import copy, deepcopy
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
-from jobdesk_app.application.confflow_client import SubmitRequest
+from jobdesk_app.application.confflow_client import ConfFlowClientError, SubmitRequest
+from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
+from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
 from jobdesk_app.services.confflow_control import (
     ControlArtifact,
@@ -29,6 +34,7 @@ from jobdesk_app.services.confflow_control import (
     parse_snapshot_response,
 )
 from jobdesk_app.services.confflow_control_state import load_state, save_state
+from jobdesk_app.services.run_coordinator import OperationFailure
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.services.ssh_confflow_client import (
     SSHConfFlowClient,
@@ -479,6 +485,188 @@ def _control_binding() -> ConfigurationBinding:
         canonical_producer_provenance_json='{"version":"2.0.0"}',
         validated_at="2026-08-20T00:00:00+00:00",
     )
+
+
+def _fresh_control_client(tmp_path):
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+    )
+    client = SSHConfFlowClient(coordinator, "server", backend_mode="control")
+    client._submit_control = MagicMock(return_value=("handle", "outcome"))
+    return service, coordinator, client
+
+
+def test_fresh_control_submit_initializes_locator_without_external_probe(tmp_path) -> None:
+    _service, coordinator, client = _fresh_control_client(tmp_path)
+    capability = SimpleNamespace(control_worker=True)
+    events: list[str] = []
+    coordinator.verify_configuration_binding.side_effect = lambda *args, **kwargs: events.append("verify")
+
+    def initialize(*, require_dag: bool = False):
+        events.append("probe")
+        assert require_dag is False
+        client._selected_capability = capability
+        client._selected_state_locator = "/home/test/.local/state/confflow/control"
+        return capability
+
+    client.probe = MagicMock(side_effect=initialize)
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client.probe.assert_called_once_with(require_dag=False)
+    coordinator.verify_configuration_binding.assert_called_once()
+    client._submit_control.assert_called_once()
+    assert events == ["verify", "probe"]
+
+
+def test_preset_backend_with_missing_locator_negotiates_once_during_submit(tmp_path) -> None:
+    _service, _coordinator, client = _fresh_control_client(tmp_path)
+    capability = SimpleNamespace(control_worker=True)
+    client._selected_backend = "control"
+    client._selected_capability = capability
+    client._selected_state_locator = None
+
+    def negotiate(selected) -> None:
+        assert selected is capability
+        client._selected_state_locator = "/durable/control"
+
+    client._negotiate_backend = MagicMock(side_effect=negotiate)
+    client.probe = MagicMock(side_effect=AssertionError("capability probe must not repeat"))
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client._negotiate_backend.assert_called_once_with(capability)
+    client.probe.assert_not_called()
+
+
+def test_complete_control_selection_does_not_repeat_probe(tmp_path) -> None:
+    _service, _coordinator, client = _fresh_control_client(tmp_path)
+    client._selected_capability = SimpleNamespace(control_worker=True)
+    client._selected_state_locator = "/durable/control"
+    client.probe = MagicMock(side_effect=AssertionError("probe must not repeat"))
+    client._negotiate_backend = MagicMock(side_effect=AssertionError("negotiation must not repeat"))
+
+    assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
+    client.probe.assert_not_called()
+    client._negotiate_backend.assert_not_called()
+
+
+def test_control_locator_probe_failure_is_structured_and_has_zero_submit_side_effects(tmp_path) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+
+    def reject(*, require_dag: bool = False):
+        del require_dag
+        cause = ControlProtocolError("capabilities", "internal", "private endpoint detail", retryable=True)
+        raise ConfFlowClientError(str(cause)) from cause
+
+    client.probe = MagicMock(side_effect=reject)
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    assert result.errors == ["control capabilities failed [internal]: private endpoint detail"]
+    assert result.error_messages == result.errors
+    assert len(result.structured_failures) == 1
+    failure = result.structured_failures[0]
+    assert failure.as_dict() == {
+        "stage": "control_backend_admission",
+        "code": "control_backend_admission_unavailable",
+        "message": "control capabilities failed [internal]: private endpoint detail",
+        "retryable": True,
+        "task_id": None,
+        "cause_code": "internal",
+    }
+    coordinator.verify_configuration_binding.assert_called_once()
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_submit_result_dataclass_serialization_preserves_structured_failure_text() -> None:
+    failure = OperationFailure.from_text(
+        "control backend admission failed [control_backend_admission_unavailable]",
+        stage="control_backend_admission",
+        code="control_backend_admission_unavailable",
+        retryable=True,
+        cause_code="internal",
+    )
+    serialized = asdict(
+        SubmitResult(
+            "run-1",
+            0,
+            "/remote/project",
+            errors=[failure],
+            structured_failures=[failure],
+        )
+    )
+
+    assert serialized["errors"] == [str(failure)]
+    assert serialized["structured_failures"] == [str(failure)]
+    assert json.loads(json.dumps(serialized))["errors"] == [str(failure)]
+
+    for restored in (copy(failure), deepcopy(failure), pickle.loads(pickle.dumps(failure))):
+        assert restored == failure
+        assert restored.as_dict() == failure.as_dict()
+
+
+def test_fresh_submit_persists_one_locator_identity_for_prepare_launcher_and_attach(tmp_path, monkeypatch) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run_with_configuration_binding(_control_spec(), _control_binding(), run_id="run-1")
+    sftp = FakeLauncherSFTP()
+    transport = FakeControlTransport(sftp=sftp)
+    scheduler = FakeLauncherScheduler(service, sftp)
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+    )
+    seen_locators: list[str] = []
+
+    def transport_for(run_id: str, locator: str):
+        assert run_id == "run-1"
+        seen_locators.append(locator)
+        return transport
+
+    client = SSHConfFlowClient(
+        coordinator,
+        "server",
+        control_transport_factory=transport_for,
+        scheduler_factory=lambda scheduler_type: scheduler,
+        backend_mode="control",
+    )
+    client._selected_capability = ConfFlowCapabilities(
+        4,
+        "2.1.6",
+        True,
+        True,
+        True,
+        executable={"path": "/opt/confflow/bin/confflow", "python": "/opt/confflow/bin/python"},
+        raw_payload={
+            "schema_version": 4,
+            "version": "2.1.6",
+            "capabilities": {"workflow_state": True, "resume": True, "dag": True, "control_worker": True},
+            "executable": {"path": "/opt/confflow/bin/confflow", "python": "/opt/confflow/bin/python"},
+        },
+        control_worker=True,
+    )
+    client._selected_state_locator = "/home/test/.local/state/confflow/control"
+    monkeypatch.setattr(client, "_measure_control_identity", lambda capability: {"sha256": "d" * 64})
+    monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
+    monkeypatch.setattr(
+        "jobdesk_app.services.ssh_confflow_client._upload_control_worker_handoff",
+        lambda *args, **kwargs: None,
+    )
+
+    handle, outcome = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is not None
+    assert not outcome.errors
+    saved = load_state(service, "run-1")
+    assert saved is not None
+    expected = "/home/test/.local/state/confflow/jobdesk-run-1/state"
+    assert saved["state_locator"] == expected
+    assert saved["launcher"]["state_root"] == expected
+    assert handle.to_dict()["state_locator"] == expected
+    assert seen_locators and set(seen_locators) == {expected}
 
 
 def _seed_control_state(service: RunService, run_id: str, *, revision: int = 0, state: str = "prepared") -> None:
