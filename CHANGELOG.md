@@ -9,7 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 No unreleased changes.
 
-## [0.7.9] - Candidate
+## [0.7.10] - Candidate
+
+This fix-forward preserves the immutable JobDesk `v0.7.9` release and the
+formally released ConfFlow `v2.1.6` producer. Fresh control submissions now
+initialize their durable control locator from the exact submitted run before
+the first status probe, and backend selection is sanitized and committed
+atomically. Failed probes clear any tentative selection, so reconnect and
+reprobe cannot retain a stale or partially selected backend.
+
+The control path retains the released DAG execution contract and deterministic
+reprobe behavior. Structured `OperationFailure` diagnostics remain bounded and
+privacy-safe across serialization: callers receive stable stage, cause, and
+retry guidance without credentials, host details, remote stderr, configuration
+content, or raw exception text. Submission and scientific execution semantics
+are otherwise unchanged.
+
+## [0.7.9] - 2026-08-30
 
 This fix-forward preserves the immutable JobDesk `v0.7.8` release and the
 formally released ConfFlow `v2.1.6` producer. Configuration-binding
@@ -277,7 +293,8 @@ The schema at v0.5.0 was **schema v4** (introduced in v0.2.x and retained by v0.
 - Apache License 2.0, `SECURITY.md`, `.gitignore` for Python caches and CI artefacts.
 - GitHub Actions CI matrix on Python 3.11 / 3.12 / 3.13 (lint + mypy + build + pytest).
 
-[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.9...HEAD
+[Unreleased]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.10...HEAD
+[0.7.10]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/moxuezhuchen/jobdesk/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.7.8
 [0.6.0]: https://github.com/moxuezhuchen/jobdesk/releases/tag/v0.6.0
