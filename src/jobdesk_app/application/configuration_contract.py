@@ -9,7 +9,22 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol
 
 ContractSource = Literal["remote", "stable-fallback"]
-AdmissionStage = Literal["connect", "capability_probe", "contract_resolve", "identity_compare"]
+AdmissionStage = Literal[
+    "server_lookup",
+    "local_config",
+    "connect",
+    "capability_probe",
+    "contract_resolve",
+    "identity_compare",
+]
+_ADMISSION_STAGES = {
+    "server_lookup",
+    "local_config",
+    "connect",
+    "capability_probe",
+    "contract_resolve",
+    "identity_compare",
+}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _SAFE_PATH_RE = re.compile(r"""^\$(?:[A-Za-z0-9_.\[\]"'-]+)?$""")
@@ -127,7 +142,7 @@ class ConfigurationAdmissionError(RuntimeError):
     ) -> None:
         safe_code = code if _SAFE_CODE_RE.fullmatch(code) else "admission_failed"
         safe_path = path if _is_safe_path(path) else None
-        safe_stage = stage if stage in {"connect", "capability_probe", "contract_resolve", "identity_compare"} else None
+        safe_stage = stage if stage in _ADMISSION_STAGES else None
         safe_cause_code = cause_code if isinstance(cause_code, str) and _SAFE_CODE_RE.fullmatch(cause_code) else None
         self.code = safe_code
         self.path = safe_path

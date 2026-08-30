@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
 
 from jobdesk_app.application.confflow_client import SubmitRequest
 from jobdesk_app.application.configuration_contract import (
@@ -1085,16 +1086,20 @@ def test_ssh_control_submit_rejects_binding_identity_drift_before_probe(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("failure_stage", "cause_code", "retryable"),
+    ("failure_case", "failure_stage", "cause_code", "retryable"),
     [
-        ("connect", "transport_error", True),
-        ("capability_probe", "timeout", True),
-        ("contract_resolve", "producer_unavailable", True),
-        ("identity_compare", "identity_mismatch", False),
+        ("server_lookup", "server_lookup", "server_not_found", False),
+        ("local_config", "local_config", "invalid_local_config", False),
+        ("connect", "connect", "transport_error", True),
+        ("authentication", "connect", "authentication_failed", False),
+        ("host_key", "connect", "host_key_mismatch", False),
+        ("capability_probe", "capability_probe", "timeout", True),
+        ("contract_resolve", "contract_resolve", "producer_unavailable", True),
+        ("identity_compare", "identity_compare", "identity_mismatch", False),
     ],
 )
 def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
-    tmp_path, monkeypatch, failure_stage, cause_code, retryable
+    tmp_path, monkeypatch, failure_case, failure_stage, cause_code, retryable
 ) -> None:
     capabilities = _capabilities()
     original = _contract(capabilities)
@@ -1105,16 +1110,31 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
     )
     adapter = MagicMock()
     adapter.resolve.return_value = original
-    server = ServerConfig(
+    server: object = ServerConfig(
         server_id="alpha",
         host="example",
         username="user",
         confflow_executable="/opt/confflow/bin/confflow",
     )
     ssh_factory = MagicMock(return_value=MagicMock())
-    if failure_stage == "connect":
+    server_lookup = MagicMock(return_value=server)
+    if failure_case == "server_lookup":
+        server_lookup.side_effect = KeyError("private server identifier")
+    elif failure_case == "local_config":
+        class InvalidLocalServer:
+            @property
+            def env_init_scripts(self):
+                raise ValueError("private local configuration")
+
+        server = InvalidLocalServer()
+        server_lookup.return_value = server
+    elif failure_case == "connect":
         ssh_factory.side_effect = OSError("private transport detail")
-    elif failure_stage == "capability_probe":
+    elif failure_case == "authentication":
+        ssh_factory.side_effect = AuthenticationException("private credential detail")
+    elif failure_case == "host_key":
+        ssh_factory.side_effect = BadHostKeyException("private-host", MagicMock(), MagicMock())
+    elif failure_case == "capability_probe":
         monkeypatch.setattr(
             "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
             MagicMock(side_effect=TimeoutError("private capability detail")),
@@ -1124,15 +1144,15 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
             "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
             MagicMock(return_value=capabilities),
         )
-    if failure_stage == "contract_resolve":
+    if failure_case == "contract_resolve":
         adapter.resolve.side_effect = RuntimeError("private producer stderr and YAML")
-    elif failure_stage == "identity_compare":
+    elif failure_case == "identity_compare":
         adapter.resolve.return_value = replace(original, schema_sha256="0" * 64)
 
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     coordinator = RunCoordinator(
         service,
-        server_lookup=lambda server_id: server,
+        server_lookup=server_lookup,
         ssh_factory=ssh_factory,
         sftp_factory=MagicMock(),
         close_clients=False,
@@ -1148,13 +1168,18 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
         sources=[RunSource("/remote/project/a.xyz")],
         workflow_kind=WorkflowKind.confflow,
     )
-    assert not coordinator.create_admitted_run(spec, admission, run_id=f"blocked-{failure_stage}").errors
+    record = service.create_run_with_configuration_binding(
+        spec,
+        admission.to_configuration_binding(),
+        run_id=f"blocked-{failure_case}",
+    )
+    assert record.run_id == f"blocked-{failure_case}"
     scheduler = MagicMock(side_effect=AssertionError("scheduler must not be selected"))
     dispatch = MagicMock(side_effect=AssertionError("submit service must not run"))
     monkeypatch.setattr("jobdesk_app.services.run_coordinator.scheduler_from_server", scheduler)
     monkeypatch.setattr(service, "submit_run", dispatch)
 
-    outcome = coordinator.submit(f"blocked-{failure_stage}")
+    outcome = coordinator.submit(f"blocked-{failure_case}")
 
     failure = outcome.structured_failures[0]
     assert failure.stage == failure_stage

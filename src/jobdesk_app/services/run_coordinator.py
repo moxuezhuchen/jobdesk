@@ -15,6 +15,8 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, Protocol
 
+from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
+
 from ..application.configuration_contract import (
     AdmissionStage,
     ConfigurationAdmission,
@@ -649,11 +651,13 @@ class RunCoordinator:
     ) -> VerifiedConfigurationContract:
         """Fail closed if a persisted workflow binding no longer matches its producer."""
 
-        stage: AdmissionStage = "connect"
+        stage: AdmissionStage = "server_lookup"
         try:
             server = self._server_lookup(server_id)
+            stage = "local_config"
             scripts = tuple(getattr(server, "env_init_scripts", []) or [])
             executable = str(getattr(server, "confflow_executable", "") or "")
+            stage = "connect"
             with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
                 stage = "capability_probe"
                 capabilities = probe_confflow_capabilities(
@@ -690,8 +694,8 @@ class RunCoordinator:
             raise ConfigurationAdmissionError(
                 "configuration_admission_unavailable",
                 stage=stage,
-                cause_code=_admission_cause_code(exc),
-                retryable=_admission_failure_retryable(exc),
+                cause_code=_admission_cause_code(stage, exc),
+                retryable=_admission_failure_retryable(stage, exc),
             ) from exc
 
     def admit_configuration(
@@ -833,9 +837,17 @@ def _exception_code(exc: Exception) -> tuple[str, bool]:
     return "operation_failed", True
 
 
-def _admission_cause_code(exc: Exception) -> str:
+def _admission_cause_code(stage: AdmissionStage, exc: Exception) -> str:
     """Return a bounded, non-sensitive classification for admission failures."""
 
+    if stage == "server_lookup" and isinstance(exc, KeyError):
+        return "server_not_found"
+    if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
+        return "invalid_local_config"
+    if isinstance(exc, BadHostKeyException):
+        return "host_key_mismatch"
+    if isinstance(exc, AuthenticationException):
+        return "authentication_failed"
     if isinstance(exc, TimeoutError):
         return "timeout"
     if isinstance(exc, ConnectionError):
@@ -847,7 +859,13 @@ def _admission_cause_code(exc: Exception) -> str:
     return "producer_unavailable"
 
 
-def _admission_failure_retryable(exc: Exception) -> bool:
+def _admission_failure_retryable(stage: AdmissionStage, exc: Exception) -> bool:
+    if stage == "server_lookup" and isinstance(exc, KeyError):
+        return False
+    if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
+        return False
+    if isinstance(exc, (AuthenticationException, BadHostKeyException)):
+        return False
     return not isinstance(exc, (ValueError, TypeError))
 
 
