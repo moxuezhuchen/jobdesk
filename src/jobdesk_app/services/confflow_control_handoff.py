@@ -161,11 +161,23 @@ def worker_work_dir_name(task: Any) -> str:
     value = PurePosixPath(str(getattr(task, "remote_workflow_dir", ""))).name
     if not value:
         value = f"{task.task_id}_confflow_work"
-    validate_safe_component(value, "worker work directory")
+    # Unlike protocol identifiers, a staged scientific filename/work folder
+    # may legitimately contain spaces.  It remains one POSIX component and is
+    # later containment-checked below the private attempt root.
+    if value in {".", ".."} or "\\" in value or "\x00" in value or "/" in value:
+        raise ConfFlowClientError("worker work directory contains an unsafe path component")
     return value
 
 
 def remote_input_path(task: Any) -> str:
+    exact = getattr(task, "remote_source_path", "")
+    if exact:
+        if not is_safe_absolute_remote_path(exact) or not exact.lower().endswith(".xyz"):
+            raise ConfFlowClientError("control worker exact input source path is unsafe")
+        return exact
+
+    # Backward compatibility for task payloads and TSV manifests written
+    # before the exact source locator was persisted.
     names = getattr(task, "remote_task_files", None)
     base = getattr(task, "remote_work_dir", "")
     if not isinstance(names, list) or not names or not isinstance(base, str) or not base.startswith("/"):

@@ -4,16 +4,16 @@
 
 This document describes the current source-level boundaries. It is not a
 release, merge, endpoint-switch, workload, or promotion record. The isolated
-source candidate is JobDesk `0.7.7`; the released consumer is JobDesk
-`v0.7.5`, while failed immutable tag `v0.7.6` did not create a release and the
+source candidate is JobDesk `0.7.8`; the released consumer is JobDesk
+`v0.7.7`, while failed immutable tag `v0.7.6` remains historical evidence and the
 current published producer is ConfFlow `v2.1.6`. The four identities below must not be conflated (revalidate
 the live endpoint before acceptance or promotion):
 
 | Identity | Recorded value | Boundary |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Dirty/shared development sources; not installed runtime |
-| Isolated implementation candidate | JobDesk `0.7.7` release-runtime fix based on failed immutable tag `v0.7.6`; no producer source change | Review candidate; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.7.5` at merge `df8cd1c42cb423456ae4677d6964e1ec832bbfcc`, wheel SHA-256 `cf10c91843ed59a4fe41fe9d44f71cdb5ef033ca6a375f1598ffe1837164d3fa`; ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published immutable artifacts; no production switch |
+| Isolated implementation candidate | JobDesk `0.7.8` exact remote-source control-handoff fix; no producer source change | Review candidate; no release or endpoint switch |
+| Released package evidence | JobDesk `v0.7.7`, wheel SHA-256 `d62e456657192ba7aa20add21d00be7eabd2137b43280b240c384ecf8293c6ec`; ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published immutable artifacts; no production switch |
 | Configured production executable | `wsl` endpoint `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
 The phase notes, compatibility records, and remediation evidence under

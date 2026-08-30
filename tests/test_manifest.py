@@ -99,6 +99,17 @@ class TestTaskRecord:
         assert task.status == TaskStatus.running
         assert task.uploaded_at == datetime(2026, 5, 11, 12, 0, 0)
 
+    def test_exact_remote_source_defaults_for_legacy_json_projection(self):
+        task = TaskRecord.model_validate(
+            {
+                "task_id": "old",
+                "batch_id": "run-old",
+                "remote_job_dir": "/remote/jobs/old",
+                "remote_task_files": ["old.xyz"],
+            }
+        )
+        assert task.remote_source_path == ""
+
 
 class TestManifestWrite:
     def test_write_empty_manifest(self):
@@ -108,6 +119,26 @@ class TestManifestWrite:
             assert path.exists()
             content = path.read_text(encoding="utf-8")
             assert "\t".join(_MANIFEST_COLUMNS) in content
+
+    def test_round_trip_preserves_exact_remote_source_and_reads_old_header(self, tmp_path):
+        current = tmp_path / "current.tsv"
+        task = TaskRecord(
+            task_id="remote",
+            batch_id="run-1",
+            remote_job_dir="/workspace/.jobdesk_runs/run-1/remote",
+            remote_task_files=["mol one.xyz"],
+            remote_source_path="/shared/source files/mol one.xyz",
+        )
+        Manifest.write(current, [task])
+        assert Manifest.read(current)[0].remote_source_path == "/shared/source files/mol one.xyz"
+
+        old = tmp_path / "old.tsv"
+        old_columns = [column for column in _MANIFEST_COLUMNS if column != "remote_source_path"]
+        old.write_text(
+            "\t".join(old_columns) + "\n" + "\t".join(["old", "run-old"] + [""] * (len(old_columns) - 2)) + "\n",
+            encoding="utf-8",
+        )
+        assert Manifest.read(old)[0].remote_source_path == ""
 
     def test_write_single_task(self):
         task = TaskRecord(
