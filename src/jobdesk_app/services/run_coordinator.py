@@ -15,7 +15,10 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, Protocol
 
+from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
+
 from ..application.configuration_contract import (
+    AdmissionStage,
     ConfigurationAdmission,
     ConfigurationAdmissionError,
     ConfigurationContractClient,
@@ -56,6 +59,7 @@ class OperationFailure(str):
     message: str
     retryable: bool
     task_id: str | None
+    cause_code: str | None
 
     def __new__(
         cls,
@@ -64,6 +68,7 @@ class OperationFailure(str):
         message: str = "",
         retryable: bool = False,
         task_id: str | None = None,
+        cause_code: str | None = None,
     ) -> "OperationFailure":
         # The public constructor follows the structured field order.  Plain
         # legacy text is normalized by ``_coerce_failure`` below.
@@ -74,6 +79,7 @@ class OperationFailure(str):
         instance.message = value
         instance.retryable = bool(retryable)
         instance.task_id = task_id
+        instance.cause_code = cause_code
         return instance
 
     @classmethod
@@ -85,8 +91,9 @@ class OperationFailure(str):
         code: str = "operation_failed",
         retryable: bool = False,
         task_id: str | None = None,
+        cause_code: str | None = None,
     ) -> "OperationFailure":
-        return cls(stage, code, str(message), retryable, task_id)
+        return cls(stage, code, str(message), retryable, task_id, cause_code)
 
     @property
     def text(self) -> str:
@@ -105,6 +112,7 @@ class OperationFailure(str):
             "message": self.message,
             "retryable": self.retryable,
             "task_id": self.task_id,
+            "cause_code": self.cause_code,
         }
 
 
@@ -309,9 +317,10 @@ class RunCoordinator:
                     errors=[
                         OperationFailure.from_text(
                             str(exc),
-                            stage="submit",
+                            stage=exc.stage or "submit",
                             code=exc.code,
-                            retryable=exc.code == "configuration_admission_unavailable",
+                            retryable=exc.retryable,
+                            cause_code=exc.cause_code,
                         )
                     ],
                 )
@@ -642,17 +651,22 @@ class RunCoordinator:
     ) -> VerifiedConfigurationContract:
         """Fail closed if a persisted workflow binding no longer matches its producer."""
 
-        server = self._server_lookup(server_id)
-        scripts = tuple(getattr(server, "env_init_scripts", []) or [])
-        executable = str(getattr(server, "confflow_executable", "") or "")
+        stage: AdmissionStage = "server_lookup"
         try:
+            server = self._server_lookup(server_id)
+            stage = "local_config"
+            scripts = tuple(getattr(server, "env_init_scripts", []) or [])
+            executable = str(getattr(server, "confflow_executable", "") or "")
+            stage = "connect"
             with self._clients(server_id, server, need_sftp=False) as (ssh, _sftp):
+                stage = "capability_probe"
                 capabilities = probe_confflow_capabilities(
                     ssh,
                     env_init_scripts=scripts,
                     require_dag=require_dag,
                     confflow_executable=executable,
                 )
+                stage = "contract_resolve"
                 contract = self._configuration_contract_client.resolve(
                     server_id=server_id,
                     configured_executable=executable,
@@ -660,18 +674,29 @@ class RunCoordinator:
                     ssh=ssh,
                     capabilities=capabilities,
                 )
+            stage = "identity_compare"
             current = ConfigurationAdmission(
                 contract=contract,
                 content_sha256=binding.content_sha256,
                 validated_at=binding.validated_at,
             ).to_configuration_binding()
             if current != binding:
-                raise ConfigurationAdmissionError("configuration_identity_mismatch")
+                raise ConfigurationAdmissionError(
+                    "configuration_identity_mismatch",
+                    stage="identity_compare",
+                    cause_code="identity_mismatch",
+                    retryable=False,
+                )
             return contract
         except ConfigurationAdmissionError:
             raise
         except Exception as exc:
-            raise ConfigurationAdmissionError("configuration_admission_unavailable") from exc
+            raise ConfigurationAdmissionError(
+                "configuration_admission_unavailable",
+                stage=stage,
+                cause_code=_admission_cause_code(stage, exc),
+                retryable=_admission_failure_retryable(stage, exc),
+            ) from exc
 
     def admit_configuration(
         self,
@@ -810,6 +835,38 @@ def _exception_code(exc: Exception) -> tuple[str, bool]:
     if isinstance(exc, (ValueError, TypeError)):
         return "invalid_request", False
     return "operation_failed", True
+
+
+def _admission_cause_code(stage: AdmissionStage, exc: Exception) -> str:
+    """Return a bounded, non-sensitive classification for admission failures."""
+
+    if stage == "server_lookup" and isinstance(exc, KeyError):
+        return "server_not_found"
+    if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
+        return "invalid_local_config"
+    if isinstance(exc, BadHostKeyException):
+        return "host_key_mismatch"
+    if isinstance(exc, AuthenticationException):
+        return "authentication_failed"
+    if isinstance(exc, TimeoutError):
+        return "timeout"
+    if isinstance(exc, ConnectionError):
+        return "connection_error"
+    if isinstance(exc, OSError):
+        return "transport_error"
+    if isinstance(exc, (ValueError, TypeError)):
+        return "invalid_response"
+    return "producer_unavailable"
+
+
+def _admission_failure_retryable(stage: AdmissionStage, exc: Exception) -> bool:
+    if stage == "server_lookup" and isinstance(exc, KeyError):
+        return False
+    if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
+        return False
+    if isinstance(exc, (AuthenticationException, BadHostKeyException)):
+        return False
+    return not isinstance(exc, (ValueError, TypeError))
 
 
 def _failure_from_exception(

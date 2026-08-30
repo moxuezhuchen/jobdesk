@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
 
 from jobdesk_app.application.confflow_client import SubmitRequest
 from jobdesk_app.application.configuration_contract import (
@@ -31,7 +32,7 @@ from jobdesk_app.remote.confflow_config_contract import (
 )
 from jobdesk_app.remote.ssh import SSHClientWrapper
 from jobdesk_app.resources.config_contracts import stable_2_0_0
-from jobdesk_app.services.run_coordinator import RunCoordinator
+from jobdesk_app.services.run_coordinator import OperationFailure, RunCoordinator
 from jobdesk_app.services.run_service import RunService
 from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient
 from jobdesk_app.services.ssh_configuration_contract_client import (
@@ -1082,3 +1083,168 @@ def test_ssh_control_submit_rejects_binding_identity_drift_before_probe(tmp_path
     assert handle is None
     assert outcome.errors == ["configuration admission failed [configuration_identity_mismatch]"]
     client.probe.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("failure_case", "failure_stage", "cause_code", "retryable"),
+    [
+        ("server_lookup", "server_lookup", "server_not_found", False),
+        ("local_config", "local_config", "invalid_local_config", False),
+        ("connect", "connect", "transport_error", True),
+        ("authentication", "connect", "authentication_failed", False),
+        ("host_key", "connect", "host_key_mismatch", False),
+        ("capability_probe", "capability_probe", "timeout", True),
+        ("contract_resolve", "contract_resolve", "producer_unavailable", True),
+        ("identity_compare", "identity_compare", "identity_mismatch", False),
+    ],
+)
+def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
+    tmp_path, monkeypatch, failure_case, failure_stage, cause_code, retryable
+) -> None:
+    capabilities = _capabilities()
+    original = _contract(capabilities)
+    admission = ConfigurationAdmission(
+        contract=original,
+        content_sha256="a" * 64,
+        validated_at="2026-08-20T12:00:00+00:00",
+    )
+    adapter = MagicMock()
+    adapter.resolve.return_value = original
+    server: object = ServerConfig(
+        server_id="alpha",
+        host="example",
+        username="user",
+        confflow_executable="/opt/confflow/bin/confflow",
+    )
+    ssh_factory = MagicMock(return_value=MagicMock())
+    server_lookup = MagicMock(return_value=server)
+    if failure_case == "server_lookup":
+        server_lookup.side_effect = KeyError("private server identifier")
+    elif failure_case == "local_config":
+
+        class InvalidLocalServer:
+            @property
+            def env_init_scripts(self):
+                raise ValueError("private local configuration")
+
+        server = InvalidLocalServer()
+        server_lookup.return_value = server
+    elif failure_case == "connect":
+        ssh_factory.side_effect = OSError("private transport detail")
+    elif failure_case == "authentication":
+        ssh_factory.side_effect = AuthenticationException("private credential detail")
+    elif failure_case == "host_key":
+        ssh_factory.side_effect = BadHostKeyException("private-host", MagicMock(), MagicMock())
+    elif failure_case == "capability_probe":
+        monkeypatch.setattr(
+            "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+            MagicMock(side_effect=TimeoutError("private capability detail")),
+        )
+    else:
+        monkeypatch.setattr(
+            "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+            MagicMock(return_value=capabilities),
+        )
+    if failure_case == "contract_resolve":
+        adapter.resolve.side_effect = RuntimeError("private producer stderr and YAML")
+    elif failure_case == "identity_compare":
+        adapter.resolve.return_value = replace(original, schema_sha256="0" * 64)
+
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=server_lookup,
+        ssh_factory=ssh_factory,
+        sftp_factory=MagicMock(),
+        close_clients=False,
+        connect_clients=False,
+        configuration_contract_client=adapter,
+    )
+    spec = RunSpec(
+        server_id="alpha",
+        remote_dir="/remote/project",
+        command_template="confflow --config workflow.yaml",
+        max_parallel=1,
+        mode=RunMode.selected_files,
+        sources=[RunSource("/remote/project/a.xyz")],
+        workflow_kind=WorkflowKind.confflow,
+    )
+    record = service.create_run_with_configuration_binding(
+        spec,
+        admission.to_configuration_binding(),
+        run_id=f"blocked-{failure_case}",
+    )
+    assert record.run_id == f"blocked-{failure_case}"
+    scheduler = MagicMock(side_effect=AssertionError("scheduler must not be selected"))
+    dispatch = MagicMock(side_effect=AssertionError("submit service must not run"))
+    monkeypatch.setattr("jobdesk_app.services.run_coordinator.scheduler_from_server", scheduler)
+    monkeypatch.setattr(service, "submit_run", dispatch)
+
+    outcome = coordinator.submit(f"blocked-{failure_case}")
+
+    failure = outcome.structured_failures[0]
+    assert failure.stage == failure_stage
+    assert failure.code == (
+        "configuration_identity_mismatch"
+        if failure_stage == "identity_compare"
+        else "configuration_admission_unavailable"
+    )
+    assert failure.cause_code == cause_code
+    assert failure.retryable is retryable
+    assert str(failure) == f"configuration admission failed [{failure.code}]"
+    assert "private" not in str(failure)
+    scheduler.assert_not_called()
+    dispatch.assert_not_called()
+
+
+def test_ssh_control_submit_preserves_structured_admission_failure_and_legacy_text(tmp_path, monkeypatch) -> None:
+    server = ServerConfig(server_id="alpha", host="example", username="user")
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    service.create_run(
+        RunSpec(
+            server_id="alpha",
+            remote_dir="/remote/project",
+            command_template="confflow --config workflow.yaml",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/project/a.xyz")],
+            workflow_kind=WorkflowKind.confflow,
+        ),
+        run_id="structured-failure",
+    )
+    binding = MagicMock()
+    monkeypatch.setattr(service, "load_configuration_binding", MagicMock(return_value=binding))
+    coordinator = RunCoordinator(
+        service,
+        server_lookup=lambda server_id: server,
+        ssh_factory=MagicMock(),
+        sftp_factory=MagicMock(),
+        connect_clients=False,
+    )
+    error = ConfigurationAdmissionError(
+        "configuration_admission_unavailable",
+        stage="contract_resolve",
+        cause_code="producer_unavailable",
+        retryable=True,
+    )
+    monkeypatch.setattr(coordinator, "verify_configuration_binding", MagicMock(side_effect=error))
+    client = SSHConfFlowClient(coordinator, "alpha")
+    monkeypatch.setattr(client, "_submit_control", MagicMock())
+
+    handle, result = client.submit_with_outcome(SubmitRequest("structured-failure"))
+
+    assert handle is None
+    assert result.errors == ["configuration admission failed [configuration_admission_unavailable]"]
+    assert result.error_messages == result.errors
+    assert len(result.structured_failures) == 1
+    failure = result.structured_failures[0]
+    assert isinstance(failure, OperationFailure)
+    assert failure.as_dict() == {
+        "stage": "contract_resolve",
+        "code": "configuration_admission_unavailable",
+        "message": "configuration admission failed [configuration_admission_unavailable]",
+        "retryable": True,
+        "task_id": None,
+        "cause_code": "producer_unavailable",
+    }
+    client._submit_control.assert_not_called()
