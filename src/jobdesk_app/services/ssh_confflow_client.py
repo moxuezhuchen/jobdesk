@@ -12,6 +12,8 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
+from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
+
 from jobdesk_app.application.confflow_client import (
     ArtifactManifest,
     ConfFlowClientError,
@@ -145,10 +147,25 @@ class SSHConfFlowClient:
             capabilities = self._coordinator.probe_capabilities(self._server_id, require_dag=require_dag)
             if not isinstance(capabilities, ConfFlowCapabilities):
                 raise ConfFlowClientError("ConfFlow capability probe did not return the required control capability")
+            state_locator = self._resolve_control_state_locator(capabilities)
+            self._selected_backend = CONTROL_BACKEND
             self._selected_capability = capabilities
-            self._negotiate_backend(capabilities)
+            self._selected_state_locator = state_locator
             return capabilities
-        except (ConfFlowCapabilityPreflightError, ControlProtocolError, ValueError) as exc:
+        except (
+            AuthenticationException,
+            BadHostKeyException,
+            ConfFlowCapabilityPreflightError,
+            ControlProtocolError,
+            ConfFlowClientError,
+            RemoteError,
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+        ) as exc:
+            self._selected_capability = None
+            self._selected_state_locator = None
             raise ConfFlowClientError(str(exc)) from exc
 
     def probe_capabilities(self, server_id: str, *, require_dag: bool = False):
@@ -250,6 +267,12 @@ class SSHConfFlowClient:
                     structured_failures=[failure],
                 )
         state = load_state(self._coordinator.service, request.run_id)
+        selection_lacks_required_dag = bool(
+            workflow_kind is not None
+            and workflow_kind.value == "dag"
+            and self._selected_capability is not None
+            and not self._selected_capability.dag
+        )
         if (
             state is None
             and is_workflow
@@ -257,6 +280,7 @@ class SSHConfFlowClient:
                 self._selected_backend != CONTROL_BACKEND
                 or self._selected_capability is None
                 or not self._selected_state_locator
+                or selection_lacks_required_dag
             )
         ):
             try:
@@ -289,13 +313,13 @@ class SSHConfFlowClient:
         """
 
         capability = self._selected_capability
-        if self._selected_backend != CONTROL_BACKEND or capability is None:
+        if (
+            self._selected_backend != CONTROL_BACKEND
+            or capability is None
+            or not self._selected_state_locator
+            or (require_dag and not capability.dag)
+        ):
             self.probe(require_dag=require_dag)
-        elif not self._selected_state_locator:
-            try:
-                self._negotiate_backend(capability)
-            except (ConfFlowCapabilityPreflightError, ControlProtocolError, ValueError) as exc:
-                raise ConfFlowClientError(str(exc)) from exc
         if self._selected_backend != CONTROL_BACKEND or not self._selected_state_locator:
             raise ConfFlowClientError("control backend has no durable producer state locator")
 
@@ -579,6 +603,12 @@ class SSHConfFlowClient:
             )
 
     def _negotiate_backend(self, capabilities: ConfFlowCapabilities) -> None:
+        state_locator = self._resolve_control_state_locator(capabilities)
+        self._selected_backend = CONTROL_BACKEND
+        self._selected_capability = capabilities
+        self._selected_state_locator = state_locator
+
+    def _resolve_control_state_locator(self, capabilities: ConfFlowCapabilities) -> str:
         server = self._coordinator.server_config(self._server_id)
         executable = str(getattr(server, "confflow_executable", "") or "")
         validate_confflow_production_capability(
@@ -588,26 +618,24 @@ class SSHConfFlowClient:
         if not capabilities.control_worker:
             raise ValueError("ConfFlow production capability does not expose the producer worker handoff")
         if self._control_capability_factory is not None:
-            self._selected_state_locator = self._control_capability_factory()
-            self._selected_backend = CONTROL_BACKEND
-            return
-        if self._control_transport_factory is not None:
-            self._selected_backend = CONTROL_BACKEND
-            self._selected_state_locator = "/tmp/confflow-control"
-            return
-        env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
-        with self._coordinator.session(self._server_id, need_sftp=False) as (ssh, _sftp):
-            transport = SSHControlTransport(
-                ssh,
-                None,
-                executable=executable,
-                state_root="/tmp/confflow-control",
-                env_init_scripts=env_init_scripts,
-            )
-            transport.capabilities()
-            state_locator = resolve_control_state_root(ssh, env_init_scripts=env_init_scripts)
-        self._selected_backend = CONTROL_BACKEND
-        self._selected_state_locator = state_locator
+            state_locator = self._control_capability_factory()
+        elif self._control_transport_factory is not None:
+            state_locator = "/tmp/confflow-control"
+        else:
+            env_init_scripts = list(getattr(server, "env_init_scripts", []) or [])
+            with self._coordinator.session(self._server_id, need_sftp=False) as (ssh, _sftp):
+                transport = SSHControlTransport(
+                    ssh,
+                    None,
+                    executable=executable,
+                    state_root="/tmp/confflow-control",
+                    env_init_scripts=env_init_scripts,
+                )
+                transport.capabilities()
+                state_locator = resolve_control_state_root(ssh, env_init_scripts=env_init_scripts)
+        if not _is_safe_absolute_remote_path(state_locator):
+            raise ValueError("control backend state locator is invalid")
+        return state_locator
 
     @contextmanager
     def _control_session(self, run_id: str, state_locator: str, *, need_sftp: bool):
@@ -1115,24 +1143,54 @@ class ControlRefreshResult:
 def _control_admission_failure(exc: ConfFlowClientError) -> OperationFailure:
     """Return a stable structured failure for pre-prepare admission."""
 
-    cause = exc.__cause__
-    cause_code: str | None = None
-    retryable = False
-    if isinstance(cause, ControlProtocolError):
-        cause_code = cause.code
-        retryable = cause.retryable
-    elif isinstance(cause, ConfFlowCapabilityPreflightError):
-        cause_code = "capability_probe_failed"
-        retryable = True
-    elif isinstance(cause, ValueError):
-        cause_code = "capability_contract_invalid"
+    cause_code, retryable = _classify_control_admission_cause(exc)
     return OperationFailure.from_text(
-        str(exc),
+        "control backend admission failed [control_backend_admission_unavailable]",
         stage="control_backend_admission",
         code="control_backend_admission_unavailable",
         retryable=retryable,
         cause_code=cause_code,
     )
+
+
+def _classify_control_admission_cause(exc: BaseException) -> tuple[str, bool]:
+    """Map an exception chain to bounded public metadata without its text."""
+
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen and len(chain) < 16:
+        seen.add(id(current))
+        chain.append(current)
+        current = current.__cause__
+    for cause in reversed(chain):
+        if isinstance(cause, BadHostKeyException):
+            return "host_key_mismatch", False
+        if isinstance(cause, AuthenticationException):
+            return "authentication_failed", False
+        if isinstance(cause, TimeoutError):
+            return "timeout", True
+        if isinstance(cause, ConnectionError):
+            return "connection_error", True
+        if isinstance(cause, OSError):
+            return "transport_error", True
+        if isinstance(cause, ControlProtocolError):
+            if cause.code == "unsupported_protocol":
+                return "unsupported_protocol", False
+            if cause.code in {
+                "invalid_request",
+                "idempotency_conflict",
+                "executable_identity_mismatch",
+            }:
+                return "invalid_response", False
+            if cause.code in {"internal", "repository_unavailable"}:
+                return "producer_unavailable", cause.retryable
+            return "producer_protocol_error", False
+        if isinstance(cause, ValueError):
+            return "invalid_response", False
+    if any(isinstance(cause, (ConfFlowCapabilityPreflightError, RemoteError)) for cause in chain):
+        return "producer_unavailable", True
+    return "control_locator_unavailable", False
 
 
 def _reference_for(

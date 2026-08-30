@@ -5,12 +5,13 @@ import json
 import pickle
 import stat
 from copy import copy, deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from paramiko.ssh_exception import AuthenticationException
 
 from jobdesk_app.application.confflow_client import ConfFlowClientError, SubmitRequest
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
@@ -19,6 +20,7 @@ from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
+from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError
 from jobdesk_app.services.confflow_control import (
     ControlArtifact,
     ControlArtifactManifest,
@@ -521,23 +523,26 @@ def test_fresh_control_submit_initializes_locator_without_external_probe(tmp_pat
     assert events == ["verify", "probe"]
 
 
-def test_preset_backend_with_missing_locator_negotiates_once_during_submit(tmp_path) -> None:
+def test_preset_backend_with_missing_locator_reprobes_atomically_during_submit(tmp_path) -> None:
     _service, _coordinator, client = _fresh_control_client(tmp_path)
     capability = SimpleNamespace(control_worker=True)
     client._selected_backend = "control"
     client._selected_capability = capability
     client._selected_state_locator = None
 
-    def negotiate(selected) -> None:
-        assert selected is capability
-        client._selected_state_locator = "/durable/control"
+    refreshed = SimpleNamespace(control_worker=True)
 
-    client._negotiate_backend = MagicMock(side_effect=negotiate)
-    client.probe = MagicMock(side_effect=AssertionError("capability probe must not repeat"))
+    def probe(*, require_dag: bool = False):
+        assert require_dag is False
+        client._selected_capability = refreshed
+        client._selected_state_locator = "/durable/control"
+        return refreshed
+
+    client.probe = MagicMock(side_effect=probe)
 
     assert client.submit_with_outcome(SubmitRequest("run-1")) == ("handle", "outcome")
-    client._negotiate_backend.assert_called_once_with(capability)
-    client.probe.assert_not_called()
+    client.probe.assert_called_once_with(require_dag=False)
+    assert client._selected_capability is refreshed
 
 
 def test_complete_control_selection_does_not_repeat_probe(tmp_path) -> None:
@@ -565,19 +570,119 @@ def test_control_locator_probe_failure_is_structured_and_has_zero_submit_side_ef
     handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
 
     assert handle is None
-    assert result.errors == ["control capabilities failed [internal]: private endpoint detail"]
+    expected_message = "control backend admission failed [control_backend_admission_unavailable]"
+    assert result.errors == [expected_message]
     assert result.error_messages == result.errors
     assert len(result.structured_failures) == 1
     failure = result.structured_failures[0]
     assert failure.as_dict() == {
         "stage": "control_backend_admission",
         "code": "control_backend_admission_unavailable",
-        "message": "control capabilities failed [internal]: private endpoint detail",
+        "message": expected_message,
         "retryable": True,
         "task_id": None,
-        "cause_code": "internal",
+        "cause_code": "producer_unavailable",
     }
+    assert "private endpoint detail" not in json.dumps(asdict(result))
     coordinator.verify_configuration_binding.assert_called_once()
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+@pytest.mark.parametrize(
+    ("remote_error", "cause_code", "retryable"),
+    [
+        (AuthenticationException("password=secret"), "authentication_failed", False),
+        (TimeoutError("ssh://private-host timed out"), "timeout", True),
+        (ConnectionError("token=secret"), "connection_error", True),
+        (
+            ControlProtocolError("capabilities", "unknown_<yaml-secret>", "endpoint=/private", retryable=True),
+            "producer_protocol_error",
+            False,
+        ),
+        (
+            ConfFlowCapabilityPreflightError("stderr contains PRIVATE_TOKEN and workflow yaml"),
+            "producer_unavailable",
+            True,
+        ),
+    ],
+)
+def test_control_admission_public_failure_is_bounded_for_remote_errors(
+    tmp_path, remote_error: Exception, cause_code: str, retryable: bool
+) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    coordinator.probe_capabilities = MagicMock(side_effect=remote_error)
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    expected = "control backend admission failed [control_backend_admission_unavailable]"
+    failure = result.structured_failures[0]
+    assert result.errors == [expected]
+    assert failure.as_dict() == {
+        "stage": "control_backend_admission",
+        "code": "control_backend_admission_unavailable",
+        "message": expected,
+        "retryable": retryable,
+        "task_id": None,
+        "cause_code": cause_code,
+    }
+    serialized = json.dumps(asdict(result))
+    for secret in ("secret", "private", "PRIVATE_TOKEN", "yaml", "endpoint", "unknown_"):
+        assert secret not in serialized
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_failed_reprobe_clears_old_selection_and_subsequent_submit_remains_fail_closed(tmp_path) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    old = ConfFlowCapabilities(4, "2.1.5", True, True, True, control_worker=True)
+    refreshed = ConfFlowCapabilities(4, "2.1.6", True, True, True, control_worker=True)
+    client._selected_capability = old
+    client._selected_state_locator = "/old/control"
+    coordinator.probe_capabilities = MagicMock(return_value=refreshed)
+    client._resolve_control_state_locator = MagicMock(
+        side_effect=ControlProtocolError("capabilities", "internal", "new endpoint leaked a credential", retryable=True)
+    )
+
+    with pytest.raises(ConfFlowClientError):
+        client.probe()
+    assert client._selected_capability is None
+    assert client._selected_state_locator is None
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert result.errors == ["control backend admission failed [control_backend_admission_unavailable]"]
+    assert result.structured_failures[0].cause_code == "producer_unavailable"
+    assert result.structured_failures[0].retryable is True
+    assert "credential" not in json.dumps(asdict(result))
+    assert coordinator.probe_capabilities.call_count == 2
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
+def test_partial_non_dag_selection_reprobes_with_dag_requirement_and_fails_closed(tmp_path) -> None:
+    service = RunService(tmp_path, runs_dir=tmp_path / "runs")
+    spec = replace(_control_spec(), workflow_kind=WorkflowKind.dag)
+    service.create_run_with_configuration_binding(spec, _control_binding(), run_id="run-1")
+    probe_error = ConfFlowCapabilityPreflightError("private DAG contract stderr")
+    coordinator = SimpleNamespace(
+        service=service,
+        verify_configuration_binding=MagicMock(),
+        probe_capabilities=MagicMock(side_effect=probe_error),
+    )
+    client = SSHConfFlowClient(coordinator, "server", backend_mode="control")
+    client._selected_capability = ConfFlowCapabilities(4, "2.1.6", True, True, False, control_worker=True)
+    client._selected_state_locator = None
+    client._submit_control = MagicMock(side_effect=AssertionError("submit side effects are forbidden"))
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+
+    assert handle is None
+    coordinator.probe_capabilities.assert_called_once_with("server", require_dag=True)
+    assert result.structured_failures[0].cause_code == "producer_unavailable"
+    assert result.structured_failures[0].retryable is True
+    assert "private" not in json.dumps(asdict(result))
     client._submit_control.assert_not_called()
     assert load_state(service, "run-1") is None
 
