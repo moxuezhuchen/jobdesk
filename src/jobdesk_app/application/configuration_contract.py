@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol
 
 ContractSource = Literal["remote", "stable-fallback"]
+AdmissionStage = Literal["connect", "capability_probe", "contract_resolve", "identity_compare"]
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _SAFE_PATH_RE = re.compile(r"""^\$(?:[A-Za-z0-9_.\[\]"'-]+)?$""")
@@ -115,11 +116,26 @@ class ConfigurationAdmissionError(RuntimeError):
     remote stderr or user configuration content.
     """
 
-    def __init__(self, code: str, path: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        path: str | None = None,
+        *,
+        stage: AdmissionStage | None = None,
+        cause_code: str | None = None,
+        retryable: bool | None = None,
+    ) -> None:
         safe_code = code if _SAFE_CODE_RE.fullmatch(code) else "admission_failed"
         safe_path = path if _is_safe_path(path) else None
+        safe_stage = stage if stage in {"connect", "capability_probe", "contract_resolve", "identity_compare"} else None
+        safe_cause_code = cause_code if isinstance(cause_code, str) and _SAFE_CODE_RE.fullmatch(cause_code) else None
         self.code = safe_code
         self.path = safe_path
+        self.stage = safe_stage
+        self.cause_code = safe_cause_code
+        self.retryable = (
+            safe_code == "configuration_admission_unavailable" if retryable is None else bool(retryable)
+        )
         suffix = f" at {safe_path}" if safe_path is not None else ""
         super().__init__(f"configuration admission failed [{safe_code}]{suffix}")
 
@@ -234,6 +250,7 @@ class ConfigurationContractClient(Protocol):
 
 __all__ = [
     "Admission",
+    "AdmissionStage",
     "ConfigurationAdmission",
     "ConfigurationAdmissionError",
     "ConfigurationContractClient",

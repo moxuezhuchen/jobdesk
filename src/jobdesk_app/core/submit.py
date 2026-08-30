@@ -51,3 +51,10 @@ class SubmitResult:
     # warning strings land here once P-H2C / P-M2 wire their producers;
     # this PR only adds the field and the propagation surface.
     warnings: list[str] = field(default_factory=list)
+    structured_failures: list[object] = field(default_factory=list)
+
+    @property
+    def error_messages(self) -> list[str]:
+        """Compatibility view shared with application operation outcomes."""
+
+        return list(self.errors)

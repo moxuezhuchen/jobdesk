@@ -61,7 +61,7 @@ from jobdesk_app.services.confflow_control_state import (
     save_state,
     save_state_with_task_projection,
 )
-from jobdesk_app.services.run_coordinator import RunCoordinator, RunOperationOutcome
+from jobdesk_app.services.run_coordinator import OperationFailure, RunCoordinator, RunOperationOutcome
 from jobdesk_app.services.ssh_confflow_control import (
     SSHControlTransport,
     build_control_execute_command,
@@ -235,7 +235,20 @@ class SSHConfFlowClient:
                     require_dag=workflow_kind is not None and workflow_kind.value == "dag",
                 )
             except ConfigurationAdmissionError as exc:
-                return None, SubmitResult(request.run_id, 0, record.remote_dir, errors=[str(exc)])
+                failure = OperationFailure.from_text(
+                    str(exc),
+                    stage=exc.stage or "submit",
+                    code=exc.code,
+                    retryable=exc.retryable,
+                    cause_code=exc.cause_code,
+                )
+                return None, SubmitResult(
+                    request.run_id,
+                    0,
+                    record.remote_dir,
+                    errors=[str(failure)],
+                    structured_failures=[failure],
+                )
         state = load_state(self._coordinator.service, request.run_id)
         if (
             state is None
