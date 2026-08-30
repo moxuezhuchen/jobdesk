@@ -148,9 +148,7 @@ class ConfigurationAdmissionError(RuntimeError):
         self.path = safe_path
         self.stage = safe_stage
         self.cause_code = safe_cause_code
-        self.retryable = (
-            safe_code == "configuration_admission_unavailable" if retryable is None else bool(retryable)
-        )
+        self.retryable = safe_code == "configuration_admission_unavailable" if retryable is None else bool(retryable)
         suffix = f" at {safe_path}" if safe_path is not None else ""
         super().__init__(f"configuration admission failed [{safe_code}]{suffix}")
 

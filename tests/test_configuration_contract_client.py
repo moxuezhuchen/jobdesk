@@ -1121,6 +1121,7 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
     if failure_case == "server_lookup":
         server_lookup.side_effect = KeyError("private server identifier")
     elif failure_case == "local_config":
+
         class InvalidLocalServer:
             @property
             def env_init_scripts(self):
@@ -1196,9 +1197,7 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
     dispatch.assert_not_called()
 
 
-def test_ssh_control_submit_preserves_structured_admission_failure_and_legacy_text(
-    tmp_path, monkeypatch
-) -> None:
+def test_ssh_control_submit_preserves_structured_admission_failure_and_legacy_text(tmp_path, monkeypatch) -> None:
     server = ServerConfig(server_id="alpha", host="example", username="user")
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     service.create_run(
