@@ -661,6 +661,44 @@ def test_failed_reprobe_clears_old_selection_and_subsequent_submit_remains_fail_
     assert load_state(service, "run-1") is None
 
 
+@pytest.mark.parametrize(
+    "post_probe_error",
+    [
+        RuntimeError("runtime collaborator leaked endpoint=/private and token=secret"),
+        KeyError("private-control-locator"),
+    ],
+)
+def test_unexpected_post_probe_failure_clears_selection_and_repeated_submit_is_safe(
+    tmp_path, post_probe_error: Exception
+) -> None:
+    service, coordinator, client = _fresh_control_client(tmp_path)
+    old = ConfFlowCapabilities(4, "2.1.5", True, True, True, control_worker=True)
+    refreshed = ConfFlowCapabilities(4, "2.1.6", True, True, True, control_worker=True)
+    client._selected_capability = old
+    client._selected_state_locator = "/old/control"
+    coordinator.probe_capabilities = MagicMock(return_value=refreshed)
+    client._resolve_control_state_locator = MagicMock(side_effect=post_probe_error)
+
+    with pytest.raises(ConfFlowClientError, match="control backend capability selection failed") as raised:
+        client.probe()
+    assert raised.value.__cause__ is post_probe_error
+    assert client._selected_capability is None
+    assert client._selected_state_locator is None
+
+    handle, result = client.submit_with_outcome(SubmitRequest("run-1"))
+    assert handle is None
+    assert result.errors == ["control backend admission failed [control_backend_admission_unavailable]"]
+    failure = result.structured_failures[0]
+    assert failure.cause_code == "control_locator_unavailable"
+    assert failure.retryable is False
+    serialized = json.dumps(asdict(result))
+    for secret in ("private", "secret", "endpoint", "runtime collaborator"):
+        assert secret not in serialized
+    assert coordinator.probe_capabilities.call_count == 2
+    client._submit_control.assert_not_called()
+    assert load_state(service, "run-1") is None
+
+
 def test_partial_non_dag_selection_reprobes_with_dag_requirement_and_fails_closed(tmp_path) -> None:
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     spec = replace(_control_spec(), workflow_kind=WorkflowKind.dag)

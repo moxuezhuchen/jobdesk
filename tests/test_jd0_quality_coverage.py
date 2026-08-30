@@ -1061,10 +1061,10 @@ def test_client_facade_probe_attach_restore_and_outcome_errors(monkeypatch) -> N
     with pytest.raises(ValueError, match="only the control"):
         SSHConfFlowClient(coordinator, "server", backend_mode="legacy")
 
-    with pytest.raises(ConfFlowClientError, match="required control capability"):
+    with pytest.raises(ConfFlowClientError, match="capability selection failed"):
         client.probe()
     coordinator.capability_result = ValueError("probe failed")
-    with pytest.raises(ConfFlowClientError, match="probe failed"):
+    with pytest.raises(ConfFlowClientError, match="capability selection failed"):
         client.probe()
     coordinator.capability_result = ConfFlowCapabilityPreflightError("preflight failed")
     with pytest.raises(ConfFlowClientError, match="preflight failed"):

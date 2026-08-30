@@ -152,21 +152,10 @@ class SSHConfFlowClient:
             self._selected_capability = capabilities
             self._selected_state_locator = state_locator
             return capabilities
-        except (
-            AuthenticationException,
-            BadHostKeyException,
-            ConfFlowCapabilityPreflightError,
-            ControlProtocolError,
-            ConfFlowClientError,
-            RemoteError,
-            ConnectionError,
-            OSError,
-            TimeoutError,
-            ValueError,
-        ) as exc:
+        except Exception as exc:
             self._selected_capability = None
             self._selected_state_locator = None
-            raise ConfFlowClientError(str(exc)) from exc
+            raise ConfFlowClientError("control backend capability selection failed") from exc
 
     def probe_capabilities(self, server_id: str, *, require_dag: bool = False):
         try:
