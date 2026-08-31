@@ -9,7 +9,7 @@ consumer is JobDesk `v0.7.10` at merge
 The current immutable released producer is ConfFlow `v2.1.6` at merge
 `45bfac11f721b2152eeff5ee26e50463fcc6f657`; its wheel SHA-256 is
 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`.
-Publication does not by itself promote either package to production.
+ConfFlow `v2.1.6` is also the currently promoted production producer.
 
 ## Documentation and identity status
 
@@ -19,7 +19,8 @@ records, and older planning/evidence files may describe
 superseded backends or compatibility periods. Keep their counters, hashes,
 commands, and acceptance facts unchanged; they are not current release,
 endpoint, or promotion status. Current product boundaries are maintained in
-this file and [docs/architecture.md](docs/architecture.md).
+this file, [docs/architecture.md](docs/architecture.md), and the
+[2026-08-31 final remediation closeout](docs/FINAL_REMEDIATION_CLOSEOUT_20260831.md).
 
 The four identities below are deliberately separate (recorded during the
 remediation and release closeout; revalidate the live endpoint before any
@@ -28,19 +29,19 @@ acceptance or promotion action):
 | Identity | Recorded value | Meaning |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Shared/dirty development sources, not runtime identity |
-| Isolated acceptance candidate | Candidate 3 for the released JobDesk `v0.7.10` / ConfFlow `v2.1.6` pair | **PREPARED; NOT AUTHORIZED; NOT EXECUTED**. It is not acceptance evidence and made no runtime or endpoint change. |
+| Isolated acceptance run | Candidate 3 for the released JobDesk `v0.7.10` / ConfFlow `v2.1.6` pair, run `jd0710-cf216-real-methane-candidate3-9c42f6a1` | **COMPLETED; APPROVED**. Exactly one task was submitted and one real G16 optimization completed with normal termination. |
 | Released package evidence | JobDesk `v0.7.10` at merge `54f7735698f148371adb70397813c04ea569c245` (wheel SHA-256 `6e1c6b42f8cdbb939a57442e6b8b30b168c7bd6c5cf550cac958acd6e83992c3`); ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657` (wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`) | Published immutable artifacts; neither publication is a production switch |
-| Configured production executable | `wsl` `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
+| Configured production executable | `wsl` `/usr/local/bin/confflow` → `/opt/confflow-current` → `/opt/confflow-2.1.6-prod-venv/bin/confflow`, reporting ConfFlow `2.1.6` | Promoted released producer; verified installation provenance and stable `2.0.0` rollback are recorded |
 
-The latest authorized real-launcher attempt used the released pair but the
-acceptance environment lacked required install provenance. Admission therefore
-failed closed before control submission: zero tasks were submitted and no
-launcher, G16 process, or scientific workload ran. Candidate 3 is only prepared
-and has not been authorized or executed. The released artifacts and configured
-production executable remain separate identities; production is still on
-ConfFlow `2.0.0` until real-launcher acceptance and the separately gated
-endpoint switch, post-switch smoke, provenance persistence, and rollback
-verification pass.
+Candidate 3 consumed one atomic submit authorization and completed one released
+JobDesk `v0.7.10` → ConfFlow `v2.1.6` control workflow. The JobDesk downloader
+successfully retrieved the manifest-declared `g16_opt/output.xyz`; same-run
+recovery evidence separately verified the remote manifest, summary, and
+Gaussian log without resubmission. The log records optimization completion and
+normal Gaussian 16 termination. Production was then atomically promoted to the
+exact released `v2.1.6` environment. Capability, control, configuration, and
+JobDesk probe/validation smokes passed; promotion provenance and the stable
+`2.0.0` rollback target are persisted.
 
 ## Scope
 
@@ -179,8 +180,8 @@ remains archived.
 Versions do not need to match between Windows and
 Linux through shared Pydantic imports: JobDesk resolves the configured
 executable's producer-owned workflow configuration contract and sends the exact
-YAML bytes to its canonical validator. The configured production executable
-remains ConfFlow `2.0.0` until separately promoted.
+YAML bytes to its canonical validator. The configured production executable is
+the exact released ConfFlow `2.1.6` producer with verified install provenance.
 The Phase F owner exception removed the legacy backend from the production
 path. The provenance-verified v1.4.6 rollback remains historical evidence only
 and never authorizes a current control run.
