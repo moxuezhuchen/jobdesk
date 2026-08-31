@@ -9,29 +9,31 @@ wheel SHA-256 为
 当前不可变的已发布 producer 为 ConfFlow `v2.1.6`，merge 为
 `45bfac11f721b2152eeff5ee26e50463fcc6f657`，wheel SHA-256 为
 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`。
-发布不等于生产提升，当前生产执行端仍为 ConfFlow `2.0.0`。
+ConfFlow `v2.1.6` 也已提升为当前生产 producer。
 
 ## 文档与身份边界
 
 `docs/` 下的阶段记录、兼容性记录和 remediation 证据均保留为历史记录。
 其中的计数、哈希、命令和验收事实不应被解释为当前发布、端点或生产提升状态。
-当前产品边界由本文件和 [docs/architecture.md](docs/architecture.md) 描述。
+当前产品边界由本文件、[docs/architecture.md](docs/architecture.md) 和
+[2026-08-31 最终 remediation 收口](docs/FINAL_REMEDIATION_CLOSEOUT_20260831.md) 描述。
 
 以下四种身份必须严格区分（生产端点在验收或提升前仍需重新核验）：
 
 | 身份 | 当前记录 | 边界 |
 |---|---|---|
 | 共享源码树 | JobDesk `C:\dft\tool\jobdesk`（`codex/gui-ux-remediation`，`154ee77b065cd71787418be312700c996bf01c57`）；ConfFlow `/opt/ConfFlow`（`main`，`c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`） | 共享/可能有未提交修改的开发源码，不是运行时身份 |
-| 隔离验收候选 | 已发布 JobDesk `v0.7.10` / ConfFlow `v2.1.6` pair 的 candidate 3 | **PREPARED；NOT AUTHORIZED；NOT EXECUTED**。不是验收证据，未改变运行时或端点。 |
+| 隔离验收运行 | 已发布 JobDesk `v0.7.10` / ConfFlow `v2.1.6` pair 的 candidate 3，run `jd0710-cf216-real-methane-candidate3-9c42f6a1` | **COMPLETED；APPROVED**。严格提交一次任务，并完成一次真实 G16 优化且正常终止。 |
 | 已发布包 | JobDesk `v0.7.10`（merge `54f7735698f148371adb70397813c04ea569c245`，wheel SHA-256 `6e1c6b42f8cdbb939a57442e6b8b30b168c7bd6c5cf550cac958acd6e83992c3`）；ConfFlow `v2.1.6`（merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`，wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`） | 已发布不可变制品；均不表示生产切换 |
-| 已配置生产可执行文件 | `wsl` `/usr/local/bin/confflow` → 当前观测为 `/opt/ConfFlow/.venv/bin/confflow`，报告版本 `2.0.0` | 受保护的生产身份；`2.1.6` 尚未提升到生产 |
+| 已配置生产可执行文件 | `wsl` `/usr/local/bin/confflow` → `/opt/confflow-current` → `/opt/confflow-2.1.6-prod-venv/bin/confflow`，报告版本 `2.1.6` | 已提升的正式 producer；安装 provenance 与稳定 `2.0.0` 回滚均已验证并记录 |
 
-最新一次已授权真实 launcher 尝试使用已发布 pair，但验收环境缺少必需的
-install provenance，因此在 control admission 前 fail-closed：提交 task 数为
-0，未创建 launcher，未运行 G16 或任何科学 workload。Candidate 3 仅完成
-PREPARED，尚未授权且未执行。只有真实 launcher 验收通过，并完成独立 gate
-下的端点切换、切换后非计算 smoke、provenance 持久化和回滚核验后，生产身份
-才会改变。
+Candidate 3 消耗了一次原子提交授权，通过已发布 JobDesk `v0.7.10` →
+ConfFlow `v2.1.6` control 路径完成一次任务。JobDesk downloader 成功下载
+manifest 声明的 `g16_opt/output.xyz`；同一 run 的恢复证据在未重新提交的
+前提下另行核验远端 manifest、summary 与 Gaussian 日志。日志证明优化完成且
+Gaussian 16 正常终止。随后生产端原子提升到正式 `v2.1.6` 环境；capability、
+control、configuration 及 JobDesk probe/validation smoke 均通过，提升
+provenance 与稳定 `2.0.0` 回滚目标已经持久化。
 
 ## 适用范围
 
@@ -141,7 +143,7 @@ python -m build --outdir .build_dev
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，JobDesk `v0.7.10` CI 和已发布 pair 按正式 ConfFlow `2.1.6` 验证，`2.1.3` 仅保留为历史 release evidence。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件仍报告 ConfFlow `2.0.0`，尚未提升到 `2.1.6`。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，JobDesk `v0.7.10` CI 和已发布 pair 按正式 ConfFlow `2.1.6` 验证，`2.1.3` 仅保留为历史 release evidence。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件报告正式 ConfFlow `2.1.6`，并具有 verified 安装 provenance。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
 
 ```powershell
 # Windows（JobDesk 端）

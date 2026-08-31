@@ -5,15 +5,16 @@ Date: 2026-08-19
 Original status on 2026-08-19: plan only; no implementation, release, endpoint
 switch, or workload was authorized at that time.
 
-Current execution status on 2026-08-30: implementation and immutable releases
-have advanced to JobDesk `v0.7.10` at
+Current execution status on 2026-08-31: all nine gates are complete. Immutable
+releases are JobDesk `v0.7.10` at
 `54f7735698f148371adb70397813c04ea569c245` and ConfFlow `v2.1.6` at
-`45bfac11f721b2152eeff5ee26e50463fcc6f657`. The latest authorized real-launcher
-attempt failed closed before control admission because the acceptance
-environment lacked required install provenance. It submitted zero tasks and
-created no launcher, G16 process, or scientific workload. Production remains
-ConfFlow `2.0.0`. Candidate 3 is **PREPARED; NOT AUTHORIZED; NOT EXECUTED** and
-must not be treated as acceptance evidence.
+`45bfac11f721b2152eeff5ee26e50463fcc6f657`. Candidate 3 consumed exactly one
+submit and completed one real G16 optimization with normal termination. The
+shared ConfFlow source `.venv` was replaced and reverified with both historical
+and timestamped rollback environments retained. Production was atomically
+promoted to the exact released ConfFlow `2.1.6` environment; post-switch CLI and
+JobDesk non-compute smokes, persisted promotion provenance, stable `2.0.0`
+rollback, and G16 identity checks all passed.
 
 Scope: `C:\dft\tool\jobdesk` and WSL `Ubuntu-24.04:/opt/ConfFlow`
 
@@ -23,7 +24,7 @@ live review. It refreshes and operationalizes
 remains historical design evidence. Where the two differ, this plan controls
 execution order and gates.
 
-## Execution status addendum - 2026-08-30
+## Final execution status addendum - 2026-08-31
 
 This addendum reports current execution reality without rewriting the original
 review, starting-point measurements, problem register, or normative gates
@@ -33,27 +34,33 @@ date, not claims about the current release or production endpoint.
 | Gate | Current status | Remaining boundary |
 |---|---|---|
 | Gate 0 | Completed and recorded | Preserve exact refs and protected shared trees through final closeout. |
-| Gate 1 | **Incomplete** | Clean isolated ConfFlow environments and released artifacts are verified, but the separately authorized shared source `.venv` replacement and its identity/rollback checks have not been completed. The `Stale ConfFlow source environment` acceptance-matrix condition remains binding. |
-| Gate 2 | Completed at implementation/release level | Retain the enforced warning and 85% coverage gates through final audit. |
-| Gate 3 | Completed at implementation/release level | Retain the producer-owned canonical contract and compatibility facades. |
-| Gate 4 | Completed at implementation/release level | Retain per-server contract binding and fail-closed producer identity checks. |
-| Gate 5 | Completed at implementation/release level | Retain SQLite-authoritative decisions, durable reconciliation, and zero-redispatch guarantees. |
-| Gate 6 | Completed at implementation/release level | Retain engine/worker decomposition and state-ownership boundaries. |
-| Gate 7 | Completed at implementation/release level | Retain connection budgets, monitor separation, and GUI responsibility boundaries. |
-| Gate 8 | **Partial** | JobDesk `v0.7.10` and ConfFlow `v2.1.6` are immutable releases and released side-by-side non-compute evidence exists. Current-product docs are being corrected here. Real-launcher acceptance has not passed; production switch, post-switch smoke, persisted production provenance, and rollback verification remain pending. |
+| Gate 1 | **Completed** | Shared `.venv` is a healthy source-bound ConfFlow `2.0.0` environment; external import, `pip check`, focused tests, identity checks, and independent review passed. The old environment remains at `.venv.rollback-20260831T1804-v200`; `.venv.previous-c6a4263` is also preserved. |
+| Gate 2 | **Completed** | Enforced warning and 85% coverage gates remained green through final audit. |
+| Gate 3 | **Completed** | Producer-owned canonical contract and compatibility facades passed release and final verification. |
+| Gate 4 | **Completed** | Per-server contract binding, exact producer identity, remote validation, and compatibility matrices passed. |
+| Gate 5 | **Completed** | SQLite-authoritative decisions, durable reconciliation, one-submit evidence, and zero redispatch passed. |
+| Gate 6 | **Completed** | Engine/worker decomposition and state-ownership boundaries passed release and compatibility verification. |
+| Gate 7 | **Completed** | Connection budgets, monitor separation, and GUI responsibility boundaries passed regression verification. |
+| Gate 8 | **Completed** | Released artifacts and compatibility matrices passed; Candidate 3 completed the strict one-submit real G16 acceptance; production is ConfFlow `2.1.6`; CLI and JobDesk non-compute smokes, persisted promotion provenance, and stable `2.0.0` rollback verification passed. |
 
 ### Current acceptance and production boundary
 
-- The latest authorized real-launcher attempt stopped at the install-provenance
-  gate before control admission. Its result is fail-closed evidence only: zero
-  submitted tasks, no launcher, no G16, and no scientific workload.
-- Candidate 3 is prepared only. It is not authorized, has not run, and cannot
-  be cited as a passed gate.
-- The configured production endpoint still reports ConfFlow `2.0.0`; published
-  ConfFlow `v2.1.6` has not been promoted.
-- Promotion cannot repair a missing real-launcher result or the unfinished
-  Gate 1 shared `.venv` requirement. Each outstanding gate needs its own exact
-  evidence before the definition of done can pass.
+- Candidate 3 run `jd0710-cf216-real-methane-candidate3-9c42f6a1` has one atomic
+  submit marker, one submitted task, and a completed control trajectory.
+- JobDesk downloaded the sole manifest-declared `g16_opt/output.xyz`. Same-run
+  recovery evidence, without resubmission, verified the remote manifest,
+  summary, output hash, and Gaussian log. The log records optimization
+  completion and normal Gaussian 16 termination.
+- `/opt/confflow-current` now points to
+  `/opt/confflow-2.1.6-prod-venv/bin/confflow`; the producer reports build
+  `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256
+  `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`,
+  and verified install provenance.
+- `/opt/confflow-current.pre-v2.1.6-20260831T1807` points to the stable
+  `/opt/confflow-2.0.0-prod-venv/bin/confflow` rollback. Promotion provenance is
+  persisted at `/opt/confflow-promotions/20260831T1807-v2.1.6.json`.
+- Post-switch capability, control, configuration, JobDesk probe/validation, and
+  G16 before/after identity checks passed.
 
 ## 1. Outcome
 
