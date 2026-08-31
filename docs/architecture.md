@@ -2,18 +2,20 @@
 
 ## Current status and identity boundaries
 
-This document describes the current source-level boundaries. It is not a
-release, merge, endpoint-switch, workload, or promotion record. The isolated
-source candidate is JobDesk `0.7.8`; the released consumer is JobDesk
-`v0.7.7`, while failed immutable tag `v0.7.6` remains historical evidence and the
-current published producer is ConfFlow `v2.1.6`. The four identities below must not be conflated (revalidate
-the live endpoint before acceptance or promotion):
+This document describes the current source-level boundaries and records the
+current identity split; it does not authorize an endpoint switch, workload, or
+promotion. The immutable released consumer is JobDesk `v0.7.10` at merge
+`54f7735698f148371adb70397813c04ea569c245`, while failed or superseded tags
+remain historical evidence. The immutable released producer is ConfFlow
+`v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`.
+The four identities below must not be conflated (revalidate the live endpoint
+before acceptance or promotion):
 
 | Identity | Recorded value | Boundary |
 |---|---|---|
 | Shared source trees | JobDesk `C:\dft\tool\jobdesk` (`codex/gui-ux-remediation`, `154ee77b065cd71787418be312700c996bf01c57`); ConfFlow `/opt/ConfFlow` (`main`, `c6a4263bf3ec84669fd5279ec336b10ab2e18c9f`) | Dirty/shared development sources; not installed runtime |
-| Isolated implementation candidate | JobDesk `0.7.8` exact remote-source control-handoff fix; no producer source change | Review candidate; no release or endpoint switch |
-| Released package evidence | JobDesk `v0.7.7`, wheel SHA-256 `d62e456657192ba7aa20add21d00be7eabd2137b43280b240c384ecf8293c6ec`; ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published immutable artifacts; no production switch |
+| Isolated acceptance candidate | Candidate 3 for the released JobDesk `v0.7.10` / ConfFlow `v2.1.6` pair | **PREPARED; NOT AUTHORIZED; NOT EXECUTED**. It is not acceptance evidence and made no runtime or endpoint change. |
+| Released package evidence | JobDesk `v0.7.10` at merge `54f7735698f148371adb70397813c04ea569c245`, wheel SHA-256 `6e1c6b42f8cdbb939a57442e6b8b30b168c7bd6c5cf550cac958acd6e83992c3`; ConfFlow `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`, wheel SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548` | Published immutable artifacts; no production switch |
 | Configured production executable | `wsl` endpoint `/usr/local/bin/confflow` → currently observed `/opt/ConfFlow/.venv/bin/confflow`, reporting ConfFlow `2.0.0` | Protected runtime identity; the released `2.1.6` executable has not been promoted |
 
 The phase notes, compatibility records, and remediation evidence under
@@ -23,11 +25,14 @@ product behavior or as release/promotion authorization. This includes the
 older Phase 8/9 wizard and g16 notes, the Phase F owner-exception record, and
 the compatibility-period records.
 
-The published package and the isolated source candidate are separate from the
-configured production executable. Historical release `v0.7.2` / `v2.1.3` and
-current producer `v2.1.6` are not a production endpoint switch; production
-remains on ConfFlow `2.0.0` until the separately authorized promotion gate
-passes.
+The released packages and isolated acceptance candidates are separate from the
+configured production executable. The latest authorized real-launcher attempt
+failed closed before control admission because its acceptance environment
+lacked required install provenance. It submitted zero tasks and created no
+launcher, G16 process, or scientific workload. Candidate 3 is only prepared and
+has not been authorized or executed. Production remains on ConfFlow `2.0.0`
+until real-launcher acceptance and the separately gated endpoint switch,
+post-switch smoke, provenance persistence, and rollback verification pass.
 
 ## ConfFlow contract boundaries
 
