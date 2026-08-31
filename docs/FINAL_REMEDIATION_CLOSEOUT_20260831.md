@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Plan: `docs/superpowers/plans/2026-08-19-jobdesk-confflow-full-remediation.md`
+Plan: JobDesk / ConfFlow full-remediation plan dated 2026-08-19.
 
 Verdict: **APPROVED — all nine gates complete**.
 
