@@ -243,7 +243,8 @@ def test_windows_chemistry_check_rejects_tampered_checked_in_inputs(tmp_path: Pa
         pytest.skip("the chemistry lock gate runs in PowerShell on Windows")
 
     wheel = REPO_ROOT / ".matrix-artifacts" / "confflow-2.1.6-py3-none-any.whl"
-    assert wheel.is_file(), "the formal ConfFlow v2.1.6 wheel must be present for this gate"
+    if not wheel.is_file():
+        pytest.skip("the independently downloaded ConfFlow wheel is not present")
     assert shutil.which("uv") is not None, "uv 0.11.5 must be available for this gate"
 
     sandbox = tmp_path / "chemistry-check"
@@ -366,10 +367,63 @@ def test_chinese_readme_states_version_spec():
     assert "confflow-2.1.6-py3-none-any.whl" in content
 
 
+def test_windows_development_commands_use_the_project_venv():
+    """Local Windows commands must not silently fall back to global Python."""
+    windows_python = r".venv\Scripts\python.exe"
+    for path in ("README.md", "README.zh.md", "CONTRIBUTING.md"):
+        content = _read(path)
+        assert "py -3.13 -m venv .venv" in content, f"{path} must create the locked Python 3.13 environment"
+        assert windows_python in content, f"{path} must name the project Python explicitly"
+        assert re.search(r"(?m)^\s*python -m (pip|ruff|mypy|pytest|build)\b", content) is None, (
+            f"{path} must not rely on an activated or global Python for development commands"
+        )
+
+    for path in ("README.md", "README.zh.md"):
+        content = _read(path)
+        assert r".venv\Scripts\jobdesk-gui.exe" in content
+        assert r".venv\Scripts\jobdesk.exe" in content
+        assert re.search(r"(?m)^\s*jobdesk\b", content) is None, (
+            f"{path} must not invoke a potentially global JobDesk CLI"
+        )
+        assert re.search(r"(?m)^\s*jobdesk-gui\s*$", content) is None, (
+            f"{path} must not launch a potentially global jobdesk-gui"
+        )
+
+
+def test_windows_chemistry_guidance_requires_formal_wheel_lock_and_checks():
+    """Chemistry setup guidance must make the 2.1.6 environment auditable."""
+    for path in ("README.md", "README.zh.md", "CONTRIBUTING.md"):
+        content = _read(path)
+        assert "confflow-2.1.6-py3-none-any.whl" in content, path
+        assert "jobdesk-chem-py313-win_amd64.txt" in content, path
+        assert "pip check" in content, path
+        assert "confflow.__version__" in content, path
+        assert "confflow.__file__" in content, path
+
+
+def test_dependency_decision_names_the_current_formal_reference():
+    """The dependency decision must not present the 2.0.0 rollback as current."""
+    content = _read("docs/confflow_dependency_decision.md")
+    assert "confflow>=2.0,<3.0" in content
+    assert "ConfFlow `v2.1.6`" in content
+    assert "confflow-2.1.6-py3-none-any.whl" in content
+    assert "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548" in content
+    assert "jobdesk-chem-py313-win_amd64.txt" in content
+    assert "Control submission accepts only the exact clean `v2.0.0` provenance." not in content
+
+
 def test_deployment_doc_mirrors_version_and_capability_contract():
     """The deployment guide must mirror the structured version contract."""
     content = _read("docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md")
     assert "confflow-2.1.6-py3-none-any.whl" in content
+    assert "DO NOT USE FOR CURRENT DEPLOYMENT" in content
+    assert "jobdesk-chem-py313-win_amd64.txt" in content
+    assert "pip check" in content
+    assert "confflow.__version__" in content
+    assert "confflow.__file__" in content
+    assert "1.4.5" not in content
+    assert "1.4.6" not in content
+    assert ">=1.4.5,<2.0" not in content
     assert "1.4.1" not in content
     assert "CONFFLOW_1_4_1" not in content
     assert '"schema_version": 4' in content
@@ -382,6 +436,22 @@ def test_deployment_doc_mirrors_version_and_capability_contract():
         "{basename}min.xyz",
     ):
         assert filename in content
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "docs/CONFFLOW_1_3_0_WHEEL_DEPLOYMENT.md",
+        "docs/CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md",
+    ),
+)
+def test_legacy_deployment_guides_point_to_canonical_current_docs(path: str):
+    """Archived deployment records must not redirect users to another stale guide."""
+    content = _read(path)
+    assert "DO NOT USE FOR CURRENT DEPLOYMENT" in content
+    assert "HISTORICAL COMMANDS ONLY" in content
+    assert "README.md" in content
+    assert "CONTRIBUTING.md" in content
 
 
 def test_preflight_module_has_no_bare_version_literal():

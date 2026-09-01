@@ -59,12 +59,16 @@ JobDesk probe/validation smokes passed; promotion provenance and the stable
 ## Install From Source
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-jobdesk-gui
+py -3.13 -m venv .venv
+& ".venv\Scripts\python.exe" -m pip install --upgrade pip
+& ".venv\Scripts\python.exe" -m pip install -e ".[dev]"
+& ".venv\Scripts\jobdesk-gui.exe"
 ```
+
+The commands above deliberately invoke the interpreter and GUI launcher from
+the project `.venv`; activating the environment is optional. This prevents a
+globally installed `python`, `jobdesk`, or `jobdesk-gui` from being selected by
+accident.
 
 ## Server Configuration
 
@@ -105,20 +109,20 @@ JobDesk does not store SSH passwords and does not pass passwords on command line
 ## CLI Examples
 
 ```powershell
-jobdesk files list-remote <server_id> <remote_path>
-jobdesk files upload <server_id> <local_path> <remote_path>
-jobdesk files download <server_id> <remote_path> <local_path>
-jobdesk files preview <server_id> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files list-remote <server_id> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files upload <server_id> <local_path> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files download <server_id> <remote_path> <local_path>
+& ".venv\Scripts\jobdesk.exe" files preview <server_id> <remote_path>
 
-jobdesk run create <workspace> --server <id> --remote-dir <path> --command "g16 {name}" --files <f1> <f2>
-jobdesk run submit <workspace> <run_id>
-jobdesk run refresh <workspace> <run_id>
-jobdesk run download <workspace> <run_id> --patterns "*.log" "*.out"
-jobdesk run cancel <workspace> <run_id>
-jobdesk run retry <workspace> <run_id>
-jobdesk run recover <workspace>
-jobdesk run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
-jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
+& ".venv\Scripts\jobdesk.exe" run create <workspace> --server <id> --remote-dir <path> --command "g16 {name}" --files <f1> <f2>
+& ".venv\Scripts\jobdesk.exe" run submit <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run refresh <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run download <workspace> <run_id> --patterns "*.log" "*.out"
+& ".venv\Scripts\jobdesk.exe" run cancel <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run retry <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run recover <workspace>
+& ".venv\Scripts\jobdesk.exe" run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
+& ".venv\Scripts\jobdesk.exe" run abandon-submit <workspace> <run_id> --tasks <task_id>
 ```
 
 ## Run Database
@@ -157,12 +161,17 @@ For ordinary SSH/SFTP work, `SessionPool` owns one reusable session per server. 
 
 ## Development
 
+Before running the full test suite or workflow/node-graph tests, complete the
+[Windows chemistry environment](#windows-chemistry-environment) lock setup
+below. It is a prerequisite for those tests: the approved ConfFlow wheel must
+be installed into this project's `.venv`, and the lock and `pip check` gates
+must pass first.
+
 ```powershell
-python -m ruff check .
-python -m mypy src
-python -m pip install -e ".[dev,chem]"  # required for workflow tests
-python -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
-python -m build --outdir .build_dev
+& ".venv\Scripts\python.exe" -m ruff check .
+& ".venv\Scripts\python.exe" -m mypy src
+& ".venv\Scripts\python.exe" -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
+& ".venv\Scripts\python.exe" -m build --outdir .build_dev
 ```
 
 Real SSH/SFTP and ConfFlow integration tests are skipped unless the documented environment variables are set. See `docs/CONFFLOW_WSL_SINGLE_RUN.md` for the controlled real-environment test shape.
@@ -215,19 +224,37 @@ JobDesk's `MIN_VERSION` / `MAX_EXCLUSIVE` in
 `jobdesk_app.core.confflow_contract` is the structured source of truth for the
 producer window; pyproject, CI, and this README are mirrors.
 
+### Windows chemistry environment
+
+The formal JobDesk `v0.7.10` chemistry reference is the released
+`confflow-2.1.6-py3-none-any.whl` (SHA-256
+`d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`). For a
+reproducible Python 3.13 Windows environment, place that exact wheel at
+`.matrix-artifacts\confflow-2.1.6-py3-none-any.whl` and sync the checked-in
+lock. The lock contains the exact wheel hash and all chemistry dependencies:
+
 ```powershell
-# Windows (JobDesk side)
-# If the package index does not provide the chemistry build, install the
-# approved wheel first (see docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md):
-# python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
-python -m pip install -e ".[chem]"
+$venvPython = ".venv\Scripts\python.exe"
+uv pip sync --python $venvPython --find-links .matrix-artifacts `
+  requirements\locks\jobdesk-chem-py313-win_amd64.txt
+& $venvPython -m pip install --no-deps -e .
+& $venvPython -m pip check
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
+
+The lock is regenerated and checked with
+`powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1`.
+Do not use an unqualified `python -m pip install -e ".[chem]"` as the only
+chemistry setup step: the project contract intentionally accepts
+`confflow>=2.0,<3.0`, while the formal reference and the control/CI checks are
+ConfFlow `2.1.6`.
 
 ```bash
 # Linux compute node: install the same approved ConfFlow 2.1.6 wheel.
-# The offline wheel workflow is documented in
-# docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md.
-python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
+# The historical offline-wheel reference is retained in
+# docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md; this README is the canonical entry.
+python3 -m pip install --no-deps /path/to/confflow-2.1.6-py3-none-any.whl
+python3 -m pip check
 ```
 
 ### Submit page (Phase 14)

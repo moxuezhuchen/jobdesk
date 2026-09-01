@@ -20,18 +20,33 @@ every change before it lands.
 ## Development environment
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+py -3.13 -m venv .venv
+& ".venv\Scripts\python.exe" -m pip install --upgrade pip
+& ".venv\Scripts\python.exe" -m pip install -e ".[dev]"
 ```
+
+The commands explicitly use the project `.venv`; activation is optional. Keep
+using `.venv\Scripts\python.exe` for subsequent commands so a global
+JobDesk/ConfFlow installation cannot silently take precedence.
 
 The base development extra is enough for non-chemistry paths. The full test
 suite and workflow/node-graph tests require the optional chemistry stack too:
 
 ```powershell
-python -m pip install -e ".[dev,chem]"
+$venvPython = ".venv\Scripts\python.exe"
+# Put the approved wheel at .matrix-artifacts before syncing the lock.
+uv pip sync --python $venvPython --find-links .matrix-artifacts `
+  requirements\locks\jobdesk-chem-py313-win_amd64.txt
+& $venvPython -m pip install --no-deps -e .
+& $venvPython -m pip check
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
+
+The lock requires the released `confflow-2.1.6-py3-none-any.whl` and its
+SHA-256 `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`.
+This chemistry lock setup is a prerequisite for the full test suite and
+workflow/node-graph tests. Regenerate or check it with
+`powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1`.
 
 ## Test / lint / type-check cycle
 
@@ -41,10 +56,9 @@ Python 3.11 / 3.12 / 3.13 against `windows-latest`; please run the
 same on your machine before pushing.
 
 ```powershell
-python -m ruff check .
-python -m mypy src
-python -m pip install -e ".[dev,chem]"  # required for the full suite
-python -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
+& ".venv\Scripts\python.exe" -m ruff check .
+& ".venv\Scripts\python.exe" -m mypy src
+& ".venv\Scripts\python.exe" -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
 ```
 
 Tests that hit real SSH, SFTP, or the ConfFlow binary are gated by

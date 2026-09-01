@@ -1,8 +1,12 @@
 # ConfFlow 1.3.0 Wheel 构建与部署指南
 
-> **Superseded:** JobDesk now requires ConfFlow 1.4.0. Use
-> `CONFFLOW_1_4_0_WHEEL_DEPLOYMENT.md`; this file is retained only for the
-> historical 1.3.0 deployment record.
+> **DO NOT USE FOR CURRENT DEPLOYMENT.** This file is retained only for the
+> historical ConfFlow 1.3.0 deployment record. For the supported environment,
+> start with `README.md`; contributors should also follow `CONTRIBUTING.md`.
+>
+> **HISTORICAL COMMANDS ONLY.** Every command and dependency statement below
+> describes the retired 1.3.0 procedure and must not be used to prepare a
+> current JobDesk or ConfFlow environment.
 
 ## 概述
 
@@ -206,8 +210,8 @@ git checkout v1.3.0
 
 ---
 
-## 当前依赖方式
+## 历史依赖方式（仅记录）
 
-JobDesk 不再包含 vendored ConfFlow 源码。`chem` extra 保留
-`confflow>=1.3.0`，因此在离线或尚未发布到 PyPI 的环境中，必须先安装本地构建的
-ConfFlow wheel，再安装 JobDesk 的 `chem` extra。
+当时 JobDesk 已不再包含 vendored ConfFlow 源码，`chem` extra 声明为
+`confflow>=1.3.0`，因此旧流程要求先安装本地构建的 ConfFlow wheel，再安装
+JobDesk 的 `chem` extra。该说明不代表当前依赖或安装方式。

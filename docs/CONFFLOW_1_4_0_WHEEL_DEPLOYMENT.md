@@ -1,13 +1,17 @@
 # ConfFlow 1.4.0 Wheel 构建与部署指南
 
-> **Archived:** JobDesk now certifies ConfFlow 1.4.3 (this 1.4.0 guide is retained for history;
-> Use `CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md` for current guidance;
-> this file is retained for the historical 1.4.0 deployment record.
+> **DO NOT USE FOR CURRENT DEPLOYMENT.** This file is retained only for the
+> historical ConfFlow 1.4.0 deployment record. For the supported environment,
+> start with `README.md`; contributors should also follow `CONTRIBUTING.md`.
+>
+> **HISTORICAL COMMANDS ONLY.** Every command and dependency statement below
+> describes the retired 1.4.0 procedure and must not be used to prepare a
+> current JobDesk or ConfFlow environment.
 
-JobDesk 的 `chem` extra 要求 `confflow>=1.4.0`。权威源码仓库位于
-`Ubuntu-24.04:/opt/ConfFlow`。
+当时 JobDesk 的 `chem` extra 要求 `confflow>=1.4.0`，权威源码仓库记录为
+`Ubuntu-24.04:/opt/ConfFlow`。这些版本和命令仅是历史证据。
 
-## 构建
+## 历史构建命令（不要用于当前部署）
 
 在不访问网络、不安装 WSL 包的前提下，使用现有构建工具：
 
@@ -17,7 +21,7 @@ python3 -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir dist 
 sha256sum dist/confflow-1.4.0-py3-none-any.whl
 ```
 
-## Windows 验证安装
+## 历史 Windows 验证安装（不要用于当前部署）
 
 ```powershell
 C:\dft\tool\verify-venv\Scripts\python.exe -m pip install `

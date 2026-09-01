@@ -1,47 +1,68 @@
-> **Current release:** ConfFlow 2.1.6 is the certified producer for this JobDesk candidate. The filename is retained for deployment-history compatibility.
+> **DO NOT USE FOR CURRENT DEPLOYMENT AS THE CANONICAL ENTRY.** This retained
+> historical filename is a compatibility reference only. The canonical current
+> Windows setup is [README.md — Windows chemistry environment](../README.md#windows-chemistry-environment);
+> contributor setup is [CONTRIBUTING.md — Development environment](../CONTRIBUTING.md#development-environment).
+> The 2.1.6 facts and checks below remain for old links and auditability; follow
+> the canonical entries for current instructions.
 
-> **Current 2.1.6 contract:** use `confflow>=2.0,<3.0` and the released
-> `confflow-2.1.6-py3-none-any.whl` whose SHA-256 is
-> `d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`.
-> The older 1.4.5 command examples below are retained only as deployment
-> history; substitute the current approved wheel and preserve the controlled
-> dependency lock/wheelhouse procedure.
+# ConfFlow 2.1.6 Wheel 构建与部署参考（历史文件名）
 
-# ConfFlow 1.4.5 Wheel 构建与部署指南
+This page records the release identity and verification contract for the
+legacy `1.4.2` filename; it is not a separate current deployment procedure.
+JobDesk `v0.7.10` keeps the compatibility window
+`confflow>=2.0,<3.0`, but its formal released producer reference is ConfFlow
+`v2.1.6`. Use only the released wheel
+`confflow-2.1.6-py3-none-any.whl` with SHA-256
+`d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`.
 
-JobDesk 的 `chem` extra 要求 `confflow>=1.4.5,<2.0`。公共 PyPI 上名为
-`confflow` 的项目不是本化学工作流引擎；请先使用经过批准的 ConfFlow
-1.4.5 release wheel，再安装 JobDesk 的化学 extra。
+The authoritative ConfFlow source repository is
+`Ubuntu-24.04:/opt/ConfFlow`. Do not rebuild or substitute a development wheel
+for the released artifact used by the formal control path.
 
-权威源码仓库位于 `Ubuntu-24.04:/opt/ConfFlow`。
+## Windows JobDesk environment (reference only)
 
-## 构建
-
-在不访问网络、不安装 WSL 包的前提下，使用现有构建工具：
-
-```bash
-wheel=confflow-1.4.6-py3-none-any.whl
-sha256sum "$wheel"
-# expected: 7d036a44784d581b5b2fec2443f9cac7a0b2257d08b85c1a1b797bae565f75f5
-```
-
-## Windows 验证安装
-
-```powershell
-C:\dft\tool\verify-venv\Scripts\python.exe -m pip install `
-  --no-index --no-deps --force-reinstall `
-  \\wsl.localhost\Ubuntu-24.04\tmp\confflow-1.4.6-release-download-verify2\confflow-1.4.6-py3-none-any.whl
-```
-
-验证版本、来源和 capability handshake：
+Put the exact released wheel at
+`.matrix-artifacts\confflow-2.1.6-py3-none-any.whl`, then use the Python 3.13
+chemistry lock. The lock records the wheel digest and the complete dependency
+set; the editable JobDesk install is deliberately performed without resolving
+the broad `confflow>=2.0,<3.0` range again.
 
 ```powershell
-C:\dft\tool\verify-venv\Scripts\python.exe -c `
-  "import confflow; print(confflow.__version__, confflow.__file__)"
-C:\dft\tool\verify-venv\Scripts\confflow.exe --capabilities --json
+$venvPython = ".venv\Scripts\python.exe"
+$wheel = ".matrix-artifacts\confflow-2.1.6-py3-none-any.whl"
+$expectedSha256 = "d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548"
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $wheel).Hash.ToLowerInvariant() -ne $expectedSha256) {
+    throw "The ConfFlow wheel digest does not match the approved v2.1.6 artifact."
+}
+uv pip sync --python $venvPython --find-links .matrix-artifacts `
+  requirements\locks\jobdesk-chem-py313-win_amd64.txt
+& $venvPython -m pip install --no-deps -e .
+& $venvPython -m pip check
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
 
-预期版本为 `1.4.5`，且 capability JSON 必须满足 schema v4：
+Use the `jobdesk-chem-py311-win_amd64.txt` or
+`jobdesk-chem-py312-win_amd64.txt` lock when using the corresponding Python
+version. Check or regenerate all three locks with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1 -Check
+```
+
+The check must pass before a lock or wheel is used. `pip check` must report no
+broken requirements, and the final import check must show both the exact
+ConfFlow version and a path under the intended `.venv`; the command above
+asserts that path instead of relying on an activated shell.
+
+## Capability handshake
+
+The installed producer must expose the current capability contract:
+
+```powershell
+& ".venv\Scripts\confflow.exe" --capabilities --json
+```
+
+The payload must include schema v4 and the declared artifact names:
 
 ```json
 {
@@ -57,29 +78,34 @@ C:\dft\tool\verify-venv\Scripts\confflow.exe --capabilities --json
 }
 ```
 
-schema v4 还必须包含 `producer`（package/version/build/wheel）和 `executable`
-（path/sha256/python）两个 provenance 块；正式 wheel 发布要求 `wheel.sha256` 非空。
+Schema v4 must also contain non-empty `producer` and `executable` provenance
+blocks, including the package version, build, wheel digest, executable path,
+executable digest, and Python version. The `workflow_state`, `resume`, and
+`dag` capabilities must all be true.
 
-同时，`capabilities.workflow_state`、`capabilities.resume`、`capabilities.dag`
-均必须为 `true`。
+## Linux compute node (reference only)
 
-## 远端计算节点
-
-Linux 计算节点也必须安装同一份 1.4.5 release wheel，并先安装受控依赖：
+The remote compute node must use the same approved ConfFlow `2.1.6` release
+wheel and a controlled dependency lock for its Python version:
 
 ```bash
-python3 -m pip install --no-index --find-links /path/to/wheelhouse --require-hashes -r /path/to/confflow-1.4.5-py312-linux-x86_64.lock
-python3 -m pip install --no-deps /path/to/confflow-1.4.6-py3-none-any.whl
+python3 -m pip install --no-index --find-links /path/to/wheelhouse \
+  --require-hashes -r /path/to/confflow-2.1.6-py312-linux-x86_64.lock
+python3 -m pip install --no-deps /path/to/confflow-2.1.6-py3-none-any.whl
 python3 -m pip check
-confflow --version
+python3 -c "import confflow; assert confflow.__version__ == '2.1.6'; print(confflow.__file__)"
 confflow --capabilities --json
 ```
 
-JobDesk 在输入上传前和提交阶段各执行一次 capability v4 preflight，并拒绝
-不满足 `>=1.4.5,<2.0`、缺少任一必需能力、artifacts 不匹配、dirty/development/unverified provenance 或 release digest 不匹配的远端 ConfFlow。
+JobDesk performs the capability v4 preflight before input upload and again at
+submission. It rejects a producer outside `>=2.0,<3.0`, a missing capability,
+an artifact mismatch, unverified provenance, or a release digest mismatch.
 
-## 发布边界
+## Release boundary
 
-ConfFlow 的 release workflow 生成 wheel、source distribution、校验和及可选
-SBOM，但不自动发布到公共 PyPI。离线部署仍需使用经过校验的本地或 GitHub
-release artifact。
+The ConfFlow release workflow creates the wheel, source distribution,
+checksums, and optional SBOM, but does not publish to public PyPI. Deployment
+must use a verified local or release artifact. This historical filename is kept
+only so existing references remain discoverable; link current operators to the
+canonical README/CONTRIBUTING entries above rather than treating this legacy
+filename as current guidance.

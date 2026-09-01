@@ -40,11 +40,20 @@ JobDesk **不通过 subprocess 调用本地 ConfFlow**。ConfFlow 的执行路�
 ### External ConfFlow dependency
 
 JobDesk no longer vendors ConfFlow source. The `chem` optional dependency keeps
-`confflow>=2.0,<3.0`; install the approved ConfFlow `v2.0.0` wheel before
-installing JobDesk with `[chem]` in environments where the package is not
-available from an index. Control submission accepts only the exact clean
-`v2.0.0` provenance. The Phase F owner exception removed the legacy backend
-from the production path; v1.5.3 and v1.4.6 remain historical evidence only.
+`confflow>=2.0,<3.0`, which is the supported compatibility window. The formal
+released producer reference for JobDesk `v0.7.10` is ConfFlow `v2.1.6`:
+install the approved `confflow-2.1.6-py3-none-any.whl` and use the checked-in
+platform chemistry lock before installing JobDesk with `[chem]` in environments
+where the package is not available from an index. The wheel SHA-256 is
+`d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`; the
+Windows Python 3.13 lock is
+`requirements/locks/jobdesk-chem-py313-win_amd64.txt`. Verify the final
+environment with the intended `.venv` interpreter, `pip check`, and an import
+that reports both `confflow.__version__` and `confflow.__file__`. Control
+submission accepts only the exact clean `v2.1.6` provenance. The stable
+`v2.0.0` environment is rollback evidence, not the current formal reference.
+The Phase F owner exception removed the legacy backend from the production
+path; older producer versions remain historical evidence only.
 
 **Python APIs used by JobDesk**:
 - `confflow.core.models` — Pydantic models used for workflow validation

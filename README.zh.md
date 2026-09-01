@@ -51,12 +51,14 @@ provenance 与稳定 `2.0.0` 回滚目标已经持久化。
 ## 从源码安装
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-jobdesk-gui
+py -3.13 -m venv .venv
+& ".venv\Scripts\python.exe" -m pip install --upgrade pip
+& ".venv\Scripts\python.exe" -m pip install -e ".[dev]"
+& ".venv\Scripts\jobdesk-gui.exe"
 ```
+
+上面的命令明确调用项目 `.venv` 中的解释器和 GUI 启动器；不要求激活
+环境。这样可以避免误选全局安装的 `python`、`jobdesk` 或 `jobdesk-gui`。
 
 ## 服务器配置
 
@@ -97,20 +99,20 @@ JobDesk 不会存储 SSH 密码，也不会在命令行上传递密码。请使�
 ## CLI 示例
 
 ```powershell
-jobdesk files list-remote <server_id> <remote_path>
-jobdesk files upload <server_id> <local_path> <remote_path>
-jobdesk files download <server_id> <remote_path> <local_path>
-jobdesk files preview <server_id> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files list-remote <server_id> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files upload <server_id> <local_path> <remote_path>
+& ".venv\Scripts\jobdesk.exe" files download <server_id> <remote_path> <local_path>
+& ".venv\Scripts\jobdesk.exe" files preview <server_id> <remote_path>
 
-jobdesk run create <workspace> --server <id> --remote-dir <path> --command "g16 {name}" --files <f1> <f2>
-jobdesk run submit <workspace> <run_id>
-jobdesk run refresh <workspace> <run_id>
-jobdesk run download <workspace> <run_id> --patterns "*.log" "*.out"
-jobdesk run cancel <workspace> <run_id>
-jobdesk run retry <workspace> <run_id>
-jobdesk run recover <workspace>
-jobdesk run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
-jobdesk run abandon-submit <workspace> <run_id> --tasks <task_id>
+& ".venv\Scripts\jobdesk.exe" run create <workspace> --server <id> --remote-dir <path> --command "g16 {name}" --files <f1> <f2>
+& ".venv\Scripts\jobdesk.exe" run submit <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run refresh <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run download <workspace> <run_id> --patterns "*.log" "*.out"
+& ".venv\Scripts\jobdesk.exe" run cancel <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run retry <workspace> <run_id>
+& ".venv\Scripts\jobdesk.exe" run recover <workspace>
+& ".venv\Scripts\jobdesk.exe" run confirm-submitted <workspace> <run_id> --tasks <task_id> --job-id <task_id>=<job_id>
+& ".venv\Scripts\jobdesk.exe" run abandon-submit <workspace> <run_id> --tasks <task_id>
 ```
 
 ## 运行数据库
@@ -131,32 +133,53 @@ JobDesk 默认使用 SQLite 将运行和任务状态存储在 `%APPDATA%/JobDesk
 
 ## 开发
 
+运行完整测试套件或 workflow/node-graph 测试前，必须先完成下方
+[Windows 化学环境](#windows-化学环境)的锁文件设置。这是这些测试的前置条件：
+已批准的 ConfFlow wheel 必须安装到本项目的 `.venv`，并且锁文件与
+`pip check` 校验必须先通过。
+
 ```powershell
-python -m ruff check .
-python -m mypy src
-python -m pip install -e ".[dev,chem]"  # 工作流测试需要
-python -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
-python -m build --outdir .build_dev
+& ".venv\Scripts\python.exe" -m ruff check .
+& ".venv\Scripts\python.exe" -m mypy src
+& ".venv\Scripts\python.exe" -m pytest tests -q --basetemp .pytest_tmp_dev -p no:cacheprovider
+& ".venv\Scripts\python.exe" -m build --outdir .build_dev
 ```
 
 真实的 SSH/SFTP 与 ConfFlow 集成测试在设置了文档化的环境变量后才会运行。控制下的真实环境测试形态请参考 `docs/CONFFLOW_WSL_SINGLE_RUN.md`。
 
 ## ConfFlow 集成
 
-ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在执行 `pip install -e ".[chem]"` 后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，JobDesk `v0.7.10` CI 和已发布 pair 按正式 ConfFlow `2.1.6` 验证，`2.1.3` 仅保留为历史 release evidence。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件报告正式 ConfFlow `2.1.6`，并具有 verified 安装 provenance。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+ConfFlow 工作流引擎是**可选**依赖。JobDesk 的 GUI 在不安装它时也能加载和运行；wizard、`WorkflowSpec` 与 `--resume` submitter 分支仅在按下文锁文件完成化学环境安装后才可用，并且要求远端 Linux 计算节点安装匹配的 ConfFlow wheel。当前 JobDesk 合约是 `confflow>=2.0,<3.0`，JobDesk `v0.7.10` CI 和已发布 pair 按正式 ConfFlow `2.1.6` 验证，`2.1.3` 仅保留为历史 release evidence。Windows 与 Linux 不依赖共享的 Pydantic 模型版本：JobDesk 解析已配置可执行文件提供的 producer-owned workflow configuration contract，并把完全相同的 YAML 字节交给其 canonical validator。当前生产可执行文件报告正式 ConfFlow `2.1.6`，并具有 verified 安装 provenance。远端 capability 必须是 schema v4，并包含匹配的 `artifacts`、producer、executable 和安装 provenance 契约。control 路径必须显式选择 `control`，使用 producer-owned worker handoff，禁止静默降级到 legacy；v1.5.3 与 v1.4.6 仅保留为历史 release evidence，不属于当前生产路径。
+
+### Windows 化学环境
+
+JobDesk `v0.7.10` 的正式化学参考是已发布的
+`confflow-2.1.6-py3-none-any.whl`（SHA-256
+`d8fe44611ec128fece79309f42792b716c1f2f59871b5aab4024f3d136f75548`）。要复现
+Python 3.13 Windows 环境，请先把这份完全相同的 wheel 放到
+`.matrix-artifacts\confflow-2.1.6-py3-none-any.whl`，再同步仓库中的锁文件。
+锁文件包含精确 wheel 哈希及全部化学依赖：
 
 ```powershell
-# Windows（JobDesk 端）
-# 如果包索引没有提供化学版本，请先安装已批准的 ConfFlow 2.1.6 wheel；
-# 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md：
-# python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
-python -m pip install -e ".[chem]"
+$venvPython = ".venv\Scripts\python.exe"
+uv pip sync --python $venvPython --find-links .matrix-artifacts `
+  requirements\locks\jobdesk-chem-py313-win_amd64.txt
+& $venvPython -m pip install --no-deps -e .
+& $venvPython -m pip check
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
+
+锁文件由
+`powershell -ExecutionPolicy Bypass -File scripts/compile_chem_locks.ps1`
+重新生成并校验。不要把未限定的 `python -m pip install -e ".[chem]"` 当作唯一
+化学安装步骤：项目合约有意保持 `confflow>=2.0,<3.0`，但正式参考和
+control/CI 校验版本是 ConfFlow `2.1.6`。
 
 ```bash
 # Linux 计算节点也安装相同的已批准 ConfFlow 2.1.6 wheel。
-# 离线 wheel 流程见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md。
-python -m pip install /path/to/confflow-2.1.6-py3-none-any.whl
+# 历史离线 wheel 参考见 docs/CONFFLOW_1_4_2_WHEEL_DEPLOYMENT.md；本 README 是 canonical 入口。
+python3 -m pip install --no-deps /path/to/confflow-2.1.6-py3-none-any.whl
+python3 -m pip check
 ```
 
 ### 提交页（Phase 14）
