@@ -374,20 +374,20 @@ def test_windows_development_commands_use_the_project_venv():
         content = _read(path)
         assert "py -3.13 -m venv .venv" in content, f"{path} must create the locked Python 3.13 environment"
         assert windows_python in content, f"{path} must name the project Python explicitly"
-        assert re.search(r"(?m)^\s*python -m (pip|ruff|mypy|pytest|build)\b", content) is None, (
-            f"{path} must not rely on an activated or global Python for development commands"
-        )
+        assert (
+            re.search(r"(?m)^\s*python -m (pip|ruff|mypy|pytest|build)\b", content) is None
+        ), f"{path} must not rely on an activated or global Python for development commands"
 
     for path in ("README.md", "README.zh.md"):
         content = _read(path)
         assert r".venv\Scripts\jobdesk-gui.exe" in content
         assert r".venv\Scripts\jobdesk.exe" in content
-        assert re.search(r"(?m)^\s*jobdesk\b", content) is None, (
-            f"{path} must not invoke a potentially global JobDesk CLI"
-        )
-        assert re.search(r"(?m)^\s*jobdesk-gui\s*$", content) is None, (
-            f"{path} must not launch a potentially global jobdesk-gui"
-        )
+        assert (
+            re.search(r"(?m)^\s*jobdesk\b", content) is None
+        ), f"{path} must not invoke a potentially global JobDesk CLI"
+        assert (
+            re.search(r"(?m)^\s*jobdesk-gui\s*$", content) is None
+        ), f"{path} must not launch a potentially global jobdesk-gui"
 
 
 def test_windows_chemistry_guidance_requires_formal_wheel_lock_and_checks():
