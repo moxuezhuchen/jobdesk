@@ -15,9 +15,7 @@ def test_validate_step_config_returns_errors_for_null_step() -> None:
 
 def test_validate_step_config_returns_errors_for_string_params() -> None:
     """A ``params`` value that is not a mapping must return a list (no AttributeError)."""
-    errors = _validate_step_config(
-        {"name": "x", "type": "calc", "params": "oops"}, 0
-    )
+    errors = _validate_step_config({"name": "x", "type": "calc", "params": "oops"}, 0)
     assert isinstance(errors, list)
     assert errors, "expected a non-empty error list for a non-dict params"
     assert "params" in errors[0]
@@ -32,7 +30,5 @@ def test_validate_step_config_returns_errors_for_list_step() -> None:
 
 def test_validate_step_config_returns_empty_for_well_formed_step() -> None:
     """A well-formed step still returns an empty error list."""
-    errors = _validate_step_config(
-        {"name": "ok", "type": "calc", "params": {"itask": "sp"}}, 0
-    )
+    errors = _validate_step_config({"name": "ok", "type": "calc", "params": {"itask": "sp"}}, 0)
     assert errors == []

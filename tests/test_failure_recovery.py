@@ -6,7 +6,7 @@ import pytest
 
 from jobdesk_app.core.manifest import Manifest, TaskRecord, TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 
 
 def _task(task_id="t1", batch_id="b1", status=TaskStatus.local_ready, **kw):

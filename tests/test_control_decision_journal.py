@@ -6,12 +6,12 @@ import json
 
 import pytest
 
-import jobdesk_app.services.confflow_control_state as control_state
-import jobdesk_app.services.run_repository._control_decisions as decisions_module
+import jobdesk_app.infrastructure.persistence.sqlite_runs._control_decisions as decisions_module
+import jobdesk_app.infrastructure.runtime.confflow_control_state as control_state
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
-from jobdesk_app.services.run_repository import RunRepository
-from jobdesk_app.services.run_repository._control_decisions import (
+from jobdesk_app.infrastructure.persistence.sqlite_runs import RunRepository
+from jobdesk_app.infrastructure.persistence.sqlite_runs._control_decisions import (
     CONTROL_DECISION_KIND,
     commit_control_decision,
     commit_control_decision_and_replace_tasks,
@@ -25,7 +25,7 @@ def _state(run_id: str = "control-run", **extra: object) -> dict[str, object]:
 
 
 def _service(tmp_path):
-    from jobdesk_app.services.run_service import RunService
+    from jobdesk_app.infrastructure.runtime.run_service import RunService
 
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
     service.create_run(

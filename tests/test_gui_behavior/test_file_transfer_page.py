@@ -275,8 +275,8 @@ class TestFileTransferPage:
             file_page._gui_settings,
             splitter_sizes={"other.page": [1, 2]},
         )
-        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore", return_value=store):
-            file_page._persist_splitter_sizes()
+        file_page._settings_store = store
+        file_page._persist_splitter_sizes()
 
         saved = store.update.call_args.kwargs["splitter_sizes"]
         assert saved["other.page"] == [1, 2]
@@ -297,11 +297,11 @@ class TestFileTransferPage:
         file_page.remote_path.setText("/home/xianj/qhf")
         launch = MagicMock()
 
-        with (
-            patch("jobdesk_app.gui.pages.file_transfer_page.build_terminal_launch", return_value=launch) as build,
-            patch("jobdesk_app.gui.pages.file_transfer_page.launch_terminal") as launcher,
-        ):
-            file_page._open_terminal_here()
+        build = MagicMock(return_value=launch)
+        launcher = MagicMock()
+        file_page._terminal_builder = build
+        file_page._terminal_launcher = launcher
+        file_page._open_terminal_here()
 
         build.assert_called_once()
         assert build.call_args.args[0] is server
@@ -581,12 +581,13 @@ class TestFileTransferPage:
 
     def test_on_activated_reloads_settings(self, file_page):
         """on_activated must reload settings so external changes take effect."""
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         new_settings = GuiSettings(auto_connect=False, hide_dotfiles=True)
-        with patch("jobdesk_app.gui.pages.file_transfer_page.GuiSettingsStore") as mock_store:
-            mock_store.return_value.load.return_value = new_settings
-            file_page.on_activated()
+        store = MagicMock()
+        store.load.return_value = new_settings
+        file_page._settings_store = store
+        file_page.on_activated()
         assert file_page._gui_settings.hide_dotfiles is True
 
     def test_open_local_file_uses_configured_text_editor(self, file_page, tmp_path):
@@ -1731,7 +1732,7 @@ class TestFileTransferPage:
 
         worker.stop_safely.assert_called_once_with(3000)
 
-    def test_connect_enables_persistent_remote_session(self, file_page):
+    def test_connect_uses_facade_port_without_page_owned_session(self, file_page):
         file_page._servers = {"wsl": MagicMock()}
         file_page.server_combo.clear()
         file_page.server_combo.addItem("wsl", "wsl")
@@ -1739,7 +1740,10 @@ class TestFileTransferPage:
         with patch.object(file_page, "_refresh_remote"):
             file_page._connect()
 
-        assert file_page._service._persistent_session is True
+        from jobdesk_app.application.file_transfer_ports import FacadeFileTransferPort
+
+        assert isinstance(file_page._service, FacadeFileTransferPort)
+        assert not hasattr(file_page._service, "_persistent_session")
 
     def test_reconnect_releases_previous_remote_session_without_blocking_ui(self, file_page, qtbot):
         old_service = MagicMock()

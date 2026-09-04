@@ -20,8 +20,8 @@ from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
-from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError
-from jobdesk_app.services.confflow_control import (
+from jobdesk_app.infrastructure.remote.confflow_probe import ConfFlowCapabilityPreflightError
+from jobdesk_app.infrastructure.runtime.confflow_control import (
     ControlArtifact,
     ControlArtifactManifest,
     ControlEvent,
@@ -35,10 +35,10 @@ from jobdesk_app.services.confflow_control import (
     parse_events_response,
     parse_snapshot_response,
 )
-from jobdesk_app.services.confflow_control_state import load_state, save_state
-from jobdesk_app.services.run_coordinator import OperationFailure
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import (
+from jobdesk_app.infrastructure.runtime.confflow_control_state import load_state, save_state
+from jobdesk_app.infrastructure.runtime.run_coordinator import OperationFailure
+from jobdesk_app.infrastructure.runtime.run_service import RunService
+from jobdesk_app.infrastructure.runtime.ssh_confflow_client import (
     SSHConfFlowClient,
     _canonical_json,
     _download_control_artifacts,
@@ -46,7 +46,7 @@ from jobdesk_app.services.ssh_confflow_client import (
     _upload_control_worker_handoff,
     _worker_handoff,
 )
-from jobdesk_app.services.ssh_confflow_control import (
+from jobdesk_app.infrastructure.runtime.ssh_confflow_control import (
     SSHControlTransport,
     build_control_execute_command,
 )
@@ -795,7 +795,7 @@ def test_fresh_submit_persists_one_locator_identity_for_prepare_launcher_and_att
     monkeypatch.setattr(client, "_measure_control_identity", lambda capability: {"sha256": "d" * 64})
     monkeypatch.setattr(client, "_remote_digest", lambda run_id, locator, path: "b" * 64)
     monkeypatch.setattr(
-        "jobdesk_app.services.ssh_confflow_client._upload_control_worker_handoff",
+        "jobdesk_app.infrastructure.runtime.ssh_confflow_client._upload_control_worker_handoff",
         lambda *args, **kwargs: None,
     )
 

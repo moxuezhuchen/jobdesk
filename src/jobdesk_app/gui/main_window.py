@@ -1,6 +1,6 @@
 """JobDesk GUI — 4-page layout: Files / Submit / Runs+Results / Settings+Servers."""
 
-import tempfile
+import inspect
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
@@ -8,18 +8,22 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from ..app_logging import configure_file_logging
-from ..application.confflow_client import ConfFlowClientError, SubmitRequest
-from ..application.configuration_contract import ConfigurationAdmissionError
+from ..application.container import ApplicationContainer
 from ..application.gui_ports import FilesPagePort, PageRefreshPort
-from ..config.servers import load_servers
-from ..core.run import WorkflowKind
+from ..bootstrap import (
+    GuiSettingsStore,
+    RunMonitor,
+    RunServiceTaskLookup,
+    SessionPool,
+    build_terminal_launch,
+    create_sftp_client,
+    create_ssh_client,
+    get_default_servers_path,
+    launch_terminal,
+    load_servers,
+)
 from ..core.submit_payload import SubmitPayload
-from ..services.gui_settings import GuiSettingsStore
-from ..services.method_presets import MethodPresetStore
-from ..services.run_coordinator import RunCoordinator
-from ..services.run_service import RunService
-from ..services.session_pool import SessionPool
-from ..services.ssh_confflow_client import SSHConfFlowClient
+from .dependencies import configure_gui_dependencies
 from .dialogs.submit_dialog import SubmitDialog
 from .i18n import tr
 from .layouts.shell import AppShell
@@ -27,10 +31,9 @@ from .pages.file_transfer_page import FileTransferPage
 from .pages.runs_results_page import RunsResultsPage
 from .pages.settings_servers_page import SettingsServersPage
 from .pages.workflow_page import WorkflowPage
-from .session import create_sftp_client, create_ssh_client
 from .state import AppState
+from .task_supervisor import GuiTaskSupervisor, TaskCallbacks
 from .theme import build_app_stylesheet
-from .workers import BackgroundWorker
 
 # Sidebar nav items: (icon_name, label).  Labels are translated at runtime
 # via :func:`i18n.tr` so adding a new entry here only needs the i18n key.
@@ -42,14 +45,14 @@ _NAV_ITEMS = [
 ]
 
 
-def _construct_page_with_session_pool(page_factory, *args, session_pool):
+def _construct_page_with_session_pool(page_factory, *args, session_pool, **kwargs):
     """Keep lightweight test/plugin page factories compatible with injection."""
-    try:
-        return page_factory(*args, session_pool=session_pool)
-    except TypeError as exc:
-        if "session_pool" not in str(exc):
-            raise
-        return page_factory(*args)
+    injected = {"session_pool": session_pool, **kwargs}
+    signature = inspect.signature(page_factory)
+    accepts_kwargs = any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
+    if not accepts_kwargs:
+        injected = {key: value for key, value in injected.items() if key in signature.parameters}
+    return page_factory(*args, **injected)
 
 
 def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
@@ -63,8 +66,20 @@ def _show_submitted_runs(window: "MainWindow", run_ids: list[str]) -> None:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, session_pool: SessionPool | None = None):
+    def __init__(
+        self,
+        session_pool: SessionPool | None = None,
+        *,
+        application: ApplicationContainer | None = None,
+        task_supervisor: GuiTaskSupervisor | None = None,
+    ) -> None:
         super().__init__()
+        configure_gui_dependencies(
+            settings_store_factory=GuiSettingsStore,
+            ssh_factory=create_ssh_client,
+            sftp_factory=create_sftp_client,
+            monitor_factory=RunMonitor,
+        )
         self.setWindowTitle("JobDesk")
         self._settings_store = GuiSettingsStore()
         settings = self._settings_store.load()
@@ -72,6 +87,12 @@ class MainWindow(QMainWindow):
         self.resize(size[0], size[1])
         self.state = AppState()
         self._session_pool = session_pool or SessionPool(create_ssh_client, create_sftp_client)
+        if application is None:
+            from ..bootstrap import create_application
+
+            application = create_application(Path.cwd(), session_pool=self._session_pool)
+        self._application = application
+        self._task_supervisor = task_supervisor or GuiTaskSupervisor(self)
         self._initial_nav_completed = False
         self.language = settings.language
         self._file_logger = configure_file_logging("jobdesk_app")
@@ -96,13 +117,19 @@ class MainWindow(QMainWindow):
             self._update_status,
             self.show_error,
             session_pool=self._session_pool,
+            files_application=self._application.files,
+            settings_store=self._settings_store,
+            server_loader=load_servers,
+            run_task_lookup=RunServiceTaskLookup(),
+            terminal_builder=build_terminal_launch,
+            terminal_launcher=launch_terminal,
+            servers_path_provider=get_default_servers_path,
         )
         self._files_port = FilesPagePort(self.files_page)
-        self._preset_store = MethodPresetStore()
         self.workflow_page = WorkflowPage(
             self.state,
             language=self.language,
-            preset_store=self._preset_store,
+            workflows=self._application.workflows,
             settings_store=self._settings_store,
             on_status=self._update_status,
             on_error=self.show_error,
@@ -113,8 +140,16 @@ class MainWindow(QMainWindow):
             self._log,
             self._update_status,
             session_pool=self._session_pool,
+            run_application=self._application.runs,
         )
-        self.settings_page = SettingsServersPage(self.state, self._log, self._update_status)
+        self.settings_page = _construct_page_with_session_pool(
+            SettingsServersPage,
+            self.state,
+            self._log,
+            self._update_status,
+            session_pool=self._session_pool,
+            settings_application=self._application.settings,
+        )
         self.settings_page.language_changed.connect(self._on_language_changed)
         self.files_page.runs_submitted.connect(
             lambda run_ids: QTimer.singleShot(0, lambda: _show_submitted_runs(self, run_ids))
@@ -378,11 +413,7 @@ class MainWindow(QMainWindow):
     # ── Submit-page wiring ────────────────────────────────────────────────
 
     def _on_submit_requested(self, payload: SubmitPayload, submit: bool = True) -> None:
-        """Run :class:`SubmitUseCase` in a background worker and report back."""
-        from ..services.file_transfer_service import (
-            ensure_safe_remote_path,
-        )
-        from ..services.submit_use_case import SubmitUseCase
+        """Delegate the complete submission transaction to the application."""
 
         connection = self._files_port.snapshot()
         if payload.server_id != (connection.server_id or ""):
@@ -398,90 +429,42 @@ class MainWindow(QMainWindow):
             )
             return
 
-        try:
-            ensure_safe_remote_path(payload.remote_dir)
-        except Exception as exc:
-            self.show_error(tr("Submit", self.language), str(exc))
+        busy_lease = self._task_supervisor.acquire_busy("main-window-submit", "submit")
+        if busy_lease is None:
+            self._update_status(tr("Remote operation already in progress", self.language))
             return
 
-        workspace = Path(self.state.current_project_root or Path.cwd())
-
         def _run(_ctx):
-            use_case = SubmitUseCase()
-            batch = use_case.execute(payload)
-            if not batch.ok:
-                return batch
-            coordinator = RunCoordinator(
-                RunService(workspace),
-                server_lookup=lambda sid: load_servers().servers[sid],
-                ssh_factory=create_ssh_client,
-                sftp_factory=create_sftp_client,
-                session_pool=self._session_pool,
-            )
-            client = SSHConfFlowClient(coordinator, payload.server_id)
-            workflow_specs = [
-                spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
-            ]
-            admission = None
-            validated_yaml_bytes = None
-            if workflow_specs:
-                if batch.yaml_local_path is None:
-                    batch.errors.append("Prepared workflow batch has no local YAML document")
-                    return batch
-                try:
-                    validated_yaml_bytes = batch.yaml_local_path.read_bytes()
-                    admission = coordinator.admit_configuration(
-                        payload.server_id,
-                        validated_yaml_bytes,
-                        require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs),
-                    )
-                except (ConfigurationAdmissionError, OSError) as exc:
-                    batch.errors.append(str(exc))
-                    return batch
-            outcomes = _create_and_maybe_submit_specs(
-                coordinator,
-                client,
-                batch.specs,
-                workspace,
-                admission=admission,
-                submit=False,
-            )
-            if any(outcome.errors for outcome in outcomes):
-                return _combine_outcomes(outcomes)
-            try:
-                _upload_prepared_batch(
-                    batch,
-                    payload,
-                    self._files_port,
-                    client,
-                    validated_yaml_bytes=validated_yaml_bytes,
-                )
-            except ConfFlowClientError as exc:
-                batch.errors.append(str(exc))
-                return batch
-            if submit:
-                for created in tuple(outcomes):
-                    if not created.errors and created.records:
-                        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
-                        outcomes.append(submitted)
-            return _combine_outcomes(outcomes)
+            return self._application.runs.submit(payload, dispatch=submit)
 
         def _done(outcome):
-            warnings = [warning for result in getattr(outcome, "submit_results", []) for warning in result.warnings]
-            self.runs_page.set_submit_warnings(warnings)
-            if outcome.errors:
-                self.show_error(tr("Submit", self.language), "\n".join(outcome.errors))
+            value = outcome.value
+            self.runs_page.set_submit_warnings(list(value.warnings) if value else [])
+            if outcome.failures:
+                self.show_error(
+                    tr("Submit", self.language),
+                    "\n".join(failure.display_text for failure in outcome.failures),
+                )
                 return
-            run_ids = [r.run_id for r in outcome.records if not outcome.errors]
+            run_ids = [run.summary.run_id for run in value.runs] if value else []
             _show_submitted_runs(self, run_ids)
 
         def _err(exc):
             self.show_error(tr("Submit", self.language), str(exc))
 
-        worker = BackgroundWorker(_run)
-        worker.result.connect(_done)
-        worker.error.connect(_err)
-        worker.start()
+        try:
+            self._task_supervisor.start(
+                "main-window",
+                "submit",
+                _run,
+                TaskCallbacks(on_result=_done, on_error=_err),
+                busy_lease=busy_lease,
+            )
+        except Exception as exc:
+            # ``start`` releases the lease when native worker construction or
+            # startup fails.  Keep the synchronous failure on the same UI
+            # error path as an asynchronous worker error.
+            self.show_error(tr("Submit", self.language), str(exc))
 
     def _show_workflow_tour(self) -> None:
         """Open the 6-slide workflow tour dialog (Phase 1.1)."""
@@ -540,7 +523,7 @@ class MainWindow(QMainWindow):
             remote_dir=remote_dir,
             max_parallel=1,
             workspace=Path(self.state.current_project_root or Path.cwd()),
-            preset_store=self._preset_store,
+            workflows=self._application.workflows,
             preset_name=preset_name,
             parent=self,
         )
@@ -611,16 +594,20 @@ class MainWindow(QMainWindow):
             self._settings_store.update(window_size=[self.width(), self.height()])
         except Exception:
             pass
+        # Invalidate the main-window generation before pages or the shared
+        # session pool are torn down.  A queued submit result can therefore
+        # never touch Qt widgets after shutdown begins.
+        self._task_supervisor.shutdown()
         for page in (self.files_page, self.workflow_page, self.runs_page, self.settings_page):
             if hasattr(page, "shutdown"):
                 try:
                     page.shutdown()
                 except Exception:
                     pass
-        from .workers import BackgroundWorker
-
-        BackgroundWorker.wait_all()
-        self._session_pool.close()
+        try:
+            self._application.close()
+        except Exception:
+            self._file_logger.exception("Application container shutdown failed")
         logger = getattr(self, "_file_logger", None)
         if logger is not None:
             for handler in list(getattr(logger, "handlers", ())):
@@ -637,86 +624,3 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.shutdown()
         super().closeEvent(event)
-
-
-def _upload_prepared_batch(batch, payload, service, client, *, validated_yaml_bytes: bytes | None = None) -> None:
-    """Preflight and upload a prepared batch without creating a run."""
-    workflow_specs = [spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}]
-    if workflow_specs:
-        client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
-
-    for local_path, remote_target in zip(
-        batch.local_paths,
-        batch.upload_targets,
-        strict=True,
-    ):
-        records = service.upload_path(local_path, remote_target)
-        _raise(records, remote_target)
-    if batch.yaml_local_path is not None and batch.yaml_local_path.exists():
-        yaml_target = batch.yaml_remote_path
-        if yaml_target is None:
-            raise RuntimeError("Prepared workflow batch has no remote YAML target")
-        if validated_yaml_bytes is None:
-            records = service.upload_path(batch.yaml_local_path, yaml_target)
-            _raise(records, yaml_target)
-        else:
-            with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as staged:
-                staged.write(validated_yaml_bytes)
-                staged_path = Path(staged.name)
-            try:
-                records = service.upload_path(staged_path, yaml_target)
-                _raise(records, yaml_target)
-            finally:
-                staged_path.unlink(missing_ok=True)
-
-
-def _create_and_maybe_submit_specs(
-    coordinator,
-    client,
-    specs,
-    workspace: Path,
-    *,
-    admission=None,
-    submit: bool,
-):
-    """Create durable records locally, then submit each successful record once via the client."""
-    outcomes = []
-    for spec in specs:
-        workflow_kind = getattr(spec, "workflow_kind", None)
-        is_workflow = workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
-        if is_workflow and admission is not None:
-            created = coordinator.create_admitted_run(spec, admission, local_dir=str(workspace))
-        elif is_workflow:
-            from ..services.run_coordinator import RunOperationOutcome
-
-            created = RunOperationOutcome(errors=["configuration admission is required before creating workflow run"])
-        else:
-            created = coordinator.create_run(spec, local_dir=str(workspace))
-        outcomes.append(created)
-        if not submit or created.errors or not created.records:
-            continue
-        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
-        outcomes.append(submitted)
-    return outcomes
-
-
-def _combine_outcomes(outcomes):
-    """Return one presentation-compatible result while preserving operation order."""
-
-    from ..services.run_coordinator import RunOperationOutcome
-
-    combined = RunOperationOutcome()
-    for outcome in outcomes:
-        combined.records.extend(outcome.records)
-        combined.submit_results.extend(outcome.submit_results)
-        combined.errors.extend(outcome.errors)
-    return combined
-
-
-def _raise(records, target):
-    """Best-effort upload-error check (mirrors FileTransferPage's helper)."""
-    for record in records or []:
-        if getattr(record, "status", None) and getattr(record.status, "name", "") != "completed":
-            raise RuntimeError(f"Upload failed for {target}")
-        if getattr(record, "error", None):
-            raise RuntimeError(f"Upload failed for {target}: {record.error}")

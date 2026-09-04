@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from jobdesk_app.application.files_connections import FileTransferConnectionSnapshot
+from jobdesk_app.application.files_connections import (
+    ApplicationFilesConnectionController,
+    FileTransferConnectionSnapshot,
+)
+from jobdesk_app.core.configuration import ServersConfig
 from jobdesk_app.gui.pages.file_transfer_connections import ConnectionsCoordinator
 
 
@@ -17,7 +21,7 @@ def test_connection_snapshot_carries_status_without_service_reference():
 
 
 def test_connection_controller_separates_connected_from_ready():
-    from jobdesk_app.application.files_connections import FilesConnectionController
+    from jobdesk_app.bootstrap import FilesConnectionController
 
     coordinator = FilesConnectionController(
         status_cb=MagicMock(),
@@ -39,18 +43,33 @@ def test_connection_controller_separates_connected_from_ready():
     assert ready.ready is True
 
 
-def test_legacy_connections_coordinator_accepts_run_tasks_provider():
-    provider = MagicMock(return_value=[])
-    coordinator = ConnectionsCoordinator(
+def test_application_connection_controller_creates_facade_port_only():
+    server_document = {"host": "example.invalid", "username": "user"}
+    facade = MagicMock()
+    coordinator = ApplicationFilesConnectionController(
+        facade,
         status_cb=MagicMock(),
         log_cb=MagicMock(),
-        create_ssh=MagicMock(),
-        create_sftp=MagicMock(),
-        run_tasks_provider=provider,
+        server_loader=lambda: ServersConfig(servers={"server": server_document}),
     )
-    assert coordinator is not None
-    # The provider is retained as the delete-root policy source and is called
-    # when a connection is created, matching the old safety boundary.
-    coordinator.set_servers({"s": MagicMock()})
-    coordinator.connect("s")
-    provider.assert_called_once_with()
+    coordinator.load_servers()
+
+    old, port = coordinator.connect("server")
+
+    assert old is None
+    assert coordinator.service is port
+    assert coordinator.connected_server is not None
+    assert coordinator.connected_server.server_id == "server"
+    assert coordinator.snapshot("/").connected is True
+    facade.assert_not_called()
+
+
+def test_gui_connections_name_is_application_controller_alias():
+    facade = MagicMock()
+    coordinator = ConnectionsCoordinator(
+        facade,
+        status_cb=MagicMock(),
+        log_cb=MagicMock(),
+        server_loader=lambda: ServersConfig(servers={}),
+    )
+    assert isinstance(coordinator, ApplicationFilesConnectionController)

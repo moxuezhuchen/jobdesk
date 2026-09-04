@@ -18,16 +18,16 @@ from types import SimpleNamespace
 
 import pytest
 
-import jobdesk_app.services.ssh_confflow_client as client_module
+import jobdesk_app.infrastructure.runtime.ssh_confflow_client as client_module
 from jobdesk_app.application.confflow_client import RemoteRunReference, SubmitRequest
 from jobdesk_app.core import workflow_spec as workflow_module
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
-from jobdesk_app.remote.confflow_probe import ConfFlowCapabilityPreflightError
-from jobdesk_app.remote.scheduler import ResourceSpec
-from jobdesk_app.services.confflow_control import (
+from jobdesk_app.infrastructure.remote.confflow_probe import ConfFlowCapabilityPreflightError
+from jobdesk_app.infrastructure.remote.scheduler import ResourceSpec
+from jobdesk_app.infrastructure.runtime.confflow_control import (
     ControlArtifact,
     ControlArtifactManifest,
     ControlEvent,
@@ -35,9 +35,9 @@ from jobdesk_app.services.confflow_control import (
     ControlProtocolError,
     ControlSnapshot,
 )
-from jobdesk_app.services.confflow_control_state import load_state, save_state
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import (
+from jobdesk_app.infrastructure.runtime.confflow_control_state import load_state, save_state
+from jobdesk_app.infrastructure.runtime.run_service import RunService
+from jobdesk_app.infrastructure.runtime.ssh_confflow_client import (
     ConfFlowClientError,
     SSHConfFlowClient,
     _artifact_entries,
@@ -63,7 +63,7 @@ from jobdesk_app.services.ssh_confflow_client import (
     _worker_work_dir_name,
     _workflow_config_path,
 )
-from jobdesk_app.services.ssh_confflow_control import (
+from jobdesk_app.infrastructure.runtime.ssh_confflow_control import (
     SSHControlTransport,
     build_control_launcher_script,
     resolve_control_state_root,
@@ -554,7 +554,7 @@ class _PublicSFTP(_StageSFTP):
 
 def test_worker_staging_rejects_bad_sources_and_handoff_metadata(tmp_path: Path) -> None:
     """Unit evidence for staging invariants; public submit coverage is separate."""
-    from jobdesk_app.services.ssh_confflow_client import (
+    from jobdesk_app.infrastructure.runtime.ssh_confflow_client import (
         _stage_remote_file,
         _upload_control_worker_handoff,
     )
@@ -630,7 +630,7 @@ def test_worker_staging_rejects_bad_sources_and_handoff_metadata(tmp_path: Path)
 
 def test_event_cursor_and_artifact_download_fail_closed(tmp_path: Path) -> None:
     """Unit evidence for protocol/artifact safety; public handle behavior is separate."""
-    from jobdesk_app.services.ssh_confflow_client import (
+    from jobdesk_app.infrastructure.runtime.ssh_confflow_client import (
         _assert_remote_not_symlink,
         _assert_safe_relative_artifact_path,
         _download_control_artifacts,

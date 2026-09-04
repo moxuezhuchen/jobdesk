@@ -16,7 +16,8 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from jobdesk_app.gui.pages.workflow_page import WorkflowPage  # noqa: E402
-from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
+from jobdesk_app.infrastructure.application_facades import DefaultWorkflowApplication  # noqa: E402
+from jobdesk_app.infrastructure.persistence.settings.method_presets import MethodPresetStore  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_documents"
 
@@ -32,23 +33,33 @@ class _StubState:
 
 
 def _load_page(qapp, monkeypatch, tmp_path) -> WorkflowPage:
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     store = MethodPresetStore()
     source = (FIXTURES / "v06_extensions_dag.yaml").read_text(encoding="utf-8")
     store.save_user_yaml("extensions", source)
-    return WorkflowPage(state=_StubState(), language="en", preset_store=store)
+    return WorkflowPage(state=_StubState(), language="en", workflows=DefaultWorkflowApplication(store))
 
 
 def _load_document_page(qapp, monkeypatch, tmp_path, name: str, source: str) -> WorkflowPage:
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     store = MethodPresetStore()
     store.save_user_yaml(name, source)
-    return WorkflowPage(state=_StubState(), language="en", preset_store=store)
+    return WorkflowPage(state=_StubState(), language="en", workflows=DefaultWorkflowApplication(store))
 
 
 def _new_page(qapp, monkeypatch, tmp_path) -> WorkflowPage:
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
-    return WorkflowPage(state=_StubState(), language="en", preset_store=MethodPresetStore())
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
+    return WorkflowPage(
+        state=_StubState(),
+        language="en",
+        workflows=DefaultWorkflowApplication(MethodPresetStore()),
+    )
 
 
 def test_real_page_load_save_preserves_v06_dag_extensions(qapp, monkeypatch, tmp_path):
@@ -201,14 +212,16 @@ steps:
     params: {itask: opt, iprog: orca, keyword: PBE0 def2-SVP}
     inputs: [first]
 """
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     store = MethodPresetStore()
     store.save_user_yaml("duplicate_source", source)
     errors: list[tuple[str, str]] = []
     page = WorkflowPage(
         state=_StubState(),
         language="en",
-        preset_store=store,
+        workflows=DefaultWorkflowApplication(store),
         on_error=lambda title, message: errors.append((title, message)),
     )
     original_path = tmp_path / "method_presets" / "duplicate_source.yaml"

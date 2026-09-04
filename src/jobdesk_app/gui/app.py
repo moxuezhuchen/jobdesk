@@ -106,12 +106,27 @@ def main():
         # loaded.  These imports intentionally remain local: importing the
         # GUI entry point itself must stay lightweight, and the user should
         # see startup feedback before the page graph is imported.
-        from ..services.session_pool import SessionPool
+        from ..bootstrap import (
+            GuiSettingsStore,
+            RunMonitor,
+            SessionPool,
+            create_application,
+            create_sftp_client,
+            create_ssh_client,
+        )
+        from .dependencies import configure_gui_dependencies
         from .main_window import MainWindow
-        from .session import create_sftp_client, create_ssh_client
+
+        configure_gui_dependencies(
+            settings_store_factory=GuiSettingsStore,
+            ssh_factory=create_ssh_client,
+            sftp_factory=create_sftp_client,
+            monitor_factory=RunMonitor,
+        )
 
         app_session_pool = SessionPool(create_ssh_client, create_sftp_client)
-        window = MainWindow(session_pool=app_session_pool)
+        application = create_application(session_pool=app_session_pool)
+        window = MainWindow(session_pool=app_session_pool, application=application)
         sys.excepthook = window._make_exception_hook()
         app.aboutToQuit.connect(window.shutdown)
         window.show()

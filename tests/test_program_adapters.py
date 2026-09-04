@@ -1,5 +1,5 @@
+from jobdesk_app.application.program_adapters import ConfFlowAdapter
 from jobdesk_app.core.run import build_run_plan
-from jobdesk_app.services.program_adapters import ConfFlowAdapter
 
 
 def test_confflow_adapter_builds_one_run_task_with_config_and_summary_outputs():

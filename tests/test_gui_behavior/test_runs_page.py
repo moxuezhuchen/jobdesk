@@ -18,6 +18,38 @@ class TestRunsPage:
     def test_page_creates_without_crash(self, runs_page):
         assert runs_page is not None
 
+    def test_injected_run_application_owns_run_list_query(self, qtbot, app_state):
+        from jobdesk_app.application.facades import RunSummary
+        from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
+
+        facade = MagicMock()
+        facade.list_runs.return_value = (
+            RunSummary(
+                run_id="run-facade",
+                server_id="wsl",
+                workflow_kind="dag",
+                created_at="2026-09-04T00:00:00",
+                status_counts=(("running", 1),),
+                remote_dir="/tmp/run-facade",
+                command_template="confflow --config workflow.yaml",
+                local_dir=str(app_state.current_project_root),
+            ),
+        )
+        page = RunsResultsPage(
+            app_state,
+            log_cb=None,
+            status_cb=None,
+            run_application=facade,
+        )
+        qtbot.addWidget(page)
+        try:
+            page.refresh_run_list()
+            assert page.table.rowCount() == 1
+            assert page.table.item(0, 0).text() == "run-facade"
+            facade.list_runs.assert_called_once_with()
+        finally:
+            page.shutdown()
+
     def test_qt_monitor_uses_bounded_default_budget(self, qtbot, monkeypatch):
         from jobdesk_app.gui import run_monitor_qt
 
@@ -922,7 +954,7 @@ class TestRunsPage:
         """Comparing >=2 selected runs renders the comparison table from compare_runs."""
         from PySide6.QtWidgets import QInputDialog, QTableWidgetItem
 
-        from jobdesk_app.services.comparison import RunComparison
+        from jobdesk_app.application.comparison import RunComparison
 
         runs_page.table.blockSignals(True)
         runs_page.table.setRowCount(2)
@@ -940,8 +972,8 @@ class TestRunsPage:
         )
         with (
             patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)),
-            patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store,
-            patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison),
+            patch("jobdesk_app.infrastructure.persistence.settings.analysis_profiles.AnalysisProfileStore") as store,
+            patch("jobdesk_app.application.comparison.compare_runs", return_value=comparison),
         ):
             store.return_value.list_profiles.return_value = {"gaussian_opt_freq": object()}
             runs_page._compare_selected()
@@ -956,8 +988,8 @@ class TestRunsPage:
         """The compare worker emits an immutable payload through the GUI dispatcher."""
         from PySide6.QtWidgets import QInputDialog
 
+        from jobdesk_app.application.comparison import RunComparison
         from jobdesk_app.application.runs_artifacts import ComparePayload
-        from jobdesk_app.services.comparison import RunComparison
 
         comparison = RunComparison(
             rows=[{"run_id": "run_a", "task_id": "task", "scf_energy": -1.2}],
@@ -967,8 +999,8 @@ class TestRunsPage:
         with (
             patch.object(runs_page, "_selected_run_ids", return_value=["run_a", "run_b"]),
             patch.object(QInputDialog, "getItem", return_value=("gaussian_opt_freq", True)),
-            patch("jobdesk_app.services.analysis_profiles.AnalysisProfileStore") as store,
-            patch("jobdesk_app.services.comparison.compare_runs", return_value=comparison),
+            patch("jobdesk_app.infrastructure.persistence.settings.analysis_profiles.AnalysisProfileStore") as store,
+            patch("jobdesk_app.application.comparison.compare_runs", return_value=comparison),
             patch("jobdesk_app.gui.workers.BackgroundWorker", return_value=worker) as worker_factory,
             patch.object(runs_page._gui_dispatcher, "post", wraps=runs_page._gui_dispatcher.post) as post,
         ):
@@ -1017,7 +1049,7 @@ class TestRunsPage:
         assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
 
     def test_results_stay_hidden_until_a_valid_run_is_selected(self, runs_page):
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         record = RunRecord(
             run_id="run-1",
@@ -1047,7 +1079,7 @@ class TestRunsPage:
 
     def test_filters_use_and_semantics_and_survive_refresh(self, runs_page):
         from jobdesk_app.core.run import WorkflowKind
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         def record(run_id, server, status, workflow, command, created_at):
             return RunRecord(
@@ -1091,7 +1123,7 @@ class TestRunsPage:
         assert runs_page._log_view.toPlainText().count("Run records: 3") == 1
 
     def test_filter_with_no_matches_shows_results_empty_state(self, runs_page):
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         record = RunRecord(
             run_id="run-1",
@@ -1118,7 +1150,7 @@ class TestRunsPage:
     def test_multiple_selected_runs_survive_filter_and_refresh(self, runs_page):
         from PySide6.QtCore import QItemSelectionModel
 
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         def record(run_id):
             return RunRecord(
@@ -1165,7 +1197,7 @@ class TestRunsPage:
         assert "Other 5" in text
 
     def test_explicit_refresh_updates_timestamp_and_status_has_accessible_cue(self, runs_page):
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         record = RunRecord(
             run_id="failed-run",
@@ -1201,7 +1233,7 @@ class TestRunsPage:
 
     def test_main_splitter_restores_defensively_and_persists_user_move(self, qtbot, app_state, tmp_path):
         from jobdesk_app.gui.pages.runs_results_page import RunsResultsPage
-        from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
         store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
         store.save(GuiSettings(splitter_sizes={"runs.main": [720, 280]}))
@@ -1262,7 +1294,7 @@ class TestRunsPage:
         """refresh_run_list stores the RunRecord on the row; _selected_record reads it without load_run."""
         from PySide6.QtCore import Qt
 
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         rec = RunRecord(
             run_id="r1",
@@ -1288,7 +1320,7 @@ class TestRunsPage:
 
     def test_refresh_preserves_manual_selection(self, runs_page):
         """A manually selected run stays selected after a refresh rebuild."""
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         def mk(rid):
             return RunRecord(
@@ -2033,7 +2065,7 @@ class TestRunsPage:
 
     def test_fresh_batch_id_jumps_then_manual_selection_is_kept(self, runs_page):
         """A new current_batch_id selects that run once; later refreshes keep manual selection."""
-        from jobdesk_app.services.run_service import RunRecord
+        from jobdesk_app.infrastructure.runtime.run_service import RunRecord
 
         def mk(rid):
             return RunRecord(
@@ -2064,7 +2096,7 @@ class TestRunsPage:
         record = MagicMock()
         record.command_template = "g16 {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
@@ -2075,7 +2107,7 @@ class TestRunsPage:
         record = MagicMock()
         record.command_template = "orca {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
@@ -2086,7 +2118,7 @@ class TestRunsPage:
         record = MagicMock()
         record.command_template = "python run_orca.py {name}"
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             mock_store.return_value.load.return_value = GuiSettings()
             patterns = runs_page._get_download_patterns(record)
@@ -2334,7 +2366,7 @@ class TestRunsPage:
         assert rows[0][3] == tr("File too large for preview", runs_page._language)
 
     def test_on_activated_ignores_legacy_disabled_automatic_refresh(self, runs_page, qtbot):
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         settings = GuiSettings()
         with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store:
@@ -2347,7 +2379,7 @@ class TestRunsPage:
         assert runs_page._refresh_timer.isActive()
 
     def test_on_activated_defers_refresh_and_monitor_start(self, runs_page, qtbot):
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         settings = GuiSettings(auto_refresh_interval=15)
         with (
@@ -2365,7 +2397,7 @@ class TestRunsPage:
             assert runs_page._refresh_timer.isActive()
 
     def test_startup_recovery_runs_only_once_per_page_lifetime(self, runs_page):
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         captured = {}
 
@@ -2391,8 +2423,8 @@ class TestRunsPage:
         monitor.assert_not_called()
 
     def test_startup_recovery_errors_are_visible_and_signal_completion(self, runs_page):
-        from jobdesk_app.services.gui_settings import GuiSettings
-        from jobdesk_app.services.run_coordinator import RunOperationOutcome
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.runtime.run_coordinator import RunOperationOutcome
 
         messages = []
         failures = []
@@ -2446,7 +2478,7 @@ class TestRunsPage:
         assert any("thread unavailable" in message for message in messages)
 
     def test_activation_never_replays_operations(self, runs_page):
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         with (
             patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as store,
@@ -2470,7 +2502,7 @@ class TestRunsPage:
         assert not runs_page._activation_timer.isActive()
 
     def test_auto_refresh_ignores_legacy_disabled_automatic_download(self, runs_page, qtbot):
-        from jobdesk_app.services.gui_settings import GuiSettings
+        from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
         settings = GuiSettings()
         record = MagicMock(
@@ -2880,10 +2912,10 @@ class TestRunsPage:
             manifest_path=str(manifest_path),
         )
 
-        with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
             from dataclasses import replace
 
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             mock_store.return_value.load.return_value = replace(GuiSettings(), default_local_folder=str(default_folder))
             runs_page._load_result_preview(record)
@@ -3111,10 +3143,10 @@ class TestRunsPage:
             manifest_path=str(manifest_path),
         )
 
-        with patch("jobdesk_app.services.gui_settings.GuiSettingsStore") as mock_store:
+        with patch("jobdesk_app.gui.pages.runs_results_page.GuiSettingsStore") as mock_store:
             from dataclasses import replace as dc_replace
 
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             mock_store.return_value.load.return_value = dc_replace(
                 GuiSettings(), default_local_folder=str(default_folder)

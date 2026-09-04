@@ -11,9 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
-from ...services.gui_settings import GuiSettings, GuiSettingsStore
 from ..worker_utils import WorkerContext, start_context_worker
 from .file_transfer_helpers import build_local_rows
 
@@ -36,12 +35,14 @@ class LocalNavigator:
         hide_dot_provider: Callable[[], bool],
         log_provider: Callable[[], Callable[[str], None]],
         on_rows_loaded: Callable[[list[list[str]]], None],
+        settings_update: Callable[..., object] | None = None,
         worker_registry_attr: str = "_background_workers",
     ) -> None:
         self._root_provider = root_provider
         self._hide_dot_provider = hide_dot_provider
         self._log_provider = log_provider
         self._on_rows_loaded = on_rows_loaded
+        self._settings_update = settings_update or (lambda **_values: None)
         self._worker_registry_attr = worker_registry_attr
         self._snapshot: dict[str, float] = {}
         self._poll_running = False
@@ -72,7 +73,7 @@ class LocalNavigator:
         self._on_root_changed(path)
         self.save_last_local_folder(path)
 
-    def apply_default_local_folder(self, settings: GuiSettings) -> Path | None:
+    def apply_default_local_folder(self, settings: Any) -> Path | None:
         """Set ``state.current_project_root`` to the user's saved folder.
 
         Returns the chosen path (or ``None`` if no usable folder is set).
@@ -85,7 +86,7 @@ class LocalNavigator:
         return None
 
     def save_last_local_folder(self, path: Path) -> None:
-        GuiSettingsStore().update(last_local_folder=str(path))
+        self._settings_update(last_local_folder=str(path))
 
     def set_root_provider(self, callback: Callable[[Path], None]) -> None:
         """Replace the root-changed notifier (used by the page to update UI)."""

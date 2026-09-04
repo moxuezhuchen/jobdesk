@@ -1,12 +1,13 @@
 """Tests for cross-run comparison and export."""
 
-from jobdesk_app.services.comparison import (
+from jobdesk_app.application.comparison import (
     HARTREE_TO_KCAL,
     RunComparison,
     compare_runs,
     export_csv,
     export_markdown,
 )
+from jobdesk_app.bootstrap import AnalysisProfileStore, RunService
 from tests.repository_helpers import replace_tasks_for_test
 
 
@@ -61,7 +62,7 @@ class TestExportMarkdown:
 class TestCompareRuns:
     def test_relative_energy_computed(self, tmp_path, monkeypatch):
         """compare_runs should compute relative energies in kcal/mol."""
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         monkeypatch.setenv("APPDATA", str(tmp_path))
         runs_dir = tmp_path / "JobDesk" / "runs"
@@ -97,7 +98,14 @@ class TestCompareRuns:
                 task.status = TaskStatus.downloaded
             replace_tasks_for_test(svc.repository, run_id, tasks)
 
-        comparison = compare_runs(tmp_path, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
+        comparison = compare_runs(
+            tmp_path,
+            [r1.run_id, r2.run_id],
+            "scf_energy",
+            "gaussian_sp",
+            profile_loader=AnalysisProfileStore().get,
+            run_source_factory=RunService,
+        )
         assert len(comparison.rows) == 2
         # Lower energy should have rel=0
         lowest = comparison.rows[0]
@@ -109,7 +117,7 @@ class TestCompareRuns:
 
     def test_compare_runs_uses_each_record_local_dir(self, tmp_path, monkeypatch):
         """Global run records may point to results in different project roots."""
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         monkeypatch.setenv("APPDATA", str(tmp_path))
         runs_dir = tmp_path / "JobDesk" / "runs"
@@ -149,10 +157,22 @@ class TestCompareRuns:
                 task.status = TaskStatus.downloaded
             replace_tasks_for_test(svc_a.repository, record.run_id, tasks)
 
-        comparison = compare_runs(current_project, [r1.run_id, r2.run_id], "scf_energy", "gaussian_sp")
+        comparison = compare_runs(
+            current_project,
+            [r1.run_id, r2.run_id],
+            "scf_energy",
+            "gaussian_sp",
+            profile_loader=AnalysisProfileStore().get,
+            run_source_factory=RunService,
+        )
 
         assert [row["run_id"] for row in comparison.rows] == ["run_b", "run_a"]
 
     def test_empty_run_ids_returns_empty(self, tmp_path):
-        comparison = compare_runs(tmp_path, [])
+        comparison = compare_runs(
+            tmp_path,
+            [],
+            profile_loader=AnalysisProfileStore().get,
+            run_source_factory=RunService,
+        )
         assert comparison.rows == []

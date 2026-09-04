@@ -53,9 +53,7 @@ def _load(name: str) -> dict[str, Any]:
 
 
 def _load_release(version: str, name: str) -> dict[str, Any]:
-    value = json.loads(
-        (_SCHEMA_ROOT / "releases" / version / name).read_text(encoding="utf-8")
-    )
+    value = json.loads((_SCHEMA_ROOT / "releases" / version / name).read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     return value
 
@@ -102,9 +100,7 @@ def _snapshot(operation: str, state: str, *, revision: int = 2) -> dict[str, obj
 
 def test_snapshot_matches_pinned_producer_bundle() -> None:
     for name, expected in _PINNED_SCHEMA_HASHES.items():
-        canonical = json.dumps(
-            _load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        canonical = json.dumps(_load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         assert hashlib.sha256(canonical).hexdigest() == expected
 
 
@@ -142,9 +138,7 @@ def test_bundle_contains_pinned_release_schema_files() -> None:
 def test_worker_handoff_schema_has_pinned_release_digest() -> None:
     name = "worker-handoff.schema.json"
     expected = _PINNED_SCHEMA_HASHES[name]
-    canonical = json.dumps(_load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    canonical = json.dumps(_load(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     assert hashlib.sha256(canonical).hexdigest() == expected
 
 

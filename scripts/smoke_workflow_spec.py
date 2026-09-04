@@ -7,6 +7,7 @@ confflow installed locally). It exercises the same code paths the wizard
 uses end-to-end so we can verify the round-trip on machines that do have
 the dependency.
 """
+
 from __future__ import annotations
 
 import sys

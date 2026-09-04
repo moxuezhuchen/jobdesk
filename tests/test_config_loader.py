@@ -1,15 +1,15 @@
-"""测试 config/schema.py - 配置数据模型校验。"""
+"""配置数据模型与 servers.yaml 适配器测试。"""
 
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from jobdesk_app.config.schema import (
+from jobdesk_app.core.configuration import (
     AuthMethod,
     ServerConfig,
 )
-from jobdesk_app.config.servers import load_servers
+from jobdesk_app.infrastructure.config.servers import load_servers
 
 
 class TestServerConfig:

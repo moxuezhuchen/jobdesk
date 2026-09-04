@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Began the breaking Python architecture transition for the unreleased JobDesk
+  `0.8.0` source candidate. Presentation code now targets application facades,
+  infrastructure implements application-owned ports, and object construction
+  is confined to the bootstrap composition root.
+- Removed the supported status of legacy internal Python import paths. SQLite
+  schemas v1-v8, existing run data, user configuration, and the ConfFlow wire
+  protocol remain compatibility boundaries.
+- Pinned every third-party GitHub Action to the exact commit currently selected
+  by its documented major tag, while retaining the tag in a reviewable comment;
+  Dependabot now proposes controlled GitHub Actions updates.
+
+`0.8.0` is not published by this entry. JobDesk `0.7.10` remains the latest
+immutable released consumer until a separately authorized release completes.
 
 ## [0.7.10] - Candidate
 

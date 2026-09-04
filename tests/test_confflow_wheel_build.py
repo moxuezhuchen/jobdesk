@@ -55,9 +55,9 @@ def test_wheel_build_provenance() -> None:
     checkout_dir_value = os.environ.get(CHECKOUT_DIR_VAR)
     if wheel_dir_value is None and checkout_dir_value is None:
         pytest.skip(f"{WHEEL_DIR_VAR} and {CHECKOUT_DIR_VAR} are not set")
-    assert wheel_dir_value is not None and checkout_dir_value is not None, (
-        f"{WHEEL_DIR_VAR} and {CHECKOUT_DIR_VAR} must be configured together"
-    )
+    assert (
+        wheel_dir_value is not None and checkout_dir_value is not None
+    ), f"{WHEEL_DIR_VAR} and {CHECKOUT_DIR_VAR} must be configured together"
 
     wheel_dir = Path(wheel_dir_value)
     checkout_dir = Path(checkout_dir_value)
@@ -66,9 +66,7 @@ def test_wheel_build_provenance() -> None:
     wheels = list(wheel_dir.glob(REFERENCE_WHEEL_FILENAME))
     assert len(wheels) == 1, f"Expected one ConfFlow wheel, found {wheels}"
 
-    expected_commit = subprocess.check_output(
-        ["git", "-C", str(checkout_dir), "rev-parse", "HEAD"], text=True
-    ).strip()
+    expected_commit = subprocess.check_output(["git", "-C", str(checkout_dir), "rev-parse", "HEAD"], text=True).strip()
     assert expected_commit == REFERENCE_BUILD_COMMIT
     assert hashlib.sha256(wheels[0].read_bytes()).hexdigest() == REFERENCE_WHEEL_SHA256
     assert REFERENCE_VERSION in wheels[0].name

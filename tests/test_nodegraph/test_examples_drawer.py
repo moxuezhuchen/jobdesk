@@ -26,7 +26,7 @@ from jobdesk_app.gui.nodegraph.examples_drawer import (
     get_example,
 )
 from jobdesk_app.gui.nodegraph.serialization import from_json, to_json
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
 EXPECTED_IDS = (
     "linear_opt_freq",

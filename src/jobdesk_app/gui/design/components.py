@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...services.gui_settings import GuiSettingsStore
+from ..dependencies import settings_store
 from .icons import get_icon
 from .tokens import Animation, Colors, Metrics, Radius, Spacing
 
@@ -125,7 +125,7 @@ class StyledTableWidget(QTableWidget):
         self.horizontalHeader().sectionResized.connect(self._save_bound_column_widths)
 
     def restore_column_widths(self, key: str, default_widths: list[int] | None = None) -> None:
-        settings = GuiSettingsStore().load()
+        settings = settings_store().load()
         widths = (settings.column_widths or {}).get(key) or default_widths or []
         if not widths:
             return
@@ -141,11 +141,11 @@ class StyledTableWidget(QTableWidget):
     def save_column_widths(self, key: str) -> None:
         if self._restoring_column_widths:
             return
-        settings_store = GuiSettingsStore()
-        settings = settings_store.load()
+        store = settings_store()
+        settings = store.load()
         widths = dict(settings.column_widths or {})
         widths[key] = [self.horizontalHeader().sectionSize(column) for column in range(self.columnCount())]
-        settings_store.update(column_widths=widths)
+        store.update(column_widths=widths)
 
     def _save_bound_column_widths(self) -> None:
         if self._column_width_key:

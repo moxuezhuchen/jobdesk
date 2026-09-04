@@ -171,6 +171,7 @@ ZH: dict[str, str] = {
     "Never overwrite": "\u4ece\u4e0d\u8986\u76d6",
     "New Folder": "\u65b0\u5efa\u76ee\u5f55",
     "No server selected": "\u672a\u9009\u62e9\u670d\u52a1\u5668",
+    "Server not found": "\u672a\u627e\u5230\u670d\u52a1\u5668",
     "Overwrite": "\u8986\u76d6",
     "Paths": "\u8def\u5f84",
     "Preview": "\u9884\u89c8",

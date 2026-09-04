@@ -14,7 +14,7 @@ def test_submodule_logs_go_to_file(tmp_path, monkeypatch):
 
     try:
         configure_file_logging()
-        logging.getLogger("jobdesk_app.services.run_monitor").warning("submodule warning")
+        logging.getLogger("jobdesk_app.infrastructure.runtime.run_monitor").warning("submodule warning")
         for handler in namespace_logger.handlers:
             handler.flush()
 

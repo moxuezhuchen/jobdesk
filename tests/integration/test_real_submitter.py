@@ -15,13 +15,13 @@ import uuid
 
 import pytest
 
-from jobdesk_app.config.servers import load_servers
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.submit import SubmitMode
-from jobdesk_app.remote.sftp import SFTPClientWrapper
-from jobdesk_app.remote.ssh import SSHClientWrapper
-from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.infrastructure.config.servers import load_servers
+from jobdesk_app.infrastructure.remote.sftp import SFTPClientWrapper
+from jobdesk_app.infrastructure.remote.ssh import SSHClientWrapper
+from jobdesk_app.infrastructure.remote.submitter import JobSubmitter
 from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(

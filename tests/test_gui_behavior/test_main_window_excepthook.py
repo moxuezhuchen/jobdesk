@@ -44,10 +44,6 @@ class TestMainWindowExcepthook:
             "jobdesk_app.gui.pages.runs_results_page.load_servers",
             lambda *a, **kw: MagicMock(servers={}),
         )
-        monkeypatch.setattr(
-            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-            lambda *a, **kw: MagicMock(servers={}),
-        )
 
         with (
             patch("jobdesk_app.gui.main_window.configure_file_logging"),
@@ -57,7 +53,7 @@ class TestMainWindowExcepthook:
             patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub),
             patch.object(RunsStub, "start_startup_recovery") as start_recovery,
         ):
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             store.return_value.load.return_value = GuiSettings()
             from jobdesk_app.gui.main_window import MainWindow
@@ -107,10 +103,6 @@ class TestMainWindowExcepthook:
             "jobdesk_app.gui.pages.runs_results_page.load_servers",
             lambda *a, **kw: MagicMock(servers={}),
         )
-        monkeypatch.setattr(
-            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-            lambda *a, **kw: MagicMock(servers={}),
-        )
 
         with (
             patch("jobdesk_app.gui.main_window.configure_file_logging"),
@@ -120,7 +112,7 @@ class TestMainWindowExcepthook:
             patch("jobdesk_app.gui.main_window.SettingsServersPage", SettingsStub),
             patch.object(RunsStub, "start_startup_recovery") as start_recovery,
         ):
-            from jobdesk_app.services.gui_settings import GuiSettings
+            from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
             store.return_value.load.return_value = GuiSettings()
             from jobdesk_app.gui.main_window import MainWindow
@@ -180,10 +172,6 @@ class TestMainWindowExcepthook:
             "jobdesk_app.gui.pages.runs_results_page.load_servers",
             lambda *a, **kw: MagicMock(servers={}),
         )
-        monkeypatch.setattr(
-            "jobdesk_app.gui.pages.settings_servers_page.load_servers",
-            lambda *a, **kw: MagicMock(servers={}),
-        )
 
         with (
             patch("jobdesk_app.gui.main_window.configure_file_logging"),
@@ -193,7 +181,7 @@ class TestMainWindowExcepthook:
             patch.object(RunsStub, "start_startup_recovery"),
         ):
             with patch("jobdesk_app.gui.main_window.GuiSettingsStore") as store:
-                from jobdesk_app.services.gui_settings import GuiSettings
+                from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
                 store.return_value.load.return_value = GuiSettings()
                 from jobdesk_app.gui.main_window import MainWindow

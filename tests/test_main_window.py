@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 # Ensure an offscreen Qt platform before any Qt import (Windows CI friendly).
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -21,8 +23,7 @@ from jobdesk_app.application.gui_ports import (  # noqa: E402
     FileTargetSnapshot,
     PageRefreshPort,
 )
-from jobdesk_app.core.run import WorkflowKind  # noqa: E402
-from jobdesk_app.gui.main_window import MainWindow, _create_and_maybe_submit_specs  # noqa: E402
+from jobdesk_app.gui.main_window import MainWindow  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -290,7 +291,7 @@ class _RecordingDialog:
         remote_dir="/",
         max_parallel=1,
         workspace=None,
-        preset_store=None,
+        workflows=None,
         preset_name=None,
         parent=None,
     ):
@@ -487,6 +488,83 @@ def test_main_window_does_not_query_runs_db_during_construction(qapp, monkeypatc
             window.deleteLater()
 
 
+def test_main_window_submit_is_owned_by_injected_task_supervisor(qapp, tmp_path):
+    from jobdesk_app.application.facades import GuiPreferencesSnapshot
+
+    supervisor = MagicMock()
+    lease = object()
+    supervisor.acquire_busy.return_value = lease
+    runs = MagicMock()
+    application = MagicMock()
+    application.runs = runs
+    application.settings.preferences.return_value = GuiPreferencesSnapshot()
+    window = MainWindow(task_supervisor=supervisor, application=application)
+    try:
+        window.state.current_project_root = tmp_path
+        window._files_port = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(server_id="wsl", ready=True),
+        )
+        payload = SimpleNamespace(server_id="wsl", remote_dir="/tmp/jobdesk-submit")
+
+        window._on_submit_requested(payload)
+
+        supervisor.acquire_busy.assert_called_once_with("main-window-submit", "submit")
+        supervisor.start.assert_called_once()
+        owner_key, operation_key, target, callbacks = supervisor.start.call_args.args
+        assert owner_key == "main-window"
+        assert operation_key == "submit"
+        assert callable(target)
+        assert callbacks.on_result is not None
+        assert callbacks.on_error is not None
+        assert supervisor.start.call_args.kwargs == {"busy_lease": lease}
+        target(None)
+        runs.submit.assert_called_once_with(payload, dispatch=True)
+    finally:
+        window.shutdown()
+        window.close()
+        window.deleteLater()
+
+
+def test_main_window_rejects_duplicate_submit_before_building_worker(qapp):
+    statuses: list[str] = []
+    supervisor = MagicMock()
+    supervisor.acquire_busy.return_value = None
+    window = MainWindow(task_supervisor=supervisor)
+    try:
+        window._update_status = statuses.append
+        window._files_port = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(server_id="wsl", ready=True),
+        )
+        payload = SimpleNamespace(server_id="wsl", remote_dir="/tmp/jobdesk-submit")
+
+        window._on_submit_requested(payload)
+
+        supervisor.start.assert_not_called()
+        assert statuses == ["Remote operation already in progress"]
+    finally:
+        window.shutdown()
+        window.close()
+        window.deleteLater()
+
+
+def test_main_window_shutdown_closes_supervisor_once_before_shared_pool(qapp):
+    calls: list[str] = []
+    supervisor = MagicMock()
+    supervisor.shutdown.side_effect = lambda: calls.append("supervisor")
+    pool = MagicMock()
+    pool.close.side_effect = lambda: calls.append("pool")
+    window = MainWindow(session_pool=pool, task_supervisor=supervisor)
+
+    window.shutdown()
+    window.shutdown()
+
+    supervisor.shutdown.assert_called_once_with()
+    pool.close.assert_called_once_with()
+    assert calls.index("supervisor") < calls.index("pool")
+    window.close()
+    window.deleteLater()
+
+
 def test_main_window_installs_navigation_and_page_shortcuts(qapp):
     window = MainWindow()
     try:
@@ -518,71 +596,3 @@ def test_runs_page_language_refresh_remains_explicit(qapp, monkeypatch):
                 pass
             window.close()
             window.deleteLater()
-
-
-def test_create_then_client_submit_keeps_one_remote_submit_and_preserves_outcomes(tmp_path):
-    record = type("Record", (), {"run_id": "run-1"})()
-    created = type("Outcome", (), {"records": [record], "errors": []})()
-    submitted = type("Outcome", (), {"records": [], "errors": [], "submit_results": ["result"]})()
-
-    class Coordinator:
-        def __init__(self):
-            self.created = 0
-
-        def create_run(self, spec, *, local_dir):
-            del spec, local_dir
-            self.created += 1
-            return created
-
-    class Client:
-        def __init__(self):
-            self.requests = []
-
-        def submit_with_outcome(self, request):
-            self.requests.append(request)
-            return object(), submitted
-
-    coordinator = Coordinator()
-    client = Client()
-    outcomes = _create_and_maybe_submit_specs(coordinator, client, [object()], tmp_path, submit=True)
-
-    assert coordinator.created == 1
-    assert [request.run_id for request in client.requests] == ["run-1"]
-    assert outcomes == [created, submitted]
-
-
-def test_create_failure_or_submit_false_never_calls_client_submit(tmp_path):
-    failed = type("Outcome", (), {"records": [], "errors": ["cannot create"]})()
-    created = type("Outcome", (), {"records": [type("Record", (), {"run_id": "run-1"})()], "errors": []})()
-
-    class Coordinator:
-        def __init__(self, outcome):
-            self.outcome = outcome
-
-        def create_run(self, spec, *, local_dir):
-            del spec, local_dir
-            return self.outcome
-
-    class Client:
-        def submit_with_outcome(self, request):
-            raise AssertionError(f"unexpected submit for {request.run_id}")
-
-    assert _create_and_maybe_submit_specs(Coordinator(failed), Client(), [object()], tmp_path, submit=True) == [failed]
-    assert _create_and_maybe_submit_specs(Coordinator(created), Client(), [object()], tmp_path, submit=False) == [
-        created
-    ]
-
-
-def test_workflow_creation_requires_admission_before_any_create(tmp_path):
-    class Coordinator:
-        def create_run(self, spec, *, local_dir):
-            raise AssertionError(f"unexpected legacy create for {spec!r} in {local_dir}")
-
-    class Client:
-        def submit_with_outcome(self, request):
-            raise AssertionError(f"unexpected submit for {request.run_id}")
-
-    workflow = type("Workflow", (), {"workflow_kind": WorkflowKind.confflow})()
-    outcomes = _create_and_maybe_submit_specs(Coordinator(), Client(), [workflow], tmp_path, submit=False)
-
-    assert outcomes[0].errors == ["configuration admission is required before creating workflow run"]

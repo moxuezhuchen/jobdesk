@@ -5,12 +5,14 @@ from __future__ import annotations
 import pytest
 
 from jobdesk_app.core.workflow_spec import WorkflowSpec
-from jobdesk_app.services.method_presets import MethodPresetStore, StepPresetStore
+from jobdesk_app.infrastructure.persistence.settings.method_presets import MethodPresetStore, StepPresetStore
 
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     return MethodPresetStore()
 
 
@@ -71,7 +73,9 @@ def test_delete_and_rename_user_workflow(store):
 
 
 def test_step_presets_are_the_only_bundled_presets(tmp_path, monkeypatch):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     step_store = StepPresetStore()
     names = {preset.name for preset in step_store.list_presets()}
     assert {"confgen", "b3lyp_631gd_opt_freq", "b3lyp_def2tzvp_opt_freq"} <= names
@@ -82,13 +86,17 @@ def test_step_presets_are_the_only_bundled_presets(tmp_path, monkeypatch):
 
 
 def test_step_preset_save_rejects_workflow_owned_keys(tmp_path, monkeypatch):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     with pytest.raises(ValueError, match="inputs"):
         StepPresetStore().save_user("invalid", {"type": "calc", "params": {}, "inputs": []})
 
 
 def test_step_preset_save_and_reload(tmp_path, monkeypatch):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     step_store = StepPresetStore()
     step_store.save_user("custom_sp", {"type": "calc", "params": {"iprog": "orca", "itask": "sp"}})
     assert step_store.load("custom_sp", source="user")["params"]["itask"] == "sp"

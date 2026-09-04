@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import jobdesk_app.services.run_service as run_service_module
+import jobdesk_app.infrastructure.runtime.run_service as run_service_module
 from jobdesk_app.core.confflow_contract import (
     REFERENCE_BUILD_COMMIT,
     REFERENCE_VERSION,
@@ -23,11 +23,11 @@ from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.status import BatchControlSnapshot, StatusRefreshResult, TaskStatusSnapshot
 from jobdesk_app.core.submit import SubmitResult
 from jobdesk_app.core.transfer import TransferStatus
-from jobdesk_app.remote.scheduler import NohupAdapter, ResourceSpec, SlurmAdapter
-from jobdesk_app.remote.ssh import SSHResult
-from jobdesk_app.services.run_repository import MergeResult, RunRepository
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.submit_ownership import _SubmitOwnershipGuard
+from jobdesk_app.infrastructure.persistence.sqlite_runs import MergeResult, RunRepository
+from jobdesk_app.infrastructure.remote.scheduler import NohupAdapter, ResourceSpec, SlurmAdapter
+from jobdesk_app.infrastructure.remote.ssh import SSHResult
+from jobdesk_app.infrastructure.runtime.run_service import RunService
+from jobdesk_app.infrastructure.runtime.submit_ownership import _SubmitOwnershipGuard
 from tests.repository_helpers import replace_tasks_for_test
 
 
@@ -521,7 +521,7 @@ def test_download_completed_rejects_declared_result_path_traversal(tmp_path, run
 def test_declared_outputs_pattern_semantics(tmp_path, runs_dir):
     """Plain filename patterns are used as-is; glob patterns expand to stem+suffix."""
     from jobdesk_app.core.manifest import TaskRecord
-    from jobdesk_app.services.run_service import _declared_outputs
+    from jobdesk_app.infrastructure.runtime.run_service import _declared_outputs
 
     task = TaskRecord(
         task_id="mol",
@@ -603,7 +603,7 @@ def test_workflow_retry_persists_resume_intent_and_original_namespace_across_res
     assert retried.resume_command.count("--resume") == 1
     assert retried.resume_dry_run_command.count("--resume") == 1
 
-    from jobdesk_app.remote.submitter import JobSubmitter
+    from jobdesk_app.infrastructure.remote.submitter import JobSubmitter
 
     assert JobSubmitter.generate_task_runner(retried).count("--resume") == 1
 
@@ -777,7 +777,7 @@ def test_submit_run_persists_and_reuses_execution_strategy(tmp_path, runs_dir, m
         def submit_batch(self):
             return SubmitResult("run_strategy", 1, "/remote/jobs")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", FakeSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", FakeSubmitter)
     resources = ResourceSpec(cpus=8, memory_mb=4096, walltime_minutes=60)
 
     service.submit_run(
@@ -822,7 +822,7 @@ def test_submit_run_skips_tasks_claimed_by_another_process(tmp_path, runs_dir, m
     )
     assert claimed and operations
     submitter = MagicMock()
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", submitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", submitter)
 
     result = RunService(tmp_path, runs_dir=runs_dir).submit_run("run_claimed", object(), object())
 
@@ -862,7 +862,7 @@ def test_submit_run_checkpoints_each_scheduler_success_before_batch_finishes(tmp
             self.checkpoint([submitted])
             raise RuntimeError("process crashed after first remote submission")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", CrashingSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", CrashingSubmitter)
 
     with pytest.raises(RuntimeError, match="process crashed"):
         service.submit_run("run_partial_submit", object(), object(), scheduler=SlurmAdapter())
@@ -1098,7 +1098,7 @@ def test_submit_exception_recovers_owned_remote_started_operation(tmp_path, runs
             self.remote_started([self.tasks[0].task_id])
             raise RuntimeError("process died after remote start")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", StartedThenCrashingSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", StartedThenCrashingSubmitter)
 
     with pytest.raises(RuntimeError, match="process died"):
         service.submit_run("run_started_exception", object(), object())
@@ -1161,7 +1161,7 @@ def test_submit_run_preserves_primary_error_and_notes_incomplete_failed_recovery
             self.remote_started([self.tasks[0].task_id])
             raise ValueError("primary submit failure")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", CrashingSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", CrashingSubmitter)
     monkeypatch.setattr(service.repository, "recover_submit_operation", lambda _operation_id: False)
 
     with pytest.raises(ValueError) as caught:
@@ -1192,7 +1192,7 @@ def test_submit_run_preserves_primary_error_when_release_raises(tmp_path, runs_d
         def submit_batch(self):
             raise KeyError("primary")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", CrashingSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", CrashingSubmitter)
     monkeypatch.setattr(
         service.repository,
         "release_claimed_submit_operation",
@@ -1227,7 +1227,7 @@ def test_submit_run_reports_release_failure_after_success(tmp_path, runs_dir, mo
         def submit_batch(self):
             return SubmitResult("run_success_cleanup_failure", 1, "/remote/jobs")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", SuccessfulSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", SuccessfulSubmitter)
     monkeypatch.setattr(
         service.repository,
         "release_claimed_submit_operation",
@@ -1605,7 +1605,7 @@ def test_cancel_run_cancels_remote_job_before_recording_terminal_state(tmp_path,
     tasks[0].remote_job_id = "12345"
     replace_tasks_for_test(service.repository, record.run_id, tasks)
     adapter = pytest.importorskip("unittest.mock").MagicMock()
-    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.remote.scheduler.make_adapter", lambda _: adapter)
     ssh = object()
 
     changed, errors = service.cancel_run("run_cancel", ssh)
@@ -1635,7 +1635,7 @@ def test_cancel_run_does_not_count_same_status_row_rejected_by_full_cas(tmp_path
     tasks[0].remote_job_id = "12345"
     replace_tasks_for_test(service.repository, record.run_id, tasks)
     adapter = MagicMock()
-    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.remote.scheduler.make_adapter", lambda _: adapter)
     original_merge = service.repository.merge_tasks
 
     def concurrent_cancel_then_merge(*args, **kwargs):
@@ -1684,7 +1684,7 @@ def test_cancel_run_reports_cas_rejection_when_task_is_not_cancelled(tmp_path, r
     tasks[0].remote_job_id = "12345"
     replace_tasks_for_test(service.repository, record.run_id, tasks)
     adapter = MagicMock()
-    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.remote.scheduler.make_adapter", lambda _: adapter)
     original_merge = service.repository.merge_tasks
 
     def concurrent_refresh_then_merge(*args, **kwargs):
@@ -1732,7 +1732,7 @@ def test_cancel_run_does_not_claim_cancel_when_remote_cancel_fails(tmp_path, run
     replace_tasks_for_test(service.repository, record.run_id, tasks)
     adapter = pytest.importorskip("unittest.mock").MagicMock()
     adapter.cancel.side_effect = RuntimeError("qdel rejected")
-    monkeypatch.setattr("jobdesk_app.remote.scheduler.make_adapter", lambda _: adapter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.remote.scheduler.make_adapter", lambda _: adapter)
 
     changed, errors = service.cancel_run("run_cancel_fail", object())
 
@@ -2404,7 +2404,7 @@ def test_live_submit_finishes_after_concurrent_recovery_declines_lease(tmp_path,
             )
             return SubmitResult("concurrent_live_submit", 1, "/remote/jobs")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", PausedSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", PausedSubmitter)
     with ThreadPoolExecutor(max_workers=1) as pool:
         submitting = pool.submit(
             service_a.submit_run,
@@ -2453,7 +2453,7 @@ def test_lost_submit_lease_prevents_starting_next_remote_task(tmp_path, runs_dir
             return SubmitResult("lost_lease_submit", len(launched), "/remote/jobs")
 
     renewals = iter([True, False])
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", TwoTaskSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", TwoTaskSubmitter)
     monkeypatch.setattr(
         service.repository,
         "renew_submit_lease",
@@ -2501,7 +2501,7 @@ def test_nohup_batch_marks_shared_operation_started_once(tmp_path, runs_dir, mon
             self.checkpoint(submitted)
             return SubmitResult("shared_nohup", len(submitted), "/remote/jobs")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", BatchSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", BatchSubmitter)
 
     result = service.submit_run("shared_nohup", object(), object(), scheduler=NohupAdapter())
 
@@ -3109,7 +3109,7 @@ def test_refresh_run_reports_only_changes_committed_by_compare_and_swap(tmp_path
         ],
     )
     monkeypatch.setattr(
-        "jobdesk_app.remote.status_refresh.refresh_task_statuses",
+        "jobdesk_app.infrastructure.remote.status_refresh.refresh_task_statuses",
         lambda *_args, **_kwargs: (refresh_result, refreshed),
     )
     monkeypatch.setattr(
@@ -3171,7 +3171,7 @@ def test_refresh_run_filters_all_rejected_task_diagnostics(tmp_path, runs_dir, m
         batch_control=BatchControlSnapshot(warnings=["batch warning"]),
     )
     monkeypatch.setattr(
-        "jobdesk_app.remote.status_refresh.refresh_task_statuses",
+        "jobdesk_app.infrastructure.remote.status_refresh.refresh_task_statuses",
         lambda *_args, **_kwargs: (refresh_result, refreshed),
     )
     original_merge = service.repository.merge_tasks
@@ -3235,7 +3235,7 @@ def test_refresh_run_keeps_accepted_unchanged_task_diagnostics(tmp_path, runs_di
         failures=[failure],
     )
     monkeypatch.setattr(
-        "jobdesk_app.remote.status_refresh.refresh_task_statuses",
+        "jobdesk_app.infrastructure.remote.status_refresh.refresh_task_statuses",
         lambda *_args, **_kwargs: (refresh_result, original),
     )
 
@@ -3248,7 +3248,7 @@ def test_refresh_run_keeps_accepted_unchanged_task_diagnostics(tmp_path, runs_di
 
 
 def test_create_run_rejects_relative_remote_dir(tmp_path, runs_dir):
-    from jobdesk_app.remote.errors import RemotePathError
+    from jobdesk_app.infrastructure.remote.errors import RemotePathError
 
     spec = RunSpec(
         server_id="s1",
@@ -3263,7 +3263,7 @@ def test_create_run_rejects_relative_remote_dir(tmp_path, runs_dir):
 
 
 def test_create_run_rejects_remote_source_with_parent_ref(tmp_path, runs_dir):
-    from jobdesk_app.remote.errors import RemotePathError
+    from jobdesk_app.infrastructure.remote.errors import RemotePathError
 
     spec = RunSpec(
         server_id="s1",

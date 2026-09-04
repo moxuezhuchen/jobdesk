@@ -7,7 +7,7 @@ import pytest
 
 from jobdesk_app.core.parsers.gaussian import diagnose_gaussian, parse_gaussian_log
 from jobdesk_app.core.parsers.orca import diagnose_orca, parse_orca_out
-from jobdesk_app.services.analysis_profiles import BUILTIN_PROFILES, AnalysisProfileStore
+from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import BUILTIN_PROFILES, AnalysisProfileStore
 
 # ---- Gaussian test fixtures ------------------------------------------------
 
@@ -367,7 +367,7 @@ class TestAnalysisProfileStore:
 
     def test_gaussian_opt_freq_has_leading_imaginary_frequency(self):
         """The true imaginary freq count is from parse_gaussian_log().imaginary_freq_count."""
-        from jobdesk_app.config.schema import ExtractStrategy, ExtractType
+        from jobdesk_app.core.analysis_schema import ExtractStrategy, ExtractType
 
         profile = BUILTIN_PROFILES["gaussian_opt_freq"]
         rules_by_name = {r.name: r for r in profile.extract_rules}
@@ -378,10 +378,10 @@ class TestAnalysisProfileStore:
         assert rule.strategy == ExtractStrategy.all
 
     def test_user_profile_save_and_load(self, tmp_path):
-        from jobdesk_app.config.schema import ExtractResult, ExtractStrategy, ExtractType
+        from jobdesk_app.core.analysis_schema import ExtractResult, ExtractStrategy, ExtractType
 
         store = AnalysisProfileStore(tmp_path)
-        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+        from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import AnalysisProfile
 
         profile = AnalysisProfile(
             name="my_custom",
@@ -402,7 +402,7 @@ class TestAnalysisProfileStore:
         assert loaded.extract_rules[0].name == "energy"
 
     def test_user_profile_overrides_builtin(self, tmp_path):
-        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+        from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import AnalysisProfile
 
         store = AnalysisProfileStore(tmp_path)
         override = AnalysisProfile(name="gaussian_sp", description="override", extract_rules=[])
@@ -411,7 +411,7 @@ class TestAnalysisProfileStore:
         assert loaded.description == "override"
 
     def test_delete_user_profile(self, tmp_path):
-        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+        from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import AnalysisProfile
 
         store = AnalysisProfileStore(tmp_path)
         store.save(AnalysisProfile(name="temp", description="", extract_rules=[]))
@@ -419,7 +419,7 @@ class TestAnalysisProfileStore:
         assert store.get("temp") is None
 
     def test_profile_name_cannot_escape_store_directory(self, tmp_path):
-        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+        from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import AnalysisProfile
 
         store = AnalysisProfileStore(tmp_path)
         with pytest.raises(ValueError, match="invalid profile name"):
@@ -428,7 +428,7 @@ class TestAnalysisProfileStore:
             store.delete("../outside")
 
     def test_profile_rewrite_is_atomic(self, tmp_path, monkeypatch):
-        from jobdesk_app.services.analysis_profiles import AnalysisProfile
+        from jobdesk_app.infrastructure.persistence.settings.analysis_profiles import AnalysisProfile
 
         store = AnalysisProfileStore(tmp_path)
         profile = AnalysisProfile(name="stable", description="original", extract_rules=[])

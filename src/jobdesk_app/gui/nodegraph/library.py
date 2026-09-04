@@ -35,9 +35,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jobdesk_app.gui.dependencies import GuiSettingsStorePort
 from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.model import NodeGraph, NodeKind
-from jobdesk_app.services.gui_settings import GuiSettingsStore
 
 # Order shown in the panel — chosen so the typical input → calc →
 # output flow reads top-to-bottom.
@@ -274,7 +274,7 @@ class NodeLibraryPanel(QWidget):
         language: str = "en",
         parent: QWidget | None = None,
         *,
-        settings_store: GuiSettingsStore | None = None,
+        settings_store: GuiSettingsStorePort | None = None,
     ) -> None:
         super().__init__(parent)
         self._language = language

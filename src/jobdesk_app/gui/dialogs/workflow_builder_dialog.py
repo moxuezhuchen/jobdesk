@@ -15,7 +15,6 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QWidget
 from ...core.workflow_spec import WorkflowSpec
 from ...gui.nodegraph.editor import WorkflowGraphEditor
 from ...gui.nodegraph.model import Edge, NodeGraph, NodeKind, default_node
-from ...services.method_presets import MethodPresetStore
 from ..i18n import tr
 
 _STEP_TO_KIND: dict[str, NodeKind] = {
@@ -101,7 +100,7 @@ class WorkflowBuilderDialog(QDialog):
         self,
         language: str,
         *,
-        preset_store: MethodPresetStore,
+        preset_store: object,
         initial_spec: WorkflowSpec | None = None,
         parent: QWidget | None = None,
     ) -> None:

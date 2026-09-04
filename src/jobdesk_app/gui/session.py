@@ -2,7 +2,8 @@
 
 from contextlib import contextmanager
 
-from ..services.ssh_session import create_sftp_client, create_ssh_client  # noqa: F401
+from .dependencies import create_sftp as create_sftp_client
+from .dependencies import create_ssh as create_ssh_client
 
 
 @contextmanager

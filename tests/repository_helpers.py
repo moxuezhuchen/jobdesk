@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from jobdesk_app.core.manifest import TaskRecord
-from jobdesk_app.services.run_repository import RunRepository
+from jobdesk_app.infrastructure.persistence.sqlite_runs import RunRepository
 
 
 def replace_tasks_for_test(

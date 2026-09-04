@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from jobdesk_app.application.confflow_client import ConfFlowClientError
+from jobdesk_app.application.submit_use_case import PreparedBatch
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
-from jobdesk_app.gui import main_window
-from jobdesk_app.services.submit_use_case import PreparedBatch
+from jobdesk_app.infrastructure import application_facades
+from jobdesk_app.infrastructure.application_facades import DefaultRunApplication, _require_transfers
 
 
-def test_capability_failure_before_upload_does_not_upload_or_create_run(monkeypatch, tmp_path: Path):
+def test_capability_failure_before_upload_does_not_upload(monkeypatch, tmp_path: Path):
     client = Mock()
     client.probe.side_effect = ConfFlowClientError("ConfFlow capability preflight failed: incompatible")
 
@@ -34,16 +34,20 @@ def test_capability_failure_before_upload_does_not_upload_or_create_run(monkeypa
         specs=[spec],
     )
     service = Mock()
-    payload = SimpleNamespace(server_id="srv")
+    files_application = Mock()
+    files_application._service.return_value = service
+    monkeypatch.setattr(application_facades, "DefaultFilesApplication", Mock(return_value=files_application))
+    application = DefaultRunApplication.__new__(DefaultRunApplication)
+    application._session_pool = Mock()
 
     with pytest.raises(ConfFlowClientError):
-        main_window._upload_prepared_batch(batch, payload, service, client)
+        application._upload_batch(batch, Mock(server_id="srv"), client, None)
 
     service.upload_path.assert_not_called()
     client.probe.assert_called_once_with(require_dag=False)
 
 
-def test_validated_yaml_upload_uses_exact_snapshot_and_cleans_it(tmp_path: Path):
+def test_validated_yaml_upload_uses_exact_snapshot_and_cleans_it(monkeypatch, tmp_path: Path):
     yaml_path = tmp_path / "workflow.yaml"
     yaml_path.write_bytes(b"mutated-after-admission")
     batch = PreparedBatch(
@@ -66,16 +70,24 @@ def test_validated_yaml_upload_uses_exact_snapshot_and_cleans_it(tmp_path: Path)
     service.upload_path.side_effect = (
         lambda local, target: uploaded.append((Path(local), Path(local).read_bytes())) or []
     )
+    files_application = Mock()
+    files_application._service.return_value = service
+    monkeypatch.setattr(application_facades, "DefaultFilesApplication", Mock(return_value=files_application))
+    application = DefaultRunApplication.__new__(DefaultRunApplication)
+    application._session_pool = Mock()
     client = Mock()
 
-    main_window._upload_prepared_batch(
+    application._upload_batch(
         batch,
-        SimpleNamespace(server_id="srv"),
-        service,
+        Mock(server_id="srv"),
         client,
-        validated_yaml_bytes=b"validated-bytes",
+        b"validated-bytes",
     )
 
     assert len(uploaded) == 1
     assert uploaded[0][1] == b"validated-bytes"
     assert uploaded[0][0] != yaml_path and not uploaded[0][0].exists()
+
+
+def test_single_transfer_record_is_accepted() -> None:
+    _require_transfers(Mock(status=Mock(value="transferred")), "/remote/a.xyz")

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from jobdesk_app.config.schema import ServerConfig
+from jobdesk_app.core.configuration import ServerConfig
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import ResourceBudget, TaskRecord
 from jobdesk_app.core.run import RunMode, RunSpec, WorkflowKind, build_run_plan
-from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.infrastructure.remote.submitter import JobSubmitter
 
 
 def test_resource_budget_effective_slots_multiplies_three_levels() -> None:
@@ -42,6 +42,7 @@ def test_server_config_max_cores_defaults_and_rejects_non_positive() -> None:
     with pytest.raises(ValueError):
         ServerConfig(host="host", username="user", max_cores=0)
 
+
 def test_submitter_budget_warning_thresholds_and_single_append() -> None:
     def make_submitter(effective_slots: int) -> JobSubmitter:
         task = TaskRecord(
@@ -59,6 +60,7 @@ def test_submitter_budget_warning_thresholds_and_single_append() -> None:
     submitter._preflight_capabilities = lambda _tasks, _result: False
     result = submitter.submit_batch()
     assert len(result.warnings) == 1
+
 
 def test_task_record_round_trip_preserves_resource_budget_dict() -> None:
     """TaskRecord.model_dump → model_validate preserves the JSON dict."""

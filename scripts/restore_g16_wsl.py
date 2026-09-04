@@ -18,6 +18,7 @@ Usage::
     python scripts/restore_g16_wsl.py                 # default install
     python scripts/restore_g16_wsl.py --dry-run       # show what would happen
 """
+
 from __future__ import annotations
 
 import argparse
@@ -76,7 +77,8 @@ def stream(payload: bytes) -> subprocess.CompletedProcess[bytes]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Print the operations that would happen without executing them.",
     )
     args = parser.parse_args()
@@ -107,7 +109,10 @@ def main() -> int:
     # Verification: file should now be the recovered wrapper, not the mock.
     verify = subprocess.run(
         ["wsl", "bash", "-c", f"file {WSL_DEST} && wc -c {WSL_DEST}"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if verify.returncode == 0:
         print("verify:", verify.stdout.strip())

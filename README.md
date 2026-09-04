@@ -2,8 +2,10 @@
 
 JobDesk is a Windows-first desktop and CLI tool for managing single scientific-computing jobs over SSH/SFTP. It helps prepare Gaussian and ORCA inputs, submit jobs to a remote machine or local WSL environment, monitor status, download outputs, and preview parsed results.
 
-JobDesk is currently a preview project. The current immutable released
-consumer is JobDesk `v0.7.10` at merge
+JobDesk is currently a preview project. This checkout declares the unreleased
+JobDesk `0.8.0` source candidate; it is not a published artifact, release, or
+production deployment. The latest immutable released consumer remains JobDesk
+`v0.7.10` at merge
 `54f7735698f148371adb70397813c04ea569c245`; its wheel SHA-256 is
 `6e1c6b42f8cdbb939a57442e6b8b30b168c7bd6c5cf550cac958acd6e83992c3`.
 The current immutable released producer is ConfFlow `v2.1.6` at merge
@@ -239,7 +241,7 @@ uv pip sync --python $venvPython --find-links .matrix-artifacts `
   requirements\locks\jobdesk-chem-py313-win_amd64.txt
 & $venvPython -m pip install --no-deps -e .
 & $venvPython -m pip check
-& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.8.0'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
 
 The lock is regenerated and checked with
@@ -285,7 +287,8 @@ Right-click on any row in the Files page's Local or Remote table
 to push it to the Submit page as an input. The page is the single
 entry point for "the user wants to submit this"; the page-level
 worker callback (in `MainWindow`) handles uploads + the
-`RunCoordinator.create_and_submit` call.
+single `RunApplication.submit` call; the application layer owns admission,
+staging, durable run creation, upload, and dispatch.
 
 On accept the Submit page stages `workflow.yaml` and each input in a unique
 remote submission namespace. Before launch, JobDesk requires the remote

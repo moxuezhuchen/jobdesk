@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.services.confflow_results import (
+from jobdesk_app.core.confflow_results import (
     ConfFlowSummary,
     ParseResult,
     ParseState,
@@ -47,8 +47,19 @@ def test_load_summary_result_not_a_dict(tmp_path: Path) -> None:
     (
         {},
         {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": []},
-        {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": {"opt": "1"}},
-        {"initial_conformers": 1, "final_conformers": 1, "total_duration_seconds": 1.0, "step_status_counts": {}, "lowest_conformer": "bad"},
+        {
+            "initial_conformers": 1,
+            "final_conformers": 1,
+            "total_duration_seconds": 1.0,
+            "step_status_counts": {"opt": "1"},
+        },
+        {
+            "initial_conformers": 1,
+            "final_conformers": 1,
+            "total_duration_seconds": 1.0,
+            "step_status_counts": {},
+            "lowest_conformer": "bad",
+        },
     ),
 )
 def test_load_summary_result_rejects_incompatible_current_shapes(tmp_path: Path, payload: object) -> None:
@@ -117,7 +128,10 @@ def test_format_summary_tolerates_none() -> None:
 
 def test_parse_result_summary_field_independent_of_state() -> None:
     """``summary`` is None for non-OK states, populated for OK."""
-    ok = ParseResult(state=ParseState.OK, summary=ConfFlowSummary(initial_conformers=1, final_conformers=1, total_duration_seconds=0.0))
+    ok = ParseResult(
+        state=ParseState.OK,
+        summary=ConfFlowSummary(initial_conformers=1, final_conformers=1, total_duration_seconds=0.0),
+    )
     missing = ParseResult(state=ParseState.MISSING, summary=None)
     malformed = ParseResult(state=ParseState.MALFORMED, summary=None)
     assert ok.summary is not None

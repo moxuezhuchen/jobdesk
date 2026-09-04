@@ -1,4 +1,4 @@
-"""JobDesk CLI — run + files commands powered by RunService."""
+"""JobDesk CLI presentation adapter backed by public application facades."""
 
 from __future__ import annotations
 
@@ -6,18 +6,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from .application.confflow_client import SubmitRequest
-from .config.servers import load_servers
+from .bootstrap import (
+    JobIdOverridesError,
+    create_application,
+    parse_job_id_overrides,
+)
 from .core.file_transfer import OverwritePolicy
 from .core.run import RunMode, RunSource, RunSpec
 from .core.transfer import TransferStatus
-from .services.confflow_control_state import require_all_projections_match_authority
-from .services.file_transfer_service import FileTransferService
-from .services.job_id_overrides import JobIdOverridesError, parse_job_id_overrides
-from .services.run_coordinator import RunCoordinator
-from .services.run_service import RunService
-from .services.ssh_confflow_client import SSHConfFlowClient
-from .services.ssh_session import ConnectedSFTP, create_sftp_client, create_ssh_client
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,7 +22,20 @@ def main(argv: list[str] | None = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 1
-    return args.func(args)
+
+    # The CLI is a presentation adapter.  Bootstrap owns construction of the
+    # concrete application graph, while this boundary owns its lifetime.  Keep
+    # the container on the parsed namespace so commands can migrate to the
+    # public facades without growing new infrastructure imports.
+    application = create_application(
+        getattr(args, "workspace", None),
+        servers_path=getattr(args, "servers_yaml", None),
+    )
+    args.application = application
+    try:
+        return args.func(args)
+    finally:
+        application.close()
 
 
 # ---- parser ---------------------------------------------------------------
@@ -168,28 +177,29 @@ def _cmd_run_create(args) -> int:
         mode=RunMode(args.mode),
         sources=sources,
     )
-    outcome = _run_coordinator(args, args.workspace).create_run(spec)
-    if outcome.errors:
-        print(outcome.errors[0])
+    outcome = args.application.runs.create(spec)
+    if outcome.failures:
+        print(outcome.failures[0].display_text)
         return 2
-    record = outcome.records[0]
+    assert outcome.value is not None
+    record = outcome.value.summary
     print(f"created run {record.run_id}: {record.status_summary}")
     return 0
 
 
 def _cmd_run_list(args) -> int:
-    service = RunService(args.workspace)
-    runs = service.list_runs()
-    for error in service.migration_errors():
+    runs = args.application.runs.list_runs()
+    for error in args.application.runs.migration_failures():
         print(
-            f"WARNING: legacy run import failed: {error.legacy_path}: {error.message}",
+            f"WARNING: legacy run import failed: {error.display_text}",
             file=sys.stderr,
         )
     if not runs:
         print("No runs")
         return 0
     for r in runs:
-        print(f"{r.run_id}\t{r.server_id}\t{r.remote_dir}\t{r.mode}\t{r.status_summary}")
+        details = args.application.runs.get_run(r.run_id)
+        print(f"{r.run_id}\t{r.server_id}\t{r.remote_dir}\t{details.mode}\t{r.status_summary}")
     return 0
 
 
@@ -210,86 +220,64 @@ def _cmd_run_submit(args) -> int:
                 file=sys.stderr,
             )
             return 2
-    client, _record, _coordinator = _run_client(args, args.workspace)
-    _handle, outcome = client.submit_with_outcome(SubmitRequest(args.run_id, resource_overrides=overrides or None))
-    if not outcome.submit_results:
-        for error in outcome.errors:
-            print(f"  ERROR: {error}")
+    outcome = args.application.runs.submit_existing(args.run_id, resource_overrides=overrides or None)
+    if outcome.value is None:
+        _print_application_failures(outcome)
         return 2
-    result = outcome.submit_results[0]
-    print(f"submitted={result.submitted_task_count}, errors={len(result.errors)}")
-    for e in result.errors:
-        print(f"  ERROR: {e}")
+    result = outcome.value
+    print(f"submitted={result.changed_count}, errors={len(outcome.failures)}")
+    _print_application_failures(outcome)
     # P-H0 (R-H0): surface advisory warnings to stderr so CI / shell
     # users can see producer build / resource budget advisories
     # without going through the GUI.
     for w in result.warnings:
         print(f"  WARNING: {w}", file=sys.stderr)
-    return 0 if not result.errors else 2
+    return 0 if not outcome.failures else 2
 
 
 def _cmd_run_refresh(args) -> int:
-    client, record, coordinator = _run_client(args, args.workspace)
-    if _requires_control_protocol(record):
-        outcome = client.refresh_outcome(client.attach(args.run_id), [], download=False)
-    else:
-        outcome = coordinator.refresh(args.run_id)
-    if outcome.refresh_result is None:
-        for error in outcome.errors:
-            print(f"  ERROR: {error}")
+    outcome = args.application.runs.refresh(args.run_id)
+    if outcome.value is None:
+        _print_application_failures(outcome)
         return 2
-    result = outcome.refresh_result
-    print(f"changed={result.changed_count}, warnings={len(result.warnings)}")
+    print(f"changed={outcome.value.changed_count}, warnings={len(outcome.value.warnings)}")
     return 0
 
 
 def _cmd_run_download(args) -> int:
     patterns = [p.strip() for arg in args.patterns for p in arg.split(",") if p.strip()]
-    client, record, coordinator = _run_client(args, args.workspace)
-    if _requires_control_protocol(record):
-        outcome = client.download_outcome(client.attach(args.run_id), patterns)
-    else:
-        outcome = coordinator.download(args.run_id, patterns)
-    if outcome.errors and not outcome.failures:
-        for error in outcome.errors:
-            print(f"  ERROR: {error}")
+    outcome = args.application.runs.download(args.run_id, tuple(patterns))
+    if outcome.value is None:
+        _print_application_failures(outcome)
         return 2
-    records = outcome.transfer_records
-    failures = outcome.failures
-    transferred = sum(1 for r in records if r.status == TransferStatus.transferred)
-    print(f"downloaded={transferred}, failures={len(failures)}")
-    return 0 if not failures else 2
+    failures = len(outcome.failures)
+    print(f"downloaded={len(outcome.value.local_paths)}, failures={failures}")
+    return 0 if failures == 0 else 2
 
 
 def _cmd_run_cancel(args) -> int:
-    client, record, coordinator = _run_client(args, args.workspace)
-    if _requires_control_protocol(record):
-        outcome = client.cancel_outcome(client.attach(args.run_id))
-    else:
-        outcome = coordinator.cancel(args.run_id)
-    changed = outcome.changed_count
-    errors = outcome.errors
+    outcome = args.application.runs.cancel(args.run_id)
+    changed = outcome.value.changed_count if outcome.value is not None else 0
     print(f"cancelled {changed} task(s)")
-    for error in errors:
-        print(f"  ERROR: {error}")
-    return 0 if not errors else 2
+    _print_application_failures(outcome)
+    return 0 if not outcome.failures else 2
 
 
 def _cmd_run_delete(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).delete(args.run_id)
-    if outcome.errors:
-        print(outcome.errors[0])
+    outcome = args.application.runs.delete(args.run_id)
+    if outcome.failures:
+        print(outcome.failures[0].display_text)
         return 2
     print(f"deleted run {args.run_id}")
     return 0
 
 
 def _cmd_run_retry(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).retry_failed(args.run_id)
-    if outcome.errors:
-        print(outcome.errors[0])
+    outcome = args.application.runs.prepare_retry_failed(args.run_id)
+    if outcome.failures:
+        print(outcome.failures[0].display_text)
         return 2
-    changed = outcome.changed_count
+    changed = outcome.value.changed_count if outcome.value is not None else 0
     if changed == 0:
         print("No failed tasks to retry")
         return 0
@@ -298,11 +286,11 @@ def _cmd_run_retry(args) -> int:
 
 
 def _cmd_run_rerun(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).rerun(args.run_id)
-    if outcome.errors:
-        print(outcome.errors[0])
+    outcome = args.application.runs.prepare_rerun(args.run_id)
+    if outcome.failures:
+        print(outcome.failures[0].display_text)
         return 2
-    changed = outcome.changed_count
+    changed = outcome.value.changed_count if outcome.value is not None else 0
     print(f"reset {changed} task(s) to uploaded, run `jobdesk run submit` to resubmit")
     return 0
 
@@ -313,43 +301,62 @@ def _cmd_run_confirm_submitted(args) -> int:
     except JobIdOverridesError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    outcome = _run_coordinator(args, args.workspace).confirm_submitted(args.run_id, args.tasks, remote_job_ids or None)
+    outcome = args.application.runs.resolve_uncertain(
+        args.run_id,
+        tuple(args.tasks),
+        action="confirm",
+        remote_job_ids=remote_job_ids or None,
+    )
     return _print_recovery_outcome("confirmed", "task(s)", outcome)
 
 
 def _cmd_run_abandon_submit(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).abandon_submit(args.run_id, args.tasks)
+    outcome = args.application.runs.resolve_uncertain(args.run_id, tuple(args.tasks), action="abandon")
     return _print_recovery_outcome("abandoned", "task(s)", outcome)
 
 
 def _cmd_run_recover_operations(args) -> int:
-    outcome = _run_coordinator(args, args.workspace).recover_operations(include_legacy_imports=True)
+    outcome = args.application.runs.recover(include_legacy_imports=True)
     return _print_recovery_outcome("recovered", "operation(s)", outcome)
 
 
 def _cmd_run_verify_rollback(args) -> int:
     """Check the pre-JD2b JSON compatibility boundary before a rollback."""
-    try:
-        require_all_projections_match_authority(RunService(args.workspace))
-    except ValueError as exc:
-        for line in str(exc).splitlines():
-            print(f"ERROR: {line}", file=sys.stderr)
+    outcome = args.application.runs.verify_rollback()
+    if outcome.failures:
+        for failure in outcome.failures:
+            for line in failure.display_text.splitlines():
+                print(f"ERROR: {line}", file=sys.stderr)
         return 2
     print("rollback ready: all ConfFlow JSON projections match SQLite authority")
     return 0
 
 
 def _print_recovery_outcome(action: str, noun: str, outcome) -> int:
-    print(f"{action} {outcome.changed_count} {noun}")
-    for error in outcome.errors:
-        print(f"  ERROR: {error}")
-    return 0 if not outcome.errors else 2
+    changed_count = outcome.value.changed_count if outcome.value is not None else 0
+    print(f"{action} {changed_count} {noun}")
+    _print_application_failures(outcome)
+    return 0 if not outcome.failures else 2
+
+
+def _print_application_failures(outcome) -> None:
+    for failure in outcome.failures:
+        print(f"  ERROR: {failure.display_text}")
 
 
 def _cmd_compare(args) -> int:
-    from .services.comparison import compare_runs, export_csv, export_markdown
+    from .application.comparison import export_csv, export_markdown
 
-    comparison = compare_runs(args.workspace, args.run_ids, args.field, args.profile)
+    outcome = args.application.runs.compare(
+        args.workspace,
+        tuple(args.run_ids),
+        args.field,
+        args.profile,
+    )
+    if outcome.value is None:
+        _print_application_failures(outcome)
+        return 2
+    comparison = outcome.value
     if not comparison.rows:
         print("No results found for the specified runs and profile.")
         return 2
@@ -367,20 +374,12 @@ def _cmd_compare(args) -> int:
 # ---- files commands -------------------------------------------------------
 
 
-def _file_transfer_service(args, server_id: str) -> FileTransferService:
-    server = _get_server_by_id(args, server_id)
-
-    def factory():
-        ssh = create_ssh_client(server)
-        ssh.connect()
-        sftp = create_sftp_client(ssh)
-        return ConnectedSFTP(ssh, sftp)
-
-    return FileTransferService(factory)
-
-
 def _cmd_files_list_remote(args) -> int:
-    entries = _file_transfer_service(args, args.server_id).list_remote(args.remote_path)
+    outcome = args.application.files.list_remote(args.server_id, args.remote_path)
+    if outcome.value is None:
+        _print_application_failures(outcome)
+        return 2
+    entries = outcome.value
     for entry in entries:
         kind = "dir" if entry.is_dir else "file"
         size = "" if entry.size_bytes is None else str(entry.size_bytes)
@@ -390,73 +389,52 @@ def _cmd_files_list_remote(args) -> int:
 
 def _cmd_files_upload(args) -> int:
     policy = OverwritePolicy.overwrite if args.overwrite else OverwritePolicy.skip_same_size
-    records = _file_transfer_service(args, args.server_id).upload_path(
-        args.local_path, args.remote_path, policy, dry_run=args.dry_run
+    outcome = args.application.files.upload(
+        args.server_id,
+        str(args.local_path),
+        args.remote_path,
+        policy=policy.value,
+        dry_run=args.dry_run,
     )
-    if not isinstance(records, list):
-        records = [records]
-    failures = sum(1 for r in records if r.status == TransferStatus.failed)
+    records = outcome.value.records if outcome.value is not None else ()
+    failures = sum(1 for r in records if r.status == TransferStatus.failed.value)
+    failures += len(outcome.failures)
     print(f"upload: records={len(records)}, failures={failures}")
     return 0 if failures == 0 else 2
 
 
 def _cmd_files_download(args) -> int:
     policy = OverwritePolicy.overwrite if args.overwrite else OverwritePolicy.skip_same_size
-    records = _file_transfer_service(args, args.server_id).download_path(
-        args.remote_path, args.local_path, policy, dry_run=args.dry_run
+    outcome = args.application.files.download(
+        args.server_id,
+        args.remote_path,
+        str(args.local_path),
+        policy=policy.value,
+        dry_run=args.dry_run,
     )
-    if not isinstance(records, list):
-        records = [records]
-    failures = sum(1 for r in records if r.status == TransferStatus.failed)
+    records = outcome.value.records if outcome.value is not None else ()
+    failures = sum(1 for r in records if r.status == TransferStatus.failed.value)
+    failures += len(outcome.failures)
     print(f"download: records={len(records)}, failures={failures}")
     return 0 if failures == 0 else 2
 
 
 def _cmd_files_mkdir(args) -> int:
-    _file_transfer_service(args, args.server_id).mkdir_remote(args.remote_path)
+    outcome = args.application.files.mkdir(args.server_id, args.remote_path)
+    if outcome.failures:
+        _print_application_failures(outcome)
+        return 2
     print(f"created {args.remote_path}")
     return 0
 
 
 def _cmd_files_preview(args) -> int:
-    print(_file_transfer_service(args, args.server_id).preview_remote_text(args.remote_path), end="")
+    outcome = args.application.files.preview_text(args.server_id, args.remote_path)
+    if outcome.value is None:
+        _print_application_failures(outcome)
+        return 2
+    print(outcome.value, end="")
     return 0
-
-
-# ---- helpers --------------------------------------------------------------
-
-
-def _get_server(args):
-    """Get server config for the run being operated on."""
-    record = RunService(args.workspace).load_run(args.run_id)
-    return _get_server_by_id(args, record.server_id)
-
-
-def _run_coordinator(args, workspace: Path) -> RunCoordinator:
-    return RunCoordinator(
-        RunService(workspace),
-        server_lookup=lambda server_id: _get_server_by_id(args, server_id),
-        ssh_factory=create_ssh_client,
-        sftp_factory=create_sftp_client,
-    )
-
-
-def _run_client(args, workspace: Path) -> tuple[SSHConfFlowClient, object, RunCoordinator]:
-    coordinator = _run_coordinator(args, workspace)
-    record = coordinator.service.load_run(args.run_id)
-    return SSHConfFlowClient(coordinator, record.server_id), record, coordinator
-
-
-def _requires_control_protocol(record: object) -> bool:
-    workflow_kind = getattr(record, "workflow_kind", None)
-    return getattr(workflow_kind, "value", None) in {"confflow", "dag"}
-
-
-def _get_server_by_id(args, server_id: str):
-    servers = load_servers(args.servers_yaml).servers if args.servers_yaml else load_servers().servers
-    if server_id not in servers:
-        raise SystemExit(f"server not found: {server_id}")
-    return servers[server_id]
 
 
 if __name__ == "__main__":

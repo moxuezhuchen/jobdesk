@@ -81,7 +81,7 @@ def test_g16_backups_directory_contains_expected_artifacts(real_g16_smoke_work_d
 
 
 def test_run_summary_loads_with_completed_step(real_g16_smoke_work_dir):
-    from jobdesk_app.services.confflow_results import load_summary
+    from jobdesk_app.core.confflow_results import load_summary
 
     summary_path = _require(real_g16_smoke_work_dir, "run_summary.json")
     summary = load_summary(summary_path)
@@ -95,7 +95,7 @@ def test_run_summary_loads_with_completed_step(real_g16_smoke_work_dir):
 
 
 def test_workflow_stats_records_completed_step_name(real_g16_smoke_work_dir):
-    from jobdesk_app.services.confflow_results import load_step_progress
+    from jobdesk_app.core.confflow_results import load_step_progress
 
     stats_path = _require(real_g16_smoke_work_dir, "workflow_stats.json")
     progress = load_step_progress(stats_path)

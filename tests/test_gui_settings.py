@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
 
 def test_gui_settings_store_roundtrip(tmp_path):

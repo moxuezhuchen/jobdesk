@@ -13,6 +13,30 @@ from .confflow_client import (
     TaskSnapshot,
     UnsupportedRemoteRunOperation,
 )
+from .container import ApplicationContainer
+from .facades import (
+    DownloadResult,
+    FilesApplication,
+    RecoveryResult,
+    RemoteFileEntry,
+    RunApplication,
+    RunDetails,
+    RunEvent,
+    RunQuery,
+    RunSubscription,
+    RunSummary,
+    ScalarOption,
+    ServerSnapshot,
+    SettingsApplication,
+    SettingsSnapshot,
+    SubmitRunRequest,
+    SubmitRunResult,
+    TaskSummary,
+    TransferResult,
+    WorkflowApplication,
+    WorkflowPreset,
+    WorkflowValidation,
+)
 from .file_transfer_ports import FileTransferPort, RemoteEntryLike, TransferRecordLike
 from .files_browser import (
     FileBrowserEntrySnapshot,
@@ -26,7 +50,8 @@ from .gui_ports import (
     FileTargetSnapshot,
     PageRefreshPort,
 )
-from .run_tasks import RunServiceTaskLookup, RunTaskLookup
+from .outcomes import ApplicationClosedError, OperationFailure, OperationOutcome
+from .run_tasks import RunTaskLookup
 from .runs_monitor import (
     MonitorContext,
     MonitorEvent,
@@ -50,6 +75,8 @@ from .runs_runtime import (
 )
 
 __all__ = [
+    "ApplicationClosedError",
+    "ApplicationContainer",
     "ArtifactEntry",
     "ArtifactManifest",
     "ConfFlowClient",
@@ -88,6 +115,28 @@ __all__ = [
     "RunQuerySnapshot",
     "RunSelectionSnapshot",
     "RunSelectionState",
-    "RunServiceTaskLookup",
     "RunTaskLookup",
+    "DownloadResult",
+    "FilesApplication",
+    "OperationFailure",
+    "OperationOutcome",
+    "RecoveryResult",
+    "RemoteFileEntry",
+    "RunApplication",
+    "RunDetails",
+    "RunEvent",
+    "RunQuery",
+    "RunSubscription",
+    "RunSummary",
+    "ScalarOption",
+    "ServerSnapshot",
+    "SettingsApplication",
+    "SettingsSnapshot",
+    "SubmitRunRequest",
+    "SubmitRunResult",
+    "TaskSummary",
+    "TransferResult",
+    "WorkflowApplication",
+    "WorkflowPreset",
+    "WorkflowValidation",
 ]

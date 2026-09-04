@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
-from ...services.ssh_session import ConnectedSFTP as _ConnectedSFTP  # noqa: F401  re-export for Files page
 from ..design.components import StyledTableWidget
 
 

@@ -30,11 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ....application.facades import WorkflowApplication
 from ....core.workflow_spec import WorkflowSpec
-from ....services.method_presets import (
-    MethodPresetStore,
-    StepPresetStore,
-)
 from ...design.tokens import Colors, Metrics, Radius, Spacing
 from ...i18n import tr
 from ...nodegraph.model import Edge, NodeGraph, NodeKind, default_node
@@ -245,7 +242,7 @@ class WorkflowPage(QWidget):
         state: Any,
         *,
         language: str = "en",
-        preset_store: MethodPresetStore,
+        workflows: WorkflowApplication,
         settings_store: Any = None,
         on_status: Callable[[str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
@@ -254,8 +251,7 @@ class WorkflowPage(QWidget):
         super().__init__(parent)
         self._state = state
         self._language = language
-        self._store = preset_store
-        self._step_store = StepPresetStore()
+        self._workflows = workflows
         self._settings_store = settings_store
         self._on_status = on_status or (lambda _message: None)
         self._on_error = on_error or (lambda _title, _message: None)
@@ -470,7 +466,7 @@ class WorkflowPage(QWidget):
     def _refresh_workflow_presets(self) -> None:
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
-        for preset in self._store.list_presets():
+        for preset in self._workflows.list_presets():
             if preset.source != "user":
                 continue
             self.preset_combo.addItem(preset.name, (preset.name, preset.source))
@@ -483,7 +479,7 @@ class WorkflowPage(QWidget):
         current = self.step_preset_combo.currentData()
         self.step_preset_combo.blockSignals(True)
         self.step_preset_combo.clear()
-        for preset in self._step_store.list_presets():
+        for preset in self._workflows.list_step_presets():
             self.step_preset_combo.addItem(preset.name, (preset.name, preset.source))
         if current:
             index = self.step_preset_combo.findData(current)
@@ -527,13 +523,13 @@ class WorkflowPage(QWidget):
         if not data:
             return
         name, source = data
-        preset = next(
-            (p for p in self._store.list_presets() if p.name == name and p.source == source),
-            None,
-        )
-        if preset is None:
+        try:
+            preset = self._workflows.get_preset(name, source=source)
+        except Exception as exc:
+            self._on_error(tr("Load workflow", self._language), str(exc))
             return
-        raw = deepcopy(getattr(preset.spec, "_raw", {}) or {})
+        spec = WorkflowSpec.from_yaml(preset.document.decode("utf-8"))
+        raw = deepcopy(getattr(spec, "_raw", {}) or {})
         global_config = deepcopy(raw.get("global") or self._default_global())
         projection_error = ""
         try:
@@ -694,7 +690,10 @@ class WorkflowPage(QWidget):
             self.step_yaml_editor.blockSignals(False)
             return
         try:
-            step = self._step_store.load(data[0], source=data[1])
+            preset = self._workflows.get_step_preset(data[0], source=data[1])
+            step = yaml.safe_load(preset.document.decode("utf-8"))
+            if not isinstance(step, dict):
+                raise ValueError("Step preset must be a YAML mapping.")
         except Exception as exc:
             self.step_error_label.setText(str(exc))
             return
@@ -818,7 +817,10 @@ class WorkflowPage(QWidget):
         if not data:
             return
         try:
-            step = self._step_store.load(data[0], source=data[1])
+            preset = self._workflows.get_step_preset(data[0], source=data[1])
+            step = yaml.safe_load(preset.document.decode("utf-8"))
+            if not isinstance(step, dict):
+                raise ValueError("Step preset must be a YAML mapping.")
             node = self._draft.graph.nodes[self._selected_node_id]
             fragment = {"name": node.title, "type": step["type"], "params": step["params"]}
             self.step_yaml_editor.setPlainText(_dump_yaml(fragment))
@@ -842,7 +844,9 @@ class WorkflowPage(QWidget):
             name = name.strip()
             if not ok or not name:
                 return
-            self._step_store.save_user(name, step)
+            outcome = self._workflows.save_step_preset(name, _dump_yaml(step).encode("utf-8"))
+            if not outcome.ok:
+                raise ValueError("; ".join(failure.display_text for failure in outcome.failures))
         except Exception as exc:
             self.step_error_label.setText(str(exc))
             return
@@ -1129,18 +1133,22 @@ class WorkflowPage(QWidget):
         name = name.strip()
         if not ok or not name:
             return False
-        self._store.save_user_yaml(name, yaml_text)
+        outcome = self._workflows.save_preset(name, yaml_text.encode("utf-8"))
+        if not outcome.ok:
+            self._on_error(
+                tr("Save workflow", self._language),
+                "; ".join(failure.display_text for failure in outcome.failures),
+            )
+            return False
         self._refresh_workflow_presets()
-        saved_preset = next(
-            (preset for preset in self._store.list_presets() if preset.name == name and preset.source == "user"),
-            None,
-        )
+        saved_preset = outcome.value
         if saved_preset is None:
             self._on_error(tr("Save workflow", self._language), "Saved workflow could not be reloaded.")
             return False
         was_loaded = isinstance(self._draft.raw_document, dict)
         self._draft.preset = saved_preset
-        saved_raw = deepcopy(getattr(saved_preset.spec, "_raw", {}) or {})
+        saved_spec = WorkflowSpec.from_yaml(saved_preset.document.decode("utf-8"))
+        saved_raw = deepcopy(getattr(saved_spec, "_raw", {}) or {})
         if was_loaded and saved_raw:
             self._draft.raw_document = saved_raw
             self._draft.global_config = deepcopy(saved_raw.get("global") or self._draft.global_config)

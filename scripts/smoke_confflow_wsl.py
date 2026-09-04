@@ -6,6 +6,7 @@ script, runs it, and pulls the artifacts back to Windows.
 
 Uses real ORCA SP on methane (fastest: ~1-2 s wall-clock).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -98,10 +99,18 @@ def stamp_remote() -> None:
     b64_deployer = _b64(deployer_content)
     # Stream deployer to WSL /tmp via stdin.
     proc = subprocess.run(
-        ["wsl", "bash", "-c",
-         f"python3 -u -c \"import sys,base64,os,stat,pathlib;data=base64.b64decode(sys.stdin.read().strip()).decode('utf-8');pathlib.Path('{wsl_helper}').write_text(data,encoding='utf-8',newline='\\n');os.chmod('{wsl_helper}',0o755);print('helper written')\""],
+        [
+            "wsl",
+            "bash",
+            "-c",
+            f"python3 -u -c \"import sys,base64,os,stat,pathlib;data=base64.b64decode(sys.stdin.read().strip()).decode('utf-8');pathlib.Path('{wsl_helper}').write_text(data,encoding='utf-8',newline='\\n');os.chmod('{wsl_helper}',0o755);print('helper written')\"",
+        ],
         input=b64_deployer,
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     if proc.returncode != 0:
         print(proc.stdout)
@@ -111,7 +120,11 @@ def stamp_remote() -> None:
     # Run the deployer to stamp the harness.
     result = subprocess.run(
         ["wsl", "bash", "-c", f"python3 {wsl_helper}"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
     )
     print(result.stdout, end="")
 
@@ -119,8 +132,12 @@ def stamp_remote() -> None:
 def run_inner() -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["wsl", "bash", INNER_SH_WSL],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        check=False, timeout=120,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=120,
     )
 
 
@@ -134,10 +151,22 @@ def parse_result_dir(output: str) -> str | None:
 def pull_artifacts(remote_tmp: str, target: pathlib.Path) -> None:
     pull_dir = "/tmp/confflow_phase6_pull"
     subprocess.run(["wsl", "bash", "-c", f"rm -rf -- '{pull_dir}' || true"], check=False)
-    subprocess.run(["wsl", "bash", "-c", f"mkdir -p -- '{pull_dir}' && cp -r -- '{remote_tmp}/methane_confflow_work' '{pull_dir}/'"], check=True)
+    subprocess.run(
+        [
+            "wsl",
+            "bash",
+            "-c",
+            f"mkdir -p -- '{pull_dir}' && cp -r -- '{remote_tmp}/methane_confflow_work' '{pull_dir}/'",
+        ],
+        check=True,
+    )
     wsl_path = subprocess.run(
         ["wsl", "wslpath", "-w", pull_dir],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
     ).stdout.strip()
     if target.exists():
         shutil.rmtree(target)
@@ -145,7 +174,11 @@ def pull_artifacts(remote_tmp: str, target: pathlib.Path) -> None:
     shutil.copytree(wsl_path, str(target), dirs_exist_ok=True)
     subprocess.run(
         ["wsl", "bash", "-c", f"rm -rf -- '{remote_tmp}' '{pull_dir}' || true"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
 
 

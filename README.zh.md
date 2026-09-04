@@ -2,8 +2,10 @@
 
 JobDesk 是面向 Windows 的桌面与命令行工具，通过 SSH/SFTP 管理单次科学计算任务（Gaussian / ORCA）。它负责准备输入、提交任务到远程机器或本地 WSL 环境、监控状态、下载输出、解析并预览结果。
 
-JobDesk 当前是公开预览项目。当前不可变的已发布 consumer 为 JobDesk
-`v0.7.10`，merge 为 `54f7735698f148371adb70397813c04ea569c245`，
+JobDesk 当前是公开预览项目。本 checkout 声明的是尚未发布的 JobDesk
+`0.8.0` 源码候选；它不是已发布制品、正式 release 或生产部署。最近一个
+不可变的已发布 consumer 仍是 JobDesk `v0.7.10`，merge 为
+`54f7735698f148371adb70397813c04ea569c245`，
 wheel SHA-256 为
 `6e1c6b42f8cdbb939a57442e6b8b30b168c7bd6c5cf550cac958acd6e83992c3`。
 当前不可变的已发布 producer 为 ConfFlow `v2.1.6`，merge 为
@@ -166,7 +168,7 @@ uv pip sync --python $venvPython --find-links .matrix-artifacts `
   requirements\locks\jobdesk-chem-py313-win_amd64.txt
 & $venvPython -m pip install --no-deps -e .
 & $venvPython -m pip check
-& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.7.10'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
+& $venvPython -c "import confflow, importlib.metadata as metadata, pathlib, sys; venv=pathlib.Path(sys.executable).resolve().parents[1]; source=pathlib.Path(confflow.__file__).resolve(); assert metadata.version('jobdesk') == '0.8.0'; assert metadata.version('confflow') == '2.1.6'; assert source.is_relative_to(venv / 'Lib' / 'site-packages'); print(confflow.__version__, source)"
 ```
 
 锁文件由
@@ -196,7 +198,7 @@ python3 -m pip check
 4. **实时预览** — `.gjf` / `.inp` 内容或 `workflow.yaml`。
 5. **活动记录** — 最近 50 条状态消息，已持久化到 SQLite（Schema v8），应用重启后可恢复。
 
-在文件页的本地或远端表任意行上右键，即可将其作为输入推送到提交页。提交页是"用户希望提交"这一动作的唯一入口；页面级工作线程回调（位于 `MainWindow`）负责上传与 `RunCoordinator.create_and_submit` 调用。
+在文件页的本地或远端表任意行上右键，即可将其作为输入推送到提交页。提交页是“用户希望提交”这一动作的唯一入口；`MainWindow` 的后台任务只调用一次 `RunApplication.submit`，配置准入、暂存、持久化创建、上传和调度均由应用层负责。
 
 确认后（工作流模式），提交页会把 `workflow.yaml` 与输入文件放入本次提交独占的远端命名空间。首次输入上传前和提交阶段，JobDesk 都要求远端 ConfFlow 返回 schema v4、版本范围 `>=2.0,<3.0`、producer/executable provenance 和 `artifacts` 字段逐项匹配的能力信息，并以 `--dry-run` 执行每个任务的真实命令；control 模式还必须通过 released worker-handoff 和明确的 backend selection。接受的 contract、配置摘要、producer provenance 以及 server/executable 身份会在 Schema v7/v8 的 `run_configuration_bindings` 中不可变绑定到该 workflow run。只有全部预检成功后才通过选定的 launcher 启动；control 不得静默 fallback 到 legacy。
 

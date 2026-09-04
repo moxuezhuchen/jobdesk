@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping, cast
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -28,18 +29,15 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid as is_qobject_valid
 
+from ...application.facades import FilesApplication
 from ...application.file_transfer_ports import FileTransferPort
 from ...application.files_browser import FileBrowserSnapshot, FilesBrowserController
 from ...application.files_connections import (
+    ApplicationFilesConnectionController,
     FilesConnectionController,
     FileTransferConnectionSnapshot,
 )
-from ...application.run_tasks import RunServiceTaskLookup, RunTaskLookup
-from ...config.servers import (
-    load_servers,  # noqa: F401  re-exported for tests that monkeypatch the symbol on this module
-)
-from ...services.external_terminal import build_terminal_launch, launch_terminal
-from ...services.gui_settings import GuiSettingsStore
+from ...application.run_tasks import RunTaskLookup
 from ..button_feedback import ButtonFeedback, ButtonRole, apply_button_role
 from ..design.components import StatusChip
 from ..design.tokens import Colors, Metrics, Radius
@@ -88,6 +86,67 @@ TRANSFER_PROGRESS_MIN_WIDTH = 320
 TRANSFER_PROGRESS_MAX_WIDTH = 560
 RENAME_ON_SELECTED_CLICK_DELAY_MS = 700
 REMOTE_EDIT_POLL_INTERVAL_MS = 1500
+
+
+class _UnavailableFilesApplication:
+    """Compatibility placeholder for isolated page tests without a shell."""
+
+    def __getattr__(self, name: str):
+        raise ConnectionError(f"Files application is not available: {name}")
+
+
+class _MemorySettingsStore:
+    """Non-persistent fallback used only by isolated widget construction."""
+
+    def __init__(self) -> None:
+        self._settings = SimpleNamespace(
+            auto_connect=False,
+            default_local_folder="",
+            last_local_folder="",
+            default_remote_dir="/tmp",
+            default_server_id="",
+            hide_dotfiles=True,
+            language="en",
+            last_remote_dirs={},
+            last_server_id="",
+            splitter_sizes={},
+            text_editor_path="notepad.exe",
+        )
+
+    def load(self):
+        return self._settings
+
+    def update(self, **values):
+        for key, value in values.items():
+            setattr(self._settings, key, value)
+        return self._settings
+
+
+class _EmptyRunTaskLookup:
+    def load_tasks(self, workspace: Path, run_id: str):
+        del workspace, run_id
+        return []
+
+
+# Stable monkeypatch seams for isolated GUI tests. Production supplies every
+# collaborator explicitly from the composition root.
+GuiSettingsStore = _MemorySettingsStore
+
+
+def load_servers():
+    return SimpleNamespace(servers={})
+
+
+def build_terminal_launch(*_args, **_kwargs):
+    raise RuntimeError("terminal builder was not injected")
+
+
+def launch_terminal(_launch):
+    raise RuntimeError("terminal launcher was not injected")
+
+
+def get_default_servers_path() -> Path:
+    return Path.cwd() / "servers.yaml"
 
 
 class FileTransferPage(QWidget):
@@ -151,6 +210,13 @@ class FileTransferPage(QWidget):
         coordinator_factory=None,
         session_pool=None,
         run_task_lookup: RunTaskLookup | None = None,
+        files_application: FilesApplication | None = None,
+        connections: FilesConnectionController | None = None,
+        settings_store: Any | None = None,
+        server_loader=None,
+        terminal_builder=None,
+        terminal_launcher=None,
+        servers_path_provider=None,
     ):
         super().__init__()
         self.state = state
@@ -162,17 +228,25 @@ class FileTransferPage(QWidget):
         # Keep the page dependent on a narrow application port.  The adapter
         # default preserves the historical no-extra-arguments constructor;
         # MainWindow may inject a shared lookup explicitly.
-        self._run_task_lookup = run_task_lookup or RunServiceTaskLookup()
+        self._run_task_lookup = run_task_lookup or _EmptyRunTaskLookup()
+        self._settings_store = settings_store or GuiSettingsStore()
+        self._terminal_builder = terminal_builder or build_terminal_launch
+        self._terminal_launcher = terminal_launcher or launch_terminal
+        self._servers_path_provider = servers_path_provider or get_default_servers_path
         self._connection_ready = False
-        self._connections = FilesConnectionController(
-            status_cb=status_cb,
-            log_cb=log_cb,
-            session_pool=session_pool,
-            allowed_delete_roots_provider=lambda: collect_remote_delete_roots(self._current_run_tasks()),
-        )
+        if connections is None:
+            if files_application is None:
+                files_application = cast(FilesApplication, _UnavailableFilesApplication())
+            connections = ApplicationFilesConnectionController(
+                files_application,
+                status_cb=status_cb,
+                log_cb=log_cb,
+                server_loader=server_loader or load_servers,
+            )
+        self._connections = connections
         self._browser = FilesBrowserController(service_provider=lambda: self._service)
         self._gui_dispatcher = GuiThreadDispatcher(self)
-        self._gui_settings = GuiSettingsStore().load()
+        self._gui_settings = self._settings_store.load()
         self._language = self._gui_settings.language
         self._remote_list_request_id = 0
         self._remote_list_fallbacks: list[str] = []
@@ -187,6 +261,7 @@ class FileTransferPage(QWidget):
             hide_dot_provider=lambda: self._gui_settings.hide_dotfiles,
             log_provider=lambda: self._status_cb,
             on_rows_loaded=self._load_local_rows,
+            settings_update=self._settings_store.update,
             worker_registry_attr="_background_workers",
         )
         self._local_navigator.set_root_provider(self._apply_local_root)
@@ -596,7 +671,7 @@ class FileTransferPage(QWidget):
         self.local_path_btn.setToolTip(str(path))
 
     def on_activated(self):
-        self._gui_settings = GuiSettingsStore().load()
+        self._gui_settings = self._settings_store.load()
         self.apply_language(self._gui_settings.language)
 
         first_run = not self._initialized
@@ -870,14 +945,13 @@ class FileTransferPage(QWidget):
         """
         import yaml
 
-        from ...config.servers import get_default_servers_path
         from ...core.atomic_write import atomic_write_text
 
         # Build a unique id so multiple clicks don't collide.
         base_id = "my_linux_box"
         sid = base_id
         suffix = 1
-        path = get_default_servers_path()
+        path = self._servers_path_provider()
         # Review-fix: pull the merge-data through a dedicated helper
         # that raises ``ConfigUnreadable`` for any unparseable file,
         # rather than swallowing parse errors and continuing with an
@@ -959,12 +1033,12 @@ class FileTransferPage(QWidget):
         remote_dir = normalize_remote_path(self.remote_path.text().strip() or "/")
         self.remote_path.setText(remote_dir)
         try:
-            launch = build_terminal_launch(
+            launch = self._terminal_builder(
                 server,
                 remote_dir,
                 temp_dir=Path(tempfile.gettempdir()) / "jobdesk_terminal",
             )
-            launch_terminal(launch)
+            self._terminal_launcher(launch)
             self._terminal_feedback.success(tr("Opened", self._language))
             self._status_cb(tr("Terminal opened", self._language))
         except Exception as exc:
@@ -1749,12 +1823,11 @@ class FileTransferPage(QWidget):
     def _persist_splitter_sizes(self) -> None:
         """Merge the current Files splitter state into shared GUI settings."""
         try:
-            store = GuiSettingsStore()
-            current = store.load()
+            current = self._settings_store.load()
             splitter_sizes = dict(current.splitter_sizes or {})
             splitter_sizes["files.panes"] = [max(0, int(value)) for value in self.file_splitter.sizes()]
             splitter_sizes["files.main"] = [max(0, int(value)) for value in self.main_splitter.sizes()]
-            store.update(splitter_sizes=splitter_sizes)
+            self._settings_store.update(splitter_sizes=splitter_sizes)
         except (OSError, TypeError, ValueError, RuntimeError):
             pass
 
@@ -1779,11 +1852,10 @@ class FileTransferPage(QWidget):
             )
         try:
             self._remember_current_remote_dir()
-            store = GuiSettingsStore()
-            current = store.load()
+            current = self._settings_store.load()
             new_server_id = self._connected_server_id or self.server_combo.currentData() or ""
             new_remote_dirs = {**dict(current.last_remote_dirs or {}), **self._server_remote_dirs}
-            store.update(last_server_id=new_server_id, last_remote_dirs=new_remote_dirs)
+            self._settings_store.update(last_server_id=new_server_id, last_remote_dirs=new_remote_dirs)
         except OSError:
             pass
         finally:

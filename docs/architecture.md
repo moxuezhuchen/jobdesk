@@ -2,9 +2,11 @@
 
 ## Current status and identity boundaries
 
-This document describes the current source-level boundaries and records the
-completed acceptance and production identities. The immutable released consumer
-is JobDesk `v0.7.10` at merge
+This document describes the target source-level boundaries of the unreleased
+JobDesk `0.8.0` architecture branch and records earlier acceptance and
+production identities separately. The source version is not evidence of a
+published artifact or deployment. The latest immutable released consumer
+remains JobDesk `v0.7.10` at merge
 `54f7735698f148371adb70397813c04ea569c245`, while failed or superseded tags
 remain historical evidence. The immutable released producer is ConfFlow
 `v2.1.6` at merge `45bfac11f721b2152eeff5ee26e50463fcc6f657`.
@@ -36,7 +38,8 @@ promotion record and stable `2.0.0` rollback target are persisted.
 ## ConfFlow contract boundaries
 
 The GUI has four working pages: Files, Workflow, Runs & Results, and Settings.
-Workflow method presets are supplied by `jobdesk_app.services.method_presets`.
+Workflow method presets are exposed through `WorkflowApplication`; their disk
+adapter is an infrastructure detail.
 The portable `WorkflowDocument`/codec/mapping path is dependency-free; the
 optional `WorkflowSpec` facade may use producer Pydantic models for local
 authoring compatibility, but those models are not a shared runtime contract.
@@ -56,42 +59,36 @@ final merge or calculation step before submitting a fan-out workflow.
 A high-level map of the codebase. The intended audience is a new
 contributor trying to locate where to make a change.
 
-## Layers
+## Target layers for the unreleased 0.8.0 source candidate
 
-```
-                    ┌──────────────────────────────────────────┐
-                    │   CLI (cli.py, cli_prep.py)              │
-                    │   GUI (gui/app.py → main_window)         │
-                    └──────────────────┬───────────────────────┘
-                                       │ uses
-                    ┌──────────────────▼───────────────────────┐
-                    │   Application services                   │
-                    │   (services/run_coordinator,             │
-                    │    services/run_service,                 │
-                    │    services/file_transfer_service, ...)  │
-                    └──────────────────┬───────────────────────┘
-                                       │ uses
-                    ┌──────────────────▼───────────────────────┐
-                    │   Domain core                            │
-                    │   (core/run, core/submit,                │
-                    │    core/manifest, core/parsers/, ...)    │
-                    └──────────────────┬───────────────────────┘
-                                       │ uses
-                    ┌──────────────────▼───────────────────────┐
-                    │   Remote I/O                             │
-                    │   (remote/ssh, remote/sftp,              │
-                    │    remote/scheduler, remote/submitter)   │
-                    └──────────────────────────────────────────┘
+```text
+core                         standard library / pure data dependencies
+  ↑
+application                  use cases, immutable DTOs, owned ports
+  ↑                ↖
+gui / cli          infrastructure  adapters for SQLite, SSH/SFTP and ConfFlow
+       ↖             ↑
+          bootstrap             the only composition root
 ```
 
-The GUI never talks directly to `remote/`; application services and
-`services/run_coordinator.RunCoordinator` own those ports. `MainWindow` shares
-one `SessionPool` with ordinary Files/Runs operations, but the pool is not the
-owner of every remote connection.
+The dependency matrix is normative: `application` depends only on `core`;
+`infrastructure` implements ports owned by `application`; GUI and CLI consume
+only the public application API. Only `bootstrap` may import both application
+and infrastructure to build `ApplicationContainer`. As a temporary v0.8 migration exception,
+`gui/pages/runs_results_page.py` still imports `bootstrap` to assemble its
+monitor and lifecycle collaborators; the static architecture test records
+this explicit remaining boundary. Core does not depend on
+application, infrastructure, GUI, or CLI. The old `services` and `remote`
+packages are migration sources, not supported 0.8.0 public boundaries, and are
+removed when this branch reaches acceptance.
+
+One container owns the repository adapter, short-operation `SessionPool`, and
+monitor registry. GUI shutdown and CLI `finally` paths close it idempotently.
+The pool is still not the owner of long-lived monitor transports.
 
 ### Ordinary pooled sessions versus monitor transports
 
-`services/session_pool.py::SessionPool` owns one reusable, serialized SSH
+`infrastructure/remote/session_pool.py::SessionPool` owns one reusable, serialized SSH
 session per server. Each `pool.lease(...)` is an exclusive, short-lived scope;
 callers request either SSH-only (`need_sftp=False`) or SSH plus an SFTP channel
 (`need_sftp=True`) and release the lease when the operation ends. The pool
@@ -99,7 +96,7 @@ closes detached clients after active leases return and on application
 shutdown. It must not be held across a long-running watcher or a sequence of
 unrelated operations.
 
-`services/run_monitor.py::RunMonitor` is different: each watcher owns a
+The infrastructure monitor transport is different: each watcher owns a
 long-lived transport for tailing `events.log` and probing declared workflow
 state/statistics paths. Its `MonitorTransportProvider` explicitly must not
 borrow a `SessionPool` lease, because a tail channel would starve ordinary
@@ -123,7 +120,7 @@ The Submit page (Phase 2) is now split across three modules:
 
 * `gui/dialogs/submit_dialog.py` — modal that produces a `SubmitPayload`. Auto-detects Single vs Workflow mode from the selected input files.
 * `gui/dialogs/workflow_builder_dialog.py` — modal that hosts `WorkflowGraphEditor` for editing a single preset.
-* `services/method_presets.py` — disk-backed `MethodPresetStore` that loads user workflow presets from `<app_data_dir>/method_presets`; built-in step presets live under `jobdesk_app.resources.step_presets`.
+* `WorkflowApplication` — application-facing preset operations; the disk-backed adapter loads user workflow presets from `<app_data_dir>/method_presets`, while built-in step presets live under `jobdesk_app.resources.step_presets`.
 
 ```
 InputSourcePanel  ──+──►  SubmitDialog  ──►  SubmitPayload  ──►  SubmitUseCase  ──►  PreparedBatch
@@ -137,16 +134,16 @@ WorkflowGraphEditor ─┘    (modal)             (dataclass)            (pure l
   the Phase 14A `CalculationWidget` / `WorkflowWidget` / `InputBuilderWidget`,
   which were retired in Phase 10.6.
 
-The page-level worker callback (in `MainWindow`) handles the I/O:
-uploads `local_paths` to `remote_targets`, then calls
-`RunCoordinator.create_and_submit(spec, local_dir=...)`. The use case
-is intentionally framework-free.
+The presentation layer delegates submission to
+`RunApplication.submit(...)`. The application use case coordinates
+uploads and remote submission through ports and remains framework-free;
+`MainWindow` does not perform I/O itself.
 
 ## Run lifecycle
 
-JobDesk's local lifecycle orchestration is owned by `RunService` and
-`RunCoordinator`. The CLI and GUI both call into them and never touch the
-database directly. The remote workflow lifecycle remains owned by ConfFlow;
+JobDesk's local lifecycle orchestration is owned by `RunApplication`. The CLI
+and GUI both call its immutable DTO-based API and never touch the database or
+remote adapters directly. The remote workflow lifecycle remains owned by ConfFlow;
 the two state machines are connected through the control protocol and typed
 projections, not by shared database writes.
 
@@ -209,21 +206,21 @@ Schemas:
 - **v8** — added the explicit selected `server_id` to each immutable
   configuration binding and backfilled it from the parent run during migration
 
-`services/run_repository/` is split into `_schema`, `_paths`,
+`infrastructure/persistence/sqlite_runs/` is split into `_schema`, `_paths`,
 `_workspaces`, `_submit`, `_delete`, `_tasks`, `_tasks_helpers`, `_runs`,
 `_operations`, `_operations_types`, `_legacy`, `_activity`, `_provenance`,
 `_configuration_bindings`, and `_control_decisions`. The split is purely
-organisational; all reads/writes still flow through `RunRepository` (the
-package's `__init__.py`). Control decisions commit the local journal,
+organisational; all reads/writes flow through the adapter implementing
+`RunRepositoryPort`. Control decisions commit the local journal,
 provenance, and task projection atomically; `control_backend.json` remains a
 byte-compatible projection for older readers.
 
 ## Method Preset Store
 
-`services/method_presets.py::MethodPresetStore` is the source of truth for
-user-saved workflow compositions under `<appdata>/method_presets/`. Each file
-loads as a `WorkflowSpec` via `WorkflowSpec.from_yaml()`. The historical class
-name remains for compatibility, but it no longer exposes bundled workflows.
+`WorkflowApplication` is the presentation-facing source of truth for user-saved
+workflow compositions. A filesystem adapter stores them under
+`<appdata>/method_presets/`; application callers do not receive the mutable
+store. Each file loads as a `WorkflowSpec` via `WorkflowSpec.from_yaml()`.
 
 `StepPresetStore` owns reusable single-step fragments. It combines bundled
 entries from `jobdesk_app.resources.step_presets` with optional user entries
@@ -258,17 +255,17 @@ namespace, then:
    retry/rerun reuses the same isolated namespace and adds `--resume`.
 
 The local document/schema lint is advisory. Before a workflow run is created,
-`services/ssh_configuration_contract_client.py` resolves the configured
-producer's `config contract --json` response and submits the exact YAML bytes
-to `config validate --json --stdin`; the producer's canonical validator owns
+the ConfFlow infrastructure gateway resolves the configured producer's
+`config contract --json` response and submits the exact YAML bytes to
+`config validate --json --stdin`; the producer's canonical validator owns
 semantic admission. `application/configuration_contract.py` stores the typed
-admission, while `remote/confflow_config_contract.py` parses the frozen response
-ABI. The exact contract/schema hash and executable/producer identities are
+admission while the gateway parses the frozen response ABI. The exact
+contract/schema hash and executable/producer identities are
 persisted in schema-v8 `run_configuration_bindings` and rechecked before
 submission. Local and remote sides are coupled by capability, configuration,
 control, and artifact contracts, not by an exact shared Pydantic model version.
 
-A ConfFlow run is observed via `services/run_monitor.py` polling the
+A ConfFlow run is observed through the application monitor port polling the
 remote `events.log` (DONE / RUNNING) **and** probing the SHA-256 content
 digest/presence of the exact state + stats paths supplied by the run plan
 (see `_CHECKPOINT_PROBE_SECONDS`). Mtime-only changes are ignored. A changed
@@ -280,14 +277,14 @@ ownership.
 
 | You want to… | Start here |
 |---|---|
-| Add a CLI subcommand | `src/jobdesk_app/cli.py` + `services/run_coordinator.py` |
+| Add a CLI subcommand | `src/jobdesk_app/cli.py` + the relevant application facade |
 | Add a page / tab | `gui/main_window.py` (stacked widget) + `gui/pages/<name>_page.py` |
 | Tweak the Submit dialog | `gui/dialogs/submit_dialog.py` (mode detection, payload build) + `gui/dialogs/workflow_builder_dialog.py` (preset editor) |
-| Add a submit mode (kind) | `core/submit_payload.py` (`SubmitKind` literal) + `services/submit_use_case.py` (`_build_*_specs`) |
+| Add a submit mode (kind) | `core/submit_payload.py` (`SubmitKind` literal) + the `RunApplication` submit use case |
 | Tweak parser output | `core/parsers/{gaussian,orca}.py` + add a test in `tests/test_parsers.py` |
 | Add a column to the runs-results table | `gui/pages/runs_results_page.py` + `_analysis_row` helper |
-| Change the SQLite schema | `services/run_repository/_schema.py` + add a migration in `_legacy.py` |
-| Add a new server-side scheduler | `remote/scheduler.py` + `services/scheduler_helpers.py` |
+| Change the SQLite schema | `infrastructure/persistence/sqlite_runs/_schema.py` + add a migration in `_legacy.py` |
+| Add a new server-side scheduler | implement the application scheduler port under `infrastructure/remote/` and wire it in `bootstrap` |
 
 ## Cross-cutting utilities
 

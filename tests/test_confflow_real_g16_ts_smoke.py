@@ -102,11 +102,10 @@ def test_g16_ts_log_contains_exactly_one_imaginary_frequency():
     """
     log = _require_artifact("g16_ts/backups/A000001.log")
     text = log.read_text(encoding="utf-8")
-    assert "1 imaginary frequencies (negative Signs)" in text, (
-        "TS .log must report exactly 1 imaginary frequency; got:\n"
-        + "\n".join(
-            line for line in text.splitlines() if "Imaginary Frequencies" in line or "imaginary" in line.lower()
-        )
+    assert (
+        "1 imaginary frequencies (negative Signs)" in text
+    ), "TS .log must report exactly 1 imaginary frequency; got:\n" + "\n".join(
+        line for line in text.splitlines() if "Imaginary Frequencies" in line or "imaginary" in line.lower()
     )
 
 
@@ -121,9 +120,9 @@ def test_g16_ts_imaginary_freq_count_is_one_via_parser():
     # negative (g16 prints > 100 cm-1 for a real saddle).
     imag = [f for f in result.frequencies_cm1 if f < 0]
     assert imag, "parser found no negative frequencies at all"
-    assert min(imag) < -100.0, (
-        f"imaginary frequency {min(imag)} cm-1 too small; g16 likely converged to a minimum, not a saddle"
-    )
+    assert (
+        min(imag) < -100.0
+    ), f"imaginary frequency {min(imag)} cm-1 too small; g16 likely converged to a minimum, not a saddle"
 
 
 def test_g16_ts_backups_directory_contains_expected_artifacts():
@@ -136,7 +135,7 @@ def test_g16_ts_backups_directory_contains_expected_artifacts():
 
 
 def test_g16_ts_run_summary_loads_with_completed_step():
-    from jobdesk_app.services.confflow_results import load_summary
+    from jobdesk_app.core.confflow_results import load_summary
 
     summary_path = _require_artifact("run_summary.json")
     summary = load_summary(summary_path)
@@ -147,7 +146,7 @@ def test_g16_ts_run_summary_loads_with_completed_step():
 
 
 def test_g16_ts_workflow_stats_records_completed_step_name():
-    from jobdesk_app.services.confflow_results import load_step_progress
+    from jobdesk_app.core.confflow_results import load_step_progress
 
     stats_path = _require_artifact("workflow_stats.json")
     progress = load_step_progress(stats_path)

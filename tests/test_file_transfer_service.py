@@ -6,8 +6,8 @@ import pytest
 
 from jobdesk_app.core.file_transfer import OverwritePolicy
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
-from jobdesk_app.remote.errors import RemotePathError
-from jobdesk_app.services.file_transfer_service import FileTransferService, ensure_safe_remote_path
+from jobdesk_app.infrastructure.remote.errors import RemotePathError
+from jobdesk_app.infrastructure.runtime.file_transfer_service import FileTransferService, ensure_safe_remote_path
 
 
 class FakeSFTP:

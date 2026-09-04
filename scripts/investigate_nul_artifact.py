@@ -67,13 +67,9 @@ def investigate() -> dict[str, list[str]]:
     return {
         "git_status_porcelain": _nul_filter_only(_run_git(["status", "--porcelain=v1", "-z"])),
         "git_ls_files": _nul_filter_only(_run_git(["ls-files", "-z"])),
-        "git_ls_files_others": _nul_filter_only(
-            _run_git(["ls-files", "--others", "--exclude-standard", "-z"])
-        ),
+        "git_ls_files_others": _nul_filter_only(_run_git(["ls-files", "--others", "--exclude-standard", "-z"])),
         "git_ls_files_stage": _nul_filter_only(_run_git(["ls-files", "--stage", "-z"])),
-        "win32_test_path": _powershell_items(
-            f"Test-Path -LiteralPath '{nul_literal}' -PathType Any"
-        ),
+        "win32_test_path": _powershell_items(f"Test-Path -LiteralPath '{nul_literal}' -PathType Any"),
         "win32_get_item": _powershell_items(
             f"Get-Item -LiteralPath '{nul_literal}' -ErrorAction SilentlyContinue | "
             "Select-Object FullName, Mode, Attributes | Format-List"

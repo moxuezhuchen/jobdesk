@@ -18,7 +18,7 @@ import pytest
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest, ResourceBudget, TaskRecord
 from jobdesk_app.core.run import WorkflowKind
-from jobdesk_app.services.run_repository import OperationRecord, RunRecord, RunRepository
+from jobdesk_app.infrastructure.persistence.sqlite_runs import OperationRecord, RunRecord, RunRepository
 from tests.repository_helpers import replace_tasks_for_test
 
 

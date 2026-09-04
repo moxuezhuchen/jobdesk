@@ -1,6 +1,6 @@
 """Application boundary for the Runs-page remote monitor.
 
-The SSH/event watcher is deliberately kept in :mod:`jobdesk_app.services`.
+The SSH/event watcher is deliberately kept in :mod:`jobdesk_app.infrastructure.runtime`.
 This module owns only the small identity and lifecycle contract shared by the
 watcher adapter and the GUI.  In particular, a worker event never carries a
 ``RunRecord``, a server configuration, or a Qt object across the boundary.

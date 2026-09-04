@@ -3,7 +3,7 @@
 import threading
 from pathlib import Path
 
-from jobdesk_app.services.app_config import AppConfig, get_config
+from jobdesk_app.infrastructure.persistence.settings.app_config import AppConfig, get_config
 
 
 class TestAppConfig:
@@ -136,13 +136,13 @@ class TestBackwardCompatibility:
     """Test backward compatibility helpers."""
 
     def test_get_default_servers_path(self, tmp_path, monkeypatch):
-        """Test servers_path helper matches config.servers.get_default_servers_path()."""
+        """Test servers_path helper matches the infrastructure adapter default."""
         AppConfig._instance = None
 
         monkeypatch.setenv("APPDATA", str(tmp_path))
         config = AppConfig.from_default()
 
-        from jobdesk_app.config.servers import get_default_servers_path
+        from jobdesk_app.infrastructure.config.servers import get_default_servers_path
 
         # Should return the same path
         assert config.get_default_servers_path() == get_default_servers_path()

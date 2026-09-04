@@ -37,9 +37,7 @@ def parse_output_manifest(raw: object, *, work_dir: Path | None = None) -> ConfF
     if not isinstance(raw, dict):
         raise OutputManifestError("output manifest must be an object")
     if raw.get("content_schema") != OUTPUT_MANIFEST_SCHEMA:
-        raise OutputManifestError(
-            f"unsupported output manifest schema: expected {OUTPUT_MANIFEST_SCHEMA!r}"
-        )
+        raise OutputManifestError(f"unsupported output manifest schema: expected {OUTPUT_MANIFEST_SCHEMA!r}")
     terminals = raw.get("terminals")
     if not isinstance(terminals, dict):
         raise OutputManifestError("output manifest terminals must be an object")
@@ -89,7 +87,12 @@ def _safe_relative_path(value: str) -> PurePosixPath:
     if not value or "\\" in value or "\x00" in value:
         raise OutputManifestError(f"unsafe output manifest path: {value!r}")
     path = PurePosixPath(value)
-    if path.is_absolute() or not path.parts or value != path.as_posix() or any(part in {".", ".."} for part in path.parts):
+    if (
+        path.is_absolute()
+        or not path.parts
+        or value != path.as_posix()
+        or any(part in {".", ".."} for part in path.parts)
+    ):
         raise OutputManifestError(f"unsafe output manifest path: {value!r}")
     return path
 
