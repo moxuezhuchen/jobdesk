@@ -27,6 +27,7 @@ from jobdesk_app.remote.scheduler import NohupAdapter, ResourceSpec, SlurmAdapte
 from jobdesk_app.remote.ssh import SSHResult
 from jobdesk_app.services.run_repository import MergeResult, RunRepository
 from jobdesk_app.services.run_service import RunService
+from jobdesk_app.services.submit_ownership import _SubmitOwnershipGuard
 from tests.repository_helpers import replace_tasks_for_test
 
 
@@ -2561,6 +2562,154 @@ def test_submit_cleanup_waits_for_blocked_heartbeat_to_exit(tmp_path, runs_dir, 
     assert not any(
         thread.name == "submit-lease-blocked_heartbeat" and thread.is_alive() for thread in threading.enumerate()
     )
+
+
+@pytest.mark.parametrize("stop_method", ["stop_heartbeat", "__exit__"])
+def test_submit_ownership_stop_does_not_return_with_live_heartbeat(stop_method):
+    class BlockingHeartbeat:
+        def __init__(self):
+            self.alive = True
+
+        def join(self, timeout=None):
+            if timeout is None:
+                self.alive = False
+
+        def is_alive(self):
+            return self.alive
+
+    guard = _SubmitOwnershipGuard(MagicMock(), [], "owner")
+    heartbeat = BlockingHeartbeat()
+    guard._thread = heartbeat
+
+    getattr(guard, stop_method)()
+
+    assert not heartbeat.is_alive()
+
+
+def test_submit_ownership_records_heartbeat_exception_as_lost():
+    failed = threading.Event()
+    repository = MagicMock()
+
+    def fail_renewal(*_args, **_kwargs):
+        failed.set()
+        raise RuntimeError("renew database unavailable")
+
+    repository.renew_submit_lease.side_effect = fail_renewal
+    guard = _SubmitOwnershipGuard(repository, ["operation"], "owner", heartbeat_interval_provider=lambda: 0)
+
+    with guard:
+        assert failed.wait(10)
+
+    assert guard.is_lost()
+    assert isinstance(guard.failure(), RuntimeError)
+    assert str(guard.failure()) == "renew database unavailable"
+
+
+def test_successful_submit_fails_closed_when_heartbeat_raises(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="heartbeat_failure",
+    )
+    heartbeat_failed = threading.Event()
+    original_renew = service.repository.renew_submit_lease
+
+    def fail_heartbeat(*args, **kwargs):
+        if threading.current_thread().name.startswith("submit-lease-"):
+            heartbeat_failed.set()
+            raise RuntimeError("renew database unavailable")
+        return original_renew(*args, **kwargs)
+
+    class SuccessfulSubmitter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def submit_batch(self):
+            assert heartbeat_failed.wait(10)
+            return SubmitResult("heartbeat_failure", 0, "/remote/jobs")
+
+    recover = MagicMock(wraps=service.repository.recover_submit_operation)
+    monkeypatch.setattr(run_service_module, "SUBMIT_HEARTBEAT_INTERVAL", 0.01)
+    monkeypatch.setattr(service.repository, "renew_submit_lease", fail_heartbeat)
+    monkeypatch.setattr(service.repository, "recover_submit_operation", recover)
+    monkeypatch.setattr(run_service_module, "JobSubmitter", SuccessfulSubmitter)
+
+    with pytest.raises(RuntimeError, match="ownership lost during heartbeat") as caught:
+        service.submit_run("heartbeat_failure", object(), object())
+
+    assert any("renew database unavailable" in note for note in caught.value.__notes__)
+    assert recover.call_count == 1
+
+
+def test_submitter_error_is_not_hidden_by_heartbeat_failure(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="submitter_and_heartbeat_failure",
+    )
+    heartbeat_failed = threading.Event()
+
+    def fail_heartbeat(*_args, **_kwargs):
+        heartbeat_failed.set()
+        raise RuntimeError("renew database unavailable")
+
+    class FailingSubmitter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def submit_batch(self):
+            assert heartbeat_failed.wait(10)
+            raise ValueError("submitter failed")
+
+    monkeypatch.setattr(run_service_module, "SUBMIT_HEARTBEAT_INTERVAL", 0.01)
+    monkeypatch.setattr(service.repository, "renew_submit_lease", fail_heartbeat)
+    monkeypatch.setattr(run_service_module, "JobSubmitter", FailingSubmitter)
+
+    with pytest.raises(ValueError, match="submitter failed") as caught:
+        service.submit_run("submitter_and_heartbeat_failure", object(), object())
+
+    assert any("renew database unavailable" in note for note in caught.value.__notes__)
+
+
+def test_heartbeat_thread_start_failure_preserves_error_and_recovers_claim(tmp_path, runs_dir, monkeypatch):
+    service = RunService(tmp_path, runs_dir=runs_dir)
+    service.create_run(
+        RunSpec(
+            server_id="s1",
+            remote_dir="/remote/jobs",
+            command_template="bash {name}",
+            max_parallel=1,
+            mode=RunMode.selected_files,
+            sources=[RunSource("/remote/jobs/a.sh")],
+        ),
+        run_id="heartbeat_start_failure",
+    )
+    recover = MagicMock(wraps=service.repository.recover_submit_operation)
+
+    def fail_start(_thread):
+        raise RuntimeError("heartbeat thread start failed")
+
+    monkeypatch.setattr(service.repository, "recover_submit_operation", recover)
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+
+    with pytest.raises(RuntimeError, match="heartbeat thread start failed"):
+        service.submit_run("heartbeat_start_failure", object(), object())
+
+    assert recover.call_count == 1
 
 
 def test_concurrent_delete_recovery_completes_once(tmp_path, runs_dir):

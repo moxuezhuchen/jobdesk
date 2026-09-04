@@ -73,18 +73,19 @@ def submit_run(
     primary_error: Exception | None = None
     recovery_diagnostics: list[str] = []
     release_diagnostics: list[str] = []
+    guard = _SubmitOwnershipGuard(
+        service.repository,
+        [op.operation_id for op in operations],
+        owner_id,
+        lease_seconds=lease_seconds,
+        # Keep the historical ``run_service.SUBMIT_HEARTBEAT_INTERVAL``
+        # monkeypatch contract without making submit_ownership import its
+        # facade at runtime.
+        heartbeat_interval_provider=lambda: _rs.SUBMIT_HEARTBEAT_INTERVAL,
+    )
 
     try:
-        with _SubmitOwnershipGuard(
-            service.repository,
-            [op.operation_id for op in operations],
-            owner_id,
-            lease_seconds=lease_seconds,
-            # Keep the historical ``run_service.SUBMIT_HEARTBEAT_INTERVAL``
-            # monkeypatch contract without making submit_ownership import its
-            # facade at runtime.
-            heartbeat_interval_provider=lambda: _rs.SUBMIT_HEARTBEAT_INTERVAL,
-        ) as guard:
+        with guard:
             operation_by_task: dict[str, OperationRecord] = {}
             for operation in operations:
                 task_ids = operation.payload.get("task_ids")
@@ -134,9 +135,14 @@ def submit_run(
                     resolved_realpath=str(realpath),
                     executable_identity=identity_data,
                 )
+        if guard.is_lost():
+            raise RuntimeError("submit operation ownership lost during heartbeat")
     except Exception as exc:
         primary_error = exc
         guard.stop_heartbeat()
+        heartbeat_failure = guard.failure()
+        if heartbeat_failure is not None:
+            exc.add_note(f"submit heartbeat failed: {type(heartbeat_failure).__name__}: {heartbeat_failure}")
         for operation in operations:
             try:
                 service.repository.recover_submit_operation(operation.operation_id, owner_id=owner_id)

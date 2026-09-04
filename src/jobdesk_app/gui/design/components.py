@@ -481,7 +481,7 @@ class Sidebar(QWidget):
         self._collapse_btn.setStyleSheet(
             f"#SidebarCollapseBtn {{ background-color: transparent; border: none; "
             f"color: {Colors.SIDEBAR_TEXT}; font-size: {Metrics.CHIP_FONT_PX}px; border-radius: 4px; padding: 0; "
-            "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; }}"
+            "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; }"
             f"#SidebarCollapseBtn:hover {{ background-color: rgba(255, 255, 255, 0.1); color: {Colors.SIDEBAR_TEXT_ACTIVE}; }}"
         )
         self._update_collapse_btn_icon()

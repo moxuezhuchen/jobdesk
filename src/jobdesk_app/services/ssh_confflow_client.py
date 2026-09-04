@@ -12,8 +12,6 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
-
 from jobdesk_app.application.confflow_client import (
     ArtifactManifest,
     ConfFlowClientError,
@@ -71,6 +69,7 @@ from jobdesk_app.services.ssh_confflow_control import (
     build_control_worker_command,
     resolve_control_state_root,
 )
+from jobdesk_app.services.ssh_session import is_authentication_error, is_bad_host_key_error
 
 _MAX_DISPATCH_RECONCILE_ATTEMPTS = 3
 
@@ -1153,9 +1152,9 @@ def _classify_control_admission_cause(exc: BaseException) -> tuple[str, bool]:
         chain.append(current)
         current = current.__cause__
     for cause in reversed(chain):
-        if isinstance(cause, BadHostKeyException):
+        if is_bad_host_key_error(cause):
             return "host_key_mismatch", False
-        if isinstance(cause, AuthenticationException):
+        if is_authentication_error(cause):
             return "authentication_failed", False
         if isinstance(cause, TimeoutError):
             return "timeout", True

@@ -195,6 +195,28 @@ def test_sidebar_starts_icon_only_and_keeps_toggle_hidden(qt_app):
     assert sidebar._collapse_btn.toolTip() == "Expand sidebar"
 
 
+def test_sidebar_collapse_button_stylesheet_is_qt_parseable(qt_app):
+    from PySide6.QtCore import qInstallMessageHandler
+
+    from jobdesk_app.gui.design.components import Sidebar
+
+    messages = []
+
+    def capture_qt_message(_message_type, _context, message):
+        messages.append(message)
+
+    previous_handler = qInstallMessageHandler(capture_qt_message)
+    try:
+        sidebar = Sidebar([("settings", "Settings")])
+        qt_app.processEvents()
+    finally:
+        qInstallMessageHandler(previous_handler)
+
+    parse_errors = [message for message in messages if "Could not parse stylesheet" in message]
+    assert parse_errors == []
+    sidebar.deleteLater()
+
+
 def test_button_feedback_styles_are_global_not_page_only():
     from jobdesk_app.gui.theme import build_app_stylesheet
 

@@ -15,8 +15,6 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, Protocol, SupportsIndex
 
-from paramiko.ssh_exception import AuthenticationException, BadHostKeyException
-
 from ..application.configuration_contract import (
     AdmissionStage,
     ConfigurationAdmission,
@@ -35,6 +33,7 @@ from .run_repository import RunRecord
 from .run_service import RunService
 from .scheduler_helpers import resources_from_server, scheduler_from_server
 from .ssh_configuration_contract_client import SSHConfigurationContractClient
+from .ssh_session import is_authentication_error, is_bad_host_key_error
 
 
 class RefreshResultProtocol(Protocol):
@@ -862,9 +861,9 @@ def _admission_cause_code(stage: AdmissionStage, exc: Exception) -> str:
         return "server_not_found"
     if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
         return "invalid_local_config"
-    if isinstance(exc, BadHostKeyException):
+    if is_bad_host_key_error(exc):
         return "host_key_mismatch"
-    if isinstance(exc, AuthenticationException):
+    if is_authentication_error(exc):
         return "authentication_failed"
     if isinstance(exc, TimeoutError):
         return "timeout"
@@ -882,7 +881,7 @@ def _admission_failure_retryable(stage: AdmissionStage, exc: Exception) -> bool:
         return False
     if stage == "local_config" and isinstance(exc, (ValueError, TypeError, KeyError)):
         return False
-    if isinstance(exc, (AuthenticationException, BadHostKeyException)):
+    if is_authentication_error(exc) or is_bad_host_key_error(exc):
         return False
     return not isinstance(exc, (ValueError, TypeError))
 

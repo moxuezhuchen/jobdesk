@@ -38,6 +38,7 @@ class _SubmitOwnershipGuard:
 
     _stop_heartbeat: threading.Event = field(default_factory=threading.Event, init=False)
     _lost: bool = field(default=False, init=False)
+    _failure: Exception | None = field(default=None, init=False)
     _thread: threading.Thread | None = field(default=None, init=False)
 
     def renew(self) -> bool:
@@ -59,27 +60,34 @@ class _SubmitOwnershipGuard:
     def is_lost(self) -> bool:
         return self._lost
 
+    def failure(self) -> Exception | None:
+        return self._failure
+
     def __enter__(self) -> "_SubmitOwnershipGuard":
         interval_provider = self.heartbeat_interval_provider or (lambda: SUBMIT_HEARTBEAT_INTERVAL)
 
         def heartbeat() -> None:
-            while not self._stop_heartbeat.wait(float(interval_provider())):
-                if not self.renew():
-                    return
+            try:
+                while not self._stop_heartbeat.wait(float(interval_provider())):
+                    if not self.renew():
+                        return
+            except Exception as exc:
+                self._failure = exc
+                self._lost = True
 
-        self._thread = threading.Thread(target=heartbeat, name=f"submit-lease-{self.owner_id}", daemon=True)
-        self._thread.start()
+        thread = threading.Thread(target=heartbeat, name=f"submit-lease-{self.owner_id}", daemon=True)
+        thread.start()
+        self._thread = thread
         return self
 
     def __exit__(self, *args) -> None:
-        self._stop_heartbeat.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
+        self.stop_heartbeat()
 
     def stop_heartbeat(self) -> None:
         self._stop_heartbeat.set()
         if self._thread is not None:
-            self._thread.join(timeout=5.0)
+            # Lease recovery/release must not race an in-flight renewal.
+            self._thread.join()
 
 
 @dataclass
