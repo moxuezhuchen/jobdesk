@@ -28,9 +28,51 @@ def _workflow_document() -> dict[object, object]:
     return document
 
 
+def test_all_third_party_actions_are_pinned_to_reviewed_commits() -> None:
+    expected = {
+        ("actions/checkout", "v4"): "11d5960a326750d5838078e36cf38b85af677262",
+        ("actions/setup-python", "v5"): "a26af69be951a213d495a4c3e4e4022e16d87065",
+        ("actions/upload-artifact", "v4"): "ea165f8d65b6e75b540449e92b4886f43607fa02",
+        (
+            "actions/attest-build-provenance",
+            "v2",
+        ): "e8998f949152b193b063cb0ec769d69d929409be",
+        ("astral-sh/setup-uv", "v6"): "d0cc045d04ccac9d8b7881df0226f9e82c39688e",
+    }
+    found: set[tuple[str, str]] = set()
+    workflow_dir = ROOT / ".github" / "workflows"
+    pattern = re.compile(r"^\s*(?:-\s*)?uses:\s+([^@\s]+)@([0-9a-f]{40})\s+#\s+(v\d+)\s*$")
+    for path in workflow_dir.glob("*.yml"):
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "uses:" not in line:
+                continue
+            match = pattern.match(line)
+            assert match is not None, f"{path.name}:{line_number} must pin a full SHA and retain its tag comment"
+            action, commit, tag = match.groups()
+            assert expected.get((action, tag)) == commit, f"unreviewed action pin at {path.name}:{line_number}"
+            found.add((action, tag))
+    assert found == set(expected)
+
+
+def test_dependabot_tracks_github_actions_updates() -> None:
+    document = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    assert document == {
+        "version": 2,
+        "updates": [
+            {
+                "package-ecosystem": "github-actions",
+                "directory": "/",
+                "schedule": {"interval": "weekly"},
+                "open-pull-requests-limit": 5,
+            }
+        ],
+    }
+
+
 def test_next_patch_candidate_is_bound_to_the_release_workflow() -> None:
     version = _project_version()
-    assert version == "0.7.10"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version)
+    assert version != "0.7.10"
 
     text = _workflow_text()
     document = _workflow_document()
@@ -41,7 +83,8 @@ def test_next_patch_candidate_is_bound_to_the_release_workflow() -> None:
     assert 'tags:\n      - "v*.*.*"' in text
     assert "v0.7.2" not in text
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert f"## [{version}] - Candidate" in changelog
+    assert "## [Unreleased]" in changelog
+    assert f"unreleased JobDesk\n  `{version}` source candidate" in changelog
 
 
 def test_release_workflow_requires_provenance_permissions_and_clean_identity() -> None:
@@ -144,7 +187,10 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     smoke = (ROOT / "scripts" / "smoke_gui_offscreen.py").read_text(encoding="utf-8")
     assert "JOBDESK_SMOKE_EXPECT_SITE_PACKAGES" in smoke
     assert "site-packages" in smoke
-    assert "actions/attest-build-provenance@v2" in text
+    assert (
+        "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2"
+        in text
+    )
     for filename in (
         "attestation.bundle.json",
         "attestation-verification.json",

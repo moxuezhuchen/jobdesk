@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import jobdesk_app.services.ssh_confflow_client as ssh_confflow_client_module
+import jobdesk_app.infrastructure.runtime.ssh_confflow_client as ssh_confflow_client_module
 from jobdesk_app.application.confflow_client import SubmitRequest
 from jobdesk_app.core.confflow_contract import (
     CAPABILITY_SCHEMA_VERSION,
@@ -20,12 +20,12 @@ from jobdesk_app.core.confflow_contract import (
 )
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
-from jobdesk_app.remote.errors import SSHCommandError, SSHConnectionError
-from jobdesk_app.remote.scheduler import ResourceSpec, SchedulerSubmitRejected
-from jobdesk_app.services.confflow_control import ControlArtifactManifest, ControlSnapshot
-from jobdesk_app.services.confflow_control_state import load_state, save_state
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import ConfFlowClientError, SSHConfFlowClient
+from jobdesk_app.infrastructure.remote.errors import SSHCommandError, SSHConnectionError
+from jobdesk_app.infrastructure.remote.scheduler import ResourceSpec, SchedulerSubmitRejected
+from jobdesk_app.infrastructure.runtime.confflow_control import ControlArtifactManifest, ControlSnapshot
+from jobdesk_app.infrastructure.runtime.confflow_control_state import load_state, save_state
+from jobdesk_app.infrastructure.runtime.run_service import RunService
+from jobdesk_app.infrastructure.runtime.ssh_confflow_client import ConfFlowClientError, SSHConfFlowClient
 
 
 class FakeSFTP:
@@ -205,7 +205,7 @@ def _client(service: RunService, transport: FakeControlTransport, scheduler: Fak
     [("nohup", ""), ("slurm", "#SBATCH --cpus-per-task=2"), ("pbs", "#PBS -l nodes=1:ppn=2")],
 )
 def test_control_launcher_script_uses_existing_scheduler_headers(scheduler_type: str, header: str) -> None:
-    from jobdesk_app.services.ssh_confflow_control import build_control_launcher_script
+    from jobdesk_app.infrastructure.runtime.ssh_confflow_control import build_control_launcher_script
 
     script = build_control_launcher_script(
         executable="/opt/confflow/bin/confflow",
@@ -239,7 +239,7 @@ def test_control_launcher_script_is_shell_valid() -> None:
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("bash is required to validate the POSIX launcher script")
-    from jobdesk_app.services.ssh_confflow_control import build_control_launcher_script
+    from jobdesk_app.infrastructure.runtime.ssh_confflow_control import build_control_launcher_script
 
     script = build_control_launcher_script(
         executable="/opt/confflow/bin/confflow",

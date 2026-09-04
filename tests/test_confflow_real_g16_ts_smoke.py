@@ -136,7 +136,7 @@ def test_g16_ts_backups_directory_contains_expected_artifacts():
 
 
 def test_g16_ts_run_summary_loads_with_completed_step():
-    from jobdesk_app.services.confflow_results import load_summary
+    from jobdesk_app.core.confflow_results import load_summary
 
     summary_path = _require_artifact("run_summary.json")
     summary = load_summary(summary_path)
@@ -147,7 +147,7 @@ def test_g16_ts_run_summary_loads_with_completed_step():
 
 
 def test_g16_ts_workflow_stats_records_completed_step_name():
-    from jobdesk_app.services.confflow_results import load_step_progress
+    from jobdesk_app.core.confflow_results import load_step_progress
 
     stats_path = _require_artifact("workflow_stats.json")
     progress = load_step_progress(stats_path)

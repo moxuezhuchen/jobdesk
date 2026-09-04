@@ -18,11 +18,26 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+from jobdesk_app.application.submit_use_case import SubmitUseCase  # noqa: E402
 from jobdesk_app.core.submit_payload import InputSource, SubmitPayload  # noqa: E402
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.dialogs.submit_dialog import SubmitDialog  # noqa: E402
-from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
-from jobdesk_app.services.submit_use_case import SubmitUseCase  # noqa: E402
+from jobdesk_app.infrastructure.persistence.settings.method_presets import MethodPresetStore  # noqa: E402
+
+
+class _StoreWorkflows:
+    def __init__(self, store):
+        self._store = store
+
+    def list_presets(self):
+        return self._store.list_presets()
+
+    def get_preset(self, name, *, source="user"):
+        return type(
+            "Preset",
+            (),
+            {"document": self._store.load_yaml(name, source=source).encode("utf-8")},
+        )()
 
 
 @pytest.fixture(scope="session")
@@ -92,7 +107,7 @@ def test_inp_only_payload_program_is_orca(qapp_instance):
 
 def test_workflow_payload_uses_selected_preset(qapp_instance, tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "jobdesk_app.services.method_presets.get_app_data_dir",
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir",
         lambda: tmp_path,
     )
     store = MethodPresetStore()
@@ -109,7 +124,7 @@ def test_workflow_payload_uses_selected_preset(qapp_instance, tmp_path, monkeypa
     store.save_user("my_preset", spec)
 
     sources = [_src("a.xyz", "xyz")]
-    dlg = SubmitDialog("en", files=sources, server_id="prod-01", preset_store=store)
+    dlg = SubmitDialog("en", files=sources, server_id="prod-01", workflows=_StoreWorkflows(store))
     dlg.set_selected_preset_name("my_preset")
     payload = dlg.build_payload()
     assert payload.kind in {"confflow", "dag"}
@@ -129,7 +144,7 @@ def test_remote_workflow_payload_writes_yaml_to_local_workspace(qapp_instance, t
     workspace.mkdir()
     monkeypatch.chdir(cwd)
     monkeypatch.setattr(
-        "jobdesk_app.services.method_presets.get_app_data_dir",
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir",
         lambda: tmp_path / "app-data",
     )
     store = MethodPresetStore()
@@ -151,7 +166,7 @@ def test_remote_workflow_payload_writes_yaml_to_local_workspace(qapp_instance, t
         server_id="prod-01",
         remote_dir="/work",
         workspace=workspace,
-        preset_store=store,
+        workflows=_StoreWorkflows(store),
     )
     try:
         dlg.set_selected_preset_name("remote_preset")
@@ -190,12 +205,14 @@ def test_mixed_inputs_prefer_local_parent_over_first_remote_source(qapp_instance
 
 
 def test_stale_workflow_selection_cannot_accept(qapp_instance, tmp_path, monkeypatch):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
     dlg = SubmitDialog(
         "en",
         files=[_src("a.xyz", "xyz")],
-        preset_store=MethodPresetStore(),
+        workflows=_StoreWorkflows(MethodPresetStore()),
         preset_name="b3lyp_631gd_opt_freq",
     )
     try:

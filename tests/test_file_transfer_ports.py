@@ -12,7 +12,10 @@ from jobdesk_app.application import (
     RemoteEntryLike,
     TransferRecordLike,
 )
-from jobdesk_app.services.file_transfer_service import FileTransferService
+from jobdesk_app.application.facades import RemoteFileEntry, TransferBatchResult, TransferResult
+from jobdesk_app.application.file_transfer_ports import FacadeFileTransferPort
+from jobdesk_app.application.outcomes import OperationOutcome
+from jobdesk_app.infrastructure.runtime.file_transfer_service import FileTransferService
 
 
 @dataclass
@@ -69,6 +72,84 @@ def test_protocol_exports_are_runtime_checkable():
         dry_run = True
 
     assert isinstance(_Record(), TransferRecordLike)
+
+
+class _FilesFacade:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def list_remote(self, server_id, remote_dir):
+        self.calls.append(("list", server_id, remote_dir))
+        return OperationOutcome.success((RemoteFileEntry("a", "/a", False, 3, 2.0, "-rw-r--r--"),))
+
+    def upload(
+        self,
+        server_id,
+        local_path,
+        remote_path,
+        *,
+        policy="skip_same_size",
+        dry_run=False,
+        progress_callback=None,
+    ):
+        del progress_callback
+        self.calls.append(("upload", server_id, local_path, remote_path, policy, dry_run))
+        return OperationOutcome.success(TransferBatchResult((TransferResult(local_path, remote_path, 3),)))
+
+    def download(
+        self,
+        server_id,
+        remote_path,
+        local_path,
+        *,
+        policy="skip_same_size",
+        dry_run=False,
+        progress_callback=None,
+    ):
+        del progress_callback
+        self.calls.append(("download", server_id, remote_path, local_path, policy, dry_run))
+        return OperationOutcome.success(TransferBatchResult((TransferResult(local_path, remote_path, 3),)))
+
+    def mkdir(self, server_id, remote_dir):
+        self.calls.append(("mkdir", server_id, remote_dir))
+        return OperationOutcome.success(None)
+
+    def rename(self, server_id, old_path, new_path):
+        self.calls.append(("rename", server_id, old_path, new_path))
+        return OperationOutcome.success(None)
+
+    def delete(self, server_id, remote_path, *, recursive=False, allowed_roots=()):
+        self.calls.append(("delete", server_id, remote_path, recursive, allowed_roots))
+        return OperationOutcome.success(None)
+
+    def preview_text(self, server_id, remote_path, *, max_bytes=65536):
+        self.calls.append(("preview", server_id, remote_path, max_bytes))
+        return OperationOutcome.success("preview")
+
+
+def test_facade_port_routes_all_remote_operations_without_owning_transport(tmp_path):
+    facade = _FilesFacade()
+    port = FacadeFileTransferPort(facade, "server")  # type: ignore[arg-type]
+    local = tmp_path / "a"
+
+    assert port.list_remote("/work")[0].permissions == "-rw-r--r--"
+    assert port.upload_path(local, "/work/a")[0].status == "transferred"
+    assert port.download_path("/work/a", local)[0].status == "transferred"
+    port.mkdir_remote("/work/new")
+    port.rename_remote("/work/a", "/work/b")
+    port.delete_remote("/work/b", recursive=True, extra_allowed_roots=["/work"])
+    assert port.preview_remote_text("/work/c") == "preview"
+    port.close()
+
+    assert [call[0] for call in facade.calls] == [
+        "list",
+        "upload",
+        "download",
+        "mkdir",
+        "rename",
+        "delete",
+        "preview",
+    ]
 
 
 def test_files_browser_does_not_import_concrete_service_or_service_entry():

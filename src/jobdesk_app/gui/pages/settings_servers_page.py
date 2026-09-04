@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+import yaml
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -22,10 +23,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...config.schema import ServerConfig
-from ...config.servers import get_default_servers_path, load_servers
-from ...core.atomic_write import atomic_write_text
-from ...services.gui_settings import GuiSettingsStore
+from ...application.facades import (
+    GuiPreferencesSnapshot,
+    ServerSnapshot,
+    SettingsApplication,
+    SoftwareProfileSnapshot,
+)
+from ...core.configuration import ServerConfig
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import SettingCard, StyledTableWidget, ToggleSwitch
 from ..design.tokens import Colors, Metrics, Radius
@@ -91,7 +95,7 @@ def _test_server_connections(
 class SettingsServersPage(QWidget):
     language_changed = Signal(str)
 
-    def __init__(self, state, log_cb, status_cb):
+    def __init__(self, state, log_cb, status_cb, *, settings_application: SettingsApplication):
         super().__init__()
         self.state = state
         self._log = log_cb
@@ -101,9 +105,10 @@ class SettingsServersPage(QWidget):
         self._server_test_status: dict[str, str] = {}
         self._loading_settings = False
         self._settings_snapshot = None
-        self._store = GuiSettingsStore()
-        self._language = self._store.load().language
-        self._background_workers = []
+        self._settings_application = settings_application
+        self._server_snapshots: dict[str, ServerSnapshot] = {}
+        self._language = self._settings_application.preferences().language
+        self._background_workers: list[object] = []
         self._server_dialogs: set[ServerEditorDialog] = set()
 
         root = QVBoxLayout(self)
@@ -443,7 +448,7 @@ class SettingsServersPage(QWidget):
         self._load_settings()
 
     def on_activated(self):
-        self._language = self._store.load().language
+        self._language = self._settings_application.preferences().language
         self._load_servers()
         self._load_settings()
 
@@ -516,8 +521,9 @@ class SettingsServersPage(QWidget):
 
     def _load_servers(self):
         try:
-            cfg = load_servers()
-            servers = cfg.servers
+            snapshot = self._settings_application.snapshot()
+            self._server_snapshots = {server.server_id: server for server in snapshot.servers}
+            servers = self._server_snapshots
         except FileNotFoundError:
             # ``servers.yaml`` is opt-in: a brand-new install has not
             # created one yet. Treat that as the "no servers" empty state
@@ -579,17 +585,23 @@ class SettingsServersPage(QWidget):
         if self._connection_test_running:
             return
         try:
-            cfg = load_servers()
+            snapshot = self._settings_application.snapshot()
         except Exception:
             return
-        if not cfg.servers:
+        if not snapshot.servers:
             return
         self._connection_test_running = True
         self._test_feedback.pending(tr("Testing...", self._language))
         for row in range(self.server_table.rowCount()):
             self.server_table.setItem(row, 4, QTableWidgetItem(tr("Testing...", self._language)))
 
-        servers_list = sorted(cfg.servers.items())
+        servers_list = sorted(
+            (
+                item.server_id,
+                ServerConfig(**self._server_document(item)),
+            )
+            for item in snapshot.servers
+        )
         failed = False
 
         def _run(ctx: WorkerContext):
@@ -643,7 +655,7 @@ class SettingsServersPage(QWidget):
     def _load_settings(self, *, show_discard_feedback: bool = False):
         self._loading_settings = True
         try:
-            s = self._store.load()
+            s = self._settings_application.preferences()
             self.local_folder_edit.setText(s.default_local_folder)
             self.text_editor_edit.setText(s.text_editor_path)
             self.max_parallel_spin.setValue(s.max_parallel)
@@ -652,13 +664,13 @@ class SettingsServersPage(QWidget):
                 self.language_combo.setCurrentIndex(idx)
             self.hide_dotfiles_cb.setChecked(s.hide_dotfiles)
             self._toggle_label.setText(tr("On", self._language) if s.hide_dotfiles else tr("Off", self._language))
-            profiles = s.software_profiles or {}
+            profiles = {profile.name: profile for profile in s.software_profiles}
             self.profile_table.setRowCount(len(profiles))
             for row, (name, p) in enumerate(profiles.items()):
                 self.profile_table.setItem(row, 0, QTableWidgetItem(name))
-                self.profile_table.setItem(row, 1, QTableWidgetItem(p.get("input_extensions", "")))
-                self.profile_table.setItem(row, 2, QTableWidgetItem(p.get("command_template", "")))
-                self.profile_table.setItem(row, 3, QTableWidgetItem(p.get("download_patterns", "")))
+                self.profile_table.setItem(row, 1, QTableWidgetItem(p.input_extensions))
+                self.profile_table.setItem(row, 2, QTableWidgetItem(p.command_template))
+                self.profile_table.setItem(row, 3, QTableWidgetItem(p.download_patterns))
             self._fit_table_height(self.profile_table)
             self._settings_snapshot = self._current_settings_values()
         finally:
@@ -724,35 +736,37 @@ class SettingsServersPage(QWidget):
         return not local_error and not editor_error
 
     def _save_settings(self):
-        from dataclasses import replace
-
         if not self._update_path_validation():
             self._status_cb(tr("Fix invalid paths before saving", self._language))
             return False
         self._save_feedback.pending(tr("Saving...", self._language))
         try:
-            existing = self._store.load()
+            existing = self._settings_application.preferences()
             # Read profiles from table
-            profiles = {}
+            profiles = []
             for row in range(self.profile_table.rowCount()):
                 name = (self.profile_table.item(row, 0) or QTableWidgetItem("")).text().strip()
                 if not name:
                     continue
-                profiles[name] = {
-                    "input_extensions": (self.profile_table.item(row, 1) or QTableWidgetItem("")).text().strip(),
-                    "command_template": (self.profile_table.item(row, 2) or QTableWidgetItem("")).text().strip(),
-                    "download_patterns": (self.profile_table.item(row, 3) or QTableWidgetItem("")).text().strip(),
-                }
-            new_settings = replace(
-                existing,
+                profiles.append(
+                    SoftwareProfileSnapshot(
+                        name,
+                        (self.profile_table.item(row, 1) or QTableWidgetItem("")).text().strip(),
+                        (self.profile_table.item(row, 2) or QTableWidgetItem("")).text().strip(),
+                        (self.profile_table.item(row, 3) or QTableWidgetItem("")).text().strip(),
+                    )
+                )
+            new_settings = GuiPreferencesSnapshot(
                 default_local_folder=self.local_folder_edit.text().strip(),
                 text_editor_path=self.text_editor_edit.text().strip() or "notepad.exe",
                 max_parallel=self.max_parallel_spin.value(),
                 language=self.language_combo.currentData() or "zh",
                 hide_dotfiles=self.hide_dotfiles_cb.isChecked(),
-                software_profiles=profiles,
+                software_profiles=tuple(profiles),
             )
-            self._store.save(new_settings)
+            outcome = self._settings_application.save_preferences(new_settings)
+            if not outcome.ok:
+                raise RuntimeError(outcome.failures[0].display_text)
         except Exception:
             self._save_feedback.error(tr("Save failed", self._language))
             raise
@@ -802,8 +816,6 @@ class SettingsServersPage(QWidget):
             self.text_editor_edit.setText(path)
 
     def _delete_server(self):
-        import yaml
-
         row = self.server_table.currentRow()
         if row < 0:
             self._status_cb(tr("Select a server first", self._language))
@@ -818,24 +830,14 @@ class SettingsServersPage(QWidget):
             != QMessageBox.Yes
         ):
             return
-        path = get_default_servers_path()
-        # ``servers.yaml`` is opt-in: a fresh install simply doesn't
-        # have one. Treat "not present" as an idempotent no-op rather
-        # than crashing the dialog (which is what the bare ``read_text``
-        # does, via ``FileNotFoundError``).
-        if path.exists():
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        else:
-            data = {}
-        servers = data.get("servers", {})
-        servers.pop(sid, None)
+        outcome = self._settings_application.delete_server(sid)
+        if not outcome.ok:
+            self._status_cb(outcome.failures[0].display_text)
+            return
         self._server_test_status.pop(sid, None)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _edit_server(self):
-        import yaml
         from PySide6.QtWidgets import QDialog
 
         row = self.server_table.currentRow()
@@ -843,16 +845,18 @@ class SettingsServersPage(QWidget):
             self._status_cb(tr("Select a server first", self._language))
             return
         sid = self.server_table.item(row, 0).text()
-        path = get_default_servers_path()
-        # Same fall-back as ``_delete_server``: an empty / missing
-        # ``servers.yaml`` should still let the user edit metadata on
-        # an existing in-memory row.
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {} if path.exists() else {}
-        srv = data.get("servers", {}).get(sid, {})
+        current = self._server_snapshots.get(sid)
+        if current is None:
+            self._load_servers()
+            current = self._server_snapshots.get(sid)
+        if current is None:
+            self._status_cb(tr("Server not found", self._language))
+            return
+        srv = self._server_document(current)
 
         dlg = ServerEditorDialog(
             language=self._language,
-            existing_ids=set(data.get("servers", {})),
+            existing_ids=set(self._server_snapshots),
             old_id=sid,
             server_id=sid,
             server=srv,
@@ -870,27 +874,18 @@ class SettingsServersPage(QWidget):
             QMessageBox.warning(self, tr("Edit Server:", self._language), error)
             return
         new_sid, existing = dlg.result_config()
-        if new_sid != sid:
-            data["servers"].pop(sid, None)
-        data["servers"][new_sid] = existing
+        if not self._save_server_document(new_sid, existing, previous_server_id=sid):
+            return
         self._server_test_status.pop(sid, None)
         self._server_test_status.pop(new_sid, None)
-        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
 
     def _add_server(self):
-        import yaml
-
-        path = get_default_servers_path()
-        data = {}
-        if path.exists():
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        servers = data.setdefault("servers", {})
         from PySide6.QtWidgets import QDialog
 
         dlg = ServerEditorDialog(
             language=self._language,
-            existing_ids=set(servers),
+            existing_ids=set(self._server_snapshots),
             connection_tester=self._test_dialog_connection,
             parent=self,
         )
@@ -905,11 +900,42 @@ class SettingsServersPage(QWidget):
             QMessageBox.warning(self, tr("Add", self._language), error)
             return
         sid, server = dlg.result_config()
-        servers[sid] = server
+        if not self._save_server_document(sid, server):
+            return
         self._server_test_status.pop(sid, None)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
         self._load_servers()
+
+    @staticmethod
+    def _server_document(snapshot: ServerSnapshot) -> dict:
+        value = yaml.safe_load(snapshot.document.decode("utf-8")) if snapshot.document else {}
+        if not isinstance(value, dict):
+            raise ValueError("server document must be a YAML mapping")
+        return value
+
+    def _save_server_document(
+        self,
+        server_id: str,
+        document: dict,
+        *,
+        previous_server_id: str | None = None,
+    ) -> bool:
+        server = ServerConfig(server_id=server_id, **document)
+        snapshot = ServerSnapshot(
+            server_id=server_id,
+            display_name=server.display_name,
+            host=server.host,
+            port=server.port,
+            username=server.username,
+            document=yaml.safe_dump(document, allow_unicode=True, sort_keys=False).encode("utf-8"),
+        )
+        outcome = self._settings_application.save_server(
+            snapshot,
+            previous_server_id=previous_server_id,
+        )
+        if outcome.ok:
+            return True
+        self._status_cb(outcome.failures[0].display_text)
+        return False
 
     def _test_dialog_connection(self, config: dict) -> str:
         server = ServerConfig(**config)

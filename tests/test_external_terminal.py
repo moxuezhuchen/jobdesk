@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from jobdesk_app.config.schema import ServerConfig
-from jobdesk_app.services.external_terminal import (
+from jobdesk_app.core.configuration import ServerConfig
+from jobdesk_app.infrastructure.runtime.external_terminal import (
     TerminalLaunch,
     build_cd_command,
     build_terminal_launch,

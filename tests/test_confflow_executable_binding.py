@@ -6,16 +6,16 @@ from dataclasses import replace
 
 import pytest
 
-from jobdesk_app.config.schema import ServerConfig
 from jobdesk_app.core.confflow_executable import (
     build_executable_identity_guard,
     build_executable_identity_probe,
     parse_executable_identity_probe,
 )
+from jobdesk_app.core.configuration import ServerConfig
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind, build_run_plan
-from jobdesk_app.remote.confflow_probe import build_confflow_capability_command
-from jobdesk_app.services.run_coordinator import RunCoordinator
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.remote.confflow_probe import build_confflow_capability_command
+from jobdesk_app.infrastructure.runtime.run_coordinator import RunCoordinator
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 
 
 def _workflow_spec() -> RunSpec:

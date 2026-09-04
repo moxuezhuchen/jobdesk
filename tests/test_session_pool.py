@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from jobdesk_app.services.session_pool import SessionPool, pooled_sftp_factory
+from jobdesk_app.infrastructure.runtime.session_pool import SessionPool, pooled_sftp_factory
 
 
 @dataclass

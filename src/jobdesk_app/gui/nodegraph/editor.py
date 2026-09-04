@@ -43,6 +43,8 @@ from PySide6.QtWidgets import (
 )
 
 from jobdesk_app.gui.button_feedback import ButtonFeedback, ButtonRole
+from jobdesk_app.gui.dependencies import GuiSettingsStorePort
+from jobdesk_app.gui.dependencies import settings_store as default_settings_store
 from jobdesk_app.gui.i18n import tr
 from jobdesk_app.gui.nodegraph.canvas import GraphScene, GraphView
 from jobdesk_app.gui.nodegraph.examples_drawer import ExamplesDrawer, get_example
@@ -59,7 +61,6 @@ from jobdesk_app.gui.nodegraph.serialization import (
     from_json,
     to_json,
 )
-from jobdesk_app.services.gui_settings import GuiSettingsStore
 
 _DEFAULT_LIBRARY_WIDTH = 250
 _DEFAULT_PROPERTIES_WIDTH = 300
@@ -88,14 +89,14 @@ class WorkflowGraphEditor(QWidget):
         language: str = "en",
         parent: QWidget | None = None,
         *,
-        settings_store: GuiSettingsStore | None = None,
+        settings_store: GuiSettingsStorePort | None = None,
         show_library: bool = True,
         show_properties: bool = True,
         show_template_actions: bool = True,
     ) -> None:
         super().__init__(parent)
         self._language = language
-        self._settings_store = settings_store or GuiSettingsStore()
+        self._settings_store = settings_store or default_settings_store()
         self._show_library = show_library
         self._show_properties = show_properties
         self._show_template_actions = show_template_actions

@@ -9,13 +9,32 @@ from types import SimpleNamespace
 
 import pytest
 
+from jobdesk_app.application.facades import RunSummary
 from jobdesk_app.application.runs_query import (
+    FacadeRunQueryService,
     RunFilterSpec,
     RunQueryController,
     RunQuerySnapshot,
     RunSelectionState,
     filter_run_snapshots,
 )
+
+
+def test_facade_query_adapter_reads_public_run_summaries_without_workspace_leakage():
+    expected = RunSummary(
+        run_id="run-facade",
+        server_id="wsl",
+        workflow_kind="dag",
+        created_at="2026-09-04T00:00:00",
+        status_counts=(("running", 1),),
+    )
+
+    class Facade:
+        def list_runs(self, query=None):
+            assert query is None
+            return (expected,)
+
+    assert FacadeRunQueryService(Facade()).list_runs() == [expected]  # type: ignore[arg-type]
 
 
 def _record(run_id: str, *, status: dict[str, int] | None = None):

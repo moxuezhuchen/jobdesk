@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.services.run_profiles import RunProfileStore
+from jobdesk_app.infrastructure.persistence.settings.run_profiles import RunProfileStore
 
 
 def test_run_profile_store_saves_and_loads_last_profile(tmp_path):

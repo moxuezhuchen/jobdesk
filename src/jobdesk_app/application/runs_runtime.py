@@ -16,10 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Protocol, cast
-
-if TYPE_CHECKING:
-    from ..services.run_service import RunService
+from typing import Any, Protocol, cast
 
 
 class RunServicePort(Protocol):
@@ -62,11 +59,18 @@ ServiceConstructor = Callable[[], Callable[[Path], RunServicePort]]
 CoordinatorFactory = Callable[[Path], Any]
 ClientFactory = Callable[[Any, str], Any]
 ClientConstructor = Callable[[], Callable[[Any, str], Any]]
+CoordinatorConstructor = Callable[..., Any]
 SessionPoolFactory = Callable[[], SessionPoolPort]
 SessionPoolConstructor = Callable[..., SessionPoolPort]
 ServerLoader = Callable[[], Any]
 DurableBackendLoader = Callable[[RunServicePort, str], Mapping[str, object] | None]
 _MONITOR_ACTIVE_STATUSES = frozenset({"submitting", "submitted", "running"})
+_CONTROL_BACKEND = "control"
+
+
+@dataclass(frozen=True, slots=True)
+class _EmptyServerConfiguration:
+    servers: Mapping[str, object] = field(default_factory=dict)
 
 
 def _has_monitor_active_status(summary: Mapping[str, int]) -> bool:
@@ -128,19 +132,6 @@ class RunsMonitorInput:
         object.__setattr__(self, "server_ids", frozenset(str(value) for value in self.server_ids))
 
 
-def _default_service_constructor() -> Callable[[Path], RunServicePort]:
-    from ..services.run_service import RunService
-
-    return RunService
-
-
-def _default_session_pool_factory() -> SessionPoolPort:
-    from ..services.session_pool import SessionPool
-    from ..services.ssh_session import create_sftp_client, create_ssh_client
-
-    return SessionPool(create_ssh_client, create_sftp_client)
-
-
 class RunsPageRuntime:
     """Own the concrete runtime graph used by ``RunsResultsPage``.
 
@@ -157,6 +148,7 @@ class RunsPageRuntime:
         service_factory: ServiceFactory | None = None,
         service_constructor: ServiceConstructor | None = None,
         coordinator_factory: CoordinatorFactory | None = None,
+        coordinator_constructor: CoordinatorConstructor | None = None,
         client_factory: ClientFactory | None = None,
         client_constructor: ClientConstructor | None = None,
         session_pool: SessionPoolPort | None = None,
@@ -170,8 +162,9 @@ class RunsPageRuntime:
         if service_factory is not None and service_constructor is not None:
             raise TypeError("provide service_factory or service_constructor, not both")
         self._service_factory = service_factory
-        self._service_constructor = service_constructor or _default_service_constructor
+        self._service_constructor = service_constructor
         self._coordinator_factory = coordinator_factory
+        self._coordinator_constructor = coordinator_constructor
         self._client_factory = client_factory
         self._client_constructor = client_constructor
         if session_pool is not None and session_pool_factory is not None:
@@ -179,8 +172,8 @@ class RunsPageRuntime:
         if session_pool is not None and session_pool_constructor is not None:
             raise TypeError("provide session_pool or session_pool_constructor, not both")
         self._owns_session_pool = session_pool is None
-        self._server_loader = server_loader or self._default_server_loader
-        self._durable_backend_loader = durable_backend_loader or self._default_durable_backend_loader
+        self._server_loader = server_loader or (lambda: _EmptyServerConfiguration())
+        self._durable_backend_loader = durable_backend_loader or (lambda _service, _run_id: None)
         self._ssh_factory = ssh_factory
         self._sftp_factory = sftp_factory
         if session_pool is not None:
@@ -191,30 +184,13 @@ class RunsPageRuntime:
             ssh_factory_value, sftp_factory_value = self._connection_factories()
             self._session_pool = session_pool_constructor(ssh_factory_value, sftp_factory_value)
         else:
-            self._session_pool = _default_session_pool_factory()
+            raise TypeError("session_pool, session_pool_factory, or session_pool_constructor is required")
         self._closed = False
 
     def _connection_factories(self) -> tuple[Callable[..., Any], Callable[..., Any]]:
         if self._ssh_factory is None or self._sftp_factory is None:
-            from ..services.ssh_session import create_sftp_client, create_ssh_client
-
-            return (
-                self._ssh_factory or create_ssh_client,
-                self._sftp_factory or create_sftp_client,
-            )
+            raise RuntimeError("SSH and SFTP factories must be supplied by bootstrap")
         return self._ssh_factory, self._sftp_factory
-
-    @staticmethod
-    def _default_server_loader() -> Any:
-        from ..config.servers import load_servers
-
-        return load_servers()
-
-    @staticmethod
-    def _default_durable_backend_loader(service: RunServicePort, run_id: str) -> Mapping[str, object] | None:
-        from ..services.confflow_control_state import load_state
-
-        return load_state(service, str(run_id))
 
     @property
     def session_pool(self) -> SessionPoolPort:
@@ -231,7 +207,12 @@ class RunsPageRuntime:
 
         if self._closed:
             raise RuntimeError("Runs page runtime is closed")
-        service_factory = self._service_factory or self._service_constructor()
+        if self._service_factory is not None:
+            service_factory = self._service_factory
+        elif self._service_constructor is not None:
+            service_factory = self._service_constructor()
+        else:
+            raise RuntimeError("run service factory must be supplied by bootstrap")
         return service_factory(Path(workspace))
 
     def list_runs(self, workspace: Path) -> list[Any]:
@@ -262,8 +243,6 @@ class RunsPageRuntime:
         server_ids = frozenset(str(server_id) for server_id in servers)
 
         from ..core.run import remote_run_dir
-        from ..services.confflow_control import CONTROL_BACKEND
-
         inputs: list[MonitorRunInput] = []
         for record in records:
             run_id = str(getattr(record, "run_id", ""))
@@ -276,7 +255,7 @@ class RunsPageRuntime:
                 loaded_backend = self._durable_backend_loader(service, run_id)
                 if loaded_backend is not None:
                     durable_backend = dict(loaded_backend)
-                if not (durable_backend is not None and durable_backend.get("backend") == CONTROL_BACKEND):
+                if not (durable_backend is not None and durable_backend.get("backend") == _CONTROL_BACKEND):
                     tasks = service.load_tasks(run_id)
                     progress_paths = tuple(
                         path
@@ -326,12 +305,12 @@ class RunsPageRuntime:
         if selected_factory is not None:
             return selected_factory(Path(workspace))
 
-        from ..services.run_coordinator import RunCoordinator
-
         pool = session_pool or self._session_pool
         ssh_factory, sftp_factory = self._connection_factories()
-        service = cast("RunService", self.service(Path(workspace)))
-        return RunCoordinator(
+        if self._coordinator_constructor is None:
+            raise RuntimeError("run coordinator constructor must be supplied by bootstrap")
+        service = self.service(Path(workspace))
+        return self._coordinator_constructor(
             service,
             server_lookup=lambda server_id: self._server_loader().servers[server_id],
             ssh_factory=ssh_factory,
@@ -355,9 +334,7 @@ class RunsPageRuntime:
             return selected_factory(coordinator, str(server_id))
         if self._client_constructor is not None:
             return self._client_constructor()(coordinator, str(server_id))
-        from ..services.ssh_confflow_client import SSHConfFlowClient
-
-        return SSHConfFlowClient(coordinator, str(server_id))
+        raise RuntimeError("ConfFlow client constructor must be supplied by bootstrap")
 
     def _action_coordinator(
         self,
@@ -532,9 +509,7 @@ class RunsPageRuntime:
         )
         handle = client.attach(str(run_id))
         selected_patterns = list(patterns)
-        from ..services.confflow_control import CONTROL_BACKEND
-
-        if handle.to_dict().get("backend") == CONTROL_BACKEND:
+        if handle.to_dict().get("backend") == _CONTROL_BACKEND:
             selected_patterns = []
         return client.refresh_outcome(
             handle,
@@ -581,9 +556,7 @@ class RunsPageRuntime:
         )
         handle = client.attach(str(run_id))
         selected_patterns = list(patterns)
-        from ..services.confflow_control import CONTROL_BACKEND
-
-        if handle.to_dict().get("backend") == CONTROL_BACKEND:
+        if handle.to_dict().get("backend") == _CONTROL_BACKEND:
             selected_patterns = []
         return client.download_outcome(handle, selected_patterns)
 

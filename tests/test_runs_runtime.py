@@ -13,6 +13,7 @@ from jobdesk_app.application.runs_runtime import (
     RunsMonitorInput,
     RunsPageRuntime,
 )
+from jobdesk_app.bootstrap import RunCoordinator, SSHConfFlowClient
 from jobdesk_app.core.lifecycle import TaskStatus
 
 
@@ -345,6 +346,8 @@ def test_runtime_default_graph_assembles_without_connecting(tmp_path: Path) -> N
         service_factory=lambda _workspace: service,
         session_pool=pool,
         server_loader=lambda: SimpleNamespace(servers={"server": server}),
+        coordinator_constructor=RunCoordinator,
+        client_constructor=lambda: SSHConfFlowClient,
         ssh_factory=ssh_factory,
         sftp_factory=sftp_factory,
     )

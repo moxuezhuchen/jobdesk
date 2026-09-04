@@ -262,7 +262,7 @@ WORKFLOW_STATS_FIXTURE = {
 
 def test_load_summary_round_trip(tmp_path: Path) -> None:
     """load_summary parses run_summary.json and returns a frozen dataclass."""
-    from jobdesk_app.services.confflow_results import ConfFlowSummary, load_summary
+    from jobdesk_app.core.confflow_results import ConfFlowSummary, load_summary
 
     summary_path = tmp_path / "run_summary.json"
     summary_path.write_text(json.dumps(RUN_SUMMARY_FIXTURE), encoding="utf-8")
@@ -278,7 +278,7 @@ def test_load_summary_round_trip(tmp_path: Path) -> None:
 
 def test_load_summary_missing_file_returns_defaults(tmp_path: Path) -> None:
     """load_summary returns zeroed summary when the file does not exist."""
-    from jobdesk_app.services.confflow_results import ConfFlowSummary, load_summary
+    from jobdesk_app.core.confflow_results import ConfFlowSummary, load_summary
 
     summary = load_summary(tmp_path / "nonexistent.json")
     assert isinstance(summary, ConfFlowSummary)
@@ -288,7 +288,7 @@ def test_load_summary_missing_file_returns_defaults(tmp_path: Path) -> None:
 
 def test_load_step_progress_completed_steps(tmp_path: Path) -> None:
     """load_step_progress extracts completed step names from workflow_stats.json."""
-    from jobdesk_app.services.confflow_results import (
+    from jobdesk_app.core.confflow_results import (
         ConfFlowStepProgress,
         load_step_progress,
     )
@@ -306,7 +306,7 @@ def test_load_step_progress_completed_steps(tmp_path: Path) -> None:
 
 def test_load_step_progress_empty_when_missing(tmp_path: Path) -> None:
     """load_step_progress returns empty progress for non-existent file."""
-    from jobdesk_app.services.confflow_results import ConfFlowStepProgress, load_step_progress
+    from jobdesk_app.core.confflow_results import ConfFlowStepProgress, load_step_progress
 
     progress = load_step_progress(tmp_path / "nonexistent.json")
     assert isinstance(progress, ConfFlowStepProgress)
@@ -316,7 +316,7 @@ def test_load_step_progress_empty_when_missing(tmp_path: Path) -> None:
 
 def test_format_summary_lines(tmp_path: Path) -> None:
     """format_summary renders a human-readable one-line summary."""
-    from jobdesk_app.services.confflow_results import format_summary, load_summary
+    from jobdesk_app.core.confflow_results import format_summary, load_summary
 
     summary_path = tmp_path / "run_summary.json"
     summary_path.write_text(json.dumps(RUN_SUMMARY_FIXTURE), encoding="utf-8")
@@ -328,7 +328,7 @@ def test_format_summary_lines(tmp_path: Path) -> None:
 
 def test_format_step_progress_done_only(tmp_path: Path) -> None:
     """format_step_progress renders done-only progress cleanly."""
-    from jobdesk_app.services.confflow_results import (
+    from jobdesk_app.core.confflow_results import (
         ConfFlowStepProgress,
         format_step_progress,
     )
@@ -346,7 +346,7 @@ def test_format_step_progress_done_only(tmp_path: Path) -> None:
 
 def test_conf_flow_adapter_build_spec_single() -> None:
     """ConfFlowAdapter.build_spec builds a correct RunSpec for a single molecule."""
-    from jobdesk_app.services.program_adapters import ConfFlowAdapter
+    from jobdesk_app.application.program_adapters import ConfFlowAdapter
 
     spec = ConfFlowAdapter.build_spec(
         server_id="ws1",
@@ -373,7 +373,7 @@ def test_conf_flow_adapter_build_spec_single() -> None:
 
 def test_conf_flow_adapter_build_spec_batch() -> None:
     """ConfFlowAdapter.build_spec handles a list of xyz paths (batch)."""
-    from jobdesk_app.services.program_adapters import ConfFlowAdapter
+    from jobdesk_app.application.program_adapters import ConfFlowAdapter
 
     spec = ConfFlowAdapter.build_spec(
         server_id="ws1",
@@ -391,8 +391,8 @@ def test_conf_flow_adapter_build_spec_batch() -> None:
 
 def test_conf_flow_adapter_build_dag_spec() -> None:
     """ConfFlowAdapter.build_dag_spec flips workflow_kind to dag."""
+    from jobdesk_app.application.program_adapters import ConfFlowAdapter
     from jobdesk_app.core.run import WorkflowKind
-    from jobdesk_app.services.program_adapters import ConfFlowAdapter
 
     spec = ConfFlowAdapter.build_dag_spec(
         server_id="ws1",
@@ -601,7 +601,7 @@ def test_workflow_state_json_is_parseable_by_confflow_results(tmp_path: Path):
 
     The fixture mimics the shape written by the v1.4.0 state tracker.
     """
-    from jobdesk_app.services.confflow_results import (
+    from jobdesk_app.core.confflow_results import (
         ConfFlowStepProgress,
         format_step_progress,
         load_workflow_state_progress,

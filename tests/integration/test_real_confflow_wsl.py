@@ -1,53 +1,42 @@
-"""Real WSL ConfFlow batch validation; opt in because it executes Gaussian."""
+"""Opt-in real WSL acceptance through the public 0.8 application facade."""
 
 from __future__ import annotations
 
 import os
+import shlex
 import time
 import uuid
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 
-from jobdesk_app.config.servers import load_servers
-from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.remote.sftp import SFTPClientWrapper
-from jobdesk_app.remote.ssh import SSHClientWrapper
-from jobdesk_app.services.confflow_results import load_summary
-from jobdesk_app.services.program_adapters import ConfFlowAdapter
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.scheduler_helpers import (
-    resources_from_server,
-    scheduler_from_server,
-)
-from tests.integration._remote_safety import cleanup_remote_test_dir
+from jobdesk_app.bootstrap import create_application
+from jobdesk_app.core.submit_payload import InputSource, SubmitPayload, WorkflowFields
+from jobdesk_app.infrastructure.config.servers import load_servers
+from jobdesk_app.infrastructure.remote.ssh import SSHClientWrapper
+from tests.integration._remote_safety import cleanup_remote_control_state, cleanup_remote_test_dir
 
-pytestmark = pytest.mark.skipif(
-    not all(
-        (
-            os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
-            os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
-            os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
-            os.environ.get("JOBDESK_TEST_REAL_CONFFLOW") == "1",
-        )
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not all(
+            (
+                os.environ.get("JOBDESK_TEST_SERVERS_YAML"),
+                os.environ.get("JOBDESK_TEST_SSH_SERVER_ID"),
+                os.environ.get("JOBDESK_TEST_REMOTE_TMP_DIR"),
+                os.environ.get("JOBDESK_TEST_REAL_CONFFLOW") == "1",
+            )
+        ),
+        reason="需要 WSL 配置和 JOBDESK_TEST_REAL_CONFFLOW=1",
     ),
-    reason="需要 WSL 配置和 JOBDESK_TEST_REAL_CONFFLOW=1",
-)
-
+]
 
 WATER_XYZ = """3
 water
 O  0.000000  0.000000  0.000000
 H  0.000000  0.757000  0.586000
 H  0.000000 -0.757000  0.586000
-"""
-
-METHANE_XYZ = """5
-methane
-C   0.000000   0.000000   0.000000
-H   0.629118   0.629118   0.629118
-H  -0.629118  -0.629118   0.629118
-H  -0.629118   0.629118  -0.629118
-H   0.629118  -0.629118  -0.629118
 """
 
 CONFFLOW_YAML = """global:
@@ -70,70 +59,94 @@ steps:
 """
 
 
-def test_real_confflow_batch_two_molecules(tmp_path):
-    server_id = os.environ["JOBDESK_TEST_SSH_SERVER_ID"]
-    server = load_servers(os.environ["JOBDESK_TEST_SERVERS_YAML"]).servers[server_id]
-    remote_root = os.environ["JOBDESK_TEST_REMOTE_TMP_DIR"].rstrip("/")
-    remote_dir = f"{remote_root}/confflow_batch_{uuid.uuid4().hex[:8]}"
+def _failures(outcome) -> list[str]:
+    return [failure.message for failure in outcome.failures]
 
-    # Write local files
-    (tmp_path / "water.xyz").write_text(WATER_XYZ, encoding="utf-8")
-    (tmp_path / "methane.xyz").write_text(METHANE_XYZ, encoding="utf-8")
-    (tmp_path / "confflow.yaml").write_text(CONFFLOW_YAML, encoding="utf-8")
+
+def test_candidate_facade_real_wsl_submit_recover_download_without_resubmit(tmp_path):
+    """Exercise admission, staging, dispatch, recovery and download once."""
+
+    servers_path = Path(os.environ["JOBDESK_TEST_SERVERS_YAML"])
+    server_id = os.environ["JOBDESK_TEST_SSH_SERVER_ID"]
+    server = load_servers(servers_path).servers[server_id]
+    remote_root = os.environ["JOBDESK_TEST_REMOTE_TMP_DIR"].rstrip("/")
+    remote_dir = f"{remote_root}/jobdesk_v080_{uuid.uuid4().hex[:10]}"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "water.xyz"
+    source.write_text(WATER_XYZ, encoding="utf-8")
+    runs_dir = tmp_path / "runs"
+    payload = SubmitPayload(
+        kind="confflow",
+        inputs=[InputSource(source, side="local", kind="xyz")],
+        program="gaussian",
+        calc=object(),
+        workflow=WorkflowFields(
+            work_dir_name="water_confflow_work",
+            yaml_text=CONFFLOW_YAML,
+        ),
+        output_dir=workspace,
+        server_id=server_id,
+        remote_dir=remote_dir,
+        max_parallel=1,
+    )
 
     ssh = SSHClientWrapper(server, timeout=20)
     ssh.connect()
-    sftp = SFTPClientWrapper.from_ssh(ssh)
+    executable = str(server.confflow_executable or "")
+    assert executable, "real acceptance requires a pinned ConfFlow executable"
+    version = ssh.run(f"{shlex.quote(executable)} --version", check=True)
+    assert "2.1.6" in version.stdout
+    prefix = datetime.now().strftime("%y%m%d")
+    for candidate in range(1, 1000):
+        candidate_run_id = f"{prefix}-{candidate:03d}"
+        state_root = f"/root/.local/state/confflow/jobdesk-{candidate_run_id}"
+        if ssh.run(f"test -e {shlex.quote(state_root)}").exit_code != 0:
+            break
+        (runs_dir / candidate_run_id).mkdir(parents=True)
+    else:
+        pytest.fail("could not reserve an unused real-WSL control run id")
+    application = create_application(workspace, servers_path=servers_path, runs_dir=runs_dir)
+    run_id = ""
     try:
-        # Upload inputs
-        for name in ("water.xyz", "methane.xyz", "confflow.yaml"):
-            sftp.upload_file(tmp_path / name, f"{remote_dir}/{name}", overwrite=True)
+        submitted = application.runs.submit(payload)
+        assert submitted.ok, _failures(submitted)
+        assert submitted.value is not None
+        assert submitted.value.submitted_task_count == 1
+        assert len(submitted.value.runs) == 1
+        run_id = submitted.value.runs[0].summary.run_id
 
-        # Build batch spec
-        service = RunService(tmp_path, runs_dir=tmp_path / "runs")
-        spec = ConfFlowAdapter.build_spec(
-            server_id=server_id,
-            remote_dir=remote_dir,
-            xyz_paths=[f"{remote_dir}/water.xyz", f"{remote_dir}/methane.xyz"],
-            config_path=f"{remote_dir}/confflow.yaml",
-            max_parallel=2,
-            confflow_executable=str(getattr(server, "confflow_executable", "") or ""),
-        )
-        assert len(spec.sources) == 2
-        assert spec.max_parallel == 2
-
-        record = service.create_run(spec, run_id="confflow-batch")
-        submitted = service.submit_run(
-            record.run_id,
-            ssh,
-            sftp,
-            env_init_scripts=list(getattr(server, "env_init_scripts", []) or []),
-            scheduler=scheduler_from_server(server),
-            resources=resources_from_server(server),
-        )
-        assert not submitted.errors
-
-        # Wait for completion
-        for _ in range(120):
-            service.refresh_run(record.run_id, ssh)
-            tasks = service.repository.load_tasks(record.run_id)
-            if all(t.status == TaskStatus.remote_completed for t in tasks):
+        assert run_id == candidate_run_id
+        for _ in range(300):
+            refreshed = application.runs.refresh(run_id)
+            assert refreshed.ok, _failures(refreshed)
+            assert refreshed.value is not None, _failures(refreshed)
+            statuses = {task.status for task in refreshed.value.tasks}
+            if statuses and statuses <= {"remote_completed", "downloaded", "analyzed"}:
                 break
             time.sleep(2)
         else:
-            pytest.fail("ConfFlow batch did not finish within 240 seconds")
+            pytest.fail("ConfFlow facade run did not finish within 600 seconds")
 
-        records, failures = service.download_completed(record.run_id, sftp, [])
-        assert not failures
-
-        # Verify both molecule summaries
-        results_dir = tmp_path / "results" / record.run_id
-        for mol in ("water", "methane"):
-            summary_path = results_dir / f"{mol}_confflow_work" / "run_summary.json"
-            assert summary_path.exists(), f"Missing summary for {mol}"
-            summary = load_summary(summary_path)
-            assert summary.final_conformers >= 1
+        downloaded = application.runs.download(run_id)
+        assert downloaded.ok, _failures(downloaded)
+        assert downloaded.value is not None
+        downloaded_paths = tuple(Path(path) for path in downloaded.value.local_paths)
+        assert downloaded_paths
+        assert all(path.exists() for path in downloaded_paths)
+        assert any(path.name == "output.xyz" for path in downloaded_paths)
     finally:
+        application.close()
+
+    recovered = create_application(workspace, servers_path=servers_path, runs_dir=runs_dir)
+    try:
+        assert [item.run_id for item in recovered.runs.list_runs()] == [run_id]
+        refreshed = recovered.runs.refresh(run_id)
+        assert refreshed.value is not None, _failures(refreshed)
+        assert [item.run_id for item in recovered.runs.list_runs()] == [run_id]
+    finally:
+        recovered.close()
         cleanup_remote_test_dir(ssh, remote_dir, remote_root)
-        sftp.close()
+        if run_id:
+            cleanup_remote_control_state(ssh, run_id)
         ssh.close()

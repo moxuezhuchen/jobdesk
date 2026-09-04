@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
-from jobdesk_app.remote.errors import RemotePathError
-from jobdesk_app.remote.sftp import SFTPClientWrapper, _validate_remote_path
+from jobdesk_app.infrastructure.remote.errors import RemotePathError
+from jobdesk_app.infrastructure.remote.sftp import SFTPClientWrapper, _validate_remote_path
 
 # ---- fake SFTP client --------------------------------------------------
 
@@ -385,7 +385,7 @@ class TestUploadFile:
 
     def test_upload_large_text_streaming_normalizes_crlf(self, fake_sftp, monkeypatch):
         """Large text files use streaming normalization (not full read_bytes)."""
-        import jobdesk_app.remote.sftp as sftp_mod
+        import jobdesk_app.infrastructure.remote.sftp as sftp_mod
 
         # Use a tiny chunk size to exercise multi-chunk path
         monkeypatch.setattr(sftp_mod, "_CRLF_CHUNK_SIZE", 16)

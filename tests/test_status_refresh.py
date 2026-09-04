@@ -9,9 +9,9 @@ import pytest
 
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import Manifest, TaskRecord
-from jobdesk_app.remote.ssh import SSHResult
-from jobdesk_app.remote.status import RemoteTaskStatusSnapshot
-from jobdesk_app.remote.status_refresh import (
+from jobdesk_app.infrastructure.remote.ssh import SSHResult
+from jobdesk_app.infrastructure.remote.status import RemoteTaskStatusSnapshot
+from jobdesk_app.infrastructure.remote.status_refresh import (
     _parse_batch_control,
     _recover_status,
     refresh_batch_status,
@@ -270,7 +270,7 @@ class TestRefreshBatchStatus:
         tasks = [_make_task("t1", TaskStatus.running, "/r/t1")]
         mock_ssh = MagicMock()
         with patch(
-            "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+            "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
             return_value={"t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False)},
         ):
             result, updated = refresh_task_statuses(mock_ssh, tasks, "/r", "b1")
@@ -293,7 +293,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "running", None, "", True, False, False),
                     "t2": RemoteTaskStatusSnapshot("t2", "/r/t2", "completed", 0, "", True, True, True),
@@ -316,7 +316,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
                 },
@@ -340,7 +340,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "completed", 0, "", True, True, False),
                 },
@@ -363,7 +363,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False),
                 },
@@ -403,7 +403,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "failed", 1, "error log", True, True, True),
                 },
@@ -432,7 +432,7 @@ class TestRefreshBatchStatus:
 
             # 把批量读取替换为可控的返回，避免真正构造脚本
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     t.task_id: RemoteTaskStatusSnapshot(t.task_id, t.remote_job_dir, "", None, "", False, False, False)
                     for t in tasks
@@ -457,7 +457,7 @@ class TestRefreshBatchStatus:
             mock_ssh.run = MagicMock(return_value=SSHResult("", 0, "__NOT_FOUND__", "", 0.01))
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={},
             ) as mock_batch:
                 refresh_batch_status(mock_ssh, mp, "/r", "b1", write=False)
@@ -471,7 +471,7 @@ class TestRefreshBatchStatus:
             Manifest.write(mp, tasks)
 
             with patch(
-                "jobdesk_app.remote.status_refresh.read_remote_task_statuses_batch",
+                "jobdesk_app.infrastructure.remote.status_refresh.read_remote_task_statuses_batch",
                 return_value={
                     "t1": RemoteTaskStatusSnapshot("t1", "/r/t1", "", None, "", False, False, False),
                 },

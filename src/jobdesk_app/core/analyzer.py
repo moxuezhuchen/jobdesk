@@ -7,7 +7,7 @@
 import re
 from pathlib import Path
 
-from ..config.schema import ExtractResult, ExtractStrategy, ExtractType
+from .analysis_schema import ExtractResult, ExtractStrategy, ExtractType
 from .models import FailureRecord, ResultRecord
 
 

@@ -21,26 +21,26 @@ from jobdesk_app.application.configuration_contract import (
     ConfigurationDiagnostic,
     ConfigurationValidationResult,
 )
-from jobdesk_app.config.schema import ServerConfig
 from jobdesk_app.core.confflow_contract import EXPECTED_ARTIFACTS, REQUIRED_COMMANDS
 from jobdesk_app.core.confflow_preflight import ConfFlowCapabilities
+from jobdesk_app.core.configuration import ServerConfig
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
-from jobdesk_app.remote.confflow_config_contract import (
+from jobdesk_app.infrastructure.remote.confflow_config_contract import (
     ConfigurationContractError,
     parse_contract_response,
     parse_validation_response,
 )
-from jobdesk_app.remote.ssh import SSHClientWrapper
-from jobdesk_app.resources.config_contracts import stable_2_0_0
-from jobdesk_app.services.run_coordinator import OperationFailure, RunCoordinator
-from jobdesk_app.services.run_service import RunService
-from jobdesk_app.services.ssh_confflow_client import SSHConfFlowClient
-from jobdesk_app.services.ssh_configuration_contract_client import (
+from jobdesk_app.infrastructure.remote.ssh import SSHClientWrapper
+from jobdesk_app.infrastructure.runtime.run_coordinator import OperationFailure, RunCoordinator
+from jobdesk_app.infrastructure.runtime.run_service import RunService
+from jobdesk_app.infrastructure.runtime.ssh_confflow_client import SSHConfFlowClient
+from jobdesk_app.infrastructure.runtime.ssh_configuration_contract_client import (
     SSHConfigurationContractClient,
     build_config_contract_command,
     build_config_validate_command,
     build_stable_config_validate_command,
 )
+from jobdesk_app.resources.config_contracts import stable_2_0_0
 
 
 def _capabilities(
@@ -566,7 +566,7 @@ def test_run_coordinator_facades_reuse_selected_server_and_session(tmp_path, mon
         env_init_scripts=["/opt/site.sh"],
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda selected_ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -601,7 +601,7 @@ def test_run_coordinator_validation_rejects_contract_identity_change(tmp_path, m
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda selected_ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -637,7 +637,7 @@ def test_admit_configuration_returns_hashed_result_without_sftp_or_storage(tmp_p
     )
     probe_calls: list[bool] = []
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kw: (probe_calls.append(kw["require_dag"]) or capabilities),
     )
     sftp = MagicMock()
@@ -675,7 +675,7 @@ def test_admit_configuration_invalid_is_privacy_safe(tmp_path, monkeypatch) -> N
         server_id="alpha", host="example", username="user", confflow_executable="/opt/confflow/bin/confflow"
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities", lambda ssh, **kw: capabilities
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities", lambda ssh, **kw: capabilities
     )
     coordinator = RunCoordinator(
         RunService(tmp_path, runs_dir=tmp_path / "runs"),
@@ -713,7 +713,7 @@ def test_admit_configuration_keeps_only_safe_invalid_path(tmp_path, monkeypatch)
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -747,7 +747,7 @@ def test_admit_configuration_rejects_identity_drift_before_validation(tmp_path, 
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -778,7 +778,7 @@ def test_admit_configuration_hides_transport_failure(tmp_path, monkeypatch) -> N
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -820,7 +820,7 @@ def test_admit_configuration_accepts_stable_fallback_only_after_remote_validatio
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kwargs: capabilities,
     )
     coordinator = RunCoordinator(
@@ -1052,7 +1052,7 @@ def test_ssh_control_submit_rejects_binding_identity_drift_before_probe(tmp_path
         confflow_executable="/opt/confflow/bin/confflow",
     )
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         lambda ssh, **kwargs: capabilities,
     )
     service = RunService(tmp_path, runs_dir=tmp_path / "runs")
@@ -1137,12 +1137,12 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
         ssh_factory.side_effect = BadHostKeyException("private-host", MagicMock(), MagicMock())
     elif failure_case == "capability_probe":
         monkeypatch.setattr(
-            "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+            "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
             MagicMock(side_effect=TimeoutError("private capability detail")),
         )
     else:
         monkeypatch.setattr(
-            "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+            "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
             MagicMock(return_value=capabilities),
         )
     if failure_case == "contract_resolve":
@@ -1177,7 +1177,7 @@ def test_submit_binding_reverification_reports_safe_stage_without_dispatch(
     assert record.run_id == f"blocked-{failure_case}"
     scheduler = MagicMock(side_effect=AssertionError("scheduler must not be selected"))
     dispatch = MagicMock(side_effect=AssertionError("submit service must not run"))
-    monkeypatch.setattr("jobdesk_app.services.run_coordinator.scheduler_from_server", scheduler)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_coordinator.scheduler_from_server", scheduler)
     monkeypatch.setattr(service, "submit_run", dispatch)
 
     outcome = coordinator.submit(f"blocked-{failure_case}")

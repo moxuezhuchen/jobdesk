@@ -16,6 +16,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
+from .facades import RunApplication
+
 
 class RunQueryService(Protocol):
     """The read-only RunService surface required by the Runs page."""
@@ -25,6 +27,16 @@ class RunQueryService(Protocol):
 
 class RunServiceFactory(Protocol):
     def __call__(self, workspace: Path) -> RunQueryService: ...
+
+
+class FacadeRunQueryService:
+    """Adapt the public facade's optional query parameter to the page query port."""
+
+    def __init__(self, application: RunApplication) -> None:
+        self._application = application
+
+    def list_runs(self) -> list[Any]:
+        return list(self._application.list_runs())
 
 
 @dataclass(frozen=True, slots=True)

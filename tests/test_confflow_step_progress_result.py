@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.services.confflow_results import (
+from jobdesk_app.core.confflow_results import (
     ConfFlowStepProgress,
     ParseState,
     load_step_progress,

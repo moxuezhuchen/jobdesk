@@ -40,10 +40,10 @@ def test_ssh_factory_loads_paramiko_only_when_requested() -> None:
     python_path = os.pathsep.join(filter(None, (source_root, os.environ.get("PYTHONPATH", ""))))
     script = """
 import sys
-from jobdesk_app.services.ssh_session import create_ssh_client
+from jobdesk_app.infrastructure.runtime.ssh_session import create_ssh_client
 
 assert 'paramiko' not in sys.modules
-from jobdesk_app.config.schema import ServerConfig
+from jobdesk_app.core.configuration import ServerConfig
 
 create_ssh_client(ServerConfig(host='example', username='user'))
 assert 'paramiko' in sys.modules

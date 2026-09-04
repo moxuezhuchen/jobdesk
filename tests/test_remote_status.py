@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 import paramiko
 import pytest
 
-from jobdesk_app.config.schema import AuthMethod, ServerConfig
-from jobdesk_app.remote.ssh import SSHClientWrapper, SSHResult
-from jobdesk_app.remote.status import (
+from jobdesk_app.core.configuration import AuthMethod, ServerConfig
+from jobdesk_app.infrastructure.remote.ssh import SSHClientWrapper, SSHResult
+from jobdesk_app.infrastructure.remote.status import (
     _build_batch_script,
     _parse_batch_output,
     read_remote_task_status,
@@ -33,7 +33,7 @@ def _make_ssh_with_handler(run_handler):
     )
     with (
         patch("paramiko.SSHClient") as mock_client_class,
-        patch("jobdesk_app.remote.ssh.SSHClientWrapper._resolve_key", return_value=MagicMock(spec=paramiko.PKey)),
+        patch("jobdesk_app.infrastructure.remote.ssh.SSHClientWrapper._resolve_key", return_value=MagicMock(spec=paramiko.PKey)),
     ):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client

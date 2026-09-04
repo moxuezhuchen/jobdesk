@@ -15,9 +15,9 @@ from jobdesk_app.core.manifest import TaskRecord
 from jobdesk_app.core.submit import SubmitMode, SubmitResult
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord
 from jobdesk_app.core.transfer import TransferStatus as TransferStatusEnum
-from jobdesk_app.remote.scheduler import SlurmAdapter
-from jobdesk_app.remote.ssh import SSHResult
-from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.infrastructure.remote.scheduler import SlurmAdapter
+from jobdesk_app.infrastructure.remote.ssh import SSHResult
+from jobdesk_app.infrastructure.remote.submitter import JobSubmitter
 
 # ---- fake SFTP client (reusing from test_sftp but minimal) ------------
 

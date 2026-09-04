@@ -5,13 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from jobdesk_app.config.schema import ServerConfig
+from jobdesk_app.core.configuration import ServerConfig
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.models import FailureRecord
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec
 from jobdesk_app.core.submit import SubmitResult
-from jobdesk_app.services.run_coordinator import OperationFailure, RunCoordinator, RunOperationOutcome
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.runtime.run_coordinator import OperationFailure, RunCoordinator, RunOperationOutcome
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 
 
 def _spec() -> RunSpec:
@@ -148,7 +148,7 @@ def test_submit_failure_after_remote_start_is_recovered_immediately(tmp_path, mo
             self.remote_started([self.tasks[0].task_id])
             raise RuntimeError("connection lost after remote start")
 
-    monkeypatch.setattr("jobdesk_app.services.run_service.JobSubmitter", StartedThenFailingSubmitter)
+    monkeypatch.setattr("jobdesk_app.infrastructure.runtime.run_service.JobSubmitter", StartedThenFailingSubmitter)
     coordinator = RunCoordinator(
         service,
         server_lookup=_server,
@@ -617,7 +617,7 @@ def test_probe_capabilities_uses_session_pool(tmp_path, monkeypatch) -> None:
 
     capabilities = MagicMock(spec=ConfFlowCapabilities)
     monkeypatch.setattr(
-        "jobdesk_app.services.run_coordinator.probe_confflow_capabilities",
+        "jobdesk_app.infrastructure.runtime.run_coordinator.probe_confflow_capabilities",
         MagicMock(return_value=capabilities),
     )
     ssh = MagicMock()

@@ -7,9 +7,12 @@ from collections.abc import Iterable
 from PySide6.QtCore import QObject, Signal
 
 from ..application.runs_monitor import MonitorEvent
-from ..services.run_monitor import DoneEvent
-from ..services.run_monitor import RunMonitor as ServiceRunMonitor
-from ..services.ssh_session import create_ssh_client
+from .dependencies import create_monitor, create_ssh
+
+# Compatibility injection points for focused widget tests.  Production leaves
+# these unset and receives factories from the composition entry point.
+ServiceRunMonitor = None
+create_ssh_client = create_ssh
 
 # A Runs page can display many active records at once, and each legacy
 # watcher owns a long-lived SSH transport.  Keep the GUI adapter bounded by
@@ -36,13 +39,24 @@ class RunMonitor(QObject):
     ) -> None:
         super().__init__(parent)
         self._open = True
-        self._service = ServiceRunMonitor(
-            create_ssh_client,
-            self._emit_task_done,
-            max_watchers=max_watchers,
-            max_watchers_per_server=max_watchers_per_server,
-            queue_capacity=queue_capacity,
-        )
+        monitor_factory = ServiceRunMonitor
+        ssh_factory = create_ssh_client
+        if monitor_factory is None:
+            self._service = create_monitor(
+                create_ssh,
+                self._emit_task_done,
+                max_watchers=max_watchers,
+                max_watchers_per_server=max_watchers_per_server,
+                queue_capacity=queue_capacity,
+            )
+        else:
+            self._service = monitor_factory(
+                ssh_factory,
+                self._emit_task_done,
+                max_watchers=max_watchers,
+                max_watchers_per_server=max_watchers_per_server,
+                queue_capacity=queue_capacity,
+            )
 
     def watch(
         self,
@@ -75,7 +89,7 @@ class RunMonitor(QObject):
         self._open = False
         self._service.stop_all()
 
-    def _emit_task_done(self, event: DoneEvent) -> None:
+    def _emit_task_done(self, event: object) -> None:
         # Freeze the service event before it crosses the QObject signal.  No
         # service watcher, server configuration, or Qt object is retained by
         # the payload, and a callback racing with shutdown is discarded.

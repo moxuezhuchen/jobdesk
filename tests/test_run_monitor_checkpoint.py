@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.services.run_monitor import (
+from jobdesk_app.infrastructure.runtime.run_monitor import (
     DoneEvent,
     _build_checkpoint_probe_script,
     _parse_checkpoint_snapshot,

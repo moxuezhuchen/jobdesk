@@ -20,7 +20,7 @@ from jobdesk_app.application.runs_monitor import (
     MonitorSubscription,
     RunsMonitorController,
 )
-from jobdesk_app.services.run_monitor import (
+from jobdesk_app.infrastructure.runtime.run_monitor import (
     DEFAULT_MAX_WATCHERS,
     DEFAULT_MAX_WATCHERS_PER_SERVER,
     RunMonitor,
@@ -166,7 +166,7 @@ def _run_watcher_sessions(
 
     patches = []
     if monotonic_values is not None:
-        patches.append(patch("jobdesk_app.services.run_monitor.time.monotonic", side_effect=monotonic_values))
+        patches.append(patch("jobdesk_app.infrastructure.runtime.run_monitor.time.monotonic", side_effect=monotonic_values))
 
     if patches:
         with patches[0]:
@@ -189,7 +189,7 @@ def test_monitor_keeps_same_server_run_watchers_separate_by_workspace_identity()
     """A/B workspaces may legitimately watch identically named remote runs."""
     events = []
     monitor = RunMonitor(MagicMock(), events.append)
-    with patch("jobdesk_app.services.run_monitor._Watcher"):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher"):
         monitor.watch("same", "wsl", "/remote/a", object(), watch_id="workspace-a\x1fwsl\x1fsame")
         monitor.watch("same", "wsl", "/remote/b", object(), watch_id="workspace-b\x1fwsl\x1fsame")
 
@@ -202,7 +202,7 @@ def test_monitor_keeps_same_server_run_watchers_separate_by_workspace_identity()
 def test_monitor_watch_is_idempotent_for_same_workspace_identity():
     monitor = RunMonitor(MagicMock(), MagicMock())
 
-    with patch("jobdesk_app.services.run_monitor._Watcher") as watcher_class:
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher") as watcher_class:
         monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
         monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
 
@@ -217,7 +217,7 @@ def test_monitor_watch_start_failure_cleans_key_and_allows_retry():
     failed.start.side_effect = RuntimeError("start failed")
     replacement = MagicMock()
 
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=[failed, replacement]):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=[failed, replacement]):
         with pytest.raises(RuntimeError, match="start failed"):
             monitor.watch("same", "wsl", "/remote", object(), watch_id="workspace\x1fwsl\x1fsame")
 
@@ -279,7 +279,7 @@ def test_watcher_default_jitter_uses_full_jitter_provider():
         lambda *_event: None,
         MagicMock(),
     )
-    with patch("jobdesk_app.services.run_monitor.random.uniform", return_value=3.0) as uniform:
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor.random.uniform", return_value=3.0) as uniform:
         assert watcher._jittered_backoff(10) == 3.0
     uniform.assert_called_once_with(0.0, 10)
 
@@ -409,9 +409,9 @@ def test_watcher_stop_bounds_blocking_transport_close(caplog):
 
     started = time.monotonic()
     with (
-        patch("jobdesk_app.services.run_monitor._WATCHER_STOP_JOIN_SECONDS", 0.2),
-        patch("jobdesk_app.services.run_monitor._TRANSPORT_CLOSE_WAIT_SECONDS", 0.05),
-        caplog.at_level("WARNING", logger="jobdesk_app.services.run_monitor"),
+        patch("jobdesk_app.infrastructure.runtime.run_monitor._WATCHER_STOP_JOIN_SECONDS", 0.2),
+        patch("jobdesk_app.infrastructure.runtime.run_monitor._TRANSPORT_CLOSE_WAIT_SECONDS", 0.05),
+        caplog.at_level("WARNING", logger="jobdesk_app.infrastructure.runtime.run_monitor"),
     ):
         assert watcher.stop() is True
     elapsed = time.monotonic() - started
@@ -481,8 +481,8 @@ def test_watcher_discards_oversized_line_then_recovers(caplog):
     import logging
 
     with (
-        patch("jobdesk_app.services.run_monitor._MAX_EVENT_LINE_CHARS", 20),
-        caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"),
+        patch("jobdesk_app.infrastructure.runtime.run_monitor._MAX_EVENT_LINE_CHARS", 20),
+        caplog.at_level(logging.WARNING, logger="jobdesk_app.infrastructure.runtime.run_monitor"),
     ):
         waits, events = _run_watcher_sessions(
             [[b"DONE oversized-", b"task 0", b" ignored\nDONE fresh-task 0\n"]],
@@ -554,7 +554,7 @@ def test_watcher_logs_connection_failure(caplog):
     w, events = _make_watcher(_raise_connection_error)
     w._stop_event = ControlledStopEvent(max_waits=1)
 
-    with caplog.at_level(logging.WARNING, logger="jobdesk_app.services.run_monitor"):
+    with caplog.at_level(logging.WARNING, logger="jobdesk_app.infrastructure.runtime.run_monitor"):
         w._run()
 
     assert any("connection refused" in r.message for r in caplog.records)
@@ -677,7 +677,7 @@ def _patch_recording_watcher():
         created.append(watcher)
         return watcher
 
-    return patch("jobdesk_app.services.run_monitor._Watcher", side_effect=make_watcher), created
+    return patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=make_watcher), created
 
 
 def test_monitor_enforces_global_and_per_server_limits_and_drains_fairly():
@@ -760,7 +760,7 @@ def test_monitor_releases_old_watcher_before_promoting_queued_watcher():
         return watcher
 
     monitor = RunMonitor(MagicMock(), MagicMock(), max_watchers=1, queue_capacity=1)
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=make_watcher):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=make_watcher):
         monitor.watch("r1", "s1", "/r1", object(), watch_id="w1")
         monitor.watch("r2", "s2", "/r2", object(), watch_id="w2")
         monitor.unwatch("r1", "s1", "w1")
@@ -784,7 +784,7 @@ def test_monitor_keeps_slot_reserved_until_watcher_confirms_thread_exit():
         created.append(watcher)
         return watcher
 
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=make_watcher):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=make_watcher):
         monitor.watch("r1", "s1", "/r1", object(), watch_id="w1")
         monitor.watch("r2", "s2", "/r2", object(), watch_id="w2")
         monitor.unwatch("r1", "s1", "w1")
@@ -825,7 +825,7 @@ def test_monitor_keeps_slot_reserved_when_transport_close_blocks():
     replacement.server_id = "s2"
     monitor = RunMonitor(MagicMock(), MagicMock(), max_watchers=1, queue_capacity=1)
 
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=[watcher, replacement]):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=[watcher, replacement]):
         started = time.monotonic()
         monitor.watch("r1", "s1", "/remote", object(), watch_id="w1")
         monitor.watch("r2", "s2", "/remote", object(), watch_id="w2")
@@ -873,7 +873,7 @@ def test_monitor_stop_all_is_nonblocking_for_two_blocking_watchers_and_no_duplic
         watchers.append(watcher)
 
     monitor = RunMonitor(MagicMock(), MagicMock(), max_watchers=2, queue_capacity=1)
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=watchers):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=watchers):
         monitor.watch("r1", "s1", "/remote", object(), watch_id="w1")
         monitor.watch("r2", "s2", "/remote", object(), watch_id="w2")
 
@@ -994,7 +994,7 @@ def test_monitor_promotes_many_watchers_without_exceeding_budget_or_leaking_slot
         return watcher
 
     requests = [(f"run-{index}", f"server-{index % 3}", f"watch-{index}") for index in range(15)]
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=make_watcher):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=make_watcher):
         for run_id, server_id, watch_id in requests:
             requested[watch_id] = (run_id, server_id)
             monitor.watch(run_id, server_id, f"/remote/{run_id}", object(), watch_id=watch_id)
@@ -1105,7 +1105,7 @@ def test_rapid_page_resubscribe_preserves_identity_cursor_and_metrics(tmp_path: 
         return watcher
 
     previous_token: str | None = None
-    with patch("jobdesk_app.services.run_monitor._Watcher", side_effect=make_watcher):
+    with patch("jobdesk_app.infrastructure.runtime.run_monitor._Watcher", side_effect=make_watcher):
         for generation in range(32):
             request = MonitorSubscription.create(
                 context,

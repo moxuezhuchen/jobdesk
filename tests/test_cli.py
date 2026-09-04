@@ -9,9 +9,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from jobdesk_app.application.facades import (
+    DownloadResult,
+    RecoveryResult,
+    RunDetails,
+    RunSummary,
+    TransferBatchResult,
+)
+from jobdesk_app.application.outcomes import OperationFailure, OperationOutcome
 from jobdesk_app.cli import _build_parser, main
-from jobdesk_app.config.schema import ServerConfig
 from tests.repository_helpers import replace_tasks_for_test
+
+
+@pytest.fixture(autouse=True)
+def _cli_appdata(tmp_path, monkeypatch):
+    """Keep each CLI container's persistent state inside the test workspace."""
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
 
 
 @contextmanager
@@ -26,6 +39,11 @@ def _isolated_appdata(tmp):
             os.environ.pop("APPDATA", None)
         else:
             os.environ["APPDATA"] = old
+
+
+def _run_details(run_id="run-1", *, changed_count=0):
+    summary = RunSummary(run_id, "srv", None, "now")
+    return RunDetails(summary, "/tmp/x", "", changed_count=changed_count)
 
 
 def test_cli_run_create_and_list(capsys):
@@ -60,20 +78,14 @@ def test_cli_run_create_and_list(capsys):
 def test_cli_files_upload_passes_overwrite_and_dry_run(monkeypatch):
     import jobdesk_app.cli as cli
 
-    captured = {}
-
-    class FakeService:
-        def upload_path(self, local, remote, policy, dry_run=False):
-            captured["policy"] = policy
-            captured["dry_run"] = dry_run
-            return []
-
-    monkeypatch.setattr(cli, "_file_transfer_service", lambda args, sid: FakeService())
+    application = MagicMock()
+    application.files.upload.return_value = OperationOutcome.success(TransferBatchResult(()))
+    monkeypatch.setattr(cli, "create_application", lambda *args, **kwargs: application)
     rc = main(["files", "upload", "srv", "local.txt", "/remote/x.txt", "--overwrite", "--dry-run"])
     assert rc == 0
-    from jobdesk_app.core.file_transfer import OverwritePolicy
-
-    assert captured == {"policy": OverwritePolicy.overwrite, "dry_run": True}
+    application.files.upload.assert_called_once_with(
+        "srv", "local.txt", "/remote/x.txt", policy="overwrite", dry_run=True
+    )
 
 
 def test_cli_run_list_empty(capsys):
@@ -87,29 +99,29 @@ def test_cli_run_list_empty(capsys):
 def test_cli_verify_rollback_is_a_fail_closed_gate(capsys, tmp_path):
     import jobdesk_app.cli as cli
 
-    with patch.object(cli, "RunService", return_value=MagicMock()):
-        with patch.object(
-            cli,
-            "require_all_projections_match_authority",
-            side_effect=ValueError("control JSON projection is stale for run-1; regenerate it before rollback"),
-        ) as gate:
-            rc = main(["run", "verify-rollback", str(tmp_path)])
+    application = MagicMock()
+    application.runs.verify_rollback.return_value = OperationOutcome.failure(
+        OperationFailure("verify_rollback", "operation_failed", "control JSON projection is stale", False)
+    )
+    with patch.object(cli, "create_application", return_value=application):
+        rc = main(["run", "verify-rollback", str(tmp_path)])
 
     assert rc == 2
     assert "stale" in capsys.readouterr().err
-    gate.assert_called_once()
+    application.runs.verify_rollback.assert_called_once_with()
 
 
 def test_cli_verify_rollback_reports_ready_after_gate_passes(capsys, tmp_path):
     import jobdesk_app.cli as cli
 
-    with patch.object(cli, "RunService", return_value=MagicMock()):
-        with patch.object(cli, "require_all_projections_match_authority") as gate:
-            rc = main(["run", "verify-rollback", str(tmp_path)])
+    application = MagicMock()
+    application.runs.verify_rollback.return_value = OperationOutcome.success(None)
+    with patch.object(cli, "create_application", return_value=application):
+        rc = main(["run", "verify-rollback", str(tmp_path)])
 
     assert rc == 0
     assert "rollback ready" in capsys.readouterr().out
-    gate.assert_called_once()
+    application.runs.verify_rollback.assert_called_once_with()
 
 
 def test_cli_run_list_reports_legacy_migration_errors(capsys):
@@ -145,7 +157,7 @@ def test_cli_run_retry_no_failed(capsys):
         )
         capsys.readouterr()
 
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         run_id = RunService(workspace).list_runs()[0].run_id
 
@@ -174,7 +186,7 @@ def test_cli_run_rerun_reports_active_remote_tasks(capsys):
         capsys.readouterr()
 
         from jobdesk_app.core.lifecycle import TaskStatus
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         service = RunService(workspace)
         record = service.list_runs()[0]
@@ -208,7 +220,7 @@ def test_cli_run_delete(capsys):
         )
         capsys.readouterr()
 
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         run_id = RunService(workspace).list_runs()[0].run_id
 
@@ -235,29 +247,27 @@ def test_cli_run_cancel_invokes_remote_cancellation(capsys):
             ]
         )
         capsys.readouterr()
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         run_id = RunService(workspace).list_runs()[0].run_id
-        coordinator = MagicMock()
-        coordinator.service = RunService(workspace)
-        coordinator.cancel.return_value = SimpleNamespace(changed_count=1, errors=[])
-        with (patch("jobdesk_app.cli._run_coordinator", return_value=coordinator),):
+        application = MagicMock()
+        application.runs.cancel.return_value = OperationOutcome.success(
+            _run_details(run_id, changed_count=1)
+        )
+        with patch("jobdesk_app.cli.create_application", return_value=application):
             rc = main(["run", "cancel", workspace, run_id])
 
         assert rc == 0
-        coordinator.cancel.assert_called_once_with(run_id)
+        application.runs.cancel.assert_called_once_with(run_id)
         assert "cancelled 1 task(s)" in capsys.readouterr().out
 
 
 def test_cli_run_download_returns_failure_for_coordinator_error(capsys, tmp_path):
-    outcome = SimpleNamespace(transfer_records=[], failures=[], errors=["OSError: offline"])
-    client = MagicMock()
-    client.attach.return_value = MagicMock()
-    client.download_outcome.return_value = outcome
-
-    record = MagicMock()
-    record.workflow_kind.value = "confflow"
-    with patch("jobdesk_app.cli._run_client", return_value=(client, record, MagicMock())):
+    application = MagicMock()
+    application.runs.download.return_value = OperationOutcome.failure(
+        OperationFailure("download", "offline", "OSError: offline", True)
+    )
+    with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(["run", "download", str(tmp_path), "run-1", "--patterns", "*.out"])
 
     assert rc == 2
@@ -269,6 +279,47 @@ def test_cli_no_longer_registers_jobdesk_owned_workflow_commands():
     subcommands = next(action.choices for action in parser._actions if getattr(action, "choices", None))
 
     assert "workflow" not in subcommands
+
+
+@pytest.mark.parametrize("return_code", [0, 2])
+def test_cli_closes_application_container_for_command_results(return_code, tmp_path):
+    """Both successful and reported-error commands release shared resources."""
+    import jobdesk_app.cli as cli
+
+    application = MagicMock()
+    command = MagicMock(return_value=return_code)
+    with (
+        patch.object(cli, "create_application", return_value=application) as create,
+        patch.object(cli, "_build_parser") as build_parser,
+    ):
+        parser = build_parser.return_value
+        parser.parse_args.return_value = SimpleNamespace(func=command, workspace=tmp_path)
+
+        assert main(["ignored"]) == return_code
+
+    create.assert_called_once_with(tmp_path, servers_path=None)
+    command.assert_called_once()
+    assert command.call_args.args[0].application is application
+    application.close.assert_called_once_with()
+
+
+def test_cli_closes_application_container_when_command_raises(tmp_path):
+    """An unexpected command exception must not leak SSH/SFTP resources."""
+    import jobdesk_app.cli as cli
+
+    application = MagicMock()
+    command = MagicMock(side_effect=RuntimeError("boom"))
+    with (
+        patch.object(cli, "create_application", return_value=application),
+        patch.object(cli, "_build_parser") as build_parser,
+    ):
+        parser = build_parser.return_value
+        parser.parse_args.return_value = SimpleNamespace(func=command, workspace=tmp_path)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            main(["ignored"])
+
+    application.close.assert_called_once_with()
 
 
 class TestDownloadPatterns:
@@ -293,7 +344,7 @@ class TestDownloadPatterns:
                 "/remote/a.gjf",
             ]
         )
-        from jobdesk_app.services.run_service import RunService
+        from jobdesk_app.infrastructure.runtime.run_service import RunService
 
         svc = RunService(workspace)
         run_id = svc.list_runs()[0].run_id
@@ -307,83 +358,49 @@ class TestDownloadPatterns:
     def test_patterns_comma_separated(self):
         with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
-            mock_ssh = MagicMock()
-            mock_ssh.connect = MagicMock()
-            mock_ssh.close = MagicMock()
-            captured = {}
-
-            def fake_download(self, passed_run_id, sftp, patterns):
-                captured["run_id"] = passed_run_id
-                captured["patterns"] = patterns
-                return [], []
-
-            with (
-                patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
-                patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh),
-                patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()),
-                patch("jobdesk_app.cli.RunService.download_completed", fake_download),
-            ):
+            application = MagicMock()
+            application.runs.download.return_value = OperationOutcome.success(
+                DownloadResult(_run_details(run_id), ())
+            )
+            with patch("jobdesk_app.cli.create_application", return_value=application):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log,*.out"])
             assert rc == 0
-            assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
+            application.runs.download.assert_called_once_with(run_id, ("*.log", "*.out"))
 
     def test_patterns_multi_arg(self):
         with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
-            mock_ssh = MagicMock()
-            mock_ssh.connect = MagicMock()
-            mock_ssh.close = MagicMock()
-            captured = {}
-
-            def fake_download(self, passed_run_id, sftp, patterns):
-                captured["run_id"] = passed_run_id
-                captured["patterns"] = patterns
-                return [], []
-
-            with (
-                patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
-                patch("jobdesk_app.cli.create_ssh_client", return_value=mock_ssh),
-                patch("jobdesk_app.cli.create_sftp_client", return_value=MagicMock()),
-                patch("jobdesk_app.cli.RunService.download_completed", fake_download),
-            ):
+            application = MagicMock()
+            application.runs.download.return_value = OperationOutcome.success(
+                DownloadResult(_run_details(run_id), ())
+            )
+            with patch("jobdesk_app.cli.create_application", return_value=application):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log", "*.out"])
             assert rc == 0
-            assert captured == {"run_id": run_id, "patterns": ["*.log", "*.out"]}
+            application.runs.download.assert_called_once_with(run_id, ("*.log", "*.out"))
 
 
 def test_cli_files_list_closes_ssh_with_sftp():
-    """P2d: the CLI files service must close the SSH transport, not just the SFTP channel."""
+    """The CLI closes the application owner after a facade file listing."""
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        ssh = MagicMock()
-        sftp = MagicMock()
-        sftp.list_dir_info.return_value = []
-        with (
-            patch("jobdesk_app.cli._get_server_by_id", return_value=MagicMock()),
-            patch("jobdesk_app.cli.create_ssh_client", return_value=ssh),
-            patch("jobdesk_app.cli.create_sftp_client", return_value=sftp),
-        ):
+        application = MagicMock()
+        application.files.list_remote.return_value = OperationOutcome.success(())
+        with patch("jobdesk_app.cli.create_application", return_value=application):
             rc = main(["files", "list-remote", "srv", "/remote/dir"])
         assert rc == 0
-        sftp.close.assert_called_once_with()
-        ssh.close.assert_called_once_with()
+        application.files.list_remote.assert_called_once_with("srv", "/remote/dir")
+        application.close.assert_called_once_with()
 
 
 def test_cli_run_submit_rejects_invalid_resource_override_before_submit(capsys):
     with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
-        server = ServerConfig(host="h", username="u")
-        with (
-            patch("jobdesk_app.cli._get_server", return_value=server),
-            patch("jobdesk_app.cli.create_ssh_client") as create_ssh_client,
-            patch("jobdesk_app.cli.create_sftp_client") as create_sftp_client,
-            patch("jobdesk_app.cli.RunService.submit_run") as submit_run,
-        ):
+        application = MagicMock()
+        with patch("jobdesk_app.cli.create_application", return_value=application):
             rc = main(["run", "submit", workspace, "run1", "--cpus", "0"])
 
         assert rc == 2
         assert "scheduler cpus must be >= 1" in capsys.readouterr().err
-        create_ssh_client.assert_not_called()
-        create_sftp_client.assert_not_called()
-        submit_run.assert_not_called()
+        application.runs.submit_existing.assert_not_called()
 
 
 def test_cli_confirm_submitted_requires_tasks():
@@ -393,9 +410,11 @@ def test_cli_confirm_submitted_requires_tasks():
 
 
 def test_cli_confirm_submitted_reports_changed_count(capsys, tmp_path):
-    coordinator = MagicMock()
-    coordinator.confirm_submitted.return_value = SimpleNamespace(changed_count=2, errors=[])
-    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+    application = MagicMock()
+    application.runs.resolve_uncertain.return_value = OperationOutcome.success(
+        _run_details(changed_count=2)
+    )
+    with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(
             [
                 "run",
@@ -412,29 +431,36 @@ def test_cli_confirm_submitted_reports_changed_count(capsys, tmp_path):
             ]
         )
     assert rc == 0
-    coordinator.confirm_submitted.assert_called_once_with("run-1", ["a", "b"], {"a": "101", "b": "102"})
+    application.runs.resolve_uncertain.assert_called_once_with(
+        "run-1", ("a", "b"), action="confirm", remote_job_ids={"a": "101", "b": "102"}
+    )
     assert "confirmed 2 task(s)" in capsys.readouterr().out
 
 
 def test_cli_abandon_submit_returns_error_exit(capsys, tmp_path):
-    coordinator = MagicMock()
-    coordinator.abandon_submit.return_value = SimpleNamespace(changed_count=0, errors=["ValueError: stale"])
-    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+    application = MagicMock()
+    application.runs.resolve_uncertain.return_value = OperationOutcome.failure(
+        OperationFailure("abandon", "stale", "ValueError: stale", False)
+    )
+    with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(["run", "abandon-submit", str(tmp_path), "run-1", "--tasks", "a"])
     assert rc == 2
     assert "stale" in capsys.readouterr().out
 
 
 def test_cli_recover_operations_reports_partial_failure(capsys, tmp_path):
-    coordinator = MagicMock()
-    coordinator.recover_operations.return_value = SimpleNamespace(changed_count=3, errors=["OSError: locked"])
-    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+    application = MagicMock()
+    application.runs.recover.return_value = OperationOutcome.failure(
+        OperationFailure("recover", "locked", "OSError: locked", True),
+        value=RecoveryResult(3),
+    )
+    with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(["run", "recover", str(tmp_path)])
     assert rc == 2
     output = capsys.readouterr().out
     assert "recovered 3 operation(s)" in output
     assert "locked" in output
-    coordinator.recover_operations.assert_called_once_with(include_legacy_imports=True)
+    application.runs.recover.assert_called_once_with(include_legacy_imports=True)
 
 
 @pytest.mark.parametrize(
@@ -448,7 +474,7 @@ def test_cli_recover_operations_reports_partial_failure(capsys, tmp_path):
     ],
 )
 def test_cli_confirm_submitted_rejects_invalid_job_ids(capsys, tmp_path, job_ids, message):
-    coordinator = MagicMock()
+    application = MagicMock()
     argv = [
         "run",
         "confirm-submitted",
@@ -459,8 +485,8 @@ def test_cli_confirm_submitted_rejects_invalid_job_ids(capsys, tmp_path, job_ids
     ]
     for value in job_ids:
         argv.extend(["--job-id", value])
-    with patch("jobdesk_app.cli._run_coordinator", return_value=coordinator):
+    with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(argv)
     assert rc == 2
     assert message in capsys.readouterr().err.lower()
-    coordinator.confirm_submitted.assert_not_called()
+    application.runs.resolve_uncertain.assert_not_called()

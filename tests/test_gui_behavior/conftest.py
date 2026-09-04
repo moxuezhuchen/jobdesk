@@ -16,6 +16,15 @@ pytest.importorskip("PySide6", reason="PySide6 not installed")
 @pytest.fixture(autouse=True)
 def _isolated_gui_appdata(monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    from jobdesk_app.bootstrap import GuiSettingsStore, RunMonitor, create_sftp_client, create_ssh_client
+    from jobdesk_app.gui.dependencies import configure_gui_dependencies
+
+    configure_gui_dependencies(
+        settings_store_factory=GuiSettingsStore,
+        ssh_factory=create_ssh_client,
+        sftp_factory=create_sftp_client,
+        monitor_factory=RunMonitor,
+    )
 
 
 @pytest.fixture
@@ -41,7 +50,7 @@ def runs_page(qtbot, app_state):
 @pytest.fixture
 def file_page(qtbot, app_state, tmp_path):
     from jobdesk_app.gui.pages.file_transfer_page import FileTransferPage
-    from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+    from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
     store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
     store.save(GuiSettings(auto_connect=False))

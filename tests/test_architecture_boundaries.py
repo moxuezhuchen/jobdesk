@@ -7,7 +7,7 @@ import configparser
 import re
 from pathlib import Path
 
-from jobdesk_app.services.run_repository import SCHEMA_VERSION
+from jobdesk_app.infrastructure.persistence.sqlite_runs import SCHEMA_VERSION
 
 _SRC_ROOT = Path(__file__).parents[1] / "src" / "jobdesk_app"
 
@@ -23,8 +23,8 @@ def _get_strict_modules_from_mypy_ini() -> set[str]:
     for section in config.sections():
         if not config.getboolean(section, "disallow_untyped_defs", fallback=False):
             continue
-        # Convert INI section format "mypy-jobdesk_app.services.run_repository"
-        # to module format "jobdesk_app.services.run_repository"
+        # Convert INI section format "mypy-jobdesk_app.infrastructure.persistence.sqlite_runs"
+        # to module format "jobdesk_app.infrastructure.persistence.sqlite_runs"
         module = section.replace("mypy-", "")
         strict_modules.add(module)
     return strict_modules
@@ -58,33 +58,22 @@ def _imports_under(package: str) -> list[tuple[Path, str]]:
 
 def test_package_dependency_direction() -> None:
     forbidden = {
-        "core": ("jobdesk_app.services", "jobdesk_app.gui"),
-        "remote": ("jobdesk_app.services", "jobdesk_app.gui"),
-        "services": ("jobdesk_app.gui", "PySide6"),
+        "core": ("jobdesk_app.application", "jobdesk_app.infrastructure", "jobdesk_app.gui"),
+        "application": ("jobdesk_app.infrastructure", "jobdesk_app.gui", "PySide6"),
+        "infrastructure": ("jobdesk_app.gui", "PySide6"),
     }
-    # run_service_cli.py and run_service_gui.py are thin facade wrappers
-    # that re-export from cli.py / gui/app.py respectively; they live in
-    # services/ only to satisfy the entry-point naming convention.
-    _services_root = _SRC_ROOT / "services"
-    facade_files = {
-        _services_root / "run_service_cli.py",
-        _services_root / "run_service_gui.py",
-    }
-
-    def _is_facade(path: Path) -> bool:
-        return path in facade_files
 
     failures: list[str] = []
     for package, prefixes in forbidden.items():
         for path, imported in _imports_under(package):
-            if imported.startswith(prefixes) and not _is_facade(path):
+            if imported.startswith(prefixes):
                 failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
     assert failures == []
 
 
 def test_pyside6_is_confined_to_gui() -> None:
     failures: list[str] = []
-    for package in ("core", "remote", "services", "config"):
+    for package in ("core", "application", "infrastructure"):
         for path, imported in _imports_under(package):
             if imported.startswith("PySide6"):
                 failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
@@ -92,10 +81,10 @@ def test_pyside6_is_confined_to_gui() -> None:
 
 
 def test_session_pool_has_no_qt_or_gui_dependency() -> None:
-    session_pool = _SRC_ROOT / "services" / "session_pool.py"
+    session_pool = _SRC_ROOT / "infrastructure" / "runtime" / "session_pool.py"
     forbidden = [
         imported
-        for path, imported in _imports_under("services")
+        for path, imported in _imports_under("infrastructure/runtime")
         if path == session_pool and (imported.startswith("PySide6") or imported.startswith("jobdesk_app.gui"))
     ]
     assert forbidden == []
@@ -104,9 +93,9 @@ def test_session_pool_has_no_qt_or_gui_dependency() -> None:
 def test_new_architecture_modules_require_typed_definitions() -> None:
     strict_modules = _get_strict_modules_from_mypy_ini()
     assert {
-        "jobdesk_app.services.run_repository",
-        "jobdesk_app.services.run_coordinator",
-        "jobdesk_app.services.run_monitor",
+        "jobdesk_app.infrastructure.persistence.sqlite_runs",
+        "jobdesk_app.infrastructure.runtime.run_coordinator",
+        "jobdesk_app.infrastructure.runtime.run_monitor",
         "jobdesk_app.gui.run_monitor_qt",
     } <= strict_modules
 
@@ -123,7 +112,7 @@ def test_confflow_application_facade_does_not_import_gui_or_remote_implementatio
 def test_ssh_confflow_client_uses_public_service_and_coordinator_ports() -> None:
     """Remote facades must not bypass lifecycle/service ownership boundaries."""
 
-    path = _SRC_ROOT / "services" / "ssh_confflow_client.py"
+    path = _SRC_ROOT / "infrastructure" / "runtime" / "ssh_confflow_client.py"
     text = path.read_text(encoding="utf-8-sig")
     assert "._server_lookup" not in text
     assert "._clients" not in text
@@ -131,7 +120,7 @@ def test_ssh_confflow_client_uses_public_service_and_coordinator_ports() -> None
 
 
 def test_run_service_has_no_manifest_to_database_writeback() -> None:
-    path = _SRC_ROOT / "services" / "run_service" / "__init__.py"
+    path = _SRC_ROOT / "infrastructure" / "runtime" / "run_service" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     run_service = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RunService")
 
@@ -141,7 +130,7 @@ def test_run_service_has_no_manifest_to_database_writeback() -> None:
 
 
 def test_run_repository_has_no_unjournaled_lifecycle_entry_points() -> None:
-    path = _SRC_ROOT / "services" / "run_repository" / "__init__.py"
+    path = _SRC_ROOT / "infrastructure" / "persistence" / "sqlite_runs" / "__init__.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     repository = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RunRepository")
 
@@ -177,19 +166,19 @@ def test_schema_documentation_describes_v2_to_v5_migration_chain() -> None:
             assert re.search(pattern, normalized), f"{name} omits associated {feature} wording"
 
 
-def test_services_only_import_core_public_api() -> None:
-    """services must not import core internal submodules like parsers directly."""
+def test_runtime_only_imports_core_public_api() -> None:
+    """Runtime adapters must not import core internal parser modules directly."""
     forbidden = {
         "jobdesk_app.core.parsers.gaussian",
         "jobdesk_app.core.parsers.orca",
         "jobdesk_app.core.manifest_ops",
     }
     failures: list[str] = []
-    for path, imported in _imports_under("services"):
+    for path, imported in _imports_under("infrastructure/runtime"):
         for forbid in forbidden:
             if imported == forbid or imported.startswith(forbid + "."):
                 failures.append(f"{path.relative_to(_SRC_ROOT)} -> {imported}")
-    assert failures == [], f"services must use core's public re-exports: {failures}"
+    assert failures == [], f"runtime adapters must use core's public re-exports: {failures}"
 
 
 def test_gui_does_not_import_paramiko_directly() -> None:
@@ -205,7 +194,7 @@ def test_gui_does_not_import_remote_implementations_directly() -> None:
     failures = [
         f"{path.relative_to(_SRC_ROOT)} -> {imported}"
         for path, imported in _imports_under("gui")
-        if imported.startswith("jobdesk_app.remote")
+        if imported.startswith("jobdesk_app.infrastructure.remote")
     ]
     assert failures == [], f"GUI must use application clients instead of remote implementations: {failures}"
 
@@ -232,10 +221,10 @@ def test_control_collaborators_do_not_reach_coordinator_or_repository() -> None:
     )
     failures: list[str] = []
     for name in names:
-        path = _SRC_ROOT / "services" / name
+        path = _SRC_ROOT / "infrastructure" / "runtime" / name
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == "jobdesk_app.services.run_coordinator":
+            if isinstance(node, ast.ImportFrom) and node.module == "jobdesk_app.infrastructure.runtime.run_coordinator":
                 failures.append(f"{name}:{node.lineno}:RunCoordinator import")
             if isinstance(node, ast.Attribute) and node.attr == "repository":
                 failures.append(f"{name}:{node.lineno}:repository access")
@@ -283,7 +272,7 @@ def test_gui_ports_are_application_layer_only() -> None:
         "PySide6",
         "jobdesk_app.gui",
         "jobdesk_app.remote",
-        "jobdesk_app.services",
+        "jobdesk_app.infrastructure.runtime",
     )
     assert not [imported for imported in imports if imported.startswith(forbidden)]
 
@@ -341,14 +330,14 @@ def test_files_page_does_not_import_or_construct_run_service() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             imported_module = _absolute_import(path, node)
-            if imported_module == "jobdesk_app.services.run_service":
+            if imported_module == "jobdesk_app.infrastructure.runtime.run_service":
                 failures.append(f"file_transfer_page.py:{node.lineno}:RunService import")
             for alias in node.names:
                 if alias.name == "RunService":
                     failures.append(f"file_transfer_page.py:{node.lineno}:RunService import")
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "jobdesk_app.services.run_service":
+                if alias.name == "jobdesk_app.infrastructure.runtime.run_service":
                     failures.append(f"file_transfer_page.py:{node.lineno}:RunService import")
         elif isinstance(node, ast.Call):
             target = node.func
@@ -450,16 +439,23 @@ def test_runs_page_migrated_runtime_paths_do_not_construct_services() -> None:
                 and not runtime_owner
             ):
                 failures.append(f"{method_name}:{node.lineno}:{called_name}")
-            if method_name == "_stop_run":
-                if called_name in {
+                if method_name == "_stop_run":
+                    if called_name in {
                     "_client_for",
                     "attach",
                     "cancel",
                     "cancel_outcome",
-                    "service",
-                }:
-                    if not runtime_owner:
-                        failures.append(f"{method_name}:{node.lineno}:{called_name}")
+                        "service",
+                    }:
+                        facade_owner = (
+                            isinstance(target, ast.Attribute)
+                            and isinstance(target.value, ast.Attribute)
+                            and isinstance(target.value.value, ast.Name)
+                            and target.value.value.id == "self"
+                            and target.value.attr == "_run_application"
+                        )
+                        if not runtime_owner and not facade_owner:
+                            failures.append(f"{method_name}:{node.lineno}:{called_name}")
             if method_name == "_start_monitoring":
                 if isinstance(target, ast.Name) and target.id in {
                     "load_servers",

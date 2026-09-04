@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from jobdesk_app.config.schema import ServerConfig
+from jobdesk_app.core.configuration import ServerConfig
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.manifest import ResourceBudget, TaskRecord
 from jobdesk_app.core.run import RunMode, RunSpec, WorkflowKind, build_run_plan
-from jobdesk_app.remote.submitter import JobSubmitter
+from jobdesk_app.infrastructure.remote.submitter import JobSubmitter
 
 
 def test_resource_budget_effective_slots_multiplies_three_levels() -> None:

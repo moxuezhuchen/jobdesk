@@ -13,7 +13,7 @@ from jobdesk_app.core.confflow_output_manifest import OutputManifestError, parse
 from jobdesk_app.core.lifecycle import TaskStatus
 from jobdesk_app.core.run import RunMode, RunSource, RunSpec, WorkflowKind
 from jobdesk_app.core.transfer import TransferDirection, TransferRecord, TransferStatus
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 from tests.repository_helpers import replace_tasks_for_test
 
 

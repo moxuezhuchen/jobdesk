@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...application.facades import WorkflowApplication
 from ...core.submit_payload import (
     InputSource,
     SubmitKind,
@@ -65,10 +66,17 @@ from ...core.submit_payload import (
     WorkflowFields,
 )
 from ...core.workflow_spec import ConfFlowUnavailableError, WorkflowSpec
-from ...services.method_presets import MethodPresetStore
 from ..i18n import tr
 
 _MODE_LABEL = {"single": "Single calculation", "workflow": "Workflow"}
+
+
+class _EmptyWorkflowApplication:
+    def list_presets(self):
+        return ()
+
+    def get_preset(self, name: str, *, source: str = "user"):
+        raise KeyError(name)
 
 
 def _infer_program(sources: list[InputSource]) -> str:
@@ -116,7 +124,7 @@ class SubmitDialog(QDialog):
         remote_dir: str = "/",
         max_parallel: int = 1,
         workspace: Path | None = None,
-        preset_store: MethodPresetStore | None = None,
+        workflows: WorkflowApplication | None = None,
         preset_name: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -127,7 +135,7 @@ class SubmitDialog(QDialog):
         self._remote_dir = remote_dir
         self._max_parallel = max_parallel
         self._workspace = Path(workspace).resolve() if workspace is not None else Path.cwd()
-        self._preset_store = preset_store or MethodPresetStore()
+        self._workflows = workflows or _EmptyWorkflowApplication()
         self._preset_name = preset_name
         self._status_callback: Callable[[str], None] = lambda _msg: None
 
@@ -393,7 +401,7 @@ class SubmitDialog(QDialog):
         self.preset_combo.blockSignals(True)
         try:
             self.preset_combo.clear()
-            for preset in self._preset_store.list_presets():
+            for preset in self._workflows.list_presets():
                 # Built-ins are reusable steps, never submit-ready
                 # workflows.  Only a user-saved composition is selectable.
                 if preset.source != "user":
@@ -523,7 +531,10 @@ class SubmitDialog(QDialog):
         if not self._preset_name:
             return None
         try:
-            return self._preset_store.load_yaml(self._preset_name, source="user")
+            return self._workflows.get_preset(
+                self._preset_name,
+                source="user",
+            ).document.decode("utf-8")
         except KeyError:
             return None
 

@@ -63,6 +63,10 @@ def test_main_processes_startup_paint_before_heavy_imports_and_window(qtbot, mon
         def __init__(self, *_args):
             events.append("construct:SessionPool")
 
+    def fake_create_application(*, session_pool):
+        events.append("construct:ApplicationContainer")
+        return object()
+
     class FakeSignal:
         def __init__(self):
             self.callbacks = []
@@ -125,8 +129,18 @@ def test_main_processes_startup_paint_before_heavy_imports_and_window(qtbot, mon
     monkeypatch.setattr(app_module.sys, "exit", lambda _code: None)
     monkeypatch.setitem(
         sys.modules,
-        "jobdesk_app.services.session_pool",
-        RecordingModule("jobdesk_app.services.session_pool", {"SessionPool": FakeSessionPool}),
+        "jobdesk_app.bootstrap",
+        RecordingModule(
+            "jobdesk_app.bootstrap",
+            {
+                "GuiSettingsStore": object,
+                "RunMonitor": object,
+                "SessionPool": FakeSessionPool,
+                "create_application": fake_create_application,
+                "create_sftp_client": lambda *_args: None,
+                "create_ssh_client": lambda *_args: None,
+            },
+        ),
     )
     monkeypatch.setitem(
         sys.modules,

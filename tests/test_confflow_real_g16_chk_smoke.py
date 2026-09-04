@@ -155,7 +155,7 @@ def test_step_07_gjf_has_oldchk_directive():
 
 
 def test_run_summary_loads_with_two_completed_steps():
-    from jobdesk_app.services.confflow_results import load_summary
+    from jobdesk_app.core.confflow_results import load_summary
 
     summary_path = _require_artifact("run_summary.json")
     summary = load_summary(summary_path)
@@ -173,7 +173,7 @@ def test_run_summary_loads_with_two_completed_steps():
 
 
 def test_workflow_stats_records_both_step_names():
-    from jobdesk_app.services.confflow_results import load_step_progress
+    from jobdesk_app.core.confflow_results import load_step_progress
 
     stats_path = _require_artifact("workflow_stats.json")
     progress = load_step_progress(stats_path)

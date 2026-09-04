@@ -3,7 +3,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from jobdesk_app.config.schema import ExtractResult, ExtractType
+from jobdesk_app.core.analysis_schema import ExtractResult, ExtractType
 from jobdesk_app.core.analyzer import analyze_tasks
 
 

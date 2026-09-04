@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jobdesk_app.config.schema import SchedulerConfig, ServerConfig
-from jobdesk_app.remote.scheduler import (
+from jobdesk_app.core.configuration import SchedulerConfig, ServerConfig
+from jobdesk_app.infrastructure.remote.scheduler import (
     JobState,
     NohupAdapter,
     PBSAdapter,
@@ -232,7 +232,7 @@ class TestSchedulerConfig:
         import tempfile
         from pathlib import Path
 
-        from jobdesk_app.config.servers import load_servers
+        from jobdesk_app.infrastructure.config.servers import load_servers
 
         content = """
 servers:

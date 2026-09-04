@@ -1,6 +1,6 @@
 import json
 
-from jobdesk_app.services.confflow_results import (
+from jobdesk_app.core.confflow_results import (
     ConfFlowStepProgress,
     ParseState,
     format_step_progress,

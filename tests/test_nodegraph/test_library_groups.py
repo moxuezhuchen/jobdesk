@@ -25,7 +25,7 @@ from jobdesk_app.gui.nodegraph.library import (
     NodeLibraryPanel,
 )
 from jobdesk_app.gui.nodegraph.model import NodeKind
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
 
 @pytest.fixture

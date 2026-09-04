@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from ...core.parsers import GaussianResult, OrcaResult
 
+from ...application.facades import RunApplication
 from ...application.runs_actions import RunActionIntent, RunsActionController
 from ...application.runs_artifacts import (
     MAX_PREVIEW_FILE_BYTES,
@@ -53,6 +54,7 @@ from ...application.runs_monitor import (
     monitor_watch_id,
 )
 from ...application.runs_query import (
+    FacadeRunQueryService,
     RunFilterSpec,
     RunQueryController,
     RunQuerySnapshot,
@@ -61,7 +63,17 @@ from ...application.runs_query import (
     workflow_filter_value,
 )
 from ...application.runs_runtime import RunsPageRuntime
-from ...config.servers import load_servers
+from ...bootstrap import (
+    CONTROL_BACKEND,
+    GuiSettingsStore,
+    RunCoordinator,
+    RunRecord,
+    RunService,
+    SessionPool,
+    SSHConfFlowClient,
+    load_servers,
+    load_state,
+)
 from ...core.confflow_contract import (
     RUN_SUMMARY_FILE,
     WORK_DIR_SUFFIX,
@@ -69,13 +81,6 @@ from ...core.confflow_contract import (
     WORKFLOW_STATS_FILE,
 )
 from ...core.run import WorkflowKind, remote_run_dir
-from ...services.confflow_control import CONTROL_BACKEND
-from ...services.confflow_control_state import load_state
-from ...services.gui_settings import GuiSettingsStore
-from ...services.run_coordinator import RunCoordinator
-from ...services.run_service import RunRecord, RunService
-from ...services.session_pool import SessionPool
-from ...services.ssh_confflow_client import SSHConfFlowClient
 from ..button_feedback import ButtonFeedback, ButtonRole
 from ..design.components import StyledTableWidget
 from ..design.tokens import Colors, Metrics, Radius
@@ -291,6 +296,7 @@ class RunsResultsPage(QWidget):
         coordinator_factory: Callable[..., RunCoordinator] | None = None,
         client_factory: Callable[[RunCoordinator, str], SSHConfFlowClient] | None = None,
         session_pool: SessionPool | None = None,
+        run_application: RunApplication | None = None,
     ) -> None:
         super().__init__()
         self.state = state
@@ -303,13 +309,12 @@ class RunsResultsPage(QWidget):
         self._status_cb = self._wrap_status_cb(status_cb)
         self._coordinator_factory = coordinator_factory
         self._client_factory = client_factory
-        # The application runtime owns the concrete service graph.  Keep
-        # closures over this module's historical symbols so existing tests and
-        # extensions that monkeypatch them retain their observable seam.
+        self._run_application = run_application
         self._runtime = RunsPageRuntime(
             service_constructor=lambda: RunService,
+            coordinator_constructor=RunCoordinator,
             session_pool=session_pool,
-            session_pool_constructor=SessionPool,
+            session_pool_constructor=SessionPool if session_pool is None else None,
             server_loader=lambda: load_servers(),
             durable_backend_loader=lambda service, run_id: load_state(service, run_id),
             ssh_factory=lambda server: create_ssh_client(server),
@@ -453,7 +458,11 @@ class RunsResultsPage(QWidget):
         self._run_snapshots: tuple[RunQuerySnapshot, ...] = ()
         # Keep all list reads behind the RunService boundary while exposing
         # immutable projections to filtering/selection code.
-        self._run_query = RunQueryController(self._runtime.service)
+        if run_application is not None:
+            facade_query = FacadeRunQueryService(run_application)
+            self._run_query = RunQueryController(lambda _workspace: facade_query)
+        else:
+            self._run_query = RunQueryController(self._runtime.service)
         self._filters_ready = False
 
         # ─── Top: Run list ───
@@ -1188,16 +1197,17 @@ class RunsResultsPage(QWidget):
         has_done = state["has_done"]
 
         def _run():
-            record = self._runtime.load_run(workspace, run_id)
+            record = self._load_record(workspace, run_id)
             patterns = self._get_download_patterns(record)
             outcome = self._execute_refresh_use_case(record, patterns, download=has_done)
-            if outcome.errors:
+            errors = self._outcome_errors(outcome)
+            if errors:
                 return tr(
                     "Automatic refresh failed: {errors}",
                     self._language,
-                    errors="; ".join(outcome.errors),
+                    errors="; ".join(errors),
                 )
-            if has_done and outcome.transfer_records:
+            if has_done and self._outcome_transfer_count(outcome):
                 return tr(
                     "Run complete; results downloaded: {run_id}",
                     self._language,
@@ -1377,7 +1387,7 @@ class RunsResultsPage(QWidget):
         self._in_progress.add(watch_id)
 
         def _run():
-            record = self._runtime.load_run(workspace, run_id)
+            record = self._load_record(workspace, run_id)
             outcome = self._execute_progress_use_case(record)
             if outcome.errors:
                 raise RuntimeError("; ".join(outcome.errors))
@@ -1452,7 +1462,7 @@ class RunsResultsPage(QWidget):
         if self._workspace() == workspace:
             self.refresh_run_list()
         try:
-            updated = self._runtime.load_run(workspace, run_id)
+            updated = self._load_record(workspace, run_id)
             if (
                 updated.status_summary.get("submitting", 0) == 0
                 and updated.status_summary.get("running", 0) == 0
@@ -1510,6 +1520,8 @@ class RunsResultsPage(QWidget):
         workspace = self._workspace()
 
         def _recover(_ctx: WorkerContext):
+            if self._run_application is not None:
+                return self._run_application.recover()
             return self._coordinator_for(workspace).recover_operations()
 
         try:
@@ -1536,8 +1548,9 @@ class RunsResultsPage(QWidget):
     def _apply_startup_recovery(self, outcome) -> None:
         if self._shutting_down:
             return
-        if outcome.errors:
-            error = "; ".join(outcome.errors)
+        errors = self._outcome_errors(outcome)
+        if errors:
+            error = "; ".join(errors)
             self._status_cb(tr("Operation recovery failed: {error}", self._language, error=error))
             self.startup_recovery_failed.emit(error)
 
@@ -1858,6 +1871,8 @@ class RunsResultsPage(QWidget):
         )
 
     def _execute_refresh_use_case(self, record, patterns: list[str], *, download: bool):
+        if self._run_application is not None:
+            return self._run_application.refresh(record.run_id, download=download)
         return self._runtime.refresh_run(
             self._result_workspace(record),
             record.run_id,
@@ -1869,6 +1884,8 @@ class RunsResultsPage(QWidget):
         )
 
     def _execute_download_use_case(self, record, patterns: list[str]):
+        if self._run_application is not None:
+            return self._run_application.download(record.run_id, tuple(patterns))
         return self._runtime.download_run(
             self._result_workspace(record),
             record.run_id,
@@ -1877,6 +1894,21 @@ class RunsResultsPage(QWidget):
             resolver=self._coordinator_for,
             client_factory=self._client_factory,
         )
+
+    @staticmethod
+    def _outcome_errors(outcome: Any) -> list[str]:
+        errors = getattr(outcome, "errors", None)
+        if errors is not None:
+            return [str(error) for error in errors]
+        return [failure.display_text for failure in getattr(outcome, "failures", ())]
+
+    @staticmethod
+    def _outcome_transfer_count(outcome: Any) -> int:
+        records = getattr(outcome, "transfer_records", None)
+        if records is not None:
+            return len(records)
+        value = getattr(outcome, "value", None)
+        return len(getattr(value, "local_paths", ()))
 
     def _client_for(self, record: RunRecord) -> SSHConfFlowClient:
         coordinator = self._coordinator_for(self._result_workspace(record))
@@ -1898,6 +1930,11 @@ class RunsResultsPage(QWidget):
         return resolve_result_workspace(getattr(record, "local_dir", ""), self._workspace())
 
     def _load_tasks(self, record: RunRecord):
+        if self._run_application is not None:
+            try:
+                return list(self._run_application.get_run(record.run_id).tasks)
+            except KeyError:
+                return []
         try:
             tasks = self._runtime.load_tasks(self._result_workspace(record), record.run_id)
         except KeyError:
@@ -1948,7 +1985,12 @@ class RunsResultsPage(QWidget):
             default_local_folder=default_local_folder,
         )
 
-    def _selected_record(self) -> RunRecord | None:
+    def _load_record(self, workspace: Path, run_id: str):
+        if self._run_application is not None:
+            return self._run_application.get_run(run_id).summary
+        return self._runtime.load_run(workspace, run_id)
+
+    def _selected_record(self):
         row = self.table.currentRow()
         if row < 0:
             return None
@@ -1956,9 +1998,9 @@ class RunsResultsPage(QWidget):
         if item is None:
             return None
         cached = item.data(Qt.UserRole)
-        if isinstance(cached, RunRecord):
+        if cached is not None and getattr(cached, "run_id", None) == item.text():
             return cached
-        return self._runtime.load_run(self._workspace(), item.text())
+        return self._load_record(self._workspace(), item.text())
 
     def _on_run_selected(self, row, col, prev_row, prev_col):
         """Debounce selection so rapid scrolling doesn't parse files per row."""
@@ -2141,8 +2183,6 @@ class RunsResultsPage(QWidget):
         )
 
     def _collect_result_preview(self, record: RunRecord) -> PreviewPayload:
-        from ...services.gui_settings import GuiSettingsStore
-
         tasks = tuple(self._load_tasks(record))
         workflow_kind = getattr(record, "workflow_kind", None)
         if getattr(record, "status_summary", {}).get("uncertain", 0):
@@ -2335,8 +2375,6 @@ class RunsResultsPage(QWidget):
 
     def _load_result_preview(self, record: RunRecord):
         """Load TSV results or run analysis for the selected run."""
-        from ...services.gui_settings import GuiSettingsStore
-
         workspace = self._result_workspace(record)
         candidates = [workspace]
         default_folder = None
@@ -2598,8 +2636,8 @@ class RunsResultsPage(QWidget):
         progress_dir: Path | None = None,
     ):
         """Display per-molecule ConfFlow summary table using manifest as authority."""
+        from ...core.confflow_results import ParseState, load_summary_result
         from ...core.lifecycle import TaskStatus
-        from ...services.confflow_results import ParseState, load_summary_result
 
         headers = [
             "Molecule",
@@ -2971,9 +3009,10 @@ class RunsResultsPage(QWidget):
                     self._get_download_patterns(record),
                     download=True,
                 )
-                if outcome.errors:
-                    errors.extend(f"{record.run_id}: {error}" for error in outcome.errors)
-                elif outcome.transfer_records:
+                outcome_errors = self._outcome_errors(outcome)
+                if outcome_errors:
+                    errors.extend(f"{record.run_id}: {error}" for error in outcome_errors)
+                elif self._outcome_transfer_count(outcome):
                     downloaded.append(record.run_id)
             # Auto-recover remote_completed runs
             for record in needs_download:
@@ -2981,8 +3020,9 @@ class RunsResultsPage(QWidget):
                     record,
                     self._get_download_patterns(record),
                 )
-                if outcome.errors:
-                    errors.extend(f"{record.run_id}: {error}" for error in outcome.errors)
+                outcome_errors = self._outcome_errors(outcome)
+                if outcome_errors:
+                    errors.extend(f"{record.run_id}: {error}" for error in outcome_errors)
                     key = self._monitor_identity(workspace, record.run_id, record.server_id)
                     dl_failures[key] = backoff.get(key, 0) + 1
                 else:
@@ -3089,14 +3129,16 @@ class RunsResultsPage(QWidget):
                 self._get_download_patterns(record),
                 download=True,
             )
-            if outcome.errors:
-                raise RuntimeError("; ".join(outcome.errors))
-            if not outcome.transfer_records and not outcome.failures:
+            errors = self._outcome_errors(outcome)
+            if errors:
+                raise RuntimeError("; ".join(errors))
+            transfer_count = self._outcome_transfer_count(outcome)
+            if not transfer_count and not outcome.failures:
                 return tr("Refreshed", self._language)
             return tr(
                 "Download done: {n} files, failed: {f}",
                 self._language,
-                n=len(outcome.transfer_records),
+                n=transfer_count,
                 f=len(outcome.failures),
             )
 
@@ -3174,6 +3216,36 @@ class RunsResultsPage(QWidget):
             return
         if not self._begin_remote_mutation(action="retry", run_ids=(record.run_id,)):
             return
+        if self._run_application is not None:
+            self._retry_feedback.pending(tr("Retrying...", self._language))
+
+            def _done(outcome):
+                errors = self._outcome_errors(outcome)
+                self.refresh_run_list()
+                if errors:
+                    self._retry_feedback.error(tr("Retry failed", self._language))
+                    self._status_cb(tr("Submit failed: {e}", self._language, e="; ".join(errors)))
+                    return
+                self._retry_feedback.success(tr("Retried", self._language))
+                self._status_cb(tr("Submitted: {batch_id}", self._language, batch_id=record.run_id))
+                self._start_monitoring()
+
+            try:
+                start_context_worker(
+                    self,
+                    target=lambda _ctx: self._run_application.retry_failed(record.run_id),
+                    registry_attr="_bg_workers",
+                    on_result=lambda outcome: self._queue_gui(_done, outcome),
+                    on_error=lambda error: self._queue_gui(
+                        lambda payload: self._on_submit_error(payload, feedback=self._retry_feedback),
+                        error,
+                    ),
+                    on_finished=lambda: self._queue_gui(self._finish_remote_mutation),
+                )
+            except Exception:
+                self._finish_remote_mutation()
+                raise
+            return
         try:
             workspace = self._result_workspace(record)
             outcome = self._runtime.retry_failed(
@@ -3186,12 +3258,15 @@ class RunsResultsPage(QWidget):
             self._retry_feedback.error(tr("Retry failed", self._language))
             self._status_cb(tr("Submit failed: {e}", self._language, e=exc))
             return
-        if outcome.errors:
+        errors = self._outcome_errors(outcome)
+        if errors:
             self._finish_remote_mutation()
             self._retry_feedback.error(tr("Retry failed", self._language))
-            self._status_cb(tr("Submit failed: {e}", self._language, e="; ".join(outcome.errors)))
+            self._status_cb(tr("Submit failed: {e}", self._language, e="; ".join(errors)))
             return
-        changed = outcome.changed_count
+        changed = getattr(outcome, "changed_count", None)
+        if changed is None:
+            changed = int(bool(getattr(outcome, "value", None)))
         self.refresh_run_list()
         if changed <= 0:
             self._finish_remote_mutation()
@@ -3228,9 +3303,14 @@ class RunsResultsPage(QWidget):
                 record,
                 self._get_download_patterns(record),
             )
-            if outcome.errors and not outcome.failures:
-                raise RuntimeError("; ".join(outcome.errors))
-            return outcome.transfer_records, outcome.failures
+            errors = self._outcome_errors(outcome)
+            if errors:
+                raise RuntimeError("; ".join(errors))
+            value = getattr(outcome, "value", None)
+            transfer_records = getattr(outcome, "transfer_records", None)
+            if transfer_records is None:
+                transfer_records = getattr(value, "local_paths", ())
+            return transfer_records, getattr(outcome, "failures", ())
 
         from ..workers import BackgroundWorker
 
@@ -3311,6 +3391,30 @@ class RunsResultsPage(QWidget):
             return
         if not self._begin_remote_mutation(action="rerun", run_ids=(record.run_id,)):
             return
+        if self._run_application is not None:
+
+            def _done(outcome):
+                errors = self._outcome_errors(outcome)
+                self.refresh_run_list()
+                if errors:
+                    self._status_cb("; ".join(errors))
+                    return
+                self._status_cb(tr("Submitted: {batch_id}", self._language, batch_id=record.run_id))
+                self._start_monitoring()
+
+            try:
+                start_context_worker(
+                    self,
+                    target=lambda _ctx: self._run_application.rerun(record.run_id),
+                    registry_attr="_bg_workers",
+                    on_result=lambda outcome: self._queue_gui(_done, outcome),
+                    on_error=lambda error: self._queue_gui(self._on_submit_error, error),
+                    on_finished=lambda: self._queue_gui(self._finish_remote_mutation),
+                )
+            except Exception:
+                self._finish_remote_mutation()
+                raise
+            return
         try:
             workspace = self._result_workspace(record)
             outcome = self._runtime.rerun(
@@ -3322,9 +3426,10 @@ class RunsResultsPage(QWidget):
             self._finish_remote_mutation()
             self._status_cb(tr("Submit failed: {e}", self._language, e=exc))
             return
-        if outcome.errors:
+        errors = self._outcome_errors(outcome)
+        if errors:
             self._finish_remote_mutation()
-            self._status_cb("; ".join(outcome.errors))
+            self._status_cb("; ".join(errors))
             return
         self.refresh_run_list()
         try:
@@ -3344,12 +3449,12 @@ class RunsResultsPage(QWidget):
         """Compare energies across the selected runs and show them in the result table."""
         from PySide6.QtWidgets import QInputDialog
 
-        from ...services.analysis_profiles import AnalysisProfileStore
-
         run_ids = self._selected_run_ids()
         if len(run_ids) < 2:
             self._status_cb(tr("Select at least two runs to compare", self._language))
             return
+        from ...bootstrap import AnalysisProfileStore
+
         profiles = sorted(AnalysisProfileStore().list_profiles())
         if not profiles:
             return
@@ -3368,13 +3473,17 @@ class RunsResultsPage(QWidget):
         workspace = self._workspace()
 
         def _run():
-            from ...services.comparison import compare_runs
+            from ...application.comparison import compare_runs
 
-            # Freeze the display projection before the worker emits its
-            # result.  The Qt page must not receive the mutable RunComparison
-            # service value across the thread boundary.
             return ComparePayload.from_comparison(
-                compare_runs(workspace, run_ids, energy_field=energy_field, profile_name=profile)
+                compare_runs(
+                    workspace,
+                    run_ids,
+                    energy_field=energy_field,
+                    profile_name=profile,
+                    profile_loader=AnalysisProfileStore().get,
+                    run_source_factory=RunService,
+                )
             )
 
         from ..workers import BackgroundWorker
@@ -3436,6 +3545,9 @@ class RunsResultsPage(QWidget):
         self._stop_feedback.pending(tr("Stopping...", self._language))
 
         def _run(_ctx: WorkerContext):
+            if self._run_application is not None:
+                outcome = self._run_application.cancel(record.run_id)
+                return int(outcome.value is not None and outcome.ok), self._outcome_errors(outcome)
             return self._runtime.cancel_run(
                 self._result_workspace(record),
                 record.run_id,
@@ -3513,6 +3625,12 @@ class RunsResultsPage(QWidget):
         workspace = self._result_workspace(record)
 
         def _run():
+            if self._run_application is not None:
+                return self._run_application.resolve_uncertain(
+                    record.run_id,
+                    tuple(task_ids),
+                    action="confirm" if confirm else "abandon",
+                )
             if confirm:
                 return self._runtime.confirm_submitted(
                     workspace,
@@ -3530,10 +3648,12 @@ class RunsResultsPage(QWidget):
         def _done(outcome):
             self.refresh_run_list()
             self._update_uncertain_actions()
-            if outcome.errors:
-                self._status_cb("; ".join(outcome.errors))
+            errors = self._outcome_errors(outcome)
+            if errors:
+                self._status_cb("; ".join(errors))
             else:
-                self._status_cb(f"{action.title()}ed {outcome.changed_count} uncertain task(s)")
+                changed_count = getattr(outcome, "changed_count", len(task_ids))
+                self._status_cb(f"{action.title()}ed {changed_count} uncertain task(s)")
 
         start_context_worker(
             self,
@@ -3588,15 +3708,19 @@ class RunsResultsPage(QWidget):
             errors: list[str] = []
             for rid in run_ids:
                 try:
-                    record = self._runtime.load_run(workspace, rid)
-                    record_workspace = self._result_workspace(record)
-                    outcome = self._runtime.delete_run(
-                        record_workspace,
-                        rid,
-                        coordinator=self._coordinator_for(record_workspace),
-                    )
-                    if outcome.errors:
-                        errors.extend(f"{rid}: {error}" for error in outcome.errors)
+                    if self._run_application is not None:
+                        outcome = self._run_application.delete(rid)
+                    else:
+                        record = self._runtime.load_run(workspace, rid)
+                        record_workspace = self._result_workspace(record)
+                        outcome = self._runtime.delete_run(
+                            record_workspace,
+                            rid,
+                            coordinator=self._coordinator_for(record_workspace),
+                        )
+                    outcome_errors = self._outcome_errors(outcome)
+                    if outcome_errors:
+                        errors.extend(f"{rid}: {error}" for error in outcome_errors)
                     else:
                         deleted += 1
                         deleted_run_ids.append(rid)
@@ -3757,7 +3881,7 @@ class RunsResultsPage(QWidget):
         results_dir = self._download_directory(record)
         self.result_text.setPlainText(
             f"{tr('Run directory', self._language)}: {record.run_dir}\n"
-            f"Database: {record.run_dir.parent / 'jobdesk.db'}\n"
+            f"Database: {Path(record.run_dir).parent / 'jobdesk.db'}\n"
             f"{tr('Results directory', self._language)}: {results_dir}"
         )
         self.result_text.setVisible(True)
@@ -3849,7 +3973,7 @@ def _step_progress_text(result_dir: Path, mol_name: str, progress_dir: Path | No
     back to the workflow stats file for older runs. File names are sourced
     from :mod:`jobdesk_app.core.confflow_contract`.
     """
-    from ...services.confflow_results import (
+    from ...core.confflow_results import (
         format_step_progress,
         load_step_progress,
         load_workflow_state_progress,

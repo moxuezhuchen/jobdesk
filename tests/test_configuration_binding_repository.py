@@ -12,8 +12,8 @@ import pytest
 
 from jobdesk_app.core.configuration_binding import ConfigurationBinding
 from jobdesk_app.core.run import RunMode, RunSpec
-from jobdesk_app.services.run_repository import RunRepository
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.persistence.sqlite_runs import RunRepository
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 from tests.test_run_repository import _record, _task
 
 
@@ -93,7 +93,9 @@ def test_v8_binding_round_trip_is_immutable_and_one_per_run(tmp_path: Path) -> N
     assert repository.load_configuration_binding("run-1") == binding
     with pytest.raises(sqlite3.IntegrityError):
         with repository._connection() as connection:
-            from jobdesk_app.services.run_repository._configuration_bindings import insert_configuration_binding
+            from jobdesk_app.infrastructure.persistence.sqlite_runs._configuration_bindings import (
+                insert_configuration_binding,
+            )
 
             insert_configuration_binding(connection, "run-1", binding)
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -424,7 +426,7 @@ def test_service_rolls_back_database_and_empty_run_dir_when_binding_write_fails(
     def fail(*_args: object, **_kwargs: object) -> None:
         raise sqlite3.IntegrityError("binding failure")
 
-    monkeypatch.setattr("jobdesk_app.services.run_repository.insert_configuration_binding", fail)
+    monkeypatch.setattr("jobdesk_app.infrastructure.persistence.sqlite_runs.insert_configuration_binding", fail)
 
     with pytest.raises(sqlite3.IntegrityError, match="binding failure"):
         service.create_run_with_configuration_binding(_spec(), _binding(), run_id="rolled-back")

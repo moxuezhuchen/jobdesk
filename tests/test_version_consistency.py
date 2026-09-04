@@ -367,6 +367,18 @@ def test_chinese_readme_states_version_spec():
     assert "confflow-2.1.6-py3-none-any.whl" in content
 
 
+def test_readmes_distinguish_source_candidate_from_last_release():
+    version = re.search(r'(?m)^version = "([^"]+)"$', _read("pyproject.toml"))
+    assert version is not None
+    source_version = version.group(1)
+    assert source_version != "0.7.10"
+    for path in ("README.md", "README.zh.md"):
+        content = _read(path)
+        assert source_version in content, path
+        assert "v0.7.10" in content, path
+        assert f"metadata.version('jobdesk') == '{source_version}'" in content, path
+
+
 def test_windows_development_commands_use_the_project_venv():
     """Local Windows commands must not silently fall back to global Python."""
     windows_python = r".venv\Scripts\python.exe"

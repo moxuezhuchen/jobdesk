@@ -17,8 +17,9 @@ from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.i18n import tr  # noqa: E402
 from jobdesk_app.gui.nodegraph.model import Edge, NodeKind, default_node  # noqa: E402
 from jobdesk_app.gui.pages.workflow_page import WorkflowPage  # noqa: E402
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore  # noqa: E402
-from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
+from jobdesk_app.infrastructure.application_facades import DefaultWorkflowApplication  # noqa: E402
+from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore  # noqa: E402
+from jobdesk_app.infrastructure.persistence.settings.method_presets import MethodPresetStore  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -33,8 +34,14 @@ class _StubState:
 
 @pytest.fixture
 def page(qapp, monkeypatch, tmp_path):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
-    widget = WorkflowPage(state=_StubState(), language="en", preset_store=MethodPresetStore())
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
+    widget = WorkflowPage(
+        state=_StubState(),
+        language="en",
+        workflows=DefaultWorkflowApplication(MethodPresetStore()),
+    )
     yield widget
     widget.close()
     widget.deleteLater()
@@ -257,7 +264,7 @@ def test_steps_and_global_yaml_generate_a_reloadable_workflow(page):
     assert parsed["steps"][1]["inputs"] == ["confgen"]
     assert parsed["steps"][2]["inputs"] == ["b3lyp_631gd_opt_freq"]
 
-    page._store.save_user_yaml("assembled_workflow", generated)
+    assert page._workflows.save_preset("assembled_workflow", generated.encode("utf-8")).ok
     page._refresh_workflow_presets()
     page._draft.dirty = False
     page.preset_combo.setCurrentIndex(0)
@@ -267,20 +274,21 @@ def test_steps_and_global_yaml_generate_a_reloadable_workflow(page):
 
 
 def test_workflow_chooser_lists_only_user_saved_workflows(page):
-    page._store.save_user(
-        "my_workflow",
-        WorkflowSpec.from_form(
-            work_dir_name="",
-            program="orca",
-            method="B3LYP",
-            basis="def2-SVP",
-            charge=0,
-            multiplicity=1,
-            nproc=4,
-            memory_mb=4096,
-            steps=("opt", "sp"),
-        ),
+    spec = WorkflowSpec.from_form(
+        work_dir_name="",
+        program="orca",
+        method="B3LYP",
+        basis="def2-SVP",
+        charge=0,
+        multiplicity=1,
+        nproc=4,
+        memory_mb=4096,
+        steps=("opt", "sp"),
     )
+    assert page._workflows.save_preset(
+        "my_workflow",
+        spec.to_yaml().encode("utf-8"),
+    ).ok
 
     page._refresh_workflow_presets()
 
@@ -505,13 +513,15 @@ def test_public_focus_helper_targets_step_editor(page):
 
 
 def test_authoring_splitter_sizes_restore_and_persist(qapp, monkeypatch, tmp_path):
-    monkeypatch.setattr("jobdesk_app.services.method_presets.get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "jobdesk_app.infrastructure.persistence.settings.method_presets.get_app_data_dir", lambda: tmp_path
+    )
     store = GuiSettingsStore(tmp_path / "gui_settings.yaml")
     store.save(GuiSettings(splitter_sizes={"workflow.authoring": [360, 680]}))
     widget = WorkflowPage(
         state=_StubState(),
         language="en",
-        preset_store=MethodPresetStore(),
+        workflows=DefaultWorkflowApplication(MethodPresetStore()),
         settings_store=store,
     )
     widget.resize(1200, 800)

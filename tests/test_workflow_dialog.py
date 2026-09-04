@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from jobdesk_app.core.workflow_spec import WorkflowSpec  # noqa: E402
 from jobdesk_app.gui.dialogs.workflow_builder_dialog import WorkflowBuilderDialog  # noqa: E402
 from jobdesk_app.gui.nodegraph.editor import WorkflowGraphEditor  # noqa: E402
-from jobdesk_app.services.method_presets import MethodPresetStore  # noqa: E402
+from jobdesk_app.infrastructure.persistence.settings.method_presets import MethodPresetStore  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -199,12 +199,12 @@ def test_dialog_quick_start_button_loads_template_when_canvas_empty(qapp, monkey
     the user takes after clicking "New workflow".
     """
     monkeypatch.setattr(
-        "jobdesk_app.services.gui_settings.get_app_data_dir",
+        "jobdesk_app.infrastructure.persistence.settings.gui_settings.get_app_data_dir",
         lambda: tmp_path,
     )
     settings = tmp_path / "gui_settings.yaml"
     settings.write_text("show_onboarding: true\n", encoding="utf-8")
-    from jobdesk_app.services.gui_settings import GuiSettingsStore
+    from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettingsStore
 
     settings_store = GuiSettingsStore(path=settings)
     editor = WorkflowGraphEditor(language="en", settings_store=settings_store)
@@ -253,12 +253,12 @@ def test_quick_start_repositions_view_to_show_new_nodes(qapp, monkeypatch, tmp_p
     the user saw a blank canvas.
     """
     monkeypatch.setattr(
-        "jobdesk_app.services.gui_settings.get_app_data_dir",
+        "jobdesk_app.infrastructure.persistence.settings.gui_settings.get_app_data_dir",
         lambda: tmp_path,
     )
     settings = tmp_path / "gui_settings.yaml"
     settings.write_text("show_onboarding: true\n", encoding="utf-8")
-    from jobdesk_app.services.gui_settings import GuiSettingsStore
+    from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettingsStore
 
     settings_store = GuiSettingsStore(path=settings)
     editor = WorkflowGraphEditor(language="en", settings_store=settings_store)
@@ -376,12 +376,12 @@ def test_search_box_tab_jumps_to_quick_start_when_card_visible(qapp, monkeypatch
     chain walked through every library button + toolbar first.
     """
     monkeypatch.setattr(
-        "jobdesk_app.services.gui_settings.get_app_data_dir",
+        "jobdesk_app.infrastructure.persistence.settings.gui_settings.get_app_data_dir",
         lambda: tmp_path,
     )
     settings = tmp_path / "gui_settings.yaml"
     settings.write_text("show_onboarding: true\n", encoding="utf-8")
-    from jobdesk_app.services.gui_settings import GuiSettingsStore
+    from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettingsStore
 
     settings_store = GuiSettingsStore(path=settings)
     editor = WorkflowGraphEditor(language="en", settings_store=settings_store)

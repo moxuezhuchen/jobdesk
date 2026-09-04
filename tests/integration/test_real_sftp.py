@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from jobdesk_app.config.servers import load_servers
-from jobdesk_app.remote.sftp import SFTPClientWrapper
-from jobdesk_app.remote.ssh import SSHClientWrapper
+from jobdesk_app.infrastructure.config.servers import load_servers
+from jobdesk_app.infrastructure.remote.sftp import SFTPClientWrapper
+from jobdesk_app.infrastructure.remote.ssh import SSHClientWrapper
 from tests.integration._remote_safety import cleanup_remote_test_dir
 
 pytestmark = pytest.mark.skipif(

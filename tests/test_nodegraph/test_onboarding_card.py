@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QPushButton
 from jobdesk_app.gui.nodegraph.editor import WorkflowGraphEditor
 from jobdesk_app.gui.nodegraph.model import NodeKind
 from jobdesk_app.gui.nodegraph.onboarding_card import DEFAULT_EXAMPLE_TEMPLATE_ID
-from jobdesk_app.services.gui_settings import GuiSettings, GuiSettingsStore
+from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings, GuiSettingsStore
 
 
 def _make_editor(qtbot, tmp_path, *, show_onboarding: bool = True) -> tuple[WorkflowGraphEditor, GuiSettingsStore]:

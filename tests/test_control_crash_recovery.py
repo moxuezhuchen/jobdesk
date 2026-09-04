@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-import jobdesk_app.services.confflow_control_state as control_state
-import jobdesk_app.services.run_repository._control_decisions as decisions_module
+import jobdesk_app.infrastructure.persistence.sqlite_runs._control_decisions as decisions_module
+import jobdesk_app.infrastructure.runtime.confflow_control_state as control_state
 from jobdesk_app.application.confflow_client import SubmitRequest
 from jobdesk_app.core.lifecycle import TaskStatus
-from jobdesk_app.services.run_service import RunService
+from jobdesk_app.infrastructure.runtime.run_service import RunService
 from tests.test_confflow_launcher_integration import (
     FakeControlTransport,
     FakeScheduler,
