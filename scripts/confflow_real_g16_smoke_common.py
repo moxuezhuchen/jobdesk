@@ -81,10 +81,7 @@ def validate_preflight_lines(raw: str) -> tuple[str, str, str, str]:
     lines = raw.splitlines()
     expected = ("2", "0", "0", G16_PROFILE)
     if tuple(lines) != expected:
-        raise SmokeValidationError(
-            "g16 preflight mismatch: "
-            f"expected {list(expected)!r}, got {lines!r}"
-        )
+        raise SmokeValidationError("g16 preflight mismatch: " f"expected {list(expected)!r}, got {lines!r}")
     return expected
 
 
@@ -114,11 +111,7 @@ def validate_capability_file(path: Path) -> dict[str, object]:
 def parse_result_dir(output: str) -> str | None:
     """Return the harness-owned unique /tmp directory, if it was printed."""
 
-    matches = [
-        line.split("=", 1)[1].strip()
-        for line in output.splitlines()
-        if line.startswith("[smoke] RESULT_DIR=")
-    ]
+    matches = [line.split("=", 1)[1].strip() for line in output.splitlines() if line.startswith("[smoke] RESULT_DIR=")]
     if len(matches) != 1 or _REMOTE_TMP_RE.fullmatch(matches[0]) is None:
         return None
     return matches[0]
@@ -136,9 +129,7 @@ def _load_object(path: Path, *, label: str) -> dict[str, Any]:
 
 def _require_schema(raw: dict[str, Any], *, schema: str, label: str) -> None:
     if raw.get("content_schema") != schema:
-        raise SmokeValidationError(
-            f"{label} schema mismatch: expected {schema!r}, got {raw.get('content_schema')!r}"
-        )
+        raise SmokeValidationError(f"{label} schema mismatch: expected {schema!r}, got {raw.get('content_schema')!r}")
 
 
 def _require_completed_steps(
@@ -159,9 +150,7 @@ def _require_completed_steps(
             raise SmokeValidationError(f"{label} contains a malformed step")
         by_name[row["name"]] = row
         if row.get("status") != "completed":
-            raise SmokeValidationError(
-                f"{label} step {row['name']!r} is not completed: {row.get('status')!r}"
-            )
+            raise SmokeValidationError(f"{label} step {row['name']!r} is not completed: {row.get('status')!r}")
     missing = [name for name in expected_names if name not in by_name]
     if missing:
         raise SmokeValidationError(f"{label} is missing completed steps: {missing!r}")
@@ -271,7 +260,7 @@ def _validate_checkpoint_artifacts(work_dir: Path) -> None:
     if "Optimization completed" not in text06:
         raise SmokeValidationError("step_06 Gaussian log lacks optimization completion")
     for marker in (
-        '%OldChk=A000001.old.chk',
+        "%OldChk=A000001.old.chk",
         'Copying data from "A000001.old.chk"',
         "Structure from the checkpoint file",
         "Initial guess from the checkpoint file",
@@ -404,7 +393,7 @@ assert isinstance(executable.get('sha256'), str) and re.fullmatch(r'[0-9a-fA-F]{
 def build_inner_harness(*, workflow_yaml: str, label: str) -> str:
     """Build the WSL harness while keeping all workflow policy in one template."""
 
-    template = r'''#!/usr/bin/env bash
+    template = r"""#!/usr/bin/env bash
 set -euo pipefail
 
 CONFFLOW_EXE=__CONFFLOW_EXE__
@@ -492,7 +481,7 @@ for artifact in run_summary.json workflow_stats.json .workflow_state.json output
   if [ -f "methane_confflow_work/$artifact" ]; then cat "methane_confflow_work/$artifact"; else echo '(missing)'; fi
 done
 exit "$CONFFLOW_RC"
-'''
+"""
     return (
         template.replace("__WORKFLOW_YAML__", workflow_yaml.rstrip())
         .replace("__LABEL_SHELL__", shlex.quote(label))
@@ -575,8 +564,8 @@ def cleanup_remote(remote_tmp: str) -> None:
     script = (
         "set -eu; p=$(readlink -f -- "
         + _quote(remote_tmp)
-        + "); case \"$p\" in /tmp/jobdesk-confflow-g16.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;; *) exit 2 ;; esac; "
-        + "[ -d \"$p\" ]; rm -rf -- \"$p\"; test ! -e \"$p\""
+        + '); case "$p" in /tmp/jobdesk-confflow-g16.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;; *) exit 2 ;; esac; '
+        + '[ -d "$p" ]; rm -rf -- "$p"; test ! -e "$p"'
     )
     proc = subprocess.run(
         [WIN_WSL, "-d", WSL_DISTRO, "--", "bash", "-s", "--"],

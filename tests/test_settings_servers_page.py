@@ -72,9 +72,7 @@ def _make_settings_page(qtbot, tmp_path):
         MagicMock(),
         lambda message: None,
         statuses.append,
-        settings_application=DefaultSettingsApplication(
-            servers_path=servers_path, gui_settings_store=settings_store
-        ),
+        settings_application=DefaultSettingsApplication(servers_path=servers_path, gui_settings_store=settings_store),
     )
     qtbot.addWidget(page)
 
@@ -96,9 +94,7 @@ def _make_empty_settings_page(qtbot, tmp_path):
         MagicMock(),
         lambda message: None,
         statuses.append,
-        settings_application=DefaultSettingsApplication(
-            servers_path=servers_path, gui_settings_store=settings_store
-        ),
+        settings_application=DefaultSettingsApplication(servers_path=servers_path, gui_settings_store=settings_store),
     )
     qtbot.addWidget(page)
 
@@ -536,7 +532,9 @@ def test_edit_server_browse_key_path_preserves_hidden_config(qtbot, tmp_path):
         patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_browsed_key),
     ):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, lambda message: None,
+            MagicMock(),
+            lambda message: None,
+            lambda message: None,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -589,11 +587,11 @@ def test_edit_server_saves_external_terminal_fields(qtbot, tmp_path):
         terminal_path.setText(str(terminal_executable))
         return QDialog.Accepted
 
-    with (
-        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_external_tools),
-    ):
+    with (patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_external_tools),):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, lambda message: None,
+            MagicMock(),
+            lambda message: None,
+            lambda message: None,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -636,11 +634,11 @@ def test_edit_server_saves_ssh_access_fields(qtbot, tmp_path):
         proxy_jump.setText("login-node")
         return QDialog.Accepted
 
-    with (
-        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_ssh_access),
-    ):
+    with (patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_ssh_access),):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, lambda message: None,
+            MagicMock(),
+            lambda message: None,
+            lambda message: None,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -660,7 +658,9 @@ def test_shutdown_stops_worker_with_timeout(qtbot, tmp_path):
     settings_store = MagicMock()
     settings_store.load.return_value = GuiSettings()
     page = SettingsServersPage(
-        MagicMock(), lambda message: None, lambda message: None,
+        MagicMock(),
+        lambda message: None,
+        lambda message: None,
         settings_application=DefaultSettingsApplication(
             servers_path=tmp_path / "servers.yaml", gui_settings_store=settings_store
         ),
@@ -684,7 +684,9 @@ def test_text_editor_setting_loads_and_saves(qtbot, tmp_path):
     settings_store.load.return_value = GuiSettings(text_editor_path=str(original_editor))
 
     page = SettingsServersPage(
-        MagicMock(), lambda message: None, lambda message: None,
+        MagicMock(),
+        lambda message: None,
+        lambda message: None,
         settings_application=DefaultSettingsApplication(
             servers_path=tmp_path / "servers.yaml", gui_settings_store=settings_store
         ),
@@ -716,11 +718,11 @@ def test_edit_server_exposes_key_auth_only_and_saves_explicit_tofu(qtbot, tmp_pa
         toggle.setChecked(True)
         return QDialog.Accepted
 
-    with (
-        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_tofu),
-    ):
+    with (patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_tofu),):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, lambda message: None,
+            MagicMock(),
+            lambda message: None,
+            lambda message: None,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -768,11 +770,11 @@ def test_edit_server_saves_scheduler_fields_and_preserves_hidden_keys(qtbot, tmp
         spins[3].setValue(720)  # walltime minutes
         return QDialog.Accepted
 
-    with (
-        patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_scheduler),
-    ):
+    with (patch("PySide6.QtWidgets.QDialog.exec", new=accept_with_scheduler),):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, lambda message: None,
+            MagicMock(),
+            lambda message: None,
+            lambda message: None,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -819,7 +821,9 @@ def test_edit_server_rejects_duplicate_server_id(qtbot, tmp_path):
         ),
     ):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, statuses.append,
+            MagicMock(),
+            lambda message: None,
+            statuses.append,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),
@@ -864,7 +868,9 @@ def test_add_server_rejects_duplicate_server_id(qtbot, tmp_path):
         ),
     ):
         page = SettingsServersPage(
-            MagicMock(), lambda message: None, statuses.append,
+            MagicMock(),
+            lambda message: None,
+            statuses.append,
             settings_application=DefaultSettingsApplication(
                 servers_path=servers_path, gui_settings_store=settings_store
             ),

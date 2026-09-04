@@ -112,10 +112,7 @@ class ServersConfig(BaseModel):
     @classmethod
     def inject_server_ids(cls, value: Any) -> Any:
         if isinstance(value, dict):
-            return {
-                key: {**item, "server_id": key} if isinstance(item, dict) else item
-                for key, item in value.items()
-            }
+            return {key: {**item, "server_id": key} if isinstance(item, dict) else item for key, item in value.items()}
         return value
 
 

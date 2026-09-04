@@ -108,20 +108,13 @@ def _write_step(work_dir: Path, name: str) -> None:
 
 
 def _write_workflow(result_root: Path, *, checkpoint: bool = False) -> None:
-    names = (
-        ("step_06_g16_opt", "step_07_g16_sp_readchk")
-        if checkpoint
-        else ("g16_opt",)
-    )
+    names = ("step_06_g16_opt", "step_07_g16_sp_readchk") if checkpoint else ("g16_opt",)
     work_dir = result_root / "methane_confflow_work"
     work_dir.mkdir(parents=True, exist_ok=True)
     for name in names:
         _write_step(work_dir, name)
 
-    state_steps = {
-        name: {"name": name, "type": "calc", "status": "completed", "error": None}
-        for name in names
-    }
+    state_steps = {name: {"name": name, "type": "calc", "status": "completed", "error": None} for name in names}
     rows = [{"name": name, "type": "calc", "status": "completed"} for name in names]
     _write_json(
         work_dir / "run_summary.json",
@@ -162,9 +155,7 @@ def _write_workflow(result_root: Path, *, checkpoint: bool = False) -> None:
         backup07.mkdir(parents=True, exist_ok=True)
         (backup06 / "A000001.chk").write_bytes(b"checkpoint")
         (backup07 / "A000001.old.chk").write_bytes(b"checkpoint")
-        (backup07 / "A000001.gjf").write_text(
-            "%Chk=A000001.chk\n%OldChk=A000001.old.chk\n", encoding="utf-8"
-        )
+        (backup07 / "A000001.gjf").write_text("%Chk=A000001.chk\n%OldChk=A000001.old.chk\n", encoding="utf-8")
         (backup06 / "A000001.log").write_text(
             "Optimization completed\nNormal termination of Gaussian 16\n", encoding="utf-8"
         )
@@ -179,9 +170,7 @@ def _write_workflow(result_root: Path, *, checkpoint: bool = False) -> None:
     else:
         backup = work_dir / "g16_opt" / "backups"
         backup.mkdir(parents=True, exist_ok=True)
-        (backup / "A000001.log").write_text(
-            "Normal termination of Gaussian 16\n", encoding="utf-8"
-        )
+        (backup / "A000001.log").write_text("Normal termination of Gaussian 16\n", encoding="utf-8")
 
 
 def _bash_argv() -> list[str]:
@@ -330,9 +319,7 @@ def test_cleanup_rm_failure_reports_stderr(monkeypatch) -> None:
     monkeypatch.setattr(
         smoke.subprocess,
         "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args, 1, "", "rm: cannot remove target"
-        ),
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, "", "rm: cannot remove target"),
     )
 
     with pytest.raises(smoke.SmokeValidationError, match="cannot remove target") as error:
@@ -454,10 +441,7 @@ def test_checkpoint_main_never_accepts_one_combined_normal_marker(monkeypatch, c
         lambda _destination: subprocess.CompletedProcess(
             args=["fake-wsl"],
             returncode=2,
-            stdout=(
-                "[smoke] RESULT_DIR=/tmp/jobdesk-confflow-g16.ABC123\n"
-                "Normal termination of Gaussian 16\n"
-            ),
+            stdout=("[smoke] RESULT_DIR=/tmp/jobdesk-confflow-g16.ABC123\n" "Normal termination of Gaussian 16\n"),
             stderr="",
         ),
     )

@@ -243,6 +243,7 @@ class RunsPageRuntime:
         server_ids = frozenset(str(server_id) for server_id in servers)
 
         from ..core.run import remote_run_dir
+
         inputs: list[MonitorRunInput] = []
         for record in records:
             run_id = str(getattr(record, "run_id", ""))

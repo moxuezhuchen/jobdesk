@@ -347,9 +347,7 @@ class SettingsApplication(Protocol):
 
     def preferences(self) -> GuiPreferencesSnapshot: ...
 
-    def save_preferences(
-        self, preferences: GuiPreferencesSnapshot
-    ) -> OperationOutcome[GuiPreferencesSnapshot]: ...
+    def save_preferences(self, preferences: GuiPreferencesSnapshot) -> OperationOutcome[GuiPreferencesSnapshot]: ...
 
 
 __all__ = [

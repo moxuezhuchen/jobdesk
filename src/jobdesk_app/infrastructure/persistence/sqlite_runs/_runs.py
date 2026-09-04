@@ -228,8 +228,6 @@ def update_run(connection: sqlite3.Connection, record: RunRecord) -> RunRecord:
 
 def incomplete_delete_run_ids(connection: sqlite3.Connection) -> set[str]:
     """Return run IDs protected by an unfinished deletion tombstone."""
-    rows = connection.execute(
-        """SELECT DISTINCT run_id FROM operations
-           WHERE kind = 'delete' AND completed_at IS NULL"""
-    ).fetchall()
+    rows = connection.execute("""SELECT DISTINCT run_id FROM operations
+           WHERE kind = 'delete' AND completed_at IS NULL""").fetchall()
     return {str(row["run_id"]) for row in rows}

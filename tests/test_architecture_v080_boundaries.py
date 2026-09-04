@@ -48,51 +48,63 @@ def test_legacy_architecture_packages_are_removed() -> None:
 
 
 def test_core_is_independent() -> None:
-    assert _violations(
-        "core",
-        (
-            "jobdesk_app.application",
-            "jobdesk_app.infrastructure",
-            "jobdesk_app.gui",
-            "jobdesk_app.config",
-        ),
-    ) == []
+    assert (
+        _violations(
+            "core",
+            (
+                "jobdesk_app.application",
+                "jobdesk_app.infrastructure",
+                "jobdesk_app.gui",
+                "jobdesk_app.config",
+            ),
+        )
+        == []
+    )
 
 
 def test_application_depends_only_on_core_inside_jobdesk() -> None:
-    assert _violations(
-        "application",
-        (
-            "jobdesk_app.infrastructure",
-            "jobdesk_app.gui",
-            "jobdesk_app.config",
-            "jobdesk_app.bootstrap",
-        ),
-    ) == []
+    assert (
+        _violations(
+            "application",
+            (
+                "jobdesk_app.infrastructure",
+                "jobdesk_app.gui",
+                "jobdesk_app.config",
+                "jobdesk_app.bootstrap",
+            ),
+        )
+        == []
+    )
 
 
 def test_infrastructure_does_not_depend_on_presentation_or_bootstrap() -> None:
-    assert _violations(
-        "infrastructure",
-        (
-            "jobdesk_app.gui",
-            "jobdesk_app.cli",
-            "jobdesk_app.cli_prep",
-            "jobdesk_app.bootstrap",
-        ),
-    ) == []
+    assert (
+        _violations(
+            "infrastructure",
+            (
+                "jobdesk_app.gui",
+                "jobdesk_app.cli",
+                "jobdesk_app.cli_prep",
+                "jobdesk_app.bootstrap",
+            ),
+        )
+        == []
+    )
 
 
 def test_gui_uses_application_or_bootstrap_not_infrastructure() -> None:
-    assert _violations(
-        "gui",
-        (
-            "jobdesk_app.infrastructure",
-            "jobdesk_app.services",
-            "jobdesk_app.remote",
-            "jobdesk_app.config",
-        ),
-    ) == []
+    assert (
+        _violations(
+            "gui",
+            (
+                "jobdesk_app.infrastructure",
+                "jobdesk_app.services",
+                "jobdesk_app.remote",
+                "jobdesk_app.config",
+            ),
+        )
+        == []
+    )
 
 
 def test_only_gui_composition_entries_import_bootstrap() -> None:

@@ -72,12 +72,10 @@ def _import_legacy_runs(connection: sqlite3.Connection, runs_dir: Path) -> None:
                 """,
                 (str(run_dir), f"legacy JSON/TSV import failed: {exc}"),
             )
-    connection.execute(
-        """
+    connection.execute("""
         INSERT INTO schema_metadata(key, value) VALUES('legacy_import_complete', '1')
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """
-    )
+        """)
 
 
 def _load_legacy_record(run_dir: Path) -> RunRecord:

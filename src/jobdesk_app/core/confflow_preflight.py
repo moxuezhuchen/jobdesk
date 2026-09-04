@@ -41,9 +41,7 @@ from .confflow_contract import (
 PRERELEASE_AT_MIN_REJECT = True
 PRERELEASE_ABOVE_MIN_ACCEPT = True
 
-_ACCEPTED_VERSION_SPELLING_RE = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:rc\d+|-rc\.\d+)?$"
-)
+_ACCEPTED_VERSION_SPELLING_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:rc\d+|-rc\.\d+)?$")
 
 
 @dataclass(frozen=True)
@@ -264,7 +262,11 @@ def validate_confflow_capabilities(
     version = _parse_version(capabilities.version)
     core = version.release
     prerelease = version.is_prerelease
-    if core < MIN_VERSION or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease) or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT):
+    if (
+        core < MIN_VERSION
+        or (PRERELEASE_AT_MIN_REJECT and core == MIN_VERSION and prerelease)
+        or (core > MIN_VERSION and prerelease and not PRERELEASE_ABOVE_MIN_ACCEPT)
+    ):
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
     if core >= MAX_EXCLUSIVE:
         raise ValueError(f"incompatible ConfFlow version {capabilities.version}: require {spec}")
@@ -369,7 +371,9 @@ def validate_confflow_production_capability(
         or any(char in python_executable for char in "\x00\r\n")
         or python_executable not in expected_pythons
     ):
-        raise ValueError("ConfFlow executable Python path does not match the controlled Python 3.12 virtual environment")
+        raise ValueError(
+            "ConfFlow executable Python path does not match the controlled Python 3.12 virtual environment"
+        )
 
     identity: dict[str, object] = {
         "path": path,

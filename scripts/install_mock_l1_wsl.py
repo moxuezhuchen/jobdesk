@@ -23,6 +23,7 @@ Usage::
     python scripts/install_mock_l1_wsl.py --dry-run     # show what would happen
     python scripts/install_mock_l1_wsl.py --yes         # skip the safety prompt
 """
+
 from __future__ import annotations
 
 import argparse
@@ -422,7 +423,10 @@ def stream(py_template: str, payload: bytes | None) -> subprocess.CompletedProce
     py_quoted = "'" + py_template.replace("'", "'\"'\"'") + "'"
     cmd = ["wsl", "bash", "-c", f"python3 -u -c {py_quoted}"]
     return subprocess.run(
-        cmd, input=encoded.encode("ascii"), capture_output=True, check=False,
+        cmd,
+        input=encoded.encode("ascii"),
+        capture_output=True,
+        check=False,
     )
 
 
@@ -525,9 +529,7 @@ def audit_log(action: str, dest: str, size: int, sha256: str | None = None) -> N
             # WSL side after writing the destination. Keep the value itself in
             # the audit record; do not claim that a local checksum file exists.
             entry["sha256"] = sha256
-            entry["sha256_source"] = (
-                "wsl-restored-destination" if action == "restore" else "wsl-installed-destination"
-            )
+            entry["sha256_source"] = "wsl-restored-destination" if action == "restore" else "wsl-installed-destination"
         elif action == "install":
             entry["sha256"] = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
             entry["sha256_source"] = "local-source-fallback"
@@ -549,7 +551,8 @@ def main() -> int:
     parser.add_argument("--restore", action="store_true", help="Restore the real l1.exe.")
     parser.add_argument("--dry-run", action="store_true", help="Print the plan without executing.")
     parser.add_argument(
-        "--yes", action="store_true",
+        "--yes",
+        action="store_true",
         help="Skip the safety prompt when the upstream g16 wrapper is a mock/shell script.",
     )
     args = parser.parse_args()
@@ -723,7 +726,9 @@ def main() -> int:
     try:
         verify = subprocess.run(
             ["wsl", "bash", "-c", f"python3 -u -c {verify_script}"],
-            input=verify_input, capture_output=True, check=False,
+            input=verify_input,
+            capture_output=True,
+            check=False,
         )
     except OSError as exc:
         print(f"verification failed: {exc}", file=sys.stderr)

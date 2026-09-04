@@ -10,6 +10,7 @@ Phase 6 (mock-g16-deployed-to-real-g16-path) is the failure mode these
 guards exist to prevent. The mock install at ``l1.exe`` must refuse
 to run when the upstream ``g16`` wrapper is JOBDESK_MOCK-tainted.
 """
+
 from __future__ import annotations
 
 import base64
@@ -53,7 +54,10 @@ def _isolated_home(monkeypatch, tmp_path):
 
 def _completed(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(
-        args=[], returncode=returncode, stdout=stdout.encode(), stderr=stderr.encode(),
+        args=[],
+        returncode=returncode,
+        stdout=stdout.encode(),
+        stderr=stderr.encode(),
     )
 
 
@@ -187,6 +191,7 @@ class TestMainSafety:
             if digest is None:
                 digest = hashlib.sha256(mod.SOURCE.read_bytes()).hexdigest()
             return _completed(0, f"verified /opt/g16/l1.exe size=15 sha256={digest}")
+
         monkeypatch.setattr(mod.subprocess, "run", _fake_run)
 
     @pytest.mark.parametrize(
@@ -232,8 +237,7 @@ class TestMainSafety:
         operation = MagicMock(
             return_value=_completed(
                 0,
-                "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real "
-                f"(31457280 bytes) sha256={digest}",
+                "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real " f"(31457280 bytes) sha256={digest}",
             )
         )
         monkeypatch.setattr(mod, "stream", operation)
@@ -346,7 +350,9 @@ class TestMainSafety:
     def test_yes_overrides_mock_wrapper_refusal(self, mod, monkeypatch, capsys):
         # --yes must WARN but proceed past the MOCK guard.
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "MOCK")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch)
         self._block_wsl(mod, monkeypatch)
@@ -361,7 +367,9 @@ class TestMainSafety:
 
     def test_warns_on_shell_wrapper_but_proceeds(self, mod, monkeypatch, capsys):
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "SHELL")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch)
         self._block_wsl(mod, monkeypatch)
@@ -375,7 +383,9 @@ class TestMainSafety:
 
     def test_warns_on_missing_wrapper_but_proceeds(self, mod, monkeypatch, capsys):
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "MISSING")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch)
         self._block_wsl(mod, monkeypatch)
@@ -390,7 +400,9 @@ class TestMainSafety:
     def test_silent_when_wrapper_is_binary(self, mod, monkeypatch, capsys):
         # The happy path: upstream g16 is a real ELF binary, no warning expected.
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "BINARY")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch)
         self._block_wsl(mod, monkeypatch)
@@ -420,7 +432,15 @@ class TestMainSafety:
         # --restore must NOT probe the wrapper (we're going back, not forward).
         probe_called = MagicMock(return_value="BINARY")
         monkeypatch.setattr(mod, "probe_wrapper", probe_called)
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real (12345 bytes) sha256=" + "0" * 64)))
+        monkeypatch.setattr(
+            mod,
+            "stream",
+            MagicMock(
+                return_value=_completed(
+                    0, "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real (12345 bytes) sha256=" + "0" * 64
+                )
+            ),
+        )
         self._block_wsl(mod, monkeypatch, expected_hash="0" * 64)
         monkeypatch.setattr(sys, "argv", ["install_mock_l1_wsl.py", "--restore"])
 
@@ -482,6 +502,7 @@ class TestMainSafety:
 
         assert mod.main() == 0
         import json
+
         entry = json.loads((Path.home() / ".jobdesk-mock-l1.log").read_text(encoding="utf-8"))
         expected = hashlib.sha256(mod.SOURCE.read_bytes()).hexdigest()
         assert entry["size"] == 15
@@ -502,11 +523,9 @@ class TestMainSafety:
         assert "expected destination checksum" in capsys.readouterr().err
         audit_called.assert_not_called()
 
-
-# ---------------------------------------------------------------------------
-# Static guarantees
-# ---------------------------------------------------------------------------
-
+    # ---------------------------------------------------------------------------
+    # Static guarantees
+    # ---------------------------------------------------------------------------
 
     # --- /opt/g16/l1.exe second-layer safety probe -----------------------
 
@@ -543,7 +562,9 @@ class TestMainSafety:
 
     def test_yes_overrides_l1_already_mock(self, mod, monkeypatch, capsys):
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "BINARY")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch, kind="MOCK")
         self._block_wsl(mod, monkeypatch)
@@ -573,7 +594,9 @@ class TestMainSafety:
 
     def test_yes_overrides_real_l1(self, mod, monkeypatch, capsys):
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "BINARY")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch, kind="REAL")
         self._block_wsl(mod, monkeypatch)
@@ -589,7 +612,9 @@ class TestMainSafety:
         # l1.exe is a #!/bin/sh script but not JOBDESK_MOCK-tagged — anomalous,
         # since real l1.exe is ELF. Warn but proceed.
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "BINARY")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch, kind="SHELL")
         self._block_wsl(mod, monkeypatch)
@@ -604,7 +629,9 @@ class TestMainSafety:
     def test_info_logged_when_l1_missing_for_first_install(self, mod, monkeypatch, capsys):
         # Fresh install path: no l1.exe yet. Should log INFO, not WARNING.
         monkeypatch.setattr(mod, "probe_wrapper", lambda: "BINARY")
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)")))
+        monkeypatch.setattr(
+            mod, "stream", MagicMock(return_value=_completed(0, "mock installed at /opt/g16/l1.exe (15 bytes)"))
+        )
         self._patch_source(mod, monkeypatch, exists=True)
         self._patch_l1(mod, monkeypatch, kind="MISSING")
         self._block_wsl(mod, monkeypatch)
@@ -622,7 +649,15 @@ class TestMainSafety:
         l1_called = MagicMock(return_value="REAL")
         monkeypatch.setattr(mod, "probe_wrapper", probe_called)
         monkeypatch.setattr(mod, "probe_l1", l1_called)
-        monkeypatch.setattr(mod, "stream", MagicMock(return_value=_completed(0, "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real (12345 bytes) sha256=" + "0" * 64)))
+        monkeypatch.setattr(
+            mod,
+            "stream",
+            MagicMock(
+                return_value=_completed(
+                    0, "restored /opt/g16/l1.exe from /opt/g16/l1.exe.real (12345 bytes) sha256=" + "0" * 64
+                )
+            ),
+        )
         self._block_wsl(mod, monkeypatch, expected_hash="0" * 64)
         monkeypatch.setattr(sys, "argv", ["install_mock_l1_wsl.py", "--restore"])
 
@@ -873,9 +908,7 @@ class TestStaticSafety:
         assert not backup.exists()
         assert not list(tmp_path.glob(".l1.exe.backup-*"))
 
-    def test_manifest_publish_failure_leaves_destination_and_is_safely_repaired(
-        self, mod, monkeypatch, tmp_path
-    ):
+    def test_manifest_publish_failure_leaves_destination_and_is_safely_repaired(self, mod, monkeypatch, tmp_path):
         destination = tmp_path / "l1.bin"
         backup = tmp_path / "l1.bin.real"
         manifest = tmp_path / "l1.bin.real.jobdesk.json"
@@ -1024,6 +1057,7 @@ class TestAuditLog:
         line = log.read_text(encoding="utf-8").strip()
         # Must be valid JSON.
         import json
+
         entry = json.loads(line)
         assert entry["action"] == "install"
         assert entry["dest"] == "/opt/g16/l1.exe"
@@ -1042,6 +1076,7 @@ class TestAuditLog:
         assert log.exists()
         line = log.read_text(encoding="utf-8").strip()
         import json
+
         entry = json.loads(line)
         assert entry["action"] == "restore"
         assert "ts" in entry
@@ -1056,6 +1091,7 @@ class TestAuditLog:
         mod.audit_log("restore", "/opt/g16/l1.exe", 123, sha256=digest)
 
         import json
+
         entry = json.loads((tmp_path / ".jobdesk-mock-l1.log").read_text(encoding="utf-8"))
         assert entry["sha256"] == digest
         assert entry["sha256_source"] == "wsl-restored-destination"

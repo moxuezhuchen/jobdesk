@@ -93,7 +93,9 @@ def test_parse_output_manifest_requires_schema_and_safe_unique_relative_paths(tm
     with pytest.raises(OutputManifestError, match="must not be empty"):
         parse_output_manifest(_manifest([]))
     with pytest.raises(OutputManifestError, match="duplicate target"):
-        parse_output_manifest({"content_schema": "confflow.output_manifest.v1", "terminals": {"a": ["a.xyz"], "b": ["a.xyz"]}})
+        parse_output_manifest(
+            {"content_schema": "confflow.output_manifest.v1", "terminals": {"a": ["a.xyz"], "b": ["a.xyz"]}}
+        )
     with pytest.raises(OutputManifestError, match="unsupported output manifest schema"):
         parse_output_manifest({"content_schema": "confflow.output_manifest.v2", "terminals": {}})
 
@@ -193,7 +195,9 @@ def test_workflow_download_infers_required_metadata_for_old_records(tmp_path: Pa
 
 
 @pytest.mark.parametrize("unsafe_path", ["../secret.txt", "/etc/passwd", r"nested\\escape.txt"])
-def test_workflow_download_rejects_unsafe_manifest_before_output_transfer(tmp_path: Path, runs_dir: Path, unsafe_path: str) -> None:
+def test_workflow_download_rejects_unsafe_manifest_before_output_transfer(
+    tmp_path: Path, runs_dir: Path, unsafe_path: str
+) -> None:
     service, run_id = _workflow_service(tmp_path, runs_dir)
     sftp = _ManifestSFTP(_manifest([unsafe_path]))
 

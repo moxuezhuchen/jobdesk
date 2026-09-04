@@ -70,9 +70,9 @@ def test_step_07_sp_log_terminates_normally_and_reads_chk():
     assert "SCF Done:" in text, "no SCF Done line in step_07 .log"
     # Gaussian only emits these when it actually opened A000001.old.chk.
     # They are the load-bearing signals that `chk_from_step` worked.
-    assert 'Copying data from "A000001.old.chk"' in text, (
-        "step_07 .log does not show 'Copying data from A000001.old.chk'; the OldChk directive was not honoured"
-    )
+    assert (
+        'Copying data from "A000001.old.chk"' in text
+    ), "step_07 .log does not show 'Copying data from A000001.old.chk'; the OldChk directive was not honoured"
     assert "Structure from the checkpoint file" in text
     assert "Initial guess from the checkpoint file" in text
 
@@ -136,9 +136,9 @@ def test_step_06_emitted_chk_and_step_07_copied_it():
     assert chk06.stat().st_size > 1024, "step_06 .chk is empty / truncated"
     assert old_chk.stat().st_size > 1024, "step_07 .old.chk is empty / truncated"
     # Sizes should match (it is a copy of step_06's chk).
-    assert chk06.stat().st_size == old_chk.stat().st_size, (
-        f"step_07 .old.chk size {old_chk.stat().st_size} != step_06 .chk size {chk06.stat().st_size}"
-    )
+    assert (
+        chk06.stat().st_size == old_chk.stat().st_size
+    ), f"step_07 .old.chk size {old_chk.stat().st_size} != step_06 .chk size {chk06.stat().st_size}"
 
 
 def test_step_07_gjf_has_oldchk_directive():

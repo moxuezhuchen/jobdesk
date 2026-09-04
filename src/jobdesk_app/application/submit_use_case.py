@@ -356,8 +356,6 @@ class SubmitUseCase:
         return [run_spec], yaml_local, yaml_target
 
 
-
-
 def _resource_budget(spec: WorkflowSpec, jobdesk_max_parallel: int) -> ResourceBudget:
     """Capture the three concurrency levels at the submit boundary."""
     global_config = getattr(spec, "global_config", None)
@@ -377,6 +375,7 @@ def _resource_budget(spec: WorkflowSpec, jobdesk_max_parallel: int) -> ResourceB
         yaml_max_parallel_jobs=positive("max_parallel_jobs", 1),
         cores_per_task=positive("cores_per_task", 1),
     )
+
 
 def remote_child_path(remote_dir: str, name: str) -> str:
     """Mirror :func:`file_transfer_helpers.remote_child_path` (no GUI dep)."""

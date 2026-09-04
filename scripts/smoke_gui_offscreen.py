@@ -258,7 +258,7 @@ class _GuiSettingsStoreStub:
 
 
 def _default_gui_settings():
-    from jobdesk_app.services.gui_settings import GuiSettings
+    from jobdesk_app.infrastructure.persistence.settings.gui_settings import GuiSettings
 
     return GuiSettings(
         window_size=[1320, 860],
@@ -396,7 +396,7 @@ def step_open_builder_dialog(window) -> object:
 
     dialog = WorkflowBuilderDialog(
         language="en",
-        preset_store=window.workflow_page._store,
+        preset_store=window.workflow_page._workflows,
     )
     dialog.show()
     dialog.resize(960, 640)

@@ -130,10 +130,7 @@ class DefaultRunApplication:
             for item in values
             if (not text or text in item.run_id.casefold() or text in item.server_id.casefold())
             and (query.workflow_kind is None or item.workflow_kind == query.workflow_kind)
-            and (
-                query.status is None
-                or any(status == query.status and count for status, count in item.status_counts)
-            )
+            and (query.status is None or any(status == query.status and count for status, count in item.status_counts))
         )
 
     def create(self, spec: RunSpec, *, local_dir: str = "") -> OperationOutcome[RunDetails]:
@@ -163,9 +160,7 @@ class DefaultRunApplication:
                 tasks=value.tasks,
                 mode=value.mode,
                 changed_count=outcome.changed_count,
-                warnings=tuple(
-                    warning for result in outcome.submit_results for warning in result.warnings
-                ),
+                warnings=tuple(warning for result in outcome.submit_results for warning in result.warnings),
             )
         return OperationOutcome(value=value, failures=_failures(outcome))
 
@@ -176,9 +171,7 @@ class DefaultRunApplication:
             outcome = client.refresh_outcome(client.attach(run_id), [], download=download)
         else:
             outcome = (
-                self._coordinator.refresh_and_download(run_id, [])
-                if download
-                else self._coordinator.refresh(run_id)
+                self._coordinator.refresh_and_download(run_id, []) if download else self._coordinator.refresh(run_id)
             )
         return self._details_outcome(outcome)
 
@@ -310,16 +303,11 @@ class DefaultRunApplication:
             batch = SubmitUseCase().execute(payload)
             if not batch.ok:
                 return OperationOutcome.failure(
-                    *(
-                        OperationFailure("prepare", "invalid_submission", error, False)
-                        for error in batch.errors
-                    )
+                    *(OperationFailure("prepare", "invalid_submission", error, False) for error in batch.errors)
                 )
             client = SSHConfFlowClient(self._coordinator, payload.server_id)
             workflow_specs = tuple(
-                spec
-                for spec in batch.specs
-                if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+                spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
             )
             admission = None
             validated_yaml = None
@@ -358,28 +346,18 @@ class DefaultRunApplication:
             if dispatch:
                 for created in tuple(outcomes):
                     if created.records:
-                        _handle, submitted = client.submit_with_outcome(
-                            SubmitRequest(created.records[0].run_id)
-                        )
+                        _handle, submitted = client.submit_with_outcome(SubmitRequest(created.records[0].run_id))
                         outcomes.append(submitted)
 
             records = tuple(record for outcome in outcomes for record in outcome.records)
             unique_records = {record.run_id: record for record in records}
             failures = tuple(item for outcome in outcomes for item in _failures(outcome))
             warnings = tuple(
-                warning
-                for outcome in outcomes
-                for result in outcome.submit_results
-                for warning in result.warnings
+                warning for outcome in outcomes for result in outcome.submit_results for warning in result.warnings
             )
-            details = tuple(
-                _run_details(self._service, record)
-                for record in unique_records.values()
-            )
+            details = tuple(_run_details(self._service, record) for record in unique_records.values())
             submitted_count = sum(
-                result.submitted_task_count
-                for outcome in outcomes
-                for result in outcome.submit_results
+                result.submitted_task_count for outcome in outcomes for result in outcome.submit_results
             )
             return OperationOutcome(
                 value=SubmitRunResult(details, submitted_count, warnings),
@@ -390,12 +368,12 @@ class DefaultRunApplication:
 
     def _upload_batch(self, batch, payload, client, validated_yaml: bytes | None) -> None:
         workflow_specs = tuple(
-            spec
-            for spec in batch.specs
-            if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
+            spec for spec in batch.specs if spec.workflow_kind in {WorkflowKind.confflow, WorkflowKind.dag}
         )
         if workflow_specs:
             client.probe(require_dag=any(spec.workflow_kind == WorkflowKind.dag for spec in workflow_specs))
+        if not batch.local_paths and batch.yaml_local_path is None:
+            return
         service = DefaultFilesApplication(self._session_pool)._service(payload.server_id)
         for local_path, remote_target in zip(batch.local_paths, batch.upload_targets, strict=True):
             _require_transfers(service.upload_path(local_path, remote_target), remote_target)

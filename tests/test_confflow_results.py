@@ -38,7 +38,18 @@ def test_load_and_format_confflow_run_summary(tmp_path):
 
 def test_load_summary_result_ok_accepts_forward_compatible_keys(tmp_path):
     path = tmp_path / "run_summary.json"
-    path.write_text(json.dumps({"initial_conformers": 2, "final_conformers": 1, "total_duration_seconds": 3.5, "step_status_counts": {}, "future_key": True}), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "initial_conformers": 2,
+                "final_conformers": 1,
+                "total_duration_seconds": 3.5,
+                "step_status_counts": {},
+                "future_key": True,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     parsed = load_summary_result(path)
 
@@ -110,10 +121,12 @@ def test_load_summary_result_rejects_unknown_versioned_schema(tmp_path):
 
     assert load_summary_result(path).state is ParseState.MALFORMED
 
+
 def test_load_summary_result_missing_is_explicit(tmp_path):
     parsed = load_summary_result(tmp_path / "missing.json")
     assert parsed.state is ParseState.MISSING
     assert parsed.summary is None
+
 
 def test_load_summary_result_malformed_is_explicit(tmp_path):
     path = tmp_path / "run_summary.json"
@@ -122,6 +135,7 @@ def test_load_summary_result_malformed_is_explicit(tmp_path):
     parsed = load_summary_result(path)
     assert parsed.state is ParseState.MALFORMED
     assert parsed.summary is None
+
 
 def test_load_step_progress_completed_and_running(tmp_path):
     """Workflow-stats file yields (completed, current) for the Runs page."""

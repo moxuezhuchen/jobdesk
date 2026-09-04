@@ -251,9 +251,7 @@ def test_cli_run_cancel_invokes_remote_cancellation(capsys):
 
         run_id = RunService(workspace).list_runs()[0].run_id
         application = MagicMock()
-        application.runs.cancel.return_value = OperationOutcome.success(
-            _run_details(run_id, changed_count=1)
-        )
+        application.runs.cancel.return_value = OperationOutcome.success(_run_details(run_id, changed_count=1))
         with patch("jobdesk_app.cli.create_application", return_value=application):
             rc = main(["run", "cancel", workspace, run_id])
 
@@ -359,9 +357,7 @@ class TestDownloadPatterns:
         with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
             application = MagicMock()
-            application.runs.download.return_value = OperationOutcome.success(
-                DownloadResult(_run_details(run_id), ())
-            )
+            application.runs.download.return_value = OperationOutcome.success(DownloadResult(_run_details(run_id), ()))
             with patch("jobdesk_app.cli.create_application", return_value=application):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log,*.out"])
             assert rc == 0
@@ -371,9 +367,7 @@ class TestDownloadPatterns:
         with tempfile.TemporaryDirectory() as workspace, _isolated_appdata(workspace):
             run_id = self._setup_downloadable_run(workspace)
             application = MagicMock()
-            application.runs.download.return_value = OperationOutcome.success(
-                DownloadResult(_run_details(run_id), ())
-            )
+            application.runs.download.return_value = OperationOutcome.success(DownloadResult(_run_details(run_id), ()))
             with patch("jobdesk_app.cli.create_application", return_value=application):
                 rc = main(["run", "download", workspace, run_id, "--patterns", "*.log", "*.out"])
             assert rc == 0
@@ -411,9 +405,7 @@ def test_cli_confirm_submitted_requires_tasks():
 
 def test_cli_confirm_submitted_reports_changed_count(capsys, tmp_path):
     application = MagicMock()
-    application.runs.resolve_uncertain.return_value = OperationOutcome.success(
-        _run_details(changed_count=2)
-    )
+    application.runs.resolve_uncertain.return_value = OperationOutcome.success(_run_details(changed_count=2))
     with patch("jobdesk_app.cli.create_application", return_value=application):
         rc = main(
             [

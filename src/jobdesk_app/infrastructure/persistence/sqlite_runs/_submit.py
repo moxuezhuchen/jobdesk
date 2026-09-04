@@ -149,12 +149,14 @@ def claim_submit_tasks(
         connection,
         run_id,
         [
-            task.model_copy(
-                update={"status": TaskStatus.submitting, "submitted_at": claimed_at},
-                deep=True,
+            (
+                task.model_copy(
+                    update={"status": TaskStatus.submitting, "submitted_at": claimed_at},
+                    deep=True,
+                )
+                if task.task_id in claimed_ids
+                else task
             )
-            if task.task_id in claimed_ids
-            else task
             for task in current
         ],
     )
@@ -555,8 +557,7 @@ def release_claimed_submit_operation(
     metadata_error = _submit_recovery_metadata_error(operation)
     if metadata_error is not None:
         connection.execute(
-            "UPDATE operations SET last_error = ?, updated_at = ? "
-            "WHERE operation_id = ? AND completed_at IS NULL",
+            "UPDATE operations SET last_error = ?, updated_at = ? " "WHERE operation_id = ? AND completed_at IS NULL",
             (metadata_error, timestamp, operation_id),
         )
         return False
@@ -566,17 +567,19 @@ def release_claimed_submit_operation(
         _record_operation_validation_error(connection, operation, timestamp)
         return False
     released = [
-        task.model_copy(
-            update={
-                "status": TaskStatus.uploaded,
-                "submitted_at": None,
-                "remote_job_id": None,
-                "error_message": None,
-            },
-            deep=True,
+        (
+            task.model_copy(
+                update={
+                    "status": TaskStatus.uploaded,
+                    "submitted_at": None,
+                    "remote_job_id": None,
+                    "error_message": None,
+                },
+                deep=True,
+            )
+            if task.task_id in validated
+            else task
         )
-        if task.task_id in validated
-        else task
         for task in current
     ]
     _replace_tasks(connection, operation.run_id, released)
@@ -609,8 +612,7 @@ def recover_submit_operation(
     metadata_error = _submit_recovery_metadata_error(operation)
     if metadata_error is not None:
         connection.execute(
-            "UPDATE operations SET last_error = ?, updated_at = ? "
-            "WHERE operation_id = ? AND completed_at IS NULL",
+            "UPDATE operations SET last_error = ?, updated_at = ? " "WHERE operation_id = ? AND completed_at IS NULL",
             (metadata_error, timestamp, operation_id),
         )
         return False

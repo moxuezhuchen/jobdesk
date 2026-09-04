@@ -248,12 +248,8 @@ def test_probe_swallows_transport_exceptions_without_mutating_snapshot():
 
 def test_new_watcher_and_independent_workspace_observer_each_emit_initial_state():
     output = _snapshot_stdout(DIGEST_A, None)
-    watcher_a, _ssh_a, events_a = _make_watcher(
-        [FakeResult(0, output)], watch_id="workspace-a\x1fwsl\x1frun"
-    )
-    watcher_b, _ssh_b, events_b = _make_watcher(
-        [FakeResult(0, output)], watch_id="workspace-b\x1fwsl\x1frun"
-    )
+    watcher_a, _ssh_a, events_a = _make_watcher([FakeResult(0, output)], watch_id="workspace-a\x1fwsl\x1frun")
+    watcher_b, _ssh_b, events_b = _make_watcher([FakeResult(0, output)], watch_id="workspace-b\x1fwsl\x1frun")
 
     watcher_a._probe_checkpoint()
     watcher_b._probe_checkpoint()
@@ -265,16 +261,14 @@ def test_new_watcher_and_independent_workspace_observer_each_emit_initial_state(
 
 
 def test_probe_script_outputs_ordered_complete_protocol_and_quotes_spaces():
-    script = _build_checkpoint_probe_script(
-        ["/work/first state.json", "/work/second stats.json"]
-    )
+    script = _build_checkpoint_probe_script(["/work/first state.json", "/work/second stats.json"])
 
     assert "'/work/first state.json'" in script
     assert "'/work/second stats.json'" in script
     assert script.index("'/work/first state.json'") < script.index("'/work/second stats.json'")
-    assert "sha256sum -- \"$progress_path\"" in script
+    assert 'sha256sum -- "$progress_path"' in script
     assert HEADER in script
-    assert 'present=%s\\tcount=%s' in script
+    assert "present=%s\\tcount=%s" in script
     assert FOOTER in script
     assert 'cat -- "$snapshot_tmp"' in script
     assert 'rm -f -- "$snapshot_tmp"' in script

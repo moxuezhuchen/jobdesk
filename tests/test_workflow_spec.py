@@ -271,9 +271,9 @@ def test_from_form_orca_keyword_keeps_user_override():
     assert keyword_match is not None, "missing keyword: line in workflow YAML"
     keyword_value = keyword_match.group(1)
     assert "def2-TZVP" in keyword_value
-    assert "def2-svp" not in keyword_value, (
-        f"user-supplied keyword overrode the auto-assembled one; got keyword={keyword_value!r}"
-    )
+    assert (
+        "def2-svp" not in keyword_value
+    ), f"user-supplied keyword overrode the auto-assembled one; got keyword={keyword_value!r}"
 
 
 def test_from_form_gaussian_does_not_force_keyword():
@@ -311,8 +311,7 @@ def test_from_yaml_rejects_invalid_step_task():
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
     with pytest.raises(ValueError, match="invalid itask"):
-        WorkflowSpec.from_yaml(
-            """\
+        WorkflowSpec.from_yaml("""\
 global: {}
 steps:
   - name: invalid
@@ -321,23 +320,20 @@ steps:
       iprog: orca
       itask: not_a_task
       keyword: B3LYP def2-SVP
-"""
-        )
+""")
 
 
 def test_from_yaml_rejects_canonical_confgen_without_chains():
     if not workflow_spec._CONFFLOW_AVAILABLE:
         pytest.skip("confflow package not installed in test env")
     with pytest.raises(ValueError, match="requires 'chains'"):
-        WorkflowSpec.from_yaml(
-            """\
+        WorkflowSpec.from_yaml("""\
 global: {}
 steps:
   - name: invalid_confgen
     type: confgen
     params: {}
-"""
-        )
+""")
 
 
 def test_from_form_orca_step_emits_iprog_override():

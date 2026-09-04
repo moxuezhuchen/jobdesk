@@ -166,7 +166,9 @@ def _run_watcher_sessions(
 
     patches = []
     if monotonic_values is not None:
-        patches.append(patch("jobdesk_app.infrastructure.runtime.run_monitor.time.monotonic", side_effect=monotonic_values))
+        patches.append(
+            patch("jobdesk_app.infrastructure.runtime.run_monitor.time.monotonic", side_effect=monotonic_values)
+        )
 
     if patches:
         with patches[0]:

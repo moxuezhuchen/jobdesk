@@ -22,7 +22,9 @@ from jobdesk_app.infrastructure.persistence.sqlite_runs import RunRepository
 from ._helpers import _declared_outputs, _safe_declared_result_path
 
 
-def download_completed(service, run_id: str, sftp, patterns: list[str]) -> tuple[list[TransferRecord], list[tuple[str, str]]]:
+def download_completed(
+    service, run_id: str, sftp, patterns: list[str]
+) -> tuple[list[TransferRecord], list[tuple[str, str]]]:
     """Download declared outputs for remote_completed tasks.
 
     This is a module-level function to enable method extraction from RunService.
@@ -282,11 +284,10 @@ def _matches_requested_patterns(path: str, patterns: list[str]) -> bool:
     name = PurePosixPath(path).name
     return any(
         (
-            fnmatch.fnmatch(path, pattern)
-            or (pattern.startswith("*/") and fnmatch.fnmatch(path, pattern[2:]))
+            (fnmatch.fnmatch(path, pattern) or (pattern.startswith("*/") and fnmatch.fnmatch(path, pattern[2:])))
+            if "/" in pattern
+            else fnmatch.fnmatch(name, pattern)
         )
-        if "/" in pattern
-        else fnmatch.fnmatch(name, pattern)
         for pattern in patterns
     )
 
@@ -296,11 +297,7 @@ def _safe_remote_workflow_dir(value: object) -> str:
     if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         raise ValueError("ConfFlow task is missing its remote workflow directory")
     path = PurePosixPath(value)
-    if (
-        not path.is_absolute()
-        or value != path.as_posix()
-        or any(part in {".", ".."} for part in path.parts)
-    ):
+    if not path.is_absolute() or value != path.as_posix() or any(part in {".", ".."} for part in path.parts):
         raise ValueError(f"ConfFlow workflow directory is unsafe: {value}")
     return path.as_posix()
 

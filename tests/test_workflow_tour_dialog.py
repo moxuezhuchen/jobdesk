@@ -123,9 +123,9 @@ def test_apply_language_retranslates(qapp):
     dialog.apply_language("zh")
     title_zh = first_page.findChild(QLabel, "workflowTourTitle1")
     assert title_zh is not None
-    assert any("\u4e00" <= ch <= "\u9fff" for ch in title_zh.text()), (
-        f"expected Chinese characters in: {title_zh.text()!r}"
-    )
+    assert any(
+        "\u4e00" <= ch <= "\u9fff" for ch in title_zh.text()
+    ), f"expected Chinese characters in: {title_zh.text()!r}"
     assert dialog.windowTitle() == "\u5de5\u4f5c\u6d41\u5bfc\u89c8"
     dialog.close()
     dialog.deleteLater()

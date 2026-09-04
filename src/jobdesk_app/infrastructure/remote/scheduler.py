@@ -105,9 +105,7 @@ class NohupAdapter:
             timeout=30,
         )
         if r.exit_code != 0:
-            raise SchedulerSubmitRejected(
-                f"nohup launcher rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
-            )
+            raise SchedulerSubmitRejected(f"nohup launcher rejected (exit {r.exit_code}): {r.stderr or r.stdout}")
         job_id = r.stdout.strip()
         if not job_id:
             raise SchedulerSubmitUncertain("nohup submit returned no process id")
@@ -149,9 +147,7 @@ class SlurmAdapter:
     def submit(self, ssh, script_path: str, resources: ResourceSpec) -> str:
         r = ssh.run(f"sbatch {shlex.quote(script_path)}", timeout=30)
         if r.exit_code != 0:
-            raise SchedulerSubmitRejected(
-                f"sbatch rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
-            )
+            raise SchedulerSubmitRejected(f"sbatch rejected (exit {r.exit_code}): {r.stderr or r.stdout}")
         # sbatch output: "Submitted batch job 12345"
         for word in r.stdout.split():
             if word.isdigit():
@@ -216,9 +212,7 @@ class PBSAdapter:
     def submit(self, ssh, script_path: str, resources: ResourceSpec) -> str:
         r = ssh.run(f"qsub {shlex.quote(script_path)}", timeout=30)
         if r.exit_code != 0:
-            raise SchedulerSubmitRejected(
-                f"qsub rejected (exit {r.exit_code}): {r.stderr or r.stdout}"
-            )
+            raise SchedulerSubmitRejected(f"qsub rejected (exit {r.exit_code}): {r.stderr or r.stdout}")
         # qsub output: "12345.hostname"
         job_id = r.stdout.strip().split(".")[0]
         if not job_id.isdigit():

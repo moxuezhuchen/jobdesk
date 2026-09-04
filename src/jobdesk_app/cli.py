@@ -220,9 +220,7 @@ def _cmd_run_submit(args) -> int:
                 file=sys.stderr,
             )
             return 2
-    outcome = args.application.runs.submit_existing(
-        args.run_id, resource_overrides=overrides or None
-    )
+    outcome = args.application.runs.submit_existing(args.run_id, resource_overrides=overrides or None)
     if outcome.value is None:
         _print_application_failures(outcome)
         return 2
@@ -313,9 +311,7 @@ def _cmd_run_confirm_submitted(args) -> int:
 
 
 def _cmd_run_abandon_submit(args) -> int:
-    outcome = args.application.runs.resolve_uncertain(
-        args.run_id, tuple(args.tasks), action="abandon"
-    )
+    outcome = args.application.runs.resolve_uncertain(args.run_id, tuple(args.tasks), action="abandon")
     return _print_recovery_outcome("abandoned", "task(s)", outcome)
 
 

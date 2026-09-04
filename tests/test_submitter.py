@@ -147,7 +147,9 @@ def _capability_result(
                     "run_report": EXPECTED_ARTIFACTS.run_report,
                     "min_xyz": EXPECTED_ARTIFACTS.min_xyz,
                 },
-                "commands": {name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")},
+                "commands": {
+                    name: True for name in ("bash", "nohup", "setsid", "xargs", "sha256sum", "mktemp", "base64")
+                },
                 "build": build,
                 "producer": {
                     "package": "confflow",
@@ -183,7 +185,6 @@ def _identity_result(
         stderr="",
         duration_seconds=0.01,
     )
-
 
 
 def test_preflight_rejects_dirty_or_unknown_producer_build():
@@ -252,6 +253,8 @@ def test_preflight_rejects_capability_from_another_configured_executable():
 
     assert submitter._preflight_capabilities([task], result) is False
     assert "does not match the configured production path" in result.errors[0]
+
+
 # ---- task selection ----------------------------------------------------
 
 
@@ -522,7 +525,12 @@ class TestSubmit:
         assert result.errors == []
         assert events[0] == "capabilities"
         assert max(i for i, event in enumerate(events) if event.startswith("upload:")) < events.index("dry-run")
-        assert events.index("dry-run") < max(i for i, event in enumerate(events) if event == "identity") < events.index("remote-started") < events.index("nohup")
+        assert (
+            events.index("dry-run")
+            < max(i for i, event in enumerate(events) if event == "identity")
+            < events.index("remote-started")
+            < events.index("nohup")
+        )
         assert len(runner_text) == 1
         assert "--resume" not in runner_text[0]
         assert "immutable ConfFlow executable identity guard" in runner_text[0]
@@ -735,7 +743,9 @@ class TestSubmit:
 
         result = submitter.submit_batch()
 
-        assert result.errors == ["ConfFlow executable identity preflight failed: remote executable changed after capability acceptance"]
+        assert result.errors == [
+            "ConfFlow executable identity preflight failed: remote executable changed after capability acceptance"
+        ]
         remote_started.assert_not_called()
         scheduler.submit.assert_not_called()
 

@@ -216,18 +216,18 @@ def test_dialog_quick_start_button_loads_template_when_canvas_empty(qapp, monkey
         editor.resize(960, 640)
         qapp.processEvents()
         editor._refresh_onboarding_visibility()
-        assert card.isVisible(), (
-            "Onboarding card must be visible on a fresh editor so the Quick-start button is reachable."
-        )
+        assert (
+            card.isVisible()
+        ), "Onboarding card must be visible on a fresh editor so the Quick-start button is reachable."
         btn = card._quick_start_btn
         assert btn.text(), "Quick-start button must have a label"
         btn.click()
         # After click, the graph must be populated and validate clean.
         assert not editor.is_empty()
         errors = [i for i in editor.graph().validate() if i.severity == "error"]
-        assert not errors, (
-            f"Quick-start template load must not introduce validation errors. Found: {[i.message for i in errors]}"
-        )
+        assert (
+            not errors
+        ), f"Quick-start template load must not introduce validation errors. Found: {[i.message for i in errors]}"
     finally:
         editor.close()
         editor.deleteLater()
@@ -303,9 +303,9 @@ def test_quick_start_repositions_view_to_show_new_nodes(qapp, monkeypatch, tmp_p
             f"stayed at the empty-canvas scroll ({scroll_before}) and the "
             f"new nodes fell outside the viewport."
         )
-        assert min(node_ys) <= max(visible_y_range) and max(node_ys) >= min(visible_y_range), (
-            f"After Quick-start the view's y-range {visible_y_range} must overlap the node y-positions {node_ys}."
-        )
+        assert min(node_ys) <= max(visible_y_range) and max(node_ys) >= min(
+            visible_y_range
+        ), f"After Quick-start the view's y-range {visible_y_range} must overlap the node y-positions {node_ys}."
 
         # And ``fit_to_items`` was called, so the transform zoomed
         # out from 1.0× (or stayed at 1.0× if everything already fit).
@@ -352,9 +352,9 @@ def test_set_graph_repositions_view_when_populating_empty_canvas(qapp):
             view.horizontalScrollBar().value(),
             view.verticalScrollBar().value(),
         )
-        assert scroll_after != scroll_before, (
-            "set_graph on an empty canvas must re-fit the view so the user can see the freshly loaded nodes."
-        )
+        assert (
+            scroll_after != scroll_before
+        ), "set_graph on an empty canvas must re-fit the view so the user can see the freshly loaded nodes."
     finally:
         editor.close()
         editor.deleteLater()
@@ -445,9 +445,9 @@ def test_search_box_tab_shortcut_disabled_when_card_hidden(qapp):
         )
         search.keyPressEvent(tab_event)
         qapp.processEvents()
-        assert qapp.focusWidget() is not editor.onboarding_card()._quick_start_btn, (
-            "Tab shortcut must be cleared once the card is hidden, otherwise focus can land on an invisible widget."
-        )
+        assert (
+            qapp.focusWidget() is not editor.onboarding_card()._quick_start_btn
+        ), "Tab shortcut must be cleared once the card is hidden, otherwise focus can land on an invisible widget."
     finally:
         editor.close()
         editor.deleteLater()

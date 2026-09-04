@@ -14,8 +14,10 @@ from jobdesk_app.core.confflow_preflight import (
     validate_confflow_capabilities,
     validate_confflow_production_capability,
 )
-from jobdesk_app.remote.confflow_config_contract import parse_contract_response
-from jobdesk_app.services.ssh_configuration_contract_client import SSHConfigurationContractClient
+from jobdesk_app.infrastructure.remote.confflow_config_contract import parse_contract_response
+from jobdesk_app.infrastructure.runtime.ssh_configuration_contract_client import (
+    SSHConfigurationContractClient,
+)
 
 
 @dataclass(frozen=True)

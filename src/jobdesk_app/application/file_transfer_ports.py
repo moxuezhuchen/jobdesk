@@ -213,9 +213,7 @@ class FacadeFileTransferPort:
         self._value(self._application.rename(self._server_id, old_path, new_path))
 
     def preview_remote_text(self, remote_path: str, max_bytes: int = 65536) -> str:
-        return str(
-            self._value(self._application.preview_text(self._server_id, remote_path, max_bytes=max_bytes)) or ""
-        )
+        return str(self._value(self._application.preview_text(self._server_id, remote_path, max_bytes=max_bytes)) or "")
 
     def close(self) -> None:
         """Do nothing: the shared application container owns all sessions."""

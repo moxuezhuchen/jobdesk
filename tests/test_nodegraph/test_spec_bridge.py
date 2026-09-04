@@ -501,7 +501,9 @@ def test_dag_payload_has_non_empty_inputs_after_round_trip():
     graph = from_workflow_spec(_historical_fanout_payload())
     by_name = {node.title: node.id for node in graph.nodes.values() if node.kind in _STEP_EMITTING_KINDS_FOR_TEST}
     assert any(edge.src_node == by_name["confgen"] and edge.dst_node == by_name["sp"] for edge in graph.edges.values())
-    assert any(edge.src_node == by_name["confgen"] and edge.dst_node == by_name["freq"] for edge in graph.edges.values())
+    assert any(
+        edge.src_node == by_name["confgen"] and edge.dst_node == by_name["freq"] for edge in graph.edges.values()
+    )
 
 
 def test_dag_payload_dag_step_count_is_stable():

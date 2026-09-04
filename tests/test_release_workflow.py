@@ -187,10 +187,7 @@ def test_release_workflow_builds_once_and_publishes_verifiable_bundle() -> None:
     smoke = (ROOT / "scripts" / "smoke_gui_offscreen.py").read_text(encoding="utf-8")
     assert "JOBDESK_SMOKE_EXPECT_SITE_PACKAGES" in smoke
     assert "site-packages" in smoke
-    assert (
-        "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2"
-        in text
-    )
+    assert "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2" in text
     for filename in (
         "attestation.bundle.json",
         "attestation-verification.json",

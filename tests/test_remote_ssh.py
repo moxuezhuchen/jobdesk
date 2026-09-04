@@ -291,7 +291,10 @@ class TestSSHClientWrapper:
         time.sleep — the old 50 ms polling sleep added a latency floor to every
         SSH command and was the dominant cost of status-refresh loops."""
         server = _make_server()
-        with patch("paramiko.SSHClient") as mock_client_class, patch("jobdesk_app.infrastructure.remote.ssh.time.sleep") as mock_sleep:
+        with (
+            patch("paramiko.SSHClient") as mock_client_class,
+            patch("jobdesk_app.infrastructure.remote.ssh.time.sleep") as mock_sleep,
+        ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.exec_command.return_value = (
@@ -756,9 +759,7 @@ class TestSSHClientWrapper:
             ssh._start_wsl_if_configured()
 
         run_wsl.assert_called_once()
-        assert ssh._wsl_proxy_command == (
-            "wsl.exe -d Ubuntu-24.04 -- nc -w 45 127.0.0.1 22"
-        )
+        assert ssh._wsl_proxy_command == ("wsl.exe -d Ubuntu-24.04 -- nc -w 45 127.0.0.1 22")
 
     def test_wsl_localhost_transport_failure_retries_through_distro_proxy(self):
         server = ServerConfig(

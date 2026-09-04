@@ -150,7 +150,9 @@ def resolve_control_state_root(ssh, *, env_init_scripts: Iterable[str] = ()) -> 
     result = ssh.run(command, timeout=30)
     if result.exit_code != 0:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
-        raise ControlProtocolError("capabilities", "internal", f"cannot resolve producer HOME: {detail}", retryable=True)
+        raise ControlProtocolError(
+            "capabilities", "internal", f"cannot resolve producer HOME: {detail}", retryable=True
+        )
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if len(lines) != 1 or not lines[0].startswith("/"):
         raise ControlProtocolError("capabilities", "invalid_request", "producer HOME is not an absolute path")
@@ -213,9 +215,7 @@ def build_control_launcher_script(
     execute_command = build_control_execute_command(executable, state_root, run_id)
     worker_command = build_control_worker_command(worker_executable, state_root, run_id, handoff_path)
     command = (
-        f"setsid --wait {worker_command}"
-        if worker_only
-        else f"{execute_command} && setsid --wait {worker_command}"
+        f"setsid --wait {worker_command}" if worker_only else f"{execute_command} && setsid --wait {worker_command}"
     )
     marker = json.dumps(
         {
@@ -253,7 +253,7 @@ def build_control_launcher_script(
             f"marker={marker_q}",
             'job_id="${SLURM_JOB_ID:-${PBS_JOBID:-}}"',
             "marker=${marker//__JOBDESK_SCHEDULER_JOB_ID__/$job_id}",
-            'marker=${marker//__JOBDESK_PID__/$$}',
+            "marker=${marker//__JOBDESK_PID__/$$}",
             f"printf '%s\\n' \"$marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
         ]
@@ -265,8 +265,8 @@ def build_control_launcher_script(
                 build_confflow_preflight_shell(f"setsid --wait {worker_command}", env_init_scripts),
                 "worker_rc=$?",
                 "set -e",
-                "old_fragment='\"execution_state\":\"started\"'",
-                "new_fragment='\"execution_state\":\"completed\"'",
+                'old_fragment=\'"execution_state":"started"\'',
+                'new_fragment=\'"execution_state":"completed"\'',
                 'completed_marker="${marker//$old_fragment/$new_fragment}"',
                 "old_worker_rc='\"worker_rc\":null'",
                 "new_worker_rc='\"worker_rc\":'\"$worker_rc\"''",
@@ -296,18 +296,18 @@ def build_control_launcher_script(
             "  worker_rc=$?",
             "  set -e",
             '  execution_state="completed"',
-            'else',
+            "else",
             '  worker_rc=""',
             '  execution_state="failed"',
-            'fi',
-            "old_fragment='\"execute_rc\":null,\"execution_state\":\"started\"'",
-            "new_fragment='\"execute_rc\":'\"$execute_rc\"',\"execution_state\":\"'\"$execution_state\"'\"'",
+            "fi",
+            'old_fragment=\'"execute_rc":null,"execution_state":"started"\'',
+            'new_fragment=\'"execute_rc":\'"$execute_rc"\',"execution_state":"\'"$execution_state"\'"\'',
             'completed_marker="${marker//$old_fragment/$new_fragment}"',
             'if [ "$execute_rc" -eq 0 ]; then',
             "  old_worker_rc='\"worker_rc\":null'",
             "  new_worker_rc='\"worker_rc\":'\"$worker_rc\"''",
             '  completed_marker="${completed_marker//$old_worker_rc/$new_worker_rc}"',
-            'fi',
+            "fi",
             f"printf '%s\\n' \"$completed_marker\" > {tmp_q}",
             f"mv -f {tmp_q} {metadata_q}",
             "",

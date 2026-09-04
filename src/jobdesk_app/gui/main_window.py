@@ -49,10 +49,7 @@ def _construct_page_with_session_pool(page_factory, *args, session_pool, **kwarg
     """Keep lightweight test/plugin page factories compatible with injection."""
     injected = {"session_pool": session_pool, **kwargs}
     signature = inspect.signature(page_factory)
-    accepts_kwargs = any(
-        parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in signature.parameters.values()
-    )
+    accepts_kwargs = any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
     if not accepts_kwargs:
         injected = {key: value for key, value in injected.items() if key in signature.parameters}
     return page_factory(*args, **injected)

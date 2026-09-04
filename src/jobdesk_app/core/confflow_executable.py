@@ -43,14 +43,14 @@ def build_executable_identity_probe(path: str, python_executable: str) -> str:
     """Build a shell probe that emits realpath, stat tuple, and SHA-256."""
     path_q = _quote_path(path)
     python_q = _quote_path(python_executable)
-    stat_command = f"{python_q} -c {shlex.quote(_STAT_SCRIPT)} \"$_jobdesk_identity_path\""
+    stat_command = f'{python_q} -c {shlex.quote(_STAT_SCRIPT)} "$_jobdesk_identity_path"'
     return "\n".join(
         [
             "set +e",
             f"_jobdesk_identity_path={path_q}",
             'if ! _jobdesk_identity_realpath=$(readlink -f -- "$_jobdesk_identity_path"); then exit 125; fi',
             f"if ! _jobdesk_identity_stat=$({stat_command}); then exit 125; fi",
-            'if ! _jobdesk_identity_sha=$(sha256sum -- "$_jobdesk_identity_path" | awk \'{print $1}\'); then exit 125; fi',
+            "if ! _jobdesk_identity_sha=$(sha256sum -- \"$_jobdesk_identity_path\" | awk '{print $1}'); then exit 125; fi",
             'printf "%s\\n%s\\n%s\\n" "$_jobdesk_identity_realpath" "$_jobdesk_identity_stat" "$_jobdesk_identity_sha"',
         ]
     )
@@ -103,7 +103,7 @@ def build_executable_identity_guard(identity: ConfFlowExecutableIdentity, task_i
     expected_stat_q = shlex.quote(expected_stat)
     expected_sha_q = shlex.quote(identity.sha256)
     expected_python_q = _quote_path(identity.python)
-    stat_command = f"$_jobdesk_expected_python -c {shlex.quote(_STAT_SCRIPT)} \"$_jobdesk_expected_path\""
+    stat_command = f'$_jobdesk_expected_python -c {shlex.quote(_STAT_SCRIPT)} "$_jobdesk_expected_path"'
     task_q = shlex.quote(task_id)
     return [
         "# JobDesk: immutable ConfFlow executable identity guard",
@@ -115,7 +115,7 @@ def build_executable_identity_guard(identity: ConfFlowExecutableIdentity, task_i
         "_jobdesk_identity_error=0",
         'if ! _jobdesk_current_realpath=$(readlink -f -- "$_jobdesk_expected_path"); then _jobdesk_identity_error=1; fi',
         f"if ! _jobdesk_current_stat=$({stat_command}); then _jobdesk_identity_error=1; fi",
-        'if ! _jobdesk_current_sha256=$(sha256sum -- "$_jobdesk_expected_path" | awk \'{print $1}\'); then _jobdesk_identity_error=1; fi',
+        "if ! _jobdesk_current_sha256=$(sha256sum -- \"$_jobdesk_expected_path\" | awk '{print $1}'); then _jobdesk_identity_error=1; fi",
         'if [ "$_jobdesk_identity_error" -ne 0 ] || [ "$_jobdesk_current_realpath" != "$_jobdesk_expected_realpath" ] || [ "$_jobdesk_current_stat" != "$_jobdesk_expected_stat" ] || [ "$_jobdesk_current_sha256" != "$_jobdesk_expected_sha256" ]; then',
         f'  printf "%s\\n" "ConfFlow executable identity mismatch for {task_q}" > .jobdesk_submit.log',
         "  echo 126 > .jobdesk_exit_code",

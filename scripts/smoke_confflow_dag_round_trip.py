@@ -58,6 +58,7 @@ Exit status
 failure or unexpected exception. Pass/fail summary is printed at the
 end so a CI loop or a human can grep for ``DAG ROUND-TRIP SMOKE: PASS``.
 """
+
 from __future__ import annotations
 
 import sys
@@ -72,6 +73,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import yaml  # noqa: E402
 
+from jobdesk_app.application.submit_use_case import SubmitUseCase  # noqa: E402
 from jobdesk_app.core import workflow_spec as wf_spec_module  # noqa: E402
 from jobdesk_app.core.run import WorkflowKind  # noqa: E402
 from jobdesk_app.core.submit_payload import (  # noqa: E402
@@ -92,7 +94,6 @@ from jobdesk_app.gui.nodegraph.spec_bridge import (  # noqa: E402
     from_workflow_spec,
     to_workflow_spec,
 )
-from jobdesk_app.services.submit_use_case import SubmitUseCase  # noqa: E402
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -179,21 +180,15 @@ def _build_dag_graph() -> NodeGraph:
     out = default_node(NodeKind.OUTPUT, position=(940.0, 60.0))
     for node in (xyz, generate, optimize, frequency, singlepoint, summary, out):
         g.add_node(node)
-    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out",
-                    dst_node=generate.id, dst_port="in"))
+    g.add_edge(Edge(id="e1", src_node=xyz.id, src_port="out", dst_node=generate.id, dst_port="in"))
     # Backbone: Generate → Optimize → Frequency → Summary
-    g.add_edge(Edge(id="e2", src_node=generate.id, src_port="out",
-                    dst_node=optimize.id, dst_port="in"))
-    g.add_edge(Edge(id="e3", src_node=optimize.id, src_port="out",
-                    dst_node=frequency.id, dst_port="in"))
+    g.add_edge(Edge(id="e2", src_node=generate.id, src_port="out", dst_node=optimize.id, dst_port="in"))
+    g.add_edge(Edge(id="e3", src_node=optimize.id, src_port="out", dst_node=frequency.id, dst_port="in"))
     # Fan-out: Generate also feeds SinglePoint (parallel branch).
-    g.add_edge(Edge(id="e4", src_node=generate.id, src_port="out",
-                    dst_node=singlepoint.id, dst_port="in"))
+    g.add_edge(Edge(id="e4", src_node=generate.id, src_port="out", dst_node=singlepoint.id, dst_port="in"))
     # Fan-in: Summary receives both Frequency and SinglePoint.
-    g.add_edge(Edge(id="e5", src_node=frequency.id, src_port="out",
-                    dst_node=summary.id, dst_port="in"))
-    g.add_edge(Edge(id="e6", src_node=singlepoint.id, src_port="out",
-                    dst_node=summary.id, dst_port="in"))
+    g.add_edge(Edge(id="e5", src_node=frequency.id, src_port="out", dst_node=summary.id, dst_port="in"))
+    g.add_edge(Edge(id="e6", src_node=singlepoint.id, src_port="out", dst_node=summary.id, dst_port="in"))
     return g
 
 
@@ -287,9 +282,10 @@ def check_bridge_emits_4_steps_with_inputs() -> list[dict]:
 
     # Fan-in: Summary lists BOTH Frequency and SinglePoint in its inputs.
     summary_step = _step(payload.steps, "Summary")
-    assert sorted(summary_step["inputs"]) == ["Frequency", "SinglePoint"], (
-        f"Summary fan-in missing: {summary_step['inputs']}"
-    )
+    assert sorted(summary_step["inputs"]) == [
+        "Frequency",
+        "SinglePoint",
+    ], f"Summary fan-in missing: {summary_step['inputs']}"
     return payload.steps
 
 
@@ -310,9 +306,7 @@ class _YamlScratch:
     def __enter__(self) -> "_YamlScratch":
         self._tmp_ctx = tempfile.TemporaryDirectory(prefix="dag_smoke_")
         self.output_dir = Path(self._tmp_ctx.__enter__())
-        (self.output_dir / "water.xyz").write_text(
-            "3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n", encoding="utf-8"
-        )
+        (self.output_dir / "water.xyz").write_text("3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n", encoding="utf-8")
         payload = _build_payload(self._steps, self.output_dir)
         batch = SubmitUseCase().execute(payload)
         assert batch.ok, f"SubmitUseCase reported errors: {batch.errors}"
@@ -359,17 +353,12 @@ def check_yaml_round_trips_through_from_workflow_spec(yaml_path: Path) -> None:
         NodeKind.TS,
         NodeKind.REFINE,
     }
-    rebuilt_titles = sorted(
-        n.title for n in rebuilt.nodes.values() if n.kind in emitting_kinds
-    )
+    rebuilt_titles = sorted(n.title for n in rebuilt.nodes.values() if n.kind in emitting_kinds)
     expected = sorted(["Generate", "Optimize", "Frequency", "SinglePoint", "Summary"])
-    assert rebuilt_titles == expected, (
-        f"rebuilt titles mismatch: got {rebuilt_titles}, expected {expected}"
-    )
+    assert rebuilt_titles == expected, f"rebuilt titles mismatch: got {rebuilt_titles}, expected {expected}"
     advanced_nodes = [n for n in rebuilt.nodes.values() if n.kind is NodeKind.ADVANCED]
     assert not advanced_nodes, (
-        "workflow defaults must not become a synthetic ADVANCED node: "
-        f"{[n.params for n in advanced_nodes]}"
+        "workflow defaults must not become a synthetic ADVANCED node: " f"{[n.params for n in advanced_nodes]}"
     )
 
     # The bridge's inverse rebuilds edges from each step's ``inputs``
@@ -378,29 +367,23 @@ def check_yaml_round_trips_through_from_workflow_spec(yaml_path: Path) -> None:
     # Frequency, one from SinglePoint), and the rebuilt "Generate"
     # node is the only root with no calc predecessors.
     calc_ids_by_title: dict[str, str] = {
-        n.title: n.id
-        for n in rebuilt.nodes.values()
-        if n.kind not in (NodeKind.XYZ_FILE, NodeKind.OUTPUT)
+        n.title: n.id for n in rebuilt.nodes.values() if n.kind not in (NodeKind.XYZ_FILE, NodeKind.OUTPUT)
     }
     summary_id = calc_ids_by_title["Summary"]
-    summary_predecessors = sorted(
-        edge.src_node for edge in rebuilt.edges.values()
-        if edge.dst_node == summary_id
-    )
-    assert summary_predecessors == sorted([
-        calc_ids_by_title["Frequency"],
-        calc_ids_by_title["SinglePoint"],
-    ]), (
-        f"Summary's rebuilt predecessors wrong: {summary_predecessors}"
-    )
+    summary_predecessors = sorted(edge.src_node for edge in rebuilt.edges.values() if edge.dst_node == summary_id)
+    assert summary_predecessors == sorted(
+        [
+            calc_ids_by_title["Frequency"],
+            calc_ids_by_title["SinglePoint"],
+        ]
+    ), f"Summary's rebuilt predecessors wrong: {summary_predecessors}"
 
     # And the YAML data layer still carries the DAG: re-parse the
     # original YAML and confirm ``Summary.inputs`` still names both
     # predecessors.
     summary_step = _step(parsed["steps"], "Summary")
     assert sorted(summary_step["inputs"]) == ["Frequency", "SinglePoint"], (
-        f"Summary inputs not preserved after YAML round-trip: "
-        f"{summary_step['inputs']}"
+        f"Summary inputs not preserved after YAML round-trip: " f"{summary_step['inputs']}"
     )
 
 
@@ -411,14 +394,18 @@ def check_confflow_engine_walks_the_dag(yaml_path: Path) -> None:
     parsed = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     predecessors, by_name, declared_inputs = build_step_graph(parsed["steps"])
     assert set(by_name) == {
-        "Generate", "Optimize", "Frequency", "SinglePoint", "Summary",
+        "Generate",
+        "Optimize",
+        "Frequency",
+        "SinglePoint",
+        "Summary",
     }, f"unexpected step set: {sorted(by_name)}"
     waves = topo_order(predecessors)
     # Wave 0: Generate (the only root).
     flat = [name for wave in waves for name in wave]
-    assert flat.index("Generate") < flat.index("Optimize") < flat.index("Summary"), (
-        f"topological order does not respect fan-out: {flat}"
-    )
+    assert (
+        flat.index("Generate") < flat.index("Optimize") < flat.index("Summary")
+    ), f"topological order does not respect fan-out: {flat}"
     # Frequency and SinglePoint both depend on Optimize, so both must
     # appear in a wave strictly after Optimize.
     opt_pos = flat.index("Optimize")
@@ -444,15 +431,14 @@ def check_yaml_has_dag_kind_marker(parsed: dict) -> None:
     # Linear backbone: Frequency follows Optimize.
     assert by_name["Frequency"]["inputs"] == ["Optimize"]
     # Fan-in: Summary names BOTH predecessors.
-    assert sorted(by_name["Summary"]["inputs"]) == ["Frequency", "SinglePoint"], (
-        f"Summary fan-in missing: {by_name['Summary']['inputs']}"
-    )
+    assert sorted(by_name["Summary"]["inputs"]) == [
+        "Frequency",
+        "SinglePoint",
+    ], f"Summary fan-in missing: {by_name['Summary']['inputs']}"
     # No duplicates anywhere.
     for step in parsed["steps"]:
         inputs = step["inputs"]
-        assert len(inputs) == len(set(inputs)), (
-            f"duplicate inputs on {step['name']}: {inputs}"
-        )
+        assert len(inputs) == len(set(inputs)), f"duplicate inputs on {step['name']}: {inputs}"
 
 
 # ── main ──────────────────────────────────────────────────────────────────

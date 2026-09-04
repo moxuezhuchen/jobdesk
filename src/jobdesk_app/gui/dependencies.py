@@ -18,10 +18,12 @@ class GuiSettingsStorePort(Protocol):
 
     def update(self, **values: Any) -> Any: ...
 
+
 _settings_store_factory: Callable[[], Any] | None = None
 _ssh_factory: Callable[..., Any] | None = None
 _sftp_factory: Callable[..., Any] | None = None
 _monitor_factory: Callable[..., Any] | None = None
+
 
 class _MemorySettingsStore:
     def __init__(self) -> None:

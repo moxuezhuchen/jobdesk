@@ -149,18 +149,16 @@ def load_summary_result(path: Path) -> ParseResult[ConfFlowSummary]:
     final_outputs = raw.get("final_outputs", [])
     terminal_outputs = raw.get("terminal_outputs", {})
     if (
-        final_output is not None
-        and not isinstance(final_output, str)
-    ) or (
-        not isinstance(final_outputs, list)
-        or any(not isinstance(item, str) for item in final_outputs)
-    ) or (
-        not isinstance(terminal_outputs, dict)
-        or any(
-            not isinstance(name, str)
-            or not isinstance(values, list)
-            or any(not isinstance(item, str) for item in values)
-            for name, values in terminal_outputs.items()
+        (final_output is not None and not isinstance(final_output, str))
+        or (not isinstance(final_outputs, list) or any(not isinstance(item, str) for item in final_outputs))
+        or (
+            not isinstance(terminal_outputs, dict)
+            or any(
+                not isinstance(name, str)
+                or not isinstance(values, list)
+                or any(not isinstance(item, str) for item in values)
+                for name, values in terminal_outputs.items()
+            )
         )
     ):
         return ParseResult(state=ParseState.MALFORMED, summary=None)
@@ -221,9 +219,7 @@ def _load_step_progress_inner(path: Path) -> ConfFlowStepProgress:
     raw = _artifact_payload(raw, WORKFLOW_STATS_SCHEMA)
     steps = raw.get("steps") if isinstance(raw, dict) else None
     if not isinstance(steps, list):
-        return ConfFlowStepProgress(
-            last_updated=str(raw.get("last_updated", "")) if isinstance(raw, dict) else ""
-        )
+        return ConfFlowStepProgress(last_updated=str(raw.get("last_updated", "")) if isinstance(raw, dict) else "")
     completed: list[str] = []
     current = ""
     step_statuses: dict[str, str] = {}
@@ -396,9 +392,7 @@ def load_workflow_state_progress(state_path: Path) -> ConfFlowStepProgress:
     last_updated_at = raw.get("last_updated_at")
     if last_updated_at is not None:
         try:
-            last_updated = datetime.fromtimestamp(
-                float(last_updated_at), tz=timezone.utc
-            ).isoformat()
+            last_updated = datetime.fromtimestamp(float(last_updated_at), tz=timezone.utc).isoformat()
         except (ValueError, OSError):
             pass
 

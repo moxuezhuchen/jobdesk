@@ -110,10 +110,8 @@ def recover_legacy_orphan_submit_tasks(
     reason = "submit state had no matching incomplete operation journal"
     recovered = 0
     connection.execute("BEGIN IMMEDIATE")
-    rows = connection.execute(
-        """SELECT run_id, payload_json FROM operations
-           WHERE kind = 'submit' AND completed_at IS NULL"""
-    ).fetchall()
+    rows = connection.execute("""SELECT run_id, payload_json FROM operations
+           WHERE kind = 'submit' AND completed_at IS NULL""").fetchall()
     protected: set[tuple[str, str]] = set()
     for row in rows:
         payload = json.loads(row["payload_json"])

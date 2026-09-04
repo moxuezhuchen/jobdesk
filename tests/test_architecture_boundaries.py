@@ -441,10 +441,10 @@ def test_runs_page_migrated_runtime_paths_do_not_construct_services() -> None:
                 failures.append(f"{method_name}:{node.lineno}:{called_name}")
                 if method_name == "_stop_run":
                     if called_name in {
-                    "_client_for",
-                    "attach",
-                    "cancel",
-                    "cancel_outcome",
+                        "_client_for",
+                        "attach",
+                        "cancel",
+                        "cancel_outcome",
                         "service",
                     }:
                         facade_owner = (

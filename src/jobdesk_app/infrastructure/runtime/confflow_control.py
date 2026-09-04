@@ -46,7 +46,9 @@ _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 # revision-shaped ``r`` + 20 digits form, but the frozen schema deliberately
 # permits future stable token formats.
 _CURSOR_RE = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
-_PATH_RE = re.compile(r"^(?!/)(?!.*//)(?!.*(?:^|/)\.(?:/|$))(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+_PATH_RE = re.compile(
+    r"^(?!/)(?!.*//)(?!.*(?:^|/)\.(?:/|$))(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+)
 _TERMINAL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _OPERATION_STATES = {
     "prepare": frozenset({"prepared"}),
@@ -302,7 +304,9 @@ def parse_artifacts_response(
 def _decode_response(operation: str, stdout: str, *, exit_code: int, stderr: str) -> dict[str, Any]:
     lines = [line for line in stdout.splitlines() if line.strip()]
     if len(lines) != 1:
-        raise ControlProtocolError(operation, "invalid_request", "control stdout must contain exactly one JSON response")
+        raise ControlProtocolError(
+            operation, "invalid_request", "control stdout must contain exactly one JSON response"
+        )
     try:
         response = json.loads(lines[0])
     except json.JSONDecodeError as exc:
@@ -314,7 +318,9 @@ def _decode_response(operation: str, stdout: str, *, exit_code: int, stderr: str
     if type(response.get("ok")) is not bool:
         raise ControlProtocolError(operation, "invalid_request", "control response ok must be boolean")
     if exit_code != 0 and response.get("ok"):
-        raise ControlProtocolError(operation, "internal", f"control exited with {exit_code}: {stderr.strip()}", retryable=True)
+        raise ControlProtocolError(
+            operation, "internal", f"control exited with {exit_code}: {stderr.strip()}", retryable=True
+        )
     return response
 
 
@@ -356,7 +362,9 @@ def _snapshot(
         raise ControlProtocolError(operation, "invalid_request", "control snapshot fields are malformed")
     allowed_states = _OPERATION_STATES.get(operation)
     if allowed_states is not None and state not in allowed_states:
-        raise ControlProtocolError(operation, "invalid_state_transition", "control snapshot state is invalid for operation")
+        raise ControlProtocolError(
+            operation, "invalid_state_transition", "control snapshot state is invalid for operation"
+        )
     if expected_run_id is not None and run_id != expected_run_id:
         raise ControlProtocolError(operation, "invalid_request", "control response run_id does not match requested run")
     return ControlSnapshot(run_id, revision, state)

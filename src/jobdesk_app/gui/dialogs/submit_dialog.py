@@ -334,9 +334,7 @@ class SubmitDialog(QDialog):
         # exact value that will be passed to ConFlow at submit time.
         self.work_dir_label = QLineEdit()
         self.work_dir_label.setReadOnly(True)
-        self.work_dir_label.setPlaceholderText(
-            tr("Work dir (locked by CLI: <basename>_confflow_work)", self._language)
-        )
+        self.work_dir_label.setPlaceholderText(tr("Work dir (locked by CLI: <basename>_confflow_work)", self._language))
         layout.addRow(tr("Work dir:", self._language), self.work_dir_label)
         return box
 

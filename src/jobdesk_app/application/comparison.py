@@ -73,6 +73,7 @@ def compare_runs(
         return RunComparison()
 
     from ..core.analyzer import analyze_tasks
+
     workspace = Path(workspace_dir)
     source = run_source_factory(workspace)
     profile = profile_loader(profile_name)
@@ -104,11 +105,7 @@ def compare_runs(
         return RunComparison(rows=all_rows)
 
     # Compute relative energies
-    energies = [
-        float(value)
-        for row in all_rows
-        if isinstance((value := row.get(energy_field)), (int, float))
-    ]
+    energies = [float(value) for row in all_rows if isinstance((value := row.get(energy_field)), (int, float))]
     if energies:
         min_e = min(energies)
         for row in all_rows:

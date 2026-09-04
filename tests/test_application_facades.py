@@ -105,9 +105,7 @@ def test_submit_facade_does_not_dispatch_when_durable_create_fails(monkeypatch, 
         lambda _self, _payload: batch,
     )
     client = SimpleNamespace(
-        submit_with_outcome=lambda _request: (_ for _ in ()).throw(
-            AssertionError("dispatch must not run")
-        )
+        submit_with_outcome=lambda _request: (_ for _ in ()).throw(AssertionError("dispatch must not run"))
     )
     monkeypatch.setattr(
         "jobdesk_app.infrastructure.application_facades.SSHConfFlowClient",
@@ -116,9 +114,7 @@ def test_submit_facade_does_not_dispatch_when_durable_create_fails(monkeypatch, 
     from jobdesk_app.infrastructure.runtime.run_coordinator import OperationFailure
 
     failure = OperationFailure.from_text("cannot create", stage="create")
-    coordinator = SimpleNamespace(
-        create_run=lambda *_args, **_kwargs: RunOperationOutcome(errors=[failure])
-    )
+    coordinator = SimpleNamespace(create_run=lambda *_args, **_kwargs: RunOperationOutcome(errors=[failure]))
     service = SimpleNamespace(workspace_dir=tmp_path)
     facade = DefaultRunApplication(service, coordinator, SimpleNamespace())
 
@@ -194,13 +190,9 @@ def test_run_subscription_is_idempotently_closed():
 def test_retry_facade_prepares_and_dispatches_once(monkeypatch, tmp_path):
     record = _record()
     calls = []
-    coordinator = SimpleNamespace(
-        retry_failed=lambda run_id: RunOperationOutcome(records=[record], changed_count=1)
-    )
+    coordinator = SimpleNamespace(retry_failed=lambda run_id: RunOperationOutcome(records=[record], changed_count=1))
     submitted = RunOperationOutcome(records=[record])
-    client = SimpleNamespace(
-        submit_with_outcome=lambda request: (calls.append(request.run_id), submitted)
-    )
+    client = SimpleNamespace(submit_with_outcome=lambda request: (calls.append(request.run_id), submitted))
     monkeypatch.setattr(
         "jobdesk_app.infrastructure.application_facades.SSHConfFlowClient",
         lambda *_args: client,
